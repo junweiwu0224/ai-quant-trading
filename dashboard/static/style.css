@@ -317,10 +317,48 @@ input:focus, select:focus {
     font-size: 0.9rem;
 }
 
+/* ── 底部导航（手机） ── */
+.bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    padding: 0.25rem 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.bottom-nav ul {
+    display: flex;
+    list-style: none;
+    justify-content: space-around;
+}
+
+.bottom-nav a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.4rem 0.25rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.65rem;
+    transition: color 0.15s;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.bottom-nav a.active { color: var(--primary); }
+.bottom-nav .nav-icon { font-size: 1.2rem; line-height: 1; }
+
 /* ── 响应式 ── */
 @media (max-width: 768px) {
     .sidebar { display: none; }
-    .content { margin-left: 0; padding: 1rem; }
+    .bottom-nav { display: block; }
+    .content { margin-left: 0; padding: 1rem; padding-bottom: 4.5rem; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .form-row { flex-direction: column; }
     .strategy-grid { grid-template-columns: 1fr; }

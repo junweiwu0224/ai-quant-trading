@@ -24,8 +24,8 @@ const App = {
 
     switchTab(tab) {
         document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        document.querySelectorAll(`.nav-link[data-tab="${tab}"]`).forEach(l => l.classList.add('active'));
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        document.querySelector(`.nav-link[data-tab="${tab}"]`).classList.add('active');
         document.getElementById(`tab-${tab}`).classList.add('active');
 
         // 懒加载

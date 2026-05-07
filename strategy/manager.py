@@ -107,6 +107,9 @@ class StrategyManager:
             "description": data.get("description", ""),
             "params": data.get("params", {}),
         }
+        # 支持代码字段
+        if "code" in data:
+            entry["code"] = data["code"]
         self._custom.append(entry)
         self._save()
         logger.info(f"新增策略: {name}")
@@ -134,6 +137,8 @@ class StrategyManager:
                     s["description"] = data["description"]
                 if "params" in data:
                     s["params"] = data["params"]
+                if "code" in data:
+                    s["code"] = data["code"]
                 self._custom[i] = s
                 self._save()
                 logger.info(f"更新策略: {name}")

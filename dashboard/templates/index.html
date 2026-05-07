@@ -1001,11 +1001,17 @@
                 </form>
             </div>
             <div class="card">
+                <h2>权益曲线</h2>
+                <div class="chart-container chart-h-sm">
+                    <canvas id="pp-equity-chart" aria-label="模拟盘权益曲线"></canvas>
+                </div>
+            </div>
+            <div class="card">
                 <h2>最近交易</h2>
                 <div class="table-wrap">
                     <table id="pp-trades-table">
-                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
-                        <tbody><tr><td colspan="5" class="text-muted">暂无交易</td></tr></tbody>
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr></thead>
+                        <tbody><tr><td colspan="6" class="text-muted">暂无交易</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -1015,7 +1021,10 @@
         <section class="tab-panel" id="tab-strategy" role="tabpanel" aria-labelledby="nav-strategy">
             <div class="page-header">
                 <h1>策略管理</h1>
-                <button class="btn btn-primary btn-sm" onclick="Strategy.showCreateModal()">新增策略</button>
+                <div style="display:flex;gap:0.5rem">
+                    <button class="btn btn-primary btn-sm" onclick="Strategy.showCreateModal()">新增策略</button>
+                    <button class="btn btn-sm" onclick="Strategy.showCodeEditor()">代码编辑器</button>
+                </div>
             </div>
             <div class="strategy-grid" id="st-list">
                 <div class="loading"><span class="spinner"></span>加载中...</div>

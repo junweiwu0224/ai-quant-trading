@@ -1,4 +1,4 @@
-/* ── 策略管理（含模态框 CRUD + 结构化参数表单） ── */
+/* ── 策略管理（含模态框 CRUD + 结构化参数表单 + 代码编辑器） ── */
 
 const Strategy = {
     // 内置策略参数定义 {name: [{key, label, type, min, max, step, default}]}
@@ -32,11 +32,16 @@ const Strategy = {
                     <span class="strategy-type">${App.escapeHTML(s.type || '自定义')}</span>
                     ${s.builtin ? '<span class="badge badge-info">内置</span>' : ''}
                     ${s.has_override ? '<span class="badge badge-warning">已修改</span>' : ''}
+                    ${s.code ? '<span class="badge badge-success">代码</span>' : ''}
                     <p class="strategy-desc">${App.escapeHTML(s.description)}</p>
                     <div class="strategy-params">${this._formatParams(s.params || {})}</div>
                     <div class="strategy-actions">
                         <button class="btn btn-primary btn-sm" onclick="App.quickBacktest('${App.escapeHTML(s.name)}')">快速回测</button>
-                        <button class="btn btn-secondary btn-sm" onclick="Strategy.edit('${App.escapeHTML(s.name)}')">编辑参数</button>
+                        ${s.builtin
+                            ? `<button class="btn btn-secondary btn-sm" onclick="Strategy.edit('${App.escapeHTML(s.name)}')">编辑参数</button>`
+                            : `<button class="btn btn-secondary btn-sm" onclick="Strategy.edit('${App.escapeHTML(s.name)}')">编辑</button>
+                               <button class="btn btn-sm" onclick="Strategy.editCode('${App.escapeHTML(s.name)}')">代码</button>`
+                        }
                         ${s.builtin ? '' : `<button class="btn btn-danger btn-sm" onclick="Strategy.remove('${App.escapeHTML(s.name)}')">删除</button>`}
                     </div>
                 </div>
@@ -61,6 +66,10 @@ const Strategy = {
         });
     },
 
+    showCodeEditor() {
+        this._showCodeModal({ name: '', code: '', isNew: true });
+    },
+
     async edit(name) {
         try {
             const strategies = await App.fetchJSON('/api/strategy/list');
@@ -78,6 +87,165 @@ const Strategy = {
         } catch (e) {
             App.toast('加载策略失败', 'error');
         }
+    },
+
+    async editCode(name) {
+        try {
+            const strategies = await App.fetchJSON('/api/strategy/list');
+            const s = strategies.find(x => x.name === name);
+            if (!s) { App.toast('策略不存在', 'error'); return; }
+            this._showCodeModal({
+                name: s.name,
+                code: s.code || '',
+                isNew: false,
+            });
+        } catch (e) {
+            App.toast('加载策略失败', 'error');
+        }
+    },
+
+    _showCodeModal({ name, code, isNew }) {
+        document.querySelector('.modal-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+
+        overlay.innerHTML = `
+            <div class="modal" style="max-width:800px;width:95vw">
+                <h2>${isNew ? '新建代码策略' : '编辑策略代码 — ' + App.escapeHTML(name)}</h2>
+                ${isNew ? `<div class="form-group" style="margin-bottom:12px">
+                    <label>策略名称（英文标识）</label>
+                    <input type="text" id="modal-code-name" value="${App.escapeHTML(name)}" placeholder="如 my_strategy" required>
+                </div>` : ''}
+                <div class="form-group" style="margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                        <label style="margin:0">策略代码 (Python)</label>
+                        <div>
+                            <button class="btn btn-sm" id="modal-code-template">加载模板</button>
+                            <button class="btn btn-sm" id="modal-code-validate">验证代码</button>
+                        </div>
+                    </div>
+                    <textarea id="modal-code-editor" rows="20" style="width:100%;font-family:monospace;font-size:13px;line-height:1.5;padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);resize:vertical;tab-size:4">${App.escapeHTML(code || '')}</textarea>
+                    <div id="modal-code-status" style="margin-top:6px;font-size:12px;min-height:18px"></div>
+                </div>
+                <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px">
+                    <p>提示：策略类必须继承 <code>BaseStrategy</code>，实现 <code>on_bar(self, bar)</code> 方法。</p>
+                    <p>可用：<code>self.buy(code, volume)</code>、<code>self.sell(code, volume)</code>、<code>self.portfolio</code></p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-ghost" id="modal-code-cancel">取消</button>
+                    <button class="btn btn-primary" id="modal-code-save">保存</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const editor = overlay.querySelector('#modal-code-editor');
+        const statusEl = overlay.querySelector('#modal-code-status');
+
+        // Tab 键支持
+        editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+                editor.value = editor.value.substring(0, start) + '    ' + editor.value.substring(end);
+                editor.selectionStart = editor.selectionEnd = start + 4;
+            }
+        });
+
+        // 加载模板
+        overlay.querySelector('#modal-code-template').addEventListener('click', async () => {
+            try {
+                const data = await App.fetchJSON('/api/strategy/template');
+                editor.value = data.code || '';
+                statusEl.innerHTML = '<span style="color:var(--success-color)">模板已加载</span>';
+            } catch (e) {
+                statusEl.innerHTML = '<span style="color:var(--error-color)">加载模板失败</span>';
+            }
+        });
+
+        // 验证代码
+        overlay.querySelector('#modal-code-validate').addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/strategy/validate-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: editor.value }),
+                });
+                const data = await res.json();
+                if (data.valid) {
+                    statusEl.innerHTML = '<span style="color:var(--success-color)">代码验证通过</span>';
+                } else {
+                    statusEl.innerHTML = `<span style="color:var(--error-color)">验证失败: ${App.escapeHTML(data.error)}</span>`;
+                }
+            } catch (e) {
+                statusEl.innerHTML = '<span style="color:var(--error-color)">验证请求失败</span>';
+            }
+        });
+
+        // 关闭
+        overlay.querySelector('#modal-code-cancel').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        // 保存
+        overlay.querySelector('#modal-code-save').addEventListener('click', async () => {
+            const codeText = editor.value.trim();
+            if (!codeText) { App.toast('代码不能为空', 'error'); return; }
+
+            if (isNew) {
+                const newName = overlay.querySelector('#modal-code-name')?.value.trim();
+                if (!newName) { App.toast('策略名称不能为空', 'error'); return; }
+                if (!/^[a-zA-Z_]\w*$/.test(newName)) { App.toast('策略名只能包含字母、数字和下划线', 'error'); return; }
+
+                // 先验证
+                try {
+                    const vRes = await fetch('/api/strategy/validate-code', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: codeText }),
+                    });
+                    const vData = await vRes.json();
+                    if (!vData.valid) { App.toast('代码验证失败: ' + vData.error, 'error'); return; }
+                } catch (e) { /* ignore */ }
+
+                try {
+                    const res = await fetch('/api/strategy', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: newName,
+                            label: newName,
+                            type: '代码策略',
+                            description: '用户自定义代码策略',
+                            params: {},
+                            code: codeText,
+                        }),
+                    });
+                    if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`);
+                    App.toast('策略已创建', 'success');
+                    overlay.remove();
+                    this.load();
+                } catch (e) {
+                    App.toast('创建失败: ' + e.message, 'error');
+                }
+            } else {
+                try {
+                    const res = await fetch(`/api/strategy/${name}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: codeText }),
+                    });
+                    if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`);
+                    App.toast('策略代码已更新', 'success');
+                    overlay.remove();
+                    this.load();
+                } catch (e) {
+                    App.toast('更新失败: ' + e.message, 'error');
+                }
+            }
+        });
     },
 
     _showModal({ title, name, label, description, params, isNew, builtinName }) {

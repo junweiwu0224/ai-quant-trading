@@ -1,7 +1,7 @@
 """系统状态与策略管理 API"""
 from fastapi import APIRouter
 
-from data.storage import DataStorage
+from data.storage.storage import DataStorage
 
 router = APIRouter()
 storage = DataStorage()
@@ -9,12 +9,14 @@ storage = DataStorage()
 
 @router.get("/status")
 async def get_system_status():
-    """获取系统模块状态"""
+    """获取系统状态"""
     stock_count = 0
+    watchlist_count = 0
     data_range = None
     try:
         codes = storage.get_all_stock_codes()
         stock_count = len(codes)
+        watchlist_count = len(storage.get_watchlist())
         if codes:
             from datetime import date
             latest = storage.get_latest_date(codes[0])
@@ -23,48 +25,29 @@ async def get_system_status():
     except Exception:
         pass
 
+    paper_running = False
+    try:
+        from dashboard.routers.paper_control import _manager
+        paper_running = _manager.is_running
+    except Exception:
+        pass
+
     return {
-        "modules": [
-            {"name": "数据层", "desc": "AKShare 采集 + SQLite 存储", "status": "ok"},
-            {"name": "回测引擎", "desc": "策略模板 + 3 个内置策略", "status": "ok"},
-            {"name": "AI Alpha", "desc": "因子库 + LightGBM + Optuna", "status": "ok"},
-            {"name": "风控模块", "desc": "仓位管理 + 止损止盈 + 监控", "status": "ok"},
-            {"name": "模拟盘", "desc": "实时行情 + 虚拟下单", "status": "ok"},
-            {"name": "可视化面板", "desc": "FastAPI + Jinja2 + Chart.js", "status": "current"},
-        ],
         "db_stats": {
             "stock_count": stock_count,
+            "watchlist_count": watchlist_count,
             "latest_date": data_range,
         },
+        "paper_running": paper_running,
+        "ai_model": "LightGBM + XGBoost",
     }
 
 
 @router.get("/strategies")
 async def list_strategies():
-    """返回策略详情"""
-    return [
-        {
-            "name": "dual_ma",
-            "label": "双均线策略",
-            "type": "趋势",
-            "description": "短期均线上穿长期均线买入，下穿卖出。参数：short_window=5, long_window=20",
-            "params": {"short_window": 5, "long_window": 20},
-        },
-        {
-            "name": "bollinger",
-            "label": "布林带策略",
-            "type": "均值回归",
-            "description": "价格触及下轨买入，触及上轨卖出。参数：window=20, num_std=2",
-            "params": {"window": 20, "num_std": 2},
-        },
-        {
-            "name": "momentum",
-            "label": "动量策略",
-            "type": "趋势",
-            "description": "基于 N 日收益率动量信号交易。参数：lookback=20, threshold=0.05",
-            "params": {"lookback": 20, "threshold": 0.05},
-        },
-    ]
+    """返回策略列表（委托给 StrategyManager）"""
+    from strategy.manager import StrategyManager
+    return StrategyManager().list_all()
 
 
 @router.get("/risk/rules")
@@ -87,7 +70,6 @@ async def get_risk_rules():
     total_mv = sum(avg_prices.get(c, 0) * v for c, v in positions.items())
     total_equity = cash + total_mv
 
-    # 计算单票最大占比
     max_single_pct = 0
     for code, vol in positions.items():
         mv = avg_prices.get(code, 0) * vol

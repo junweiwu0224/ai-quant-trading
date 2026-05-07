@@ -1,7 +1,7 @@
-"""Optuna 超参优化"""
+"""Optuna 超参优化（支持多模型）"""
+from enum import Enum
 from typing import Optional
 
-import lightgbm as lgb
 import optuna
 import pandas as pd
 from loguru import logger
@@ -9,29 +9,72 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from alpha.models.lightgbm_model import LGBConfig, LGBModel
+from alpha.models.xgb_model import XGBConfig, XGBModel
+
+
+class ModelType(str, Enum):
+    """支持的模型类型"""
+    LIGHTGBM = "lightgbm"
+    XGBOOST = "xgboost"
+
+
+def _lgb_factory(trial: optuna.Trial) -> tuple[LGBConfig, dict]:
+    """LightGBM 搜索空间"""
+    params = {
+        "num_leaves": trial.suggest_int("num_leaves", 15, 63),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+        "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1.0),
+        "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0),
+        "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+    }
+    config = LGBConfig(n_estimators=200, early_stopping_rounds=20)
+    return config, params
+
+
+def _xgb_factory(trial: optuna.Trial) -> tuple[XGBConfig, dict]:
+    """XGBoost 搜索空间"""
+    params = {
+        "max_depth": trial.suggest_int("max_depth", 3, 10),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+        "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+    }
+    config = XGBConfig(n_estimators=200, early_stopping_rounds=20)
+    return config, params
+
+
+_FACTORIES = {
+    ModelType.LIGHTGBM: (LGBConfig, LGBModel, _lgb_factory),
+    ModelType.XGBOOST: (XGBConfig, XGBModel, _xgb_factory),
+}
 
 
 class HyperOptimizer:
-    """超参优化器"""
+    """超参优化器（支持 LightGBM 和 XGBoost）"""
 
     def __init__(self, n_trials: int = 50, n_splits: int = 3):
         self.n_trials = n_trials
         self.n_splits = n_splits
 
-    def optimize(self, X: pd.DataFrame, y: pd.Series) -> dict:
+    def optimize(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        model_type: ModelType = ModelType.LIGHTGBM,
+    ) -> dict:
         """运行超参搜索，返回最佳参数"""
-        logger.info(f"开始超参搜索: {self.n_trials} trials, {self.n_splits} 折")
+        logger.info(f"开始超参搜索: {model_type.value}, {self.n_trials} trials, {self.n_splits} 折")
+
+        _, model_cls, factory_fn = _FACTORIES[model_type]
 
         def objective(trial: optuna.Trial) -> float:
-            params = {
-                "num_leaves": trial.suggest_int("num_leaves", 15, 63),
-                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-                "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1.0),
-                "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0),
-                "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
-                "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
-                "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
-            }
+            config, params = factory_fn(trial)
 
             tscv = TimeSeriesSplit(n_splits=self.n_splits)
             auc_scores = []
@@ -40,8 +83,7 @@ class HyperOptimizer:
                 X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
                 y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-                config = LGBConfig(n_estimators=200, early_stopping_rounds=20)
-                model = LGBModel(config=config, params=params)
+                model = model_cls(config=config, params=params)
                 model.train(X_train, y_train, X_val, y_val)
 
                 val_pred = model.predict(X_val)

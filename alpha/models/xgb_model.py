@@ -1,36 +1,35 @@
-"""LightGBM 模型封装"""
-from dataclasses import dataclass, field
+"""XGBoost 模型封装"""
+from dataclasses import dataclass
 from typing import Optional
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from loguru import logger
+from sklearn.metrics import roc_auc_score
 
 
 @dataclass
-class LGBConfig:
-    """LightGBM 默认参数"""
-    objective: str = "binary"
-    metric: str = "auc"
-    boosting_type: str = "gbdt"
-    num_leaves: int = 31
+class XGBConfig:
+    """XGBoost 默认参数"""
+    objective: str = "binary:logistic"
+    eval_metric: str = "auc"
+    tree_method: str = "hist"
+    max_depth: int = 6
     learning_rate: float = 0.05
-    feature_fraction: float = 0.8
-    bagging_fraction: float = 0.8
-    bagging_freq: int = 5
-    verbose: int = -1
+    colsample_bytree: float = 0.8
+    subsample: float = 0.8
     n_estimators: int = 200
     early_stopping_rounds: int = 20
 
 
-class LGBModel:
-    """LightGBM 二分类模型"""
+class XGBModel:
+    """XGBoost 二分类模型"""
 
-    def __init__(self, config: Optional[LGBConfig] = None, params: Optional[dict] = None):
-        self._config = config or LGBConfig()
+    def __init__(self, config: Optional[XGBConfig] = None, params: Optional[dict] = None):
+        self._config = config or XGBConfig()
         self._params = params or {}
-        self._model: Optional[lgb.LGBMClassifier] = None
+        self._model: Optional[xgb.XGBClassifier] = None
         self._feature_names: list[str] = []
         self._evals_result: dict = {}
 
@@ -46,38 +45,43 @@ class LGBModel:
 
         params = {
             "objective": self._config.objective,
-            "metric": self._config.metric,
-            "boosting_type": self._config.boosting_type,
-            "num_leaves": self._config.num_leaves,
+            "eval_metric": self._config.eval_metric,
+            "tree_method": self._config.tree_method,
+            "max_depth": self._config.max_depth,
             "learning_rate": self._config.learning_rate,
-            "feature_fraction": self._config.feature_fraction,
-            "bagging_fraction": self._config.bagging_fraction,
-            "bagging_freq": self._config.bagging_freq,
-            "verbose": self._config.verbose,
+            "colsample_bytree": self._config.colsample_bytree,
+            "subsample": self._config.subsample,
             "n_estimators": self._config.n_estimators,
         }
         params.update(self._params)
 
-        self._model = lgb.LGBMClassifier(**params)
+        self._model = xgb.XGBClassifier(**params)
 
-        self._evals_result = {}
         fit_params = {}
         if X_val is not None and y_val is not None:
             fit_params["eval_set"] = [(X_val, y_val)]
+            fit_params["verbose"] = False
             fit_params["callbacks"] = [
-                lgb.early_stopping(self._config.early_stopping_rounds),
-                lgb.record_evaluation(self._evals_result),
+                xgb.callback.EarlyStopping(
+                    rounds=self._config.early_stopping_rounds,
+                    metric_name="auc",
+                    maximize=True,
+                )
             ]
 
         self._model.fit(X_train, y_train, **fit_params)
 
+        # 采集训练过程指标
+        self._evals_result = {}
+        if hasattr(self._model, "evals_result_"):
+            self._evals_result = self._model.evals_result_
+
         metrics = {}
         if X_val is not None and y_val is not None:
             val_pred = self._model.predict_proba(X_val)[:, 1]
-            from sklearn.metrics import roc_auc_score
             metrics["val_auc"] = roc_auc_score(y_val, val_pred)
 
-        logger.info(f"训练完成: {self._model.n_estimators_} 棵树, 特征 {len(self._feature_names)}")
+        logger.info(f"XGB 训练完成: {self._config.n_estimators} 棵树, 特征 {len(self._feature_names)}")
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -107,11 +111,11 @@ class LGBModel:
     def save(self, path: str):
         """保存模型"""
         if self._model is not None:
-            self._model.booster_.save_model(path)
-            logger.info(f"模型已保存: {path}")
+            self._model.save_model(path)
+            logger.info(f"XGB 模型已保存: {path}")
 
     def load(self, path: str):
         """加载模型"""
-        self._model = lgb.LGBMClassifier()
-        self._model.booster_ = lgb.Booster(model_file=path)
-        logger.info(f"模型已加载: {path}")
+        self._model = xgb.XGBClassifier()
+        self._model.load_model(path)
+        logger.info(f"XGB 模型已加载: {path}")

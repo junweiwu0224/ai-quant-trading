@@ -82,9 +82,9 @@ class TestSystemAPI:
         res = client.get("/api/system/status")
         assert res.status_code == 200
         data = res.json()
-        assert "modules" in data
         assert "db_stats" in data
-        assert len(data["modules"]) == 6
+        assert "paper_running" in data
+        assert "ai_model" in data
 
     def test_system_strategies(self):
         res = client.get("/api/system/strategies")

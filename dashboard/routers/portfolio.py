@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter
+from loguru import logger
 from pydantic import BaseModel
 
 from config.settings import LOG_DIR
@@ -57,6 +58,19 @@ def _load_trades_today(state_dir: str = str(LOG_DIR / "paper")) -> list[dict]:
     return trades
 
 
+def _get_current_price(code: str) -> float:
+    """获取最新收盘价"""
+    try:
+        from data.storage import DataStorage
+        storage = DataStorage()
+        df = storage.get_stock_daily(code)
+        if not df.empty:
+            return float(df.iloc[-1]["close"])
+    except Exception:
+        pass
+    return 0.0
+
+
 @router.get("/snapshot", response_model=PortfolioSnapshot)
 async def get_portfolio():
     """获取当前持仓快照"""
@@ -66,28 +80,40 @@ async def get_portfolio():
 
     positions = []
     total_mv = 0
+    total_pnl = 0
     for code, vol in state.get("positions", {}).items():
         avg_price = state.get("avg_prices", {}).get(code, 0)
-        mv = avg_price * vol
+        current_price = _get_current_price(code)
+        if current_price <= 0:
+            current_price = avg_price
+
+        mv = current_price * vol
+        pnl = (current_price - avg_price) * vol
+        pnl_pct = (current_price - avg_price) / avg_price if avg_price > 0 else 0
         total_mv += mv
+        total_pnl += pnl
+
         positions.append(PositionInfo(
             code=code,
             volume=vol,
             avg_price=round(avg_price, 3),
-            current_price=round(avg_price, 3),  # 无实时行情时用均价
+            current_price=round(current_price, 3),
             market_value=round(mv, 2),
-            pnl=0,
-            pnl_pct=0,
+            pnl=round(pnl, 2),
+            pnl_pct=round(pnl_pct, 4),
         ))
 
     cash = state.get("cash", 0)
     total_equity = cash + total_mv
+    total_pnl_pct = total_pnl / (total_equity - total_pnl) if (total_equity - total_pnl) > 0 else 0
 
     return PortfolioSnapshot(
         cash=round(cash, 2),
         market_value=round(total_mv, 2),
         total_equity=round(total_equity, 2),
         positions=positions,
+        total_pnl=round(total_pnl, 2),
+        total_pnl_pct=round(total_pnl_pct, 4),
     )
 
 
@@ -128,3 +154,59 @@ async def get_risk():
         "position_count": len(positions),
         "positions": position_details,
     }
+
+
+@router.get("/equity-history")
+async def get_equity_history():
+    """获取权益历史数据"""
+    history_file = LOG_DIR / "paper" / "equity_history.jsonl"
+    if not history_file.exists():
+        return []
+    records = []
+    for line in history_file.read_text().strip().split("\n"):
+        if line:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+@router.get("/industry-distribution")
+async def get_industry_distribution():
+    """获取持仓行业分布"""
+    state = _load_paper_state()
+    if not state:
+        return []
+
+    positions = state.get("positions", {})
+    if not positions:
+        return []
+
+    try:
+        from data.storage import DataStorage
+        storage = DataStorage()
+        stock_list = storage.get_stock_list()
+        if stock_list.empty:
+            return []
+
+        industry_map = dict(zip(stock_list["code"], stock_list["industry"]))
+
+        industry_data = {}
+        for code, vol in positions.items():
+            avg_price = state.get("avg_prices", {}).get(code, 0)
+            current_price = _get_current_price(code)
+            if current_price <= 0:
+                current_price = avg_price
+            mv = current_price * vol
+
+            industry = industry_map.get(code, "未知") or "未知"
+            if industry not in industry_data:
+                industry_data[industry] = {"industry": industry, "count": 0, "value": 0}
+            industry_data[industry]["count"] += 1
+            industry_data[industry]["value"] += mv
+
+        return sorted(industry_data.values(), key=lambda x: x["value"], reverse=True)
+    except Exception as e:
+        logger.error(f"行业分布查询失败: {e}")
+        return []

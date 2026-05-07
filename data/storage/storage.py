@@ -41,6 +41,14 @@ class StockInfo(Base):
     list_date = Column(String(10))
 
 
+class UserWatchlist(Base):
+    """用户自选股表"""
+    __tablename__ = "user_watchlist"
+
+    code = Column(String(10), primary_key=True)
+    added_at = Column(String(30))
+
+
 class DataStorage:
     """数据存储管理"""
 
@@ -213,5 +221,79 @@ class DataStorage:
                 .first()
             )
             return result[0] if result else None
+        finally:
+            session.close()
+
+    # ── 自选股管理 ──
+
+    def add_to_watchlist(self, code: str) -> bool:
+        """添加自选股，返回是否新增（False=已存在）"""
+        session = self._get_session()
+        try:
+            existing = session.get(UserWatchlist, code)
+            if existing:
+                return False
+            session.add(UserWatchlist(code=code, added_at=str(pd.Timestamp.now())))
+            session.commit()
+            logger.info(f"自选股添加: {code}")
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"添加自选股失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def remove_from_watchlist(self, code: str) -> bool:
+        """删除自选股，返回是否存在"""
+        session = self._get_session()
+        try:
+            row = session.get(UserWatchlist, code)
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            logger.info(f"自选股删除: {code}")
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"删除自选股失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_watchlist(self) -> list[str]:
+        """获取自选股代码列表"""
+        session = self._get_session()
+        try:
+            rows = session.query(UserWatchlist.code).all()
+            return [r.code for r in rows]
+        finally:
+            session.close()
+
+    def get_watchlist_with_info(self) -> list[dict]:
+        """获取自选股列表（含名称、行业、最新价、数据日期）"""
+        session = self._get_session()
+        try:
+            codes = [r.code for r in session.query(UserWatchlist.code).all()]
+            if not codes:
+                return []
+            result = []
+            for code in codes:
+                info = session.get(StockInfo, code)
+                latest = (
+                    session.query(StockDaily)
+                    .filter(StockDaily.code == code)
+                    .order_by(StockDaily.date.desc())
+                    .first()
+                )
+                result.append({
+                    "code": code,
+                    "name": info.name if info else "",
+                    "industry": info.industry if info else "",
+                    "latest_price": latest.close if latest else None,
+                    "latest_date": str(latest.date) if latest else None,
+                })
+            return result
         finally:
             session.close()

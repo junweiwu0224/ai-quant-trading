@@ -13,47 +13,56 @@
     <nav class="sidebar" aria-label="主导航">
         <div class="logo" role="heading" aria-level="1">AI Quant</div>
         <ul role="tablist">
-            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" aria-selected="true">总览</a></li>
-            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" aria-selected="false">回测</a></li>
-            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" aria-selected="false">持仓</a></li>
-            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" aria-selected="false">风控</a></li>
-            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" aria-selected="false">策略管理</a></li>
+            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">总览</a></li>
+            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">回测</a></li>
+            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">持仓</a></li>
+            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="nav-risk" aria-selected="false" aria-controls="tab-risk">风控</a></li>
+            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="nav-alpha" aria-selected="false" aria-controls="tab-alpha">AI Alpha</a></li>
+            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></span>
+                模拟盘
+            </a></li>
+            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" id="nav-strategy" aria-selected="false" aria-controls="tab-strategy">策略管理</a></li>
         </ul>
     </nav>
 
     <!-- 底部导航（手机） -->
     <nav class="bottom-nav" aria-label="手机导航">
         <ul role="tablist">
-            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" aria-selected="true">
+            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span>总览</span>
             </a></li>
-            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" aria-selected="false">
+            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
                 <span>回测</span>
             </a></li>
-            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" aria-selected="false">
+            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
                 <span>持仓</span>
             </a></li>
-            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" aria-selected="false">
-                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></span>
+            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="nav-risk" aria-selected="false" aria-controls="tab-risk">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg></span>
                 <span>风控</span>
             </a></li>
-            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" aria-selected="false">
-                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg></span>
-                <span>策略</span>
+            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="nav-alpha" aria-selected="false" aria-controls="tab-alpha">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+                <span>AI</span>
+            </a></li>
+            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></span>
+                <span>模拟盘</span>
             </a></li>
         </ul>
     </nav>
 
     <main class="content" role="main">
 
-        <!-- ═══ Tab 1: 总览 ═══ -->
+        <!-- Tab 1: 总览 -->
         <section class="tab-panel active" id="tab-overview" role="tabpanel" aria-labelledby="nav-overview">
             <div class="page-header">
                 <h1>系统总览</h1>
-                <button class="btn btn-sm" onclick="App.loadOverview()" aria-label="刷新总览数据">刷新</button>
+                <button class="btn btn-sm" onclick="App.loadOverview()">刷新</button>
             </div>
 
             <div class="stats-grid">
@@ -76,20 +85,53 @@
             </div>
 
             <div class="card">
-                <h2>系统模块</h2>
-                <div class="module-grid" id="ov-modules"></div>
+                <h2>资产走势</h2>
+                <div style="height:250px"><canvas id="ov-equity-chart" aria-label="资产走势图"></canvas></div>
+            </div>
+
+            <div class="chart-row">
+                <div class="card">
+                    <h2>收益分布</h2>
+                    <div style="height:220px"><canvas id="ov-return-dist" aria-label="收益分布图"></canvas></div>
+                </div>
+                <div class="card">
+                    <h2>模块状态</h2>
+                    <div style="height:220px"><canvas id="ov-module-status" aria-label="模块状态图"></canvas></div>
+                </div>
             </div>
 
             <div class="card">
-                <h2>股票列表 <span class="text-muted" id="ov-stock-hint"></span></h2>
+                <h2>系统状态</h2>
+                <div class="stats-grid" id="ov-system-status">
+                    <div class="stat-card">
+                        <div class="stat-label">数据同步</div>
+                        <div class="stat-value" id="ov-sync-status">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">模拟盘</div>
+                        <div class="stat-value" id="ov-paper-status">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">AI 模型</div>
+                        <div class="stat-value" id="ov-ai-status">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
+                <div class="watchlist-add" style="display:flex;gap:0.5rem;margin-bottom:1rem">
+                    <div class="search-box" id="watchlist-search-box" style="flex:1">
+                        <input type="text" id="watchlist-input" class="search-input" placeholder="输入股票代码或名称添加" autocomplete="off">
+                        <div class="search-results" id="watchlist-search-results"></div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="App.addToWatchlist()">添加</button>
+                    <button class="btn btn-sm" onclick="App.syncWatchlist()">同步数据</button>
+                </div>
                 <div class="table-wrap">
-                    <table id="ov-stocks-table" aria-label="股票列表">
-                        <thead>
-                            <tr><th>代码</th><th>名称</th><th>行业</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="3" class="text-muted">加载中...</td></tr>
-                        </tbody>
+                    <table id="ov-stocks-table">
+                        <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>最新价</th><th>操作</th></tr></thead>
+                        <tbody><tr><td colspan="5" class="text-muted">加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -97,23 +139,17 @@
             <div class="card">
                 <h2>最近交易</h2>
                 <div class="table-wrap">
-                    <table id="ov-trades-table" aria-label="最近交易记录">
-                        <thead>
-                            <tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="6" class="text-muted">暂无交易数据</td></tr>
-                        </tbody>
+                    <table id="ov-trades-table">
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr></thead>
+                        <tbody><tr><td colspan="6" class="text-muted">暂无交易数据</td></tr></tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- ═══ Tab 2: 回测 ═══ -->
+        <!-- Tab 2: 回测 -->
         <section class="tab-panel" id="tab-backtest" role="tabpanel" aria-labelledby="nav-backtest">
-            <div class="page-header">
-                <h1>策略回测</h1>
-            </div>
+            <div class="page-header"><h1>策略回测</h1></div>
 
             <div class="card">
                 <h2>回测参数</h2>
@@ -128,8 +164,10 @@
                     </div>
                     <div class="form-group">
                         <label for="bt-code">股票代码</label>
-                        <input type="text" id="bt-code" value="000001" placeholder="如 000001" list="stock-list" required>
-                        <datalist id="stock-list"></datalist>
+                        <div class="search-box" id="bt-code-box">
+                            <input type="text" id="bt-code" class="search-input" placeholder="输入代码或名称搜索" autocomplete="off" required>
+                            <div class="search-results" id="bt-code-results"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="bt-start">开始日期</label>
@@ -157,46 +195,53 @@
                 </form>
             </div>
 
+            <!-- 多策略对比 -->
+            <div class="card" id="bt-compare-section">
+                <h2>多策略收益对比</h2>
+                <div class="form-row" style="margin-bottom:1rem">
+                    <div class="form-group">
+                        <label>对比策略</label>
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                            <label><input type="checkbox" value="dual_ma" checked> 双均线</label>
+                            <label><input type="checkbox" value="bollinger" checked> 布林带</label>
+                            <label><input type="checkbox" value="momentum" checked> 动量</label>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm" onclick="App.compareStrategies()">对比</button>
+                </div>
+                <div style="height:280px"><canvas id="bt-compare-chart" aria-label="多策略收益对比图"></canvas></div>
+            </div>
+
             <div id="bt-results" style="display:none">
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">总收益率</div>
-                        <div class="stat-value" id="bt-return">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">年化收益</div>
-                        <div class="stat-value" id="bt-annual">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">最大回撤</div>
-                        <div class="stat-value text-danger" id="bt-dd">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">夏普比率</div>
-                        <div class="stat-value" id="bt-sharpe">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">胜率</div>
-                        <div class="stat-value" id="bt-winrate">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">交易次数</div>
-                        <div class="stat-value" id="bt-trades">--</div>
-                    </div>
+                    <div class="stat-card"><div class="stat-label">总收益率</div><div class="stat-value" id="bt-return">--</div></div>
+                    <div class="stat-card"><div class="stat-label">年化收益</div><div class="stat-value" id="bt-annual">--</div></div>
+                    <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value text-danger" id="bt-dd">--</div></div>
+                    <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value" id="bt-sharpe">--</div></div>
+                    <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value" id="bt-winrate">--</div></div>
+                    <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value" id="bt-trades">--</div></div>
                 </div>
 
                 <div class="card">
                     <h2>收益曲线</h2>
-                    <div style="height:250px"><canvas id="bt-equity-chart"></canvas></div>
+                    <div style="height:250px"><canvas id="bt-equity-chart" aria-label="回测收益曲线图"></canvas></div>
+                </div>
+
+                <div class="card">
+                    <h2>月度收益热力图</h2>
+                    <div id="bt-heatmap-container"></div>
+                </div>
+
+                <div class="card">
+                    <h2>回撤曲线</h2>
+                    <div style="height:220px"><canvas id="bt-drawdown-chart" aria-label="回撤曲线图"></canvas></div>
                 </div>
 
                 <div class="card">
                     <h2>交易明细</h2>
                     <div class="table-wrap">
-                        <table id="bt-trades-table" aria-label="交易明细">
-                            <thead>
-                                <tr><th>日期</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>入场价</th></tr>
-                            </thead>
+                        <table id="bt-trades-table">
+                            <thead><tr><th>日期</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>入场价</th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -205,10 +250,8 @@
                 <div class="card" id="bt-alerts-card" style="display:none">
                     <h2>风控告警</h2>
                     <div class="table-wrap">
-                        <table id="bt-alerts-table" aria-label="风控告警">
-                            <thead>
-                                <tr><th>日期</th><th>级别</th><th>类别</th><th>消息</th></tr>
-                            </thead>
+                        <table id="bt-alerts-table">
+                            <thead><tr><th>日期</th><th>级别</th><th>类别</th><th>消息</th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -216,42 +259,41 @@
             </div>
         </section>
 
-        <!-- ═══ Tab 3: 持仓 ═══ -->
+        <!-- Tab 3: 持仓 -->
         <section class="tab-panel" id="tab-portfolio" role="tabpanel" aria-labelledby="nav-portfolio">
             <div class="page-header">
                 <h1>持仓监控</h1>
-                <button class="btn btn-sm" onclick="App.loadPortfolio()" aria-label="刷新持仓数据">刷新</button>
+                <button class="btn btn-sm" onclick="App.loadPortfolio()">刷新</button>
             </div>
 
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">总资产</div>
-                    <div class="stat-value" id="pf-equity">--</div>
+                <div class="stat-card"><div class="stat-label">总资产</div><div class="stat-value" id="pf-equity">--</div></div>
+                <div class="stat-card"><div class="stat-label">现金</div><div class="stat-value" id="pf-cash">--</div></div>
+                <div class="stat-card"><div class="stat-label">持仓市值</div><div class="stat-value" id="pf-mv">--</div></div>
+                <div class="stat-card"><div class="stat-label">持仓数</div><div class="stat-value" id="pf-count">--</div></div>
+            </div>
+
+            <div class="chart-row">
+                <div class="card">
+                    <h2>持仓盈亏</h2>
+                    <div style="height:220px"><canvas id="pf-pnl-chart" aria-label="持仓盈亏图"></canvas></div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">现金</div>
-                    <div class="stat-value" id="pf-cash">--</div>
+                <div class="card">
+                    <h2>行业分布</h2>
+                    <div style="height:220px"><canvas id="pf-industry-chart" aria-label="行业分布图"></canvas></div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">持仓市值</div>
-                    <div class="stat-value" id="pf-mv">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">持仓数</div>
-                    <div class="stat-value" id="pf-count">--</div>
+                <div class="card">
+                    <h2>市值占比</h2>
+                    <div style="height:220px"><canvas id="pf-allocation-chart" aria-label="市值占比图"></canvas></div>
                 </div>
             </div>
 
             <div class="card">
                 <h2>持仓明细</h2>
                 <div class="table-wrap">
-                    <table id="pf-positions" aria-label="持仓明细">
-                        <thead>
-                            <tr><th>代码</th><th>数量</th><th>均价</th><th>市值</th><th>占比</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="5" class="text-muted">暂无持仓数据</td></tr>
-                        </tbody>
+                    <table id="pf-positions">
+                        <thead><tr><th>代码</th><th>数量</th><th>均价</th><th>现价</th><th>市值</th><th>盈亏</th></tr></thead>
+                        <tbody><tr><td colspan="6" class="text-muted">暂无持仓数据</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -259,72 +301,148 @@
             <div class="card">
                 <h2>今日交易</h2>
                 <div class="table-wrap">
-                    <table id="pf-trades" aria-label="今日交易">
-                        <thead>
-                            <tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="6" class="text-muted">今日无交易</td></tr>
-                        </tbody>
+                    <table id="pf-trades">
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr></thead>
+                        <tbody><tr><td colspan="6" class="text-muted">今日无交易</td></tr></tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- ═══ Tab 4: 风控 ═══ -->
+        <!-- Tab 4: 风控 -->
         <section class="tab-panel" id="tab-risk" role="tabpanel" aria-labelledby="nav-risk">
             <div class="page-header">
                 <h1>风控面板</h1>
-                <button class="btn btn-sm" onclick="App.loadRisk()" aria-label="刷新风控数据">刷新</button>
+                <button class="btn btn-sm" onclick="App.loadRisk()">刷新</button>
             </div>
 
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">总权益</div>
-                    <div class="stat-value" id="rk-equity">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">现金占比</div>
-                    <div class="stat-value" id="rk-cash-pct">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">持仓数</div>
-                    <div class="stat-value" id="rk-pos-count">--</div>
-                </div>
+                <div class="stat-card"><div class="stat-label">总权益</div><div class="stat-value" id="rk-equity">--</div></div>
+                <div class="stat-card"><div class="stat-label">现金占比</div><div class="stat-value" id="rk-cash-pct">--</div></div>
+                <div class="stat-card"><div class="stat-label">持仓数</div><div class="stat-value" id="rk-pos-count">--</div></div>
             </div>
 
             <div class="card">
                 <h2>仓位分布</h2>
-                <div style="height:250px"><canvas id="rk-position-chart"></canvas></div>
+                <div style="height:250px"><canvas id="rk-position-chart" aria-label="仓位分布图"></canvas></div>
             </div>
 
             <div class="card">
                 <h2>风控规则</h2>
                 <div class="table-wrap">
-                    <table id="rk-rules" aria-label="风控规则">
-                        <thead>
-                            <tr><th>规则</th><th>阈值</th><th>当前值</th><th>状态</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="4" class="text-muted">加载中...</td></tr>
-                        </tbody>
+                    <table id="rk-rules">
+                        <thead><tr><th>规则</th><th>阈值</th><th>当前值</th><th>状态</th></tr></thead>
+                        <tbody><tr><td colspan="4" class="text-muted">加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- ═══ Tab 5: 策略管理 ═══ -->
+        <!-- Tab 5: AI Alpha -->
+        <section class="tab-panel" id="tab-alpha" role="tabpanel" aria-labelledby="nav-alpha">
+            <div class="page-header">
+                <h1>AI Alpha</h1>
+                <div class="form-row">
+                    <select id="alpha-code"></select>
+                    <input type="date" id="alpha-start" value="2023-01-01">
+                    <input type="date" id="alpha-end">
+                    <button class="btn btn-primary btn-sm" onclick="App.loadAlpha()">分析</button>
+                </div>
+            </div>
+
+            <div class="chart-row">
+                <div class="card">
+                    <h2>因子重要性 Top 20</h2>
+                    <div style="height:300px"><canvas id="alpha-feature-chart" aria-label="因子重要性图"></canvas></div>
+                </div>
+                <div class="card">
+                    <h2>模型训练曲线</h2>
+                    <div style="height:300px"><canvas id="alpha-training-chart" aria-label="模型训练曲线图"></canvas></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>预测 vs 实际</h2>
+                <div style="height:250px"><canvas id="alpha-predict-chart" aria-label="预测与实际对比图"></canvas></div>
+            </div>
+
+            <div class="card">
+                <h2>交易信号</h2>
+                <div style="height:350px"><canvas id="alpha-signal-chart" aria-label="交易信号图"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Tab 6: 模拟盘 -->
+        <section class="tab-panel" id="tab-paper" role="tabpanel" aria-labelledby="nav-paper">
+            <div class="page-header"><h1>模拟盘控制</h1></div>
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-label">运行状态</div><div class="stat-value" id="pp-status">已停止</div></div>
+                <div class="stat-card"><div class="stat-label">当前权益</div><div class="stat-value" id="pp-equity">--</div></div>
+                <div class="stat-card"><div class="stat-label">持仓数</div><div class="stat-value" id="pp-pos-count">0</div></div>
+                <div class="stat-card"><div class="stat-label">今日交易</div><div class="stat-value" id="pp-trade-count">0</div></div>
+            </div>
+            <div class="card">
+                <h2>配置</h2>
+                <form id="paper-form" class="form-row">
+                    <div class="form-group">
+                        <label for="pp-strategy">策略</label>
+                        <select id="pp-strategy">
+                            <option value="dual_ma">双均线策略</option>
+                            <option value="bollinger">布林带策略</option>
+                            <option value="momentum">动量策略</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="pp-codes">股票代码</label>
+                        <input type="text" id="pp-codes" placeholder="多个用逗号分隔" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pp-interval">轮询间隔(秒)</label>
+                        <input type="number" id="pp-interval" value="30" min="5" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pp-cash">初始资金</label>
+                        <input type="number" id="pp-cash" value="1000000" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pp-risk">风控</label>
+                        <select id="pp-risk"><option value="true">启用</option><option value="false">关闭</option></select>
+                    </div>
+                    <div class="form-group">
+                        <span></span>
+                        <div style="display:flex;gap:0.5rem">
+                            <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="App.startPaper()">启动</button>
+                            <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="App.stopPaper()" disabled>停止</button>
+                            <button type="button" class="btn btn-sm" onclick="App.resetPaper()">重置</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="card">
+                <h2>最近交易</h2>
+                <div class="table-wrap">
+                    <table id="pp-trades-table">
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
+                        <tbody><tr><td colspan="5" class="text-muted">暂无交易</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 7: 策略管理 -->
         <section class="tab-panel" id="tab-strategy" role="tabpanel" aria-labelledby="nav-strategy">
             <div class="page-header">
                 <h1>策略管理</h1>
+                <button class="btn btn-primary btn-sm" onclick="App.createStrategy()">新增策略</button>
             </div>
-
             <div class="strategy-grid" id="st-list">
                 <div class="loading"><span class="spinner"></span>加载中...</div>
             </div>
         </section>
 
     </main>
+
+    <div class="toast-container" role="alert" aria-live="polite" id="toast-container"></div>
 
     <script src="/static/app.js"></script>
 </body>

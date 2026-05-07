@@ -30,6 +30,14 @@ class BacktestRequest(BaseModel):
     enable_risk: bool = False
 
 
+class CompareRequest(BaseModel):
+    strategies: list[str] = ["dual_ma", "bollinger", "momentum"]
+    codes: list[str] = ["000001"]
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    initial_cash: float = 1_000_000
+
+
 class BacktestResponse(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -122,3 +130,100 @@ async def search_stocks(q: str = Query("", description="搜索关键词")):
         return df.head(50).to_dict("records")
     except Exception:
         return []
+
+
+@router.post("/compare")
+async def compare_strategies(req: CompareRequest):
+    """多策略收益对比"""
+    results = []
+    for strategy_name in req.strategies:
+        if strategy_name not in STRATEGIES:
+            continue
+        try:
+            config = BacktestConfig(initial_cash=req.initial_cash)
+            strategy = STRATEGIES[strategy_name]()
+            engine = BacktestEngine(config=config)
+            result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+            results.append({
+                "strategy": strategy_name,
+                "total_return": round(result.total_return, 4),
+                "max_drawdown": round(result.max_drawdown, 4),
+                "sharpe_ratio": round(result.sharpe_ratio, 2),
+                "equity_curve": [
+                    {"date": str(p["date"]), "equity": round(p["equity"], 2)}
+                    for p in result.equity_curve
+                ],
+            })
+        except Exception:
+            continue
+    return results
+
+
+@router.post("/monthly-returns")
+async def monthly_returns(req: BacktestRequest):
+    """月度收益热力图数据"""
+    if req.strategy not in STRATEGIES:
+        return []
+
+    config = BacktestConfig(initial_cash=req.initial_cash, enable_risk=req.enable_risk)
+    strategy = STRATEGIES[req.strategy]()
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    if not result.equity_curve:
+        return []
+
+    # 按月计算收益
+    monthly = {}
+    for i, point in enumerate(result.equity_curve):
+        d = point["date"]
+        year = d.year
+        month = d.month
+        key = (year, month)
+        if key not in monthly:
+            monthly[key] = {"first": point["equity"], "last": point["equity"]}
+        monthly[key]["last"] = point["equity"]
+
+    output = []
+    initial = result.initial_cash
+    prev_equity = initial
+    for (year, month), vals in sorted(monthly.items()):
+        ret = (vals["last"] - prev_equity) / prev_equity if prev_equity > 0 else 0
+        output.append({
+            "year": year,
+            "month": month,
+            "return_pct": round(ret, 4),
+        })
+        prev_equity = vals["last"]
+
+    return output
+
+
+@router.post("/drawdown")
+async def drawdown_curve(req: BacktestRequest):
+    """回撤曲线数据"""
+    if req.strategy not in STRATEGIES:
+        return []
+
+    config = BacktestConfig(initial_cash=req.initial_cash, enable_risk=req.enable_risk)
+    strategy = STRATEGIES[req.strategy]()
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    if not result.equity_curve:
+        return []
+
+    output = []
+    peak = result.equity_curve[0]["equity"]
+    for point in result.equity_curve:
+        equity = point["equity"]
+        if equity > peak:
+            peak = equity
+        dd = (equity - peak) / peak if peak > 0 else 0
+        output.append({
+            "date": str(point["date"]),
+            "drawdown_pct": round(dd, 4),
+        })
+
+    return output

@@ -25,11 +25,17 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # ── API 路由 ──
 
-from dashboard.routers import backtest, portfolio, system  # noqa: E402
+from dashboard.routers import (  # noqa: E402
+    alpha, backtest, paper_control, portfolio, strategy, system, watchlist,
+)
 
 app.include_router(backtest.router, prefix="/api/backtest", tags=["回测"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["持仓"])
 app.include_router(system.router, prefix="/api/system", tags=["系统"])
+app.include_router(alpha.router, prefix="/api/alpha", tags=["AI Alpha"])
+app.include_router(watchlist.router, prefix="/api/watchlist", tags=["自选股"])
+app.include_router(paper_control.router, prefix="/api/paper", tags=["模拟盘"])
+app.include_router(strategy.router, prefix="/api/strategy", tags=["策略管理"])
 
 
 # ── 页面路由 ──

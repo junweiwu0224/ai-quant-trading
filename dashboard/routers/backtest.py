@@ -52,6 +52,8 @@ class BacktestResponse(BaseModel):
     equity_curve: list[dict] = []
     trades: list[dict] = []
     risk_alerts: list[dict] = []
+    warmup_days: int = 0
+    error: Optional[str] = None
 
 
 @router.post("/run", response_model=BacktestResponse)
@@ -104,6 +106,8 @@ async def run_backtest(req: BacktestRequest):
             }
             for a in result.risk_alerts
         ],
+        warmup_days=result.warmup_days,
+        error=result.error,
     )
 
 

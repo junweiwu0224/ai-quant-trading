@@ -39,12 +39,14 @@ class BacktestResult:
     equity_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
     risk_alerts: list = field(default_factory=list)
+    warmup_days: int = 0
+    error: Optional[str] = None
 
     def summary(self) -> dict:
         return {
             "回测区间": f"{self.start_date} ~ {self.end_date}",
             "初始资金": f"{self.initial_cash:,.0f}",
-            "最终权益": f"{self.final_equity:,.2f}",
+            "最终收益": f"{self.final_equity:,.2f}",
             "总收益率": f"{self.total_return:.2%}",
             "年化收益率": f"{self.annual_return:.2%}",
             "最大回撤": f"{self.max_drawdown:.2%}",
@@ -76,25 +78,70 @@ class BacktestEngine:
         codes: list[str],
         start_date: str,
         end_date: str,
+        warmup_periods: int = 20,
+        min_trading_days: int = 5,
     ) -> BacktestResult:
         """运行回测"""
         logger.info(f"回测开始: {start_date} ~ {end_date}, 标的: {codes}")
 
-        portfolio = Portfolio(cash=self._config.initial_cash)
-        strategy.init(portfolio)
+        # 验证日期范围
+        start = pd.Timestamp(start_date).date()
+        end = pd.Timestamp(end_date).date()
+        if start >= end:
+            return BacktestResult(error="开始日期必须早于结束日期")
 
-        # 加载数据
-        bars_by_code = self._load_bars(codes, start_date, end_date)
+        # 计算预热期开始日期
+        warmup_start = start - pd.Timedelta(days=warmup_periods * 2)  # 预留足够的自然日
+
+        # 加载数据（包括预热期）
+        bars_by_code = self._load_bars(codes, str(warmup_start), end_date)
         if not bars_by_code:
             logger.error("无回测数据")
-            return BacktestResult()
+            return BacktestResult(error="数据库中没有足够的历史数据，请选择更晚的开始日期")
 
         # 合并所有日期并排序
         all_dates = sorted({bar.date for bars in bars_by_code.values() for bar in bars})
-        logger.info(f"共 {len(all_dates)} 个交易日")
 
-        # 逐日回测
-        for current_date in all_dates:
+        # 分离预热期和正式回测期
+        warmup_dates = [d for d in all_dates if d < start]
+        backtest_dates = [d for d in all_dates if d >= start]
+
+        # 验证预热期是否足够
+        if len(warmup_dates) < warmup_periods:
+            logger.warning(f"预热期不足: 需要 {warmup_periods} 个交易日，实际 {len(warmup_dates)} 个")
+            # 如果预热期不足，尝试从数据库中获取更多历史数据
+            if len(warmup_dates) < warmup_periods:
+                return BacktestResult(
+                    error=f"数据库中没有足够的历史数据来初始化策略（需要 {warmup_periods} 个交易日的预热期，实际只有 {len(warmup_dates)} 个）。请选择更晚的开始日期。"
+                )
+
+        # 验证最小回测期
+        if len(backtest_dates) < min_trading_days:
+            return BacktestResult(
+                error=f"回测日期范围太短（只有 {len(backtest_dates)} 个交易日，最少需要 {min_trading_days} 个）。请选择更长的日期范围。"
+            )
+
+        logger.info(f"预热期: {len(warmup_dates)} 个交易日, 回测期: {len(backtest_dates)} 个交易日")
+
+        portfolio = Portfolio(cash=self._config.initial_cash)
+        strategy.init(portfolio)
+
+        # 预热期：只运行策略的 on_bar() 方法，不记录权益曲线
+        for current_date in warmup_dates:
+            daily_bars = {}
+            for code, bars in bars_by_code.items():
+                for bar in bars:
+                    if bar.date == current_date:
+                        daily_bars[code] = bar
+                        break
+
+            # 推送预热期K线
+            for bar in daily_bars.values():
+                if bar.volume > 0 and bar.open > 0:
+                    strategy.on_bar(bar)
+
+        # 正式回测期：运行完整的回测逻辑
+        for current_date in backtest_dates:
             daily_bars = {}
             for code, bars in bars_by_code.items():
                 for bar in bars:
@@ -145,6 +192,7 @@ class BacktestEngine:
 
         # 生成报告
         result = self._generate_report(portfolio)
+        result.warmup_days = len(warmup_dates)
         logger.info(f"回测完成: 总收益 {result.total_return:.2%}, 最大回撤 {result.max_drawdown:.2%}")
         return result
 

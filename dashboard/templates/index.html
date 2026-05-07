@@ -7,6 +7,7 @@
     <title>AI 量化交易系统</title>
     <link rel="stylesheet" href="/static/style.css?v=7">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
     <!-- 侧边导航（桌面） -->
@@ -21,6 +22,10 @@
             <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span class="nav-text">总览</span>
+            </a></li>
+            <li><a href="#stock" class="nav-link" data-tab="stock" role="tab" id="nav-stock" aria-selected="false" aria-controls="tab-stock">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
+                <span class="nav-text">行情</span>
             </a></li>
             <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
@@ -55,6 +60,10 @@
             <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="m-nav-overview" aria-selected="true" aria-controls="tab-overview">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span>总览</span>
+            </a></li>
+            <li><a href="#stock" class="nav-link" data-tab="stock" role="tab" id="m-nav-stock" aria-selected="false" aria-controls="tab-stock">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
+                <span>行情</span>
             </a></li>
             <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="m-nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
@@ -107,20 +116,32 @@
                 </div>
             </div>
 
-            <div class="card">
-                <h2>资产走势</h2>
-                <div style="height:250px"><canvas id="ov-equity-chart" aria-label="资产走势图"></canvas></div>
+            <div class="card market-card">
+                <h2>市场大盘</h2>
+                <div class="market-indices" id="ov-market-indices">
+                    <div class="text-muted">加载中...</div>
+                </div>
+                <div class="market-sectors">
+                    <div class="market-sector-col">
+                        <h3>行业板块 TOP10</h3>
+                        <div id="ov-hot-industries" class="sector-list"><div class="text-muted">加载中...</div></div>
+                    </div>
+                    <div class="market-sector-col">
+                        <h3>概念板块 TOP10</h3>
+                        <div id="ov-hot-concepts" class="sector-list"><div class="text-muted">加载中...</div></div>
+                    </div>
+                </div>
             </div>
 
-            <div class="chart-row">
-                <div class="card">
-                    <h2>收益分布</h2>
-                    <div style="height:220px"><canvas id="ov-return-dist" aria-label="收益分布图"></canvas></div>
+            <div class="card">
+                <div class="chart-toggle-header">
+                    <h2 id="ov-chart-title">资产走势</h2>
+                    <div class="chart-toggle-btns">
+                        <button class="chart-toggle-btn active" data-mode="equity" onclick="App._switchOverviewChart('equity')">资产走势</button>
+                        <button class="chart-toggle-btn" data-mode="daily" onclick="App._switchOverviewChart('daily')">每日收益</button>
+                    </div>
                 </div>
-                <div class="card">
-                    <h2>模块状态</h2>
-                    <div style="height:220px"><canvas id="ov-module-status" aria-label="模块状态图"></canvas></div>
-                </div>
+                <div style="height:250px"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
             </div>
 
             <div class="card">
@@ -138,23 +159,26 @@
                         <div class="stat-label">AI 模型</div>
                         <div class="stat-value" id="ov-ai-status">--</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-label">实时行情</div>
+                        <div class="stat-value" id="ov-quote-status">--</div>
+                    </div>
                 </div>
             </div>
 
             <div class="card">
                 <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
-                <div class="watchlist-add form-row" style="margin-bottom:1rem">
-                    <div class="search-box" id="watchlist-search-box" style="flex:1">
-                        <input type="text" id="watchlist-input" class="search-input" placeholder="输入股票代码或名称添加" autocomplete="off">
-                        <div class="search-results" id="watchlist-search-results"></div>
+                <div class="watchlist-add" style="margin-bottom:1rem">
+                    <div class="search-box" id="watchlist-search-box">
+                        <input type="text" id="watchlist-input" class="search-input" placeholder="点击搜索并选择自选股（支持多选）" autocomplete="off">
+                        <div class="search-dropdown" id="watchlist-search-results"></div>
                     </div>
-                    <button class="btn btn-primary btn-sm" onclick="Watchlist.add()">添加</button>
-                    <button class="btn btn-sm" onclick="Watchlist.sync()">同步数据</button>
+                    <div class="sb-tags" id="watchlist-tags"></div>
                 </div>
                 <div class="table-wrap">
                     <table id="ov-stocks-table">
-                        <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>最新价</th><th>操作</th></tr></thead>
-                        <tbody><tr><td colspan="5" class="text-muted">加载中...</td></tr></tbody>
+                        <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>板块</th><th>概念</th><th>最新价</th><th>涨跌幅</th></tr></thead>
+                        <tbody><tr><td colspan="7" class="text-muted">加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -163,10 +187,170 @@
                 <h2>最近交易</h2>
                 <div class="table-wrap">
                     <table id="ov-trades-table">
-                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr></thead>
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>收益</th></tr></thead>
                         <tbody><tr><td colspan="6" class="text-muted">暂无交易数据</td></tr></tbody>
                     </table>
                 </div>
+            </div>
+
+        </section>
+
+        <!-- Tab: 行情详情 -->
+        <section class="tab-panel" id="tab-stock" role="tabpanel" aria-labelledby="nav-stock">
+            <div class="page-header"><h1>行情详情</h1></div>
+
+            <!-- 股票选择器 -->
+            <div class="card">
+                <div class="sd-selector">
+                    <div class="search-box" id="stock-detail-search-box">
+                        <input type="text" id="stock-detail-code" class="search-input" placeholder="输入股票代码或名称查看详情" autocomplete="off">
+                        <div class="search-dropdown" id="stock-detail-dropdown"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 股票信息区 -->
+            <div id="sd-content" style="display:none">
+                <!-- 头部：名称/价格/概念 -->
+                <div class="card">
+                    <div class="stock-detail-header" id="sd-header">
+                        <div class="sd-title">
+                            <h2 id="sd-name">--</h2>
+                            <span class="sd-code" id="sd-code">--</span>
+                            <span class="sd-industry" id="sd-industry">--</span>
+                            <span class="sd-sector" id="sd-sector">--</span>
+                        </div>
+                        <div class="sd-price-row">
+                            <span class="sd-price" id="sd-price">--</span>
+                            <span class="sd-change" id="sd-change">--</span>
+                        </div>
+                        <div class="sd-tags" id="sd-concepts"></div>
+                    </div>
+
+                    <div class="sd-stats" id="sd-stats">
+                        <div class="sd-stat"><label>总市值</label><span id="sd-mcap">--</span></div>
+                        <div class="sd-stat"><label>流通市值</label><span id="sd-ccap">--</span></div>
+                        <div class="sd-stat"><label>市盈率</label><span id="sd-pe">--</span></div>
+                        <div class="sd-stat"><label>市净率</label><span id="sd-pb">--</span></div>
+                        <div class="sd-stat"><label>换手率</label><span id="sd-turnover">--</span></div>
+                        <div class="sd-stat"><label>振幅</label><span id="sd-amp">--</span></div>
+                        <div class="sd-stat"><label>量比</label><span id="sd-vr">--</span></div>
+                    </div>
+                </div>
+
+                <!-- 专业指标卡片 -->
+                <div class="card">
+                    <h3>专业指标</h3>
+                    <div class="sd-stats-grid">
+                        <!-- 52周高低 -->
+                        <div class="sd-stats-section">
+                            <h4>52周范围</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>52周最高</label><span id="sd-52w-high">--</span></div>
+                                <div class="sd-stat"><label>52周最低</label><span id="sd-52w-low">--</span></div>
+                            </div>
+                        </div>
+                        <!-- 平均成交量 -->
+                        <div class="sd-stats-section">
+                            <h4>平均成交量</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>5日均量</label><span id="sd-avg-vol-5d">--</span></div>
+                                <div class="sd-stat"><label>10日均量</label><span id="sd-avg-vol-10d">--</span></div>
+                            </div>
+                        </div>
+                        <!-- 股本信息 -->
+                        <div class="sd-stats-section">
+                            <h4>股本信息</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>总股本</label><span id="sd-total-shares">--</span></div>
+                                <div class="sd-stat"><label>流通股本</label><span id="sd-circulating-shares">--</span></div>
+                            </div>
+                        </div>
+                        <!-- 估值指标 -->
+                        <div class="sd-stats-section">
+                            <h4>估值指标</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>市盈率(TTM)</label><span id="sd-pe-ttm">--</span></div>
+                                <div class="sd-stat"><label>市销率</label><span id="sd-ps">--</span></div>
+                                <div class="sd-stat"><label>股息率</label><span id="sd-dividend-yield">--</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 财务指标卡片 -->
+                <div class="card">
+                    <h3>财务指标</h3>
+                    <div class="sd-stats-grid">
+                        <!-- 每股指标 -->
+                        <div class="sd-stats-section">
+                            <h4>每股指标</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>每股收益</label><span id="sd-eps">--</span></div>
+                                <div class="sd-stat"><label>每股净资产</label><span id="sd-bps">--</span></div>
+                            </div>
+                        </div>
+                        <!-- 盈利能力 -->
+                        <div class="sd-stats-section">
+                            <h4>盈利能力</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>营业收入</label><span id="sd-revenue">--</span></div>
+                                <div class="sd-stat"><label>营收增长</label><span id="sd-revenue-growth">--</span></div>
+                                <div class="sd-stat"><label>净利润</label><span id="sd-net-profit">--</span></div>
+                                <div class="sd-stat"><label>净利润增长</label><span id="sd-net-profit-growth">--</span></div>
+                            </div>
+                        </div>
+                        <!-- 财务健康 -->
+                        <div class="sd-stats-section">
+                            <h4>财务健康</h4>
+                            <div class="sd-stats">
+                                <div class="sd-stat"><label>毛利率</label><span id="sd-gross-margin">--</span></div>
+                                <div class="sd-stat"><label>净利率</label><span id="sd-net-margin">--</span></div>
+                                <div class="sd-stat"><label>ROE</label><span id="sd-roe">--</span></div>
+                                <div class="sd-stat"><label>负债率</label><span id="sd-debt-ratio">--</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- K线图 + 五档盘口 并排 -->
+                <div class="sd-main-grid">
+                    <div class="card sd-chart-card">
+                        <div class="sd-chart-tabs">
+                            <button class="sd-tab active" data-period="daily">日K</button>
+                            <button class="sd-tab" data-period="weekly">周K</button>
+                            <button class="sd-tab" data-period="monthly">月K</button>
+                            <button class="sd-tab" data-period="60m">60分</button>
+                            <button class="sd-tab" data-period="15m">15分</button>
+                            <button class="sd-tab" data-period="5m">5分</button>
+                        </div>
+                        <div id="sd-kline-chart" style="height:420px"></div>
+                    </div>
+                    <div class="card sd-orderbook-card">
+                        <h3>五档盘口</h3>
+                        <div class="sd-ob-grid">
+                            <div id="sd-asks" class="sd-ob-side"></div>
+                            <div id="sd-bids" class="sd-ob-side"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 分时图 + 资金流向 并排 -->
+                <div class="sd-sub-grid">
+                    <div class="card">
+                        <h3>今日分时</h3>
+                        <div id="sd-timeline-chart" style="height:220px"></div>
+                    </div>
+                    <div class="card">
+                        <h3>资金流向（近20日）</h3>
+                        <div id="sd-capital-chart" style="height:220px"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 未选择股票提示 -->
+            <div id="sd-placeholder" class="card" style="text-align:center;padding:3rem">
+                <p class="text-muted" style="font-size:1.1rem">请在上方输入股票代码或名称查看详情</p>
             </div>
         </section>
 
@@ -194,7 +378,7 @@
                     </div>
                     <div class="form-group">
                         <label for="bt-start">开始日期</label>
-                        <input type="date" id="bt-start" value="2024-01-01" required>
+                        <input type="date" id="bt-start" required>
                     </div>
                     <div class="form-group">
                         <label for="bt-end">结束日期</label>
@@ -236,6 +420,7 @@
             </div>
 
             <div id="bt-results" style="display:none">
+                <div id="bt-warmup-info" class="alert alert-info" style="display:none"></div>
                 <div class="stats-grid">
                     <div class="stat-card"><div class="stat-label">总收益率</div><div class="stat-value" id="bt-return">--</div></div>
                     <div class="stat-card"><div class="stat-label">年化收益</div><div class="stat-value" id="bt-annual">--</div></div>
@@ -369,7 +554,7 @@
                 <h2>今日交易</h2>
                 <div class="table-wrap">
                     <table id="pf-trades">
-                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr></thead>
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>收益</th></tr></thead>
                         <tbody><tr><td colspan="6" class="text-muted">今日无交易</td></tr></tbody>
                     </table>
                 </div>
@@ -384,7 +569,7 @@
             </div>
 
             <div class="stats-grid">
-                <div class="stat-card"><div class="stat-label">总权益</div><div class="stat-value" id="rk-equity">--</div></div>
+                <div class="stat-card"><div class="stat-label">总收益</div><div class="stat-value" id="rk-equity">--</div></div>
                 <div class="stat-card"><div class="stat-label">现金占比</div><div class="stat-value" id="rk-cash-pct">--</div></div>
                 <div class="stat-card"><div class="stat-label">持仓数</div><div class="stat-value" id="rk-pos-count">--</div></div>
             </div>
@@ -416,7 +601,7 @@
                             <div class="search-dropdown" id="alpha-code-dropdown"></div>
                         </div>
                     </div>
-                    <input type="date" id="alpha-start" value="2023-01-01">
+                    <input type="date" id="alpha-start">
                     <input type="date" id="alpha-end">
                     <button class="btn btn-primary btn-sm" onclick="App.loadAlpha()">分析</button>
                 </div>
@@ -449,7 +634,7 @@
             <div class="page-header"><h1>模拟盘控制</h1></div>
             <div class="stats-grid">
                 <div class="stat-card"><div class="stat-label">运行状态</div><div class="stat-value" id="pp-status">已停止</div></div>
-                <div class="stat-card"><div class="stat-label">当前权益</div><div class="stat-value" id="pp-equity">--</div></div>
+                <div class="stat-card"><div class="stat-label">当前收益</div><div class="stat-value" id="pp-equity">--</div></div>
                 <div class="stat-card"><div class="stat-label">持仓数</div><div class="stat-value" id="pp-pos-count">0</div></div>
                 <div class="stat-card"><div class="stat-label">今日交易</div><div class="stat-value" id="pp-trade-count">0</div></div>
             </div>
@@ -525,6 +710,8 @@
     <script src="/static/watchlist.js?v=3"></script>
     <script src="/static/paper.js?v=7"></script>
     <script src="/static/strategy.js?v=3"></script>
-    <script src="/static/app.js?v=7"></script>
+    <script src="/static/realtime.js?v=1"></script>
+    <script src="/static/stock-detail.js?v=1"></script>
+    <script src="/static/app.js?v=8"></script>
 </body>
 </html>

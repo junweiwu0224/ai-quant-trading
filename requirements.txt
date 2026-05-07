@@ -1,0 +1,31 @@
+# Core
+vnpy==4.3.0
+akshare>=1.14.0
+
+# Database
+sqlalchemy>=2.0
+
+# AI/ML
+scikit-learn>=1.3.0
+lightgbm>=4.0.0
+optuna>=3.4.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Web Dashboard
+fastapi>=0.104.0
+uvicorn>=0.24.0
+jinja2>=3.1.0
+
+# Scheduler
+apscheduler>=3.10.0
+
+# Technical Analysis
+ta-lib>=0.4.28
+
+# Testing
+pytest>=7.4.0
+
+# Utils
+python-dotenv>=1.0.0
+loguru>=0.7.0

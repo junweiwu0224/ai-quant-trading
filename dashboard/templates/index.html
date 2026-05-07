@@ -225,7 +225,7 @@
                 <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
                 <div class="watchlist-add" style="margin-bottom:1rem">
                     <div class="search-box" id="watchlist-search-box">
-                        <input type="text" id="watchlist-input" class="search-input" placeholder="点击搜索并选择自选股（支持多选）" autocomplete="off">
+                        <input type="text" id="watchlist-input" class="search-input" placeholder="点击搜索并选择自选股（支持多选）" autocomplete="off" aria-label="搜索并选择自选股">
                         <div class="search-dropdown" id="watchlist-search-results"></div>
                     </div>
                     <div class="sb-tags" id="watchlist-tags"></div>
@@ -471,6 +471,43 @@
                         <p class="text-muted">加载中...</p>
                     </div>
                 </div>
+
+                <!-- 估值对比 -->
+                <div class="card">
+                    <h3>估值对比</h3>
+                    <p class="sd-flow-desc" id="sd-industry-name">行业: --</p>
+                    <div class="sd-table-wrapper">
+                        <table class="sd-table" id="sd-industry-table">
+                            <thead>
+                                <tr>
+                                    <th>股票</th>
+                                    <th>现价</th>
+                                    <th>涨跌(%)</th>
+                                    <th>PE(TTM)</th>
+                                    <th>PB</th>
+                                    <th>ROE(%)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sd-industry-body">
+                                <tr><td colspan="6" class="text-muted">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 北向资金 -->
+                <div class="card">
+                    <h3>北向资金持仓</h3>
+                    <p class="sd-flow-desc">近 30 日持仓变动</p>
+                    <div style="height:200px;margin-bottom:1rem">
+                        <canvas id="sd-north-chart"></canvas>
+                    </div>
+                    <div class="sd-north-stats" id="sd-north-stats">
+                        <div class="sd-period-item"><label>持股数</label><span id="sd-north-shares">--</span></div>
+                        <div class="sd-period-item"><label>占流通比</label><span id="sd-north-ratio">--</span></div>
+                        <div class="sd-period-item"><label>占A股比</label><span id="sd-north-a-ratio">--</span></div>
+                    </div>
+                </div>
             </div>
 
             <!-- 未选择股票提示 -->
@@ -632,6 +669,64 @@
                             <thead><tr><th>日期</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>入场价</th></tr></thead>
                             <tbody></tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- 参数优化 -->
+                <div class="card">
+                    <h2>参数优化</h2>
+                    <form id="bt-optimize-form" class="form-row" style="margin-bottom:1rem">
+                        <div class="form-group">
+                            <label for="opt-metric">优化目标</label>
+                            <select id="opt-metric">
+                                <option value="sharpe_ratio">夏普比率</option>
+                                <option value="total_return">总收益率</option>
+                                <option value="calmar_ratio">Calmar比率</option>
+                                <option value="sortino_ratio">Sortino比率</option>
+                                <option value="win_rate">胜率</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="opt-method">搜索方法</label>
+                            <select id="opt-method">
+                                <option value="grid_search">网格搜索</option>
+                                <option value="optuna">贝叶斯优化</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="opt-trials">试验次数(贝叶斯)</label>
+                            <input type="number" id="opt-trials" value="50" min="10" max="500">
+                        </div>
+                        <div class="form-group">
+                            <span></span>
+                            <button type="submit" class="btn btn-primary" id="opt-run-btn">开始优化</button>
+                        </div>
+                    </form>
+                    <div id="opt-progress-wrap" class="bt-progress" style="display:none">
+                        <div class="bt-progress-bar"><div class="bt-progress-fill" id="opt-progress-fill"></div></div>
+                        <div class="bt-progress-text" id="opt-progress-text"></div>
+                    </div>
+                    <div id="opt-result" style="display:none">
+                        <div class="analysis-stats" id="opt-best-stats"></div>
+                        <div class="table-wrap">
+                            <table id="opt-results-table">
+                                <thead><tr><th>排名</th><th>参数</th><th>目标值</th><th>总收益</th><th>最大回撤</th><th>夏普</th><th>胜率</th><th>交易数</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 蒙特卡洛模拟 -->
+                <div class="card">
+                    <h2>蒙特卡洛模拟</h2>
+                    <div style="margin-bottom:0.75rem">
+                        <button class="btn btn-sm" id="mc-run-btn" onclick="App.runMonteCarlo()">运行模拟</button>
+                        <span class="text-muted" style="margin-left:0.5rem;font-size:12px">随机打乱交易顺序，评估策略稳健性</span>
+                    </div>
+                    <div id="mc-result" style="display:none">
+                        <div class="analysis-stats" id="mc-stats"></div>
+                        <div style="height:220px"><canvas id="mc-chart" aria-label="蒙特卡洛模拟图"></canvas></div>
                     </div>
                 </div>
 

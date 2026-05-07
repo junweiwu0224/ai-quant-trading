@@ -1004,6 +1004,17 @@ input:focus, select:focus, textarea:focus {
 .sd-table .text-danger { color: var(--error-color); }
 .sd-table .text-success { color: var(--success-color); }
 .sd-table .text-muted { color: var(--text-muted); text-align: center; }
+.sd-table .sd-industry-current {
+    background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+    font-weight: 600;
+}
+
+/* 北向资金统计 */
+.sd-north-stats {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
 
 /* 公告列表 */
 .sd-announcements {
@@ -1249,7 +1260,7 @@ input:focus, select:focus, textarea:focus {
 
 /* 双列布局 */
 .overview-dual-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-@media (max-width: 900px) { .overview-dual-row { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .overview-dual-row { grid-template-columns: 1fr; } }
 
 /* 持仓明细表格 */
 #ov-positions-table th, #ov-positions-table td { font-variant-numeric: tabular-nums; }

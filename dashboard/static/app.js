@@ -32,12 +32,14 @@ const App = {
         el.className = `toast toast-${type}`;
         el.textContent = message;
         container.appendChild(el);
-        setTimeout(() => el.remove(), 3000);
+        const duration = type === 'error' ? 8000 : 3000;
+        setTimeout(() => el.remove(), duration);
     },
 
     init() {
         this.bindTabs();
         this.bindBacktest();
+        this.bindOptimize();
         this.bindStrategyChips();
         this.setDefaultDate();
         this.loadStockList();
@@ -55,6 +57,22 @@ const App = {
             this._updateWatchlistPrices(data);
         });
         StockDetail.init();
+
+        // 页面不可见时暂停定时器，节省资源
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this._stopMarketRefresh();
+                if (this._quoteStatusTimer) {
+                    clearInterval(this._quoteStatusTimer);
+                    this._quoteStatusTimer = null;
+                }
+            } else {
+                this._startMarketRefresh();
+                if (!this._quoteStatusTimer) {
+                    this._quoteStatusTimer = setInterval(() => this._updateQuoteStatus(), 1000);
+                }
+            }
+        });
 
         // 股票名称点击跳转详情Tab
         document.addEventListener('click', (e) => {
@@ -367,6 +385,8 @@ const App = {
 
     /* ── 总览 ── */
     async loadOverview() {
+        if (this._loadingOverview) return;
+        this._loadingOverview = true;
         const stockCountEl = document.getElementById('ov-stock-count');
         if (stockCountEl) stockCountEl.innerHTML = '<span class="spinner"></span>';
         const refreshBtn = document.querySelector('button[onclick="App.loadOverview()"]');
@@ -446,6 +466,7 @@ const App = {
             if (stockCountEl) stockCountEl.textContent = '--';
             this.toast('总览数据加载失败: ' + e.message, 'error');
         } finally {
+            this._loadingOverview = false;
             if (refreshBtn) refreshBtn.disabled = false;
         }
     },
@@ -454,7 +475,8 @@ const App = {
         const el = document.getElementById(id);
         if (!el) return;
         const sign = pnl >= 0 ? '+' : '';
-        const text = isCurrency ? `${sign}¥${Math.abs(pnl).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}` : `${sign}${(pnlPct * 100).toFixed(2)}%`;
+        const arrow = pnl >= 0 ? '↑' : '↓';
+        const text = isCurrency ? `${arrow} ${sign}¥${Math.abs(pnl).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}` : `${arrow} ${sign}${(pnlPct * 100).toFixed(2)}%`;
         el.textContent = text;
         el.className = 'stat-value ' + (pnl >= 0 ? 'text-danger' : 'text-success');
     },
@@ -462,7 +484,8 @@ const App = {
     _renderPctMetric(id, value, alwaysRed) {
         const el = document.getElementById(id);
         if (!el) return;
-        el.textContent = (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
+        const arrow = value >= 0 ? '↑' : '↓';
+        el.textContent = arrow + ' ' + (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
         if (alwaysRed) el.className = 'stat-value text-danger';
         else el.className = 'stat-value ' + (value >= 0 ? 'text-danger' : 'text-success');
     },
@@ -479,6 +502,7 @@ const App = {
         tbody.innerHTML = positions.map(p => {
             const pctClass = p.pnl >= 0 ? 'text-danger' : 'text-success';
             const sign = p.pnl >= 0 ? '+' : '';
+            const arrow = p.pnl >= 0 ? '↑' : '↓';
             const weight = ((p.market_value / totalEquity) * 100).toFixed(1);
             return `<tr>
                 <td><a href="#" class="stock-link" data-code="${this.escapeHTML(p.code)}">${this.escapeHTML(p.code)}</a></td>
@@ -486,8 +510,8 @@ const App = {
                 <td>${p.volume}</td>
                 <td>¥${p.avg_price.toFixed(3)}</td>
                 <td class="${pctClass}">¥${p.current_price.toFixed(3)}</td>
-                <td class="${pctClass}">${sign}¥${Math.abs(p.pnl).toFixed(2)}</td>
-                <td class="${pctClass}">${sign}${(p.pnl_pct * 100).toFixed(2)}%</td>
+                <td class="${pctClass}">${arrow} ${sign}¥${Math.abs(p.pnl).toFixed(2)}</td>
+                <td class="${pctClass}">${arrow} ${sign}${(p.pnl_pct * 100).toFixed(2)}%</td>
                 <td>${weight}%</td>
             </tr>`;
         }).join('') + `<tr class="pos-summary">
@@ -1097,6 +1121,171 @@ const App = {
         }, 'weekday', {
             plugins: { legend: { display: false } },
             scales: { y: { ticks: { callback: v => v.toFixed(3) + '%' } } },
+        });
+    },
+
+    /* ── 参数优化 ── */
+    bindOptimize() {
+        const form = document.getElementById('bt-optimize-form');
+        if (!form) return;
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const code = document.getElementById('bt-code').value.trim();
+            if (!code) { this.toast('请先选择股票代码', 'error'); return; }
+
+            const btn = document.getElementById('opt-run-btn');
+            btn.disabled = true;
+            btn.textContent = '优化中...';
+            document.getElementById('opt-result').style.display = 'none';
+            const progWrap = document.getElementById('opt-progress-wrap');
+            if (progWrap) progWrap.style.display = '';
+
+            const body = {
+                strategy: document.getElementById('bt-strategy').value,
+                codes: [code],
+                start_date: document.getElementById('bt-start').value,
+                end_date: document.getElementById('bt-end').value,
+                initial_cash: parseFloat(document.getElementById('bt-cash').value) || 100000,
+                commission_rate: parseFloat(document.getElementById('bt-commission').value) || 0.0003,
+                stamp_tax_rate: parseFloat(document.getElementById('bt-stamp-tax').value) || 0.001,
+                slippage: parseFloat(document.getElementById('bt-slippage').value) || 0.002,
+                metric: document.getElementById('opt-metric').value,
+                method: document.getElementById('opt-method').value,
+                n_trials: parseInt(document.getElementById('opt-trials').value) || 50,
+            };
+
+            try {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${proto}//${location.host}/api/optimization/ws/run`);
+                const result = await new Promise((resolve, reject) => {
+                    ws.onopen = () => ws.send(JSON.stringify(body));
+                    ws.onmessage = (evt) => {
+                        const msg = JSON.parse(evt.data);
+                        if (msg.type === 'progress') {
+                            const fill = document.getElementById('opt-progress-fill');
+                            const text = document.getElementById('opt-progress-text');
+                            if (fill) fill.style.width = (msg.progress * 100).toFixed(1) + '%';
+                            if (text) text.textContent = (msg.progress * 100).toFixed(1) + '%';
+                        } else if (msg.type === 'complete') {
+                            resolve(msg.data);
+                        } else if (msg.type === 'error') {
+                            reject(new Error(msg.message));
+                        }
+                    };
+                    ws.onerror = () => reject(new Error('连接失败'));
+                    setTimeout(() => { ws.close(); reject(new Error('超时')); }, 600000);
+                });
+                this._showOptResult(result);
+                this.toast(`优化完成，最优${result.metric_name}: ${result.best_metric}`, 'success');
+            } catch (err) {
+                this.toast('优化失败: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '开始优化';
+                if (progWrap) progWrap.style.display = 'none';
+            }
+        });
+    },
+
+    _showOptResult(data) {
+        document.getElementById('opt-result').style.display = '';
+        const statsEl = document.getElementById('opt-best-stats');
+        if (statsEl) {
+            const bp = data.best_params;
+            const paramStr = Object.entries(bp).map(([k, v]) => `${k}=${v}`).join(', ');
+            statsEl.innerHTML = [
+                `<span class="as-item"><span class="as-label">最优参数:</span><span class="as-value">${paramStr}</span></span>`,
+                `<span class="as-item"><span class="as-label">${data.metric_name}:</span><span class="as-value">${data.best_metric}</span></span>`,
+                `<span class="as-item"><span class="as-label">试验次数:</span><span class="as-value">${data.total_trials}</span></span>`,
+                `<span class="as-item"><span class="as-label">耗时:</span><span class="as-value">${data.elapsed_seconds}s</span></span>`,
+            ].join('');
+        }
+        const tbody = document.querySelector('#opt-results-table tbody');
+        if (tbody && data.results) {
+            tbody.innerHTML = data.results.slice(0, 20).map((r, i) => {
+                const p = r.params || {};
+                const paramStr = Object.entries(p).map(([k, v]) => `${k}=${typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v}`).join(', ');
+                return `<tr>
+                    <td>${i + 1}</td><td>${paramStr}</td>
+                    <td>${r.metric}</td><td>${(r.total_return * 100).toFixed(2)}%</td>
+                    <td>${(r.max_drawdown * 100).toFixed(2)}%</td><td>${r.sharpe_ratio}</td>
+                    <td>${(r.win_rate * 100).toFixed(1)}%</td><td>${r.total_trades}</td>
+                </tr>`;
+            }).join('');
+        }
+    },
+
+    /* ── 蒙特卡洛模拟 ── */
+    runMonteCarlo() {
+        const data = this._lastBacktestData;
+        if (!data || !data.trades || data.trades.length < 5) {
+            this.toast('请先运行回测（至少5笔交易）', 'error');
+            return;
+        }
+
+        const sellTrades = data.trades.filter(t => t.direction === 'short' && t.entry_price > 0);
+        if (sellTrades.length < 3) {
+            this.toast('交易次数不足，无法模拟', 'error');
+            return;
+        }
+
+        const pnls = sellTrades.map(t => (t.price - t.entry_price) / t.entry_price);
+        const simulations = 1000;
+        const finalReturns = [];
+
+        for (let sim = 0; sim < simulations; sim++) {
+            // 随机打乱交易顺序
+            const shuffled = [...pnls];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            // 计算累计收益
+            let cumulative = 1;
+            for (const pnl of shuffled) {
+                cumulative *= (1 + pnl);
+            }
+            finalReturns.push((cumulative - 1) * 100);
+        }
+
+        finalReturns.sort((a, b) => a - b);
+        const mean = finalReturns.reduce((s, v) => s + v, 0) / simulations;
+        const p5 = finalReturns[Math.floor(simulations * 0.05)];
+        const p25 = finalReturns[Math.floor(simulations * 0.25)];
+        const p50 = finalReturns[Math.floor(simulations * 0.50)];
+        const p75 = finalReturns[Math.floor(simulations * 0.75)];
+        const p95 = finalReturns[Math.floor(simulations * 0.95)];
+        const ruinProb = (finalReturns.filter(r => r < -50).length / simulations * 100);
+
+        document.getElementById('mc-result').style.display = '';
+        const statsEl = document.getElementById('mc-stats');
+        if (statsEl) {
+            statsEl.innerHTML = [
+                `<span class="as-item"><span class="as-label">模拟次数:</span><span class="as-value">${simulations}</span></span>`,
+                `<span class="as-item"><span class="as-label">平均收益:</span><span class="as-value">${mean.toFixed(2)}%</span></span>`,
+                `<span class="as-item"><span class="as-label">5%分位:</span><span class="as-value text-success">${p5.toFixed(2)}%</span></span>`,
+                `<span class="as-item"><span class="as-label">中位数:</span><span class="as-value">${p50.toFixed(2)}%</span></span>`,
+                `<span class="as-item"><span class="as-label">95%分位:</span><span class="as-value text-danger">${p95.toFixed(2)}%</span></span>`,
+                `<span class="as-item"><span class="as-label">破产概率(亏50%+):</span><span class="as-value">${ruinProb.toFixed(1)}%</span></span>`,
+            ].join('');
+        }
+
+        // 绘制直方图
+        const binCount = 30;
+        const minR = finalReturns[0];
+        const maxR = finalReturns[finalReturns.length - 1];
+        const binW = (maxR - minR) / binCount || 1;
+        const bins = [];
+        const counts = [];
+        for (let i = 0; i < binCount; i++) {
+            const lo = minR + i * binW;
+            const hi = lo + binW;
+            bins.push(((lo + hi) / 2).toFixed(1));
+            counts.push(finalReturns.filter(r => r >= lo && r < hi).length);
+        }
+        const colors = bins.map(b => parseFloat(b) >= 0 ? 'rgba(239,83,80,0.6)' : 'rgba(16,185,129,0.6)');
+        ChartFactory.bar('mc-chart', { labels: bins, values: counts, colors }, 'monteCarlo', {
+            plugins: { legend: { display: false } },
         });
     },
 

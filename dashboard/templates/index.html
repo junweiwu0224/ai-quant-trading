@@ -5,51 +5,74 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="AI 量化交易系统 - 回测、持仓、风控一体化面板">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=7">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
     <!-- 侧边导航（桌面） -->
-    <nav class="sidebar" aria-label="主导航">
-        <div class="logo" role="heading" aria-level="1">AI Quant</div>
+    <nav class="sidebar" id="sidebar" aria-label="主导航">
+        <div class="sidebar-header">
+            <div class="logo" role="heading" aria-level="1">AI Quant</div>
+            <button class="sidebar-toggle" onclick="App.toggleSidebar()" aria-label="折叠导航">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </button>
+        </div>
         <ul role="tablist">
-            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">总览</a></li>
-            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">回测</a></li>
-            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">持仓</a></li>
-            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="nav-risk" aria-selected="false" aria-controls="tab-risk">风控</a></li>
-            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="nav-alpha" aria-selected="false" aria-controls="tab-alpha">AI Alpha</a></li>
+            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
+                <span class="nav-text">总览</span>
+            </a></li>
+            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
+                <span class="nav-text">回测</span>
+            </a></li>
+            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
+                <span class="nav-text">持仓</span>
+            </a></li>
+            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="nav-risk" aria-selected="false" aria-controls="tab-risk">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg></span>
+                <span class="nav-text">风控</span>
+            </a></li>
+            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="nav-alpha" aria-selected="false" aria-controls="tab-alpha">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+                <span class="nav-text">AI Alpha</span>
+            </a></li>
             <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></span>
-                模拟盘
+                <span class="nav-text">模拟盘</span>
             </a></li>
-            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" id="nav-strategy" aria-selected="false" aria-controls="tab-strategy">策略管理</a></li>
+            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" id="nav-strategy" aria-selected="false" aria-controls="tab-strategy">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></span>
+                <span class="nav-text">策略管理</span>
+            </a></li>
         </ul>
     </nav>
 
     <!-- 底部导航（手机） -->
     <nav class="bottom-nav" aria-label="手机导航">
         <ul role="tablist">
-            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="nav-overview" aria-selected="true" aria-controls="tab-overview">
+            <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="m-nav-overview" aria-selected="true" aria-controls="tab-overview">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span>总览</span>
             </a></li>
-            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">
+            <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="m-nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
                 <span>回测</span>
             </a></li>
-            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">
+            <li><a href="#portfolio" class="nav-link" data-tab="portfolio" role="tab" id="m-nav-portfolio" aria-selected="false" aria-controls="tab-portfolio">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
                 <span>持仓</span>
             </a></li>
-            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="nav-risk" aria-selected="false" aria-controls="tab-risk">
+            <li><a href="#risk" class="nav-link" data-tab="risk" role="tab" id="m-nav-risk" aria-selected="false" aria-controls="tab-risk">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg></span>
                 <span>风控</span>
             </a></li>
-            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="nav-alpha" aria-selected="false" aria-controls="tab-alpha">
+            <li><a href="#alpha" class="nav-link" data-tab="alpha" role="tab" id="m-nav-alpha" aria-selected="false" aria-controls="tab-alpha">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
                 <span>AI</span>
             </a></li>
-            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
+            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="m-nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></span>
                 <span>模拟盘</span>
             </a></li>
@@ -120,13 +143,13 @@
 
             <div class="card">
                 <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
-                <div class="watchlist-add" style="display:flex;gap:0.5rem;margin-bottom:1rem">
+                <div class="watchlist-add form-row" style="margin-bottom:1rem">
                     <div class="search-box" id="watchlist-search-box" style="flex:1">
                         <input type="text" id="watchlist-input" class="search-input" placeholder="输入股票代码或名称添加" autocomplete="off">
                         <div class="search-results" id="watchlist-search-results"></div>
                     </div>
-                    <button class="btn btn-primary btn-sm" onclick="App.addToWatchlist()">添加</button>
-                    <button class="btn btn-sm" onclick="App.syncWatchlist()">同步数据</button>
+                    <button class="btn btn-primary btn-sm" onclick="Watchlist.add()">添加</button>
+                    <button class="btn btn-sm" onclick="Watchlist.sync()">同步数据</button>
                 </div>
                 <div class="table-wrap">
                     <table id="ov-stocks-table">
@@ -165,8 +188,8 @@
                     <div class="form-group">
                         <label for="bt-code">股票代码</label>
                         <div class="search-box" id="bt-code-box">
-                            <input type="text" id="bt-code" class="search-input" placeholder="输入代码或名称搜索" autocomplete="off" required>
-                            <div class="search-results" id="bt-code-results"></div>
+                            <input type="text" id="bt-code" class="search-input" placeholder="点击选择股票" readonly autocomplete="off" required>
+                            <div class="search-dropdown" id="bt-code-dropdown"></div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -263,7 +286,51 @@
         <section class="tab-panel" id="tab-portfolio" role="tabpanel" aria-labelledby="nav-portfolio">
             <div class="page-header">
                 <h1>持仓监控</h1>
-                <button class="btn btn-sm" onclick="App.loadPortfolio()">刷新</button>
+                <div style="display:flex;gap:0.5rem">
+                    <button class="btn btn-sm" onclick="App.toggleBrokerConfig()">账户配置</button>
+                    <button class="btn btn-sm" onclick="App.loadPortfolio()">刷新</button>
+                </div>
+            </div>
+
+            <!-- 券商账户配置（默认折叠） -->
+            <div class="card" id="broker-config-card" style="display:none">
+                <h2>券商账户配置</h2>
+                <form id="broker-form" class="form-row">
+                    <div class="form-group">
+                        <label for="br-type">券商类型</label>
+                        <select id="br-type">
+                            <option value="simulated">模拟盘（内置撮合）</option>
+                            <option value="ctp">CTP（期货）</option>
+                            <option value="xtp">XTP（股票）</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="br-account">账户 ID</label>
+                        <input type="text" id="br-account" placeholder="券商账户编号">
+                    </div>
+                    <div class="form-group">
+                        <label for="br-addr">网关地址</label>
+                        <input type="text" id="br-addr" placeholder="如 180.168.146.187:10130">
+                    </div>
+                    <div class="form-group">
+                        <label for="br-appid">App ID</label>
+                        <input type="text" id="br-appid" placeholder="券商分配的 AppID">
+                    </div>
+                    <div class="form-group">
+                        <label for="br-auth">认证码</label>
+                        <input type="text" id="br-auth" placeholder="券商分配的 AuthCode">
+                    </div>
+                    <div class="form-group">
+                        <span></span>
+                        <div style="display:flex;gap:0.5rem">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="App.saveBrokerConfig()">保存配置</button>
+                            <button type="button" class="btn btn-sm" onclick="App.testBrokerConn()">测试连接</button>
+                        </div>
+                    </div>
+                </form>
+                <p class="text-muted" style="font-size:12px;margin-top:8px">
+                    CTP/XTP 需要部署对应的 Gateway 服务。当前仅支持模拟盘交易。
+                </p>
             </div>
 
             <div class="stats-grid">
@@ -343,7 +410,12 @@
             <div class="page-header">
                 <h1>AI Alpha</h1>
                 <div class="form-row">
-                    <select id="alpha-code"></select>
+                    <div class="form-group" style="min-width:200px">
+                        <div class="search-box" id="alpha-code-box">
+                            <input type="text" id="alpha-code" class="search-input" placeholder="点击选择股票" readonly autocomplete="off">
+                            <div class="search-dropdown" id="alpha-code-dropdown"></div>
+                        </div>
+                    </div>
                     <input type="date" id="alpha-start" value="2023-01-01">
                     <input type="date" id="alpha-end">
                     <button class="btn btn-primary btn-sm" onclick="App.loadAlpha()">分析</button>
@@ -393,8 +465,12 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="pp-codes">股票代码</label>
-                        <input type="text" id="pp-codes" placeholder="多个用逗号分隔" required>
+                        <label>股票代码</label>
+                        <div class="search-box" id="pp-codes-box">
+                            <input type="text" id="pp-codes" class="search-input" placeholder="点击选择股票（可多选）" readonly autocomplete="off" required>
+                            <div class="search-dropdown" id="pp-codes-dropdown"></div>
+                            <div class="sb-tags" id="pp-codes-tags"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="pp-interval">轮询间隔(秒)</label>
@@ -411,9 +487,9 @@
                     <div class="form-group">
                         <span></span>
                         <div style="display:flex;gap:0.5rem">
-                            <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="App.startPaper()">启动</button>
-                            <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="App.stopPaper()" disabled>停止</button>
-                            <button type="button" class="btn btn-sm" onclick="App.resetPaper()">重置</button>
+                            <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="Paper.start()">启动</button>
+                            <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="Paper.stop()" disabled>停止</button>
+                            <button type="button" class="btn btn-sm" onclick="Paper.reset()">重置</button>
                         </div>
                     </div>
                 </form>
@@ -433,7 +509,7 @@
         <section class="tab-panel" id="tab-strategy" role="tabpanel" aria-labelledby="nav-strategy">
             <div class="page-header">
                 <h1>策略管理</h1>
-                <button class="btn btn-primary btn-sm" onclick="App.createStrategy()">新增策略</button>
+                <button class="btn btn-primary btn-sm" onclick="Strategy.showCreateModal()">新增策略</button>
             </div>
             <div class="strategy-grid" id="st-list">
                 <div class="loading"><span class="spinner"></span>加载中...</div>
@@ -444,6 +520,11 @@
 
     <div class="toast-container" role="alert" aria-live="polite" id="toast-container"></div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/charts.js?v=4"></script>
+    <script src="/static/search.js?v=8"></script>
+    <script src="/static/watchlist.js?v=3"></script>
+    <script src="/static/paper.js?v=7"></script>
+    <script src="/static/strategy.js?v=3"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>

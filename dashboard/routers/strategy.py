@@ -10,7 +10,7 @@ _manager = StrategyManager()
 
 
 class StrategyRequest(BaseModel):
-    name: str
+    name: Optional[str] = None
     label: Optional[str] = None
     type: Optional[str] = "自定义"
     description: Optional[str] = ""

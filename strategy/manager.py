@@ -38,31 +38,48 @@ BUILTIN_STRATEGIES = [
 
 
 class StrategyManager:
-    """策略管理器：内置策略 + 自定义策略"""
+    """策略管理器：内置策略 + 自定义策略 + 内置策略参数覆盖"""
 
     def __init__(self, filepath: Optional[Path] = None):
         self._filepath = filepath or STRATEGIES_FILE
         self._custom: list[dict] = []
+        self._overrides: dict[str, dict] = {}  # 内置策略参数覆盖 {name: params}
         self._load()
 
     def _load(self):
         if self._filepath.exists():
             try:
-                self._custom = json.loads(self._filepath.read_text(encoding="utf-8"))
+                data = json.loads(self._filepath.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and "custom" in data:
+                    self._custom = data.get("custom", [])
+                    self._overrides = data.get("overrides", {})
+                elif isinstance(data, list):
+                    self._custom = data
+                    self._overrides = {}
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning(f"加载自定义策略失败: {e}")
                 self._custom = []
+                self._overrides = {}
 
     def _save(self):
         self._filepath.parent.mkdir(parents=True, exist_ok=True)
+        data = {"custom": self._custom, "overrides": self._overrides}
         self._filepath.write_text(
-            json.dumps(self._custom, ensure_ascii=False, indent=2),
+            json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
+    def _merge_builtin(self, s: dict) -> dict:
+        """合并内置策略与其参数覆盖"""
+        merged = dict(s, builtin=True)
+        if s["name"] in self._overrides:
+            merged["params"] = {**s.get("params", {}), **self._overrides[s["name"]]}
+            merged["has_override"] = True
+        return merged
+
     def list_all(self) -> list[dict]:
         """返回所有策略（内置 + 自定义）"""
-        builtin = [dict(s, builtin=True) for s in BUILTIN_STRATEGIES]
+        builtin = [self._merge_builtin(s) for s in BUILTIN_STRATEGIES]
         custom = [dict(s, builtin=False) for s in self._custom]
         return builtin + custom
 
@@ -70,7 +87,7 @@ class StrategyManager:
         """按名称获取策略"""
         for s in BUILTIN_STRATEGIES:
             if s["name"] == name:
-                return dict(s, builtin=True)
+                return self._merge_builtin(s)
         for s in self._custom:
             if s["name"] == name:
                 return dict(s, builtin=False)
@@ -96,7 +113,17 @@ class StrategyManager:
         return dict(entry, builtin=False)
 
     def update(self, name: str, data: dict) -> dict:
-        """编辑自定义策略"""
+        """编辑策略（内置策略只允许修改参数，自定义策略可修改全部）"""
+        # 内置策略：只更新参数覆盖
+        for s in BUILTIN_STRATEGIES:
+            if s["name"] == name:
+                if "params" in data and data["params"]:
+                    self._overrides[name] = data["params"]
+                    self._save()
+                    logger.info(f"更新内置策略参数: {name}")
+                return self._merge_builtin(s)
+
+        # 自定义策略
         for i, s in enumerate(self._custom):
             if s["name"] == name:
                 if "label" in data:
@@ -111,7 +138,7 @@ class StrategyManager:
                 self._save()
                 logger.info(f"更新策略: {name}")
                 return dict(s, builtin=False)
-        raise ValueError(f"策略 {name} 不存在或是内置策略")
+        raise ValueError(f"策略 {name} 不存在")
 
     def delete(self, name: str) -> bool:
         """删除自定义策略"""

@@ -38,6 +38,8 @@ Thumbs.db
 # Data (large files)
 data/raw/
 data/cache/
+data/broker_config.json
+data/strategies.json
 
 # Model files
 *.pkl

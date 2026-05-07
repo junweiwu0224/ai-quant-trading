@@ -55,6 +55,7 @@ class DataStorage:
     def __init__(self, db_url: str = DB_URL):
         self._engine = create_engine(db_url, echo=False)
         self._Session = sessionmaker(bind=self._engine)
+        self.init_db()
 
     def init_db(self):
         """创建所有表"""

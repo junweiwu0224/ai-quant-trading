@@ -126,8 +126,8 @@ async def search_stocks(q: str = Query("", description="搜索关键词")):
         if df.empty:
             return []
         if q:
-            df = df[df["code"].str.contains(q) | df["name"].str.contains(q)]
-        return df.head(50).to_dict("records")
+            df = df[df["code"].str.contains(q, na=False) | df["name"].str.contains(q, na=False)]
+        return df.to_dict("records")
     except Exception:
         return []
 

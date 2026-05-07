@@ -210,3 +210,107 @@ def optuna_search(
         elapsed_seconds=round(time.time() - start_time, 1),
         results=results[:100],
     )
+
+
+def sensitivity_analysis(
+    strategy_cls: type,
+    param_ranges: dict,
+    codes: list[str],
+    start_date: str,
+    end_date: str,
+    config: BacktestConfig,
+    metric: str = "sharpe_ratio",
+    param_x: str = "short_window",
+    param_y: str = "long_window",
+    max_workers: int = 4,
+) -> dict:
+    """参数敏感性分析，返回热力图数据"""
+    start_time = time.time()
+
+    spec_x = param_ranges[param_x]
+    spec_y = param_ranges[param_y]
+
+    def _gen_values(spec):
+        values = []
+        v = spec["min"]
+        step = spec.get("step", 1)
+        while v <= spec["max"] + step * 0.01:
+            if spec.get("type") == "int":
+                values.append(int(round(v)))
+            else:
+                values.append(round(v, 4))
+            v += step
+        return sorted(set(values))
+
+    xs = _gen_values(spec_x)
+    ys = _gen_values(spec_y)
+
+    # 构建参数组合
+    combos = []
+    for y_val in ys:
+        for x_val in xs:
+            # 跳过无效组合
+            if param_x == "short_window" and param_y == "long_window":
+                if x_val >= y_val:
+                    combos.append((x_val, y_val, None))
+                    continue
+            if param_x == "long_window" and param_y == "short_window":
+                if y_val >= x_val:
+                    combos.append((x_val, y_val, None))
+                    continue
+            combos.append((x_val, y_val, {param_x: x_val, param_y: y_val}))
+
+    # 并行回测
+    grid_data = []
+    best_metric = float("-inf")
+    best_params = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {}
+        for x_val, y_val, params in combos:
+            if params is None:
+                continue
+            # 用其他参数的默认中间值填充
+            full_params = {}
+            for name, spec in param_ranges.items():
+                if name == param_x:
+                    full_params[name] = x_val
+                elif name == param_y:
+                    full_params[name] = y_val
+                else:
+                    mid = (spec["min"] + spec["max"]) / 2
+                    if spec.get("type") == "int":
+                        full_params[name] = int(round(mid))
+                    else:
+                        full_params[name] = round(mid, 4)
+            fut = executor.submit(
+                _run_single_backtest, strategy_cls, full_params,
+                codes, start_date, end_date, config, metric,
+            )
+            futures[fut] = (x_val, y_val)
+
+        for fut in as_completed(futures):
+            x_val, y_val = futures[fut]
+            res = fut.result()
+            grid_data.append({
+                "x": x_val,
+                "y": y_val,
+                "metric": res["metric"],
+                "params": res.get("params", {}),
+            })
+            if res["metric"] > best_metric:
+                best_metric = res["metric"]
+                best_params = {param_x: x_val, param_y: y_val}
+
+    return {
+        "param_x": param_x,
+        "param_y": param_y,
+        "x_values": xs,
+        "y_values": ys,
+        "grid": grid_data,
+        "best_params": best_params,
+        "best_metric": round(best_metric, 6),
+        "metric_name": METRICS.get(metric, metric),
+        "total_trials": len(grid_data),
+        "elapsed_seconds": round(time.time() - start_time, 1),
+    }

@@ -130,16 +130,16 @@
             <div class="card market-card">
                 <h2>市场大盘</h2>
                 <div class="market-indices" id="ov-market-indices">
-                    <div class="text-muted">加载中...</div>
+                    <div class="loading"><span class="spinner"></span>加载中...</div>
                 </div>
                 <div class="market-sectors">
                     <div class="market-sector-col">
                         <h3>行业板块 TOP10</h3>
-                        <div id="ov-hot-industries" class="sector-list"><div class="text-muted">加载中...</div></div>
+                        <div id="ov-hot-industries" class="sector-list"><div class="loading"><span class="spinner"></span>加载中...</div></div>
                     </div>
                     <div class="market-sector-col">
                         <h3>概念板块 TOP10</h3>
-                        <div id="ov-hot-concepts" class="sector-list"><div class="text-muted">加载中...</div></div>
+                        <div id="ov-hot-concepts" class="sector-list"><div class="loading"><span class="spinner"></span>加载中...</div></div>
                     </div>
                 </div>
             </div>
@@ -154,7 +154,7 @@
                         <button class="chart-toggle-btn" data-mode="benchmark" onclick="App._switchOverviewChart('benchmark')">收益对比</button>
                     </div>
                 </div>
-                <div style="height:250px"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
+                <div class="chart-container chart-h-md"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
             </div>
 
             <!-- Row 4: 持仓明细 -->
@@ -216,7 +216,7 @@
             <div class="card">
                 <h2>市场情绪</h2>
                 <div id="ov-market-stats" class="market-stats-panel">
-                    <div class="text-muted">加载中...</div>
+                    <div class="loading"><span class="spinner"></span>加载中...</div>
                 </div>
             </div>
 
@@ -233,7 +233,7 @@
                 <div class="table-wrap">
                     <table id="ov-stocks-table">
                         <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>板块</th><th>概念</th><th>最新价</th><th>涨跌幅</th></tr></thead>
-                        <tbody><tr><td colspan="7" class="text-muted">加载中...</td></tr></tbody>
+                        <tbody><tr><td colspan="7" class="loading"><span class="spinner"></span>加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -398,7 +398,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div id="sd-kline-chart" style="height:420px"></div>
+                        <div id="sd-kline-chart" class="chart-container chart-h-kline"></div>
                     </div>
                     <div class="card sd-orderbook-card">
                         <h3>五档盘口</h3>
@@ -413,13 +413,13 @@
                 <div class="card">
                     <h3>资金流向（近20日）</h3>
                     <p class="sd-flow-desc">主力=超大单+大单 | 散户=中单+小单 | <span class="text-danger">红=净流入</span> <span class="text-success">绿=净流出</span></p>
-                    <div id="sd-capital-chart" style="height:300px"></div>
+                    <div id="sd-capital-chart" class="chart-container chart-h-xl"></div>
                 </div>
 
                 <!-- 利润趋势 -->
                 <div class="card">
                     <h3>利润趋势（近8季度）</h3>
-                    <div id="sd-profit-chart" style="height:300px"></div>
+                    <div id="sd-profit-chart" class="chart-container chart-h-xl"></div>
                 </div>
 
                 <!-- 十大流通股东 -->
@@ -438,7 +438,7 @@
                                 </tr>
                             </thead>
                             <tbody id="sd-shareholders-body">
-                                <tr><td colspan="6" class="text-muted">加载中...</td></tr>
+                                <tr><td colspan="6" class="loading"><span class="spinner"></span>加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -499,7 +499,7 @@
                 <div class="card">
                     <h3>北向资金持仓</h3>
                     <p class="sd-flow-desc">近 30 日持仓变动</p>
-                    <div style="height:200px;margin-bottom:1rem">
+                    <div class="chart-container chart-h-sm mb-md">
                         <canvas id="sd-north-chart"></canvas>
                     </div>
                     <div class="sd-north-stats" id="sd-north-stats">
@@ -606,7 +606,7 @@
 
                 <div class="card">
                     <h2>收益曲线</h2>
-                    <div style="height:250px"><canvas id="bt-equity-chart" aria-label="回测收益曲线图"></canvas></div>
+                    <div class="chart-container chart-h-md"><canvas id="bt-equity-chart" aria-label="回测收益曲线图"></canvas></div>
                 </div>
 
                 <div class="card">
@@ -616,7 +616,7 @@
 
                 <div class="card">
                     <h2>回撤曲线</h2>
-                    <div style="height:220px"><canvas id="bt-drawdown-chart" aria-label="回撤曲线图"></canvas></div>
+                    <div class="chart-container chart-h-sm"><canvas id="bt-drawdown-chart" aria-label="回撤曲线图"></canvas></div>
                 </div>
 
                 <!-- 深度分析 -->
@@ -629,14 +629,14 @@
                     </div>
                     <div class="analysis-panel active" id="bt-panel-returns">
                         <div class="analysis-stats" id="bt-return-stats"></div>
-                        <div style="height:220px"><canvas id="bt-return-dist-chart" aria-label="收益分布图"></canvas></div>
+                        <div class="chart-container chart-h-sm"><canvas id="bt-return-dist-chart" aria-label="收益分布图"></canvas></div>
                     </div>
                     <div class="analysis-panel" id="bt-panel-trades">
                         <div class="analysis-stats" id="bt-trade-stats"></div>
-                        <div style="height:220px"><canvas id="bt-trade-pnl-chart" aria-label="盈亏分布图"></canvas></div>
+                        <div class="chart-container chart-h-sm"><canvas id="bt-trade-pnl-chart" aria-label="盈亏分布图"></canvas></div>
                     </div>
                     <div class="analysis-panel" id="bt-panel-weekday">
-                        <div style="height:220px"><canvas id="bt-weekday-chart" aria-label="星期效应图"></canvas></div>
+                        <div class="chart-container chart-h-sm"><canvas id="bt-weekday-chart" aria-label="星期效应图"></canvas></div>
                     </div>
                 </div>
 
@@ -659,7 +659,7 @@
                             </label>
                         </div>
                     </div>
-                    <div style="height:280px"><canvas id="bt-compare-chart" aria-label="多策略收益对比图"></canvas></div>
+                    <div class="chart-container chart-h-lg"><canvas id="bt-compare-chart" aria-label="多策略收益对比图"></canvas></div>
                 </div>
 
                 <div class="card">
@@ -717,6 +717,49 @@
                     </div>
                 </div>
 
+                <!-- 参数敏感性分析 -->
+                <div class="card">
+                    <h2>参数敏感性分析</h2>
+                    <form id="bt-sensitivity-form" class="form-row" style="margin-bottom:1rem">
+                        <div class="form-group">
+                            <label for="sens-metric">分析指标</label>
+                            <select id="sens-metric">
+                                <option value="sharpe_ratio">夏普比率</option>
+                                <option value="total_return">总收益率</option>
+                                <option value="calmar_ratio">Calmar比率</option>
+                                <option value="sortino_ratio">Sortino比率</option>
+                                <option value="win_rate">胜率</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sens-param-x">X 轴参数</label>
+                            <select id="sens-param-x">
+                                <option value="short_window">短期均线</option>
+                                <option value="long_window">长期均线</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sens-param-y">Y 轴参数</label>
+                            <select id="sens-param-y">
+                                <option value="short_window">短期均线</option>
+                                <option value="long_window" selected>长期均线</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <span></span>
+                            <button type="submit" class="btn btn-primary" id="sens-run-btn">开始分析</button>
+                        </div>
+                    </form>
+                    <div id="sens-progress-wrap" class="bt-progress" style="display:none">
+                        <div class="bt-progress-bar"><div class="bt-progress-fill" id="sens-progress-fill"></div></div>
+                        <div class="bt-progress-text" id="sens-progress-text">计算中...</div>
+                    </div>
+                    <div id="sens-result" style="display:none">
+                        <div class="analysis-stats" id="sens-stats"></div>
+                        <div class="chart-container chart-h-xxl"><canvas id="sens-chart" aria-label="参数敏感性热力图"></canvas></div>
+                    </div>
+                </div>
+
                 <!-- 蒙特卡洛模拟 -->
                 <div class="card">
                     <h2>蒙特卡洛模拟</h2>
@@ -726,7 +769,7 @@
                     </div>
                     <div id="mc-result" style="display:none">
                         <div class="analysis-stats" id="mc-stats"></div>
-                        <div style="height:220px"><canvas id="mc-chart" aria-label="蒙特卡洛模拟图"></canvas></div>
+                        <div class="chart-container chart-h-sm"><canvas id="mc-chart" aria-label="蒙特卡洛模拟图"></canvas></div>
                     </div>
                 </div>
 
@@ -803,15 +846,15 @@
             <div class="chart-row">
                 <div class="card">
                     <h2>持仓盈亏</h2>
-                    <div style="height:220px"><canvas id="pf-pnl-chart" aria-label="持仓盈亏图"></canvas></div>
+                    <div class="chart-container chart-h-sm"><canvas id="pf-pnl-chart" aria-label="持仓盈亏图"></canvas></div>
                 </div>
                 <div class="card">
                     <h2>行业分布</h2>
-                    <div style="height:220px"><canvas id="pf-industry-chart" aria-label="行业分布图"></canvas></div>
+                    <div class="chart-container chart-h-sm"><canvas id="pf-industry-chart" aria-label="行业分布图"></canvas></div>
                 </div>
                 <div class="card">
                     <h2>市值占比</h2>
-                    <div style="height:220px"><canvas id="pf-allocation-chart" aria-label="市值占比图"></canvas></div>
+                    <div class="chart-container chart-h-sm"><canvas id="pf-allocation-chart" aria-label="市值占比图"></canvas></div>
                 </div>
             </div>
 
@@ -851,7 +894,7 @@
 
             <div class="card">
                 <h2>仓位分布</h2>
-                <div style="height:250px"><canvas id="rk-position-chart" aria-label="仓位分布图"></canvas></div>
+                <div class="chart-container chart-h-md"><canvas id="rk-position-chart" aria-label="仓位分布图"></canvas></div>
             </div>
 
             <div class="card">
@@ -885,22 +928,22 @@
             <div class="chart-row">
                 <div class="card">
                     <h2>因子重要性 Top 20</h2>
-                    <div style="height:300px"><canvas id="alpha-feature-chart" aria-label="因子重要性图"></canvas></div>
+                    <div class="chart-container chart-h-xl"><canvas id="alpha-feature-chart" aria-label="因子重要性图"></canvas></div>
                 </div>
                 <div class="card">
                     <h2>模型训练曲线</h2>
-                    <div style="height:300px"><canvas id="alpha-training-chart" aria-label="模型训练曲线图"></canvas></div>
+                    <div class="chart-container chart-h-xl"><canvas id="alpha-training-chart" aria-label="模型训练曲线图"></canvas></div>
                 </div>
             </div>
 
             <div class="card">
                 <h2>预测 vs 实际</h2>
-                <div style="height:250px"><canvas id="alpha-predict-chart" aria-label="预测与实际对比图"></canvas></div>
+                <div class="chart-container chart-h-md"><canvas id="alpha-predict-chart" aria-label="预测与实际对比图"></canvas></div>
             </div>
 
             <div class="card">
                 <h2>交易信号</h2>
-                <div style="height:350px"><canvas id="alpha-signal-chart" aria-label="交易信号图"></canvas></div>
+                <div class="chart-container chart-h-xxl"><canvas id="alpha-signal-chart" aria-label="交易信号图"></canvas></div>
             </div>
         </section>
 

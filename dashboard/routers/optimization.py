@@ -13,6 +13,7 @@ from engine.optimization_engine import (
     METRICS,
     grid_search,
     optuna_search,
+    sensitivity_analysis,
 )
 from strategy.dual_ma import DualMAStrategy
 from strategy.bollinger import BollingerStrategy
@@ -40,6 +41,20 @@ class OptimizeRequest(BaseModel):
     method: str = "grid_search"
     n_trials: int = 50
     param_ranges: Optional[dict] = None
+
+
+class SensitivityRequest(BaseModel):
+    strategy: str = "dual_ma"
+    codes: list[str] = ["000001"]
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    initial_cash: float = 100000
+    commission_rate: float = 0.0003
+    stamp_tax_rate: float = 0.001
+    slippage: float = 0.002
+    metric: str = "sharpe_ratio"
+    param_x: str = "short_window"
+    param_y: str = "long_window"
 
 
 @router.get("/param-ranges/{strategy}")
@@ -92,6 +107,36 @@ async def run_optimization(req: OptimizeRequest):
         "elapsed_seconds": result.elapsed_seconds,
         "results": result.results,
     }
+
+
+@router.post("/sensitivity")
+async def run_sensitivity(req: SensitivityRequest):
+    """参数敏感性分析（热力图数据）"""
+    if req.strategy not in STRATEGIES:
+        return {"error": "未知策略"}
+
+    strategy_cls = STRATEGIES[req.strategy]
+    param_ranges = STRATEGY_PARAM_RANGES.get(req.strategy, {})
+    if req.param_x not in param_ranges or req.param_y not in param_ranges:
+        return {"error": "参数名无效"}
+
+    config = BacktestConfig(
+        initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
+    )
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: sensitivity_analysis(
+        strategy_cls, param_ranges, req.codes,
+        req.start_date, req.end_date, config,
+        metric=req.metric,
+        param_x=req.param_x,
+        param_y=req.param_y,
+    ))
+
+    return result
 
 
 @router.websocket("/ws/run")

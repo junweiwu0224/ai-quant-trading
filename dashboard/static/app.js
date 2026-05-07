@@ -40,6 +40,7 @@ const App = {
         this.bindTabs();
         this.bindBacktest();
         this.bindOptimize();
+        this.bindSensitivity();
         this.bindStrategyChips();
         this.setDefaultDate();
         this.loadStockList();
@@ -138,7 +139,7 @@ const App = {
             const priceCell = row.cells?.[5];
             if (priceCell) {
                 priceCell.textContent = '¥' + q.price.toFixed(2);
-                priceCell.className = q.change_pct >= 0 ? 'text-danger' : 'text-success';
+                priceCell.className = q.change_pct >= 0 ? 'text-up' : 'text-down';
             }
             const changeCell = row.cells?.[6];
             if (changeCell) {
@@ -151,7 +152,7 @@ const App = {
                     changeCell.appendChild(pctEl);
                 }
                 pctEl.textContent = pctText;
-                changeCell.className = q.change_pct >= 0 ? 'text-danger' : 'text-success';
+                changeCell.className = q.change_pct >= 0 ? 'text-up' : 'text-down';
             }
         });
     },
@@ -478,7 +479,7 @@ const App = {
         const arrow = pnl >= 0 ? '↑' : '↓';
         const text = isCurrency ? `${arrow} ${sign}¥${Math.abs(pnl).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}` : `${arrow} ${sign}${(pnlPct * 100).toFixed(2)}%`;
         el.textContent = text;
-        el.className = 'stat-value ' + (pnl >= 0 ? 'text-danger' : 'text-success');
+        el.className = 'stat-value ' + (pnl >= 0 ? 'text-up' : 'text-down');
     },
 
     _renderPctMetric(id, value, alwaysRed) {
@@ -486,8 +487,8 @@ const App = {
         if (!el) return;
         const arrow = value >= 0 ? '↑' : '↓';
         el.textContent = arrow + ' ' + (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
-        if (alwaysRed) el.className = 'stat-value text-danger';
-        else el.className = 'stat-value ' + (value >= 0 ? 'text-danger' : 'text-success');
+        if (alwaysRed) el.className = 'stat-value text-up';
+        else el.className = 'stat-value ' + (value >= 0 ? 'text-up' : 'text-down');
     },
 
     _renderPositions(snapshot) {
@@ -500,7 +501,7 @@ const App = {
         }
         const totalEquity = snapshot.total_equity || 1;
         tbody.innerHTML = positions.map(p => {
-            const pctClass = p.pnl >= 0 ? 'text-danger' : 'text-success';
+            const pctClass = p.pnl >= 0 ? 'text-up' : 'text-down';
             const sign = p.pnl >= 0 ? '+' : '';
             const arrow = p.pnl >= 0 ? '↑' : '↓';
             const weight = ((p.market_value / totalEquity) * 100).toFixed(1);
@@ -519,8 +520,8 @@ const App = {
             <td>${positions.reduce((s, p) => s + p.volume, 0)}</td>
             <td></td>
             <td></td>
-            <td class="${snapshot.total_pnl >= 0 ? 'text-danger' : 'text-success'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}¥${Math.abs(snapshot.total_pnl).toFixed(2)}</strong></td>
-            <td class="${snapshot.total_pnl >= 0 ? 'text-danger' : 'text-success'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}${(snapshot.total_pnl_pct * 100).toFixed(2)}%</strong></td>
+            <td class="${snapshot.total_pnl >= 0 ? 'text-up' : 'text-down'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}¥${Math.abs(snapshot.total_pnl).toFixed(2)}</strong></td>
+            <td class="${snapshot.total_pnl >= 0 ? 'text-up' : 'text-down'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}${(snapshot.total_pnl_pct * 100).toFixed(2)}%</strong></td>
             <td></td>
         </tr>`;
     },
@@ -695,7 +696,7 @@ const App = {
         const el = document.getElementById('ov-market-indices');
         if (!el || !Array.isArray(indices) || indices.length === 0) return;
         el.innerHTML = indices.map(idx => {
-            const cls = idx.change_pct >= 0 ? 'text-danger' : 'text-success';
+            const cls = idx.change_pct >= 0 ? 'text-up' : 'text-down';
             const sign = idx.change_pct >= 0 ? '+' : '';
             return `
                 <div class="market-index">
@@ -716,7 +717,7 @@ const App = {
                 return;
             }
             el.innerHTML = items.map((s, i) => {
-                const cls = s.change_pct >= 0 ? 'text-danger' : 'text-success';
+                const cls = s.change_pct >= 0 ? 'text-up' : 'text-down';
                 const sign = s.change_pct >= 0 ? '+' : '';
                 return `
                     <div class="sector-row">
@@ -1213,6 +1214,150 @@ const App = {
                 </tr>`;
             }).join('');
         }
+    },
+
+    /* ── 参数敏感性分析 ── */
+    bindSensitivity() {
+        const form = document.getElementById('bt-sensitivity-form');
+        if (!form) return;
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const code = document.getElementById('bt-code').value.trim();
+            if (!code) { this.toast('请先选择股票代码', 'error'); return; }
+
+            const btn = document.getElementById('sens-run-btn');
+            btn.disabled = true;
+            btn.textContent = '分析中...';
+            document.getElementById('sens-result').style.display = 'none';
+            const progWrap = document.getElementById('sens-progress-wrap');
+            if (progWrap) progWrap.style.display = '';
+
+            const body = {
+                strategy: document.getElementById('bt-strategy').value,
+                codes: [code],
+                start_date: document.getElementById('bt-start').value,
+                end_date: document.getElementById('bt-end').value,
+                initial_cash: parseFloat(document.getElementById('bt-cash').value) || 100000,
+                commission_rate: parseFloat(document.getElementById('bt-commission').value) || 0.0003,
+                stamp_tax_rate: parseFloat(document.getElementById('bt-stamp-tax').value) || 0.001,
+                slippage: parseFloat(document.getElementById('bt-slippage').value) || 0.002,
+                metric: document.getElementById('sens-metric').value,
+                param_x: document.getElementById('sens-param-x').value,
+                param_y: document.getElementById('sens-param-y').value,
+            };
+
+            try {
+                const res = await fetch('/api/optimization/sensitivity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+                this._showSensResult(data);
+                this.toast(`敏感性分析完成，最优${data.metric_name}: ${data.best_metric}`, 'success');
+            } catch (err) {
+                this.toast('分析失败: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '开始分析';
+                if (progWrap) progWrap.style.display = 'none';
+            }
+        });
+    },
+
+    _showSensResult(data) {
+        document.getElementById('sens-result').style.display = '';
+        const statsEl = document.getElementById('sens-stats');
+        if (statsEl) {
+            const bp = data.best_params;
+            const paramStr = Object.entries(bp).map(([k, v]) => `${k}=${v}`).join(', ');
+            statsEl.innerHTML = [
+                `<span class="as-item"><span class="as-label">最优参数:</span><span class="as-value">${paramStr}</span></span>`,
+                `<span class="as-item"><span class="as-label">${data.metric_name}:</span><span class="as-value">${data.best_metric}</span></span>`,
+                `<span class="as-item"><span class="as-label">试验次数:</span><span class="as-value">${data.total_trials}</span></span>`,
+                `<span class="as-item"><span class="as-label">耗时:</span><span class="as-value">${data.elapsed_seconds}s</span></span>`,
+            ].join('');
+        }
+
+        // 渲染热力图
+        const canvas = document.getElementById('sens-chart');
+        if (!canvas) return;
+        if (this._sensChart) this._sensChart.destroy();
+
+        const xs = data.x_values;
+        const ys = data.y_values;
+        const grid = data.grid;
+
+        // 构建热力图数据
+        const heatData = [];
+        let minVal = Infinity, maxVal = -Infinity;
+        for (const cell of grid) {
+            const xi = xs.indexOf(cell.x);
+            const yi = ys.indexOf(cell.y);
+            if (xi >= 0 && yi >= 0) {
+                heatData.push({ x: xi, y: yi, v: cell.metric });
+                if (cell.metric < minVal) minVal = cell.metric;
+                if (cell.metric > maxVal) maxVal = cell.metric;
+            }
+        }
+
+        // 使用气泡图模拟热力图
+        const datasets = [{
+            label: data.metric_name,
+            data: heatData.map(d => ({ x: d.x, y: d.y, r: 18 })),
+            backgroundColor: heatData.map(d => {
+                const t = maxVal > minVal ? (d.v - minVal) / (maxVal - minVal) : 0.5;
+                // 从蓝色(低)到红色(高)
+                const r = Math.round(50 + t * 205);
+                const g = Math.round(100 - t * 80);
+                const b = Math.round(255 - t * 205);
+                return `rgba(${r},${g},${b},0.85)`;
+            }),
+        }];
+
+        this._sensChart = new Chart(canvas, {
+            type: 'bubble',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: -0.5,
+                        max: xs.length - 0.5,
+                        ticks: {
+                            stepSize: 1,
+                            callback: (val) => xs[val] !== undefined ? xs[val] : '',
+                        },
+                        title: { display: true, text: data.param_x },
+                    },
+                    y: {
+                        type: 'linear',
+                        min: -0.5,
+                        max: ys.length - 0.5,
+                        ticks: {
+                            stepSize: 1,
+                            callback: (val) => ys[val] !== undefined ? ys[val] : '',
+                        },
+                        title: { display: true, text: data.param_y },
+                    },
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const d = heatData[ctx.dataIndex];
+                                return `${data.param_x}=${xs[d.x]}, ${data.param_y}=${ys[d.y]}, ${data.metric_name}=${d.v.toFixed(4)}`;
+                            },
+                        },
+                    },
+                    legend: { display: false },
+                },
+            },
+        });
     },
 
     /* ── 蒙特卡洛模拟 ── */

@@ -373,22 +373,31 @@ const App = {
         if (refreshBtn) refreshBtn.disabled = true;
 
         try {
-            const [snapshot, trades, status, equityHistory, watchlist, indices, hotSectors] = await Promise.all([
+            const [snapshot, trades, status, equityHistory, watchlist, indices, hotSectors, marketStats, benchmark] = await Promise.all([
                 this.fetchJSON('/api/portfolio/snapshot').catch(() => ({ total_equity: 0, cash: 0, market_value: 0, positions: [] })),
-                this.fetchJSON('/api/portfolio/trades').catch(() => []),
+                this.fetchJSON('/api/portfolio/trades/recent?limit=20').catch(() => []),
                 this.fetchJSON('/api/system/status').catch(() => ({ db_stats: {}, paper_running: false, ai_model: '--' })),
                 this.fetchJSON('/api/portfolio/equity-history').catch(() => []),
-
                 this.fetchJSON('/api/watchlist').catch(() => []),
                 this.fetchJSON('/api/stock/market/indices').catch(() => []),
                 this.fetchJSON('/api/stock/market/hot-sectors').catch(() => ({ industries: [], concepts: [] })),
+                this.fetchJSON('/api/stock/market/stats').catch(() => null),
+                this.fetchJSON('/api/stock/market/benchmark?count=60').catch(() => []),
             ]);
 
             const dbStats = status.db_stats || {};
+
+            // Row 1: 核心指标卡片
+            document.getElementById('ov-equity').textContent = this.fmt(snapshot.total_equity);
+            this._renderMetric('ov-daily-pnl', snapshot.daily_pnl, snapshot.daily_pnl_pct, true);
+            this._renderPctMetric('ov-cum-return', snapshot.cumulative_return);
+            this._renderPctMetric('ov-max-dd', snapshot.max_drawdown, true);
+            document.getElementById('ov-sharpe').textContent = snapshot.sharpe_ratio?.toFixed(2) ?? '--';
+            document.getElementById('ov-position-count').textContent = snapshot.positions?.length ?? 0;
+
+            // 系统状态
             document.getElementById('ov-stock-count').textContent = dbStats.stock_count || 0;
             document.getElementById('ov-latest-date').textContent = dbStats.latest_date || '无数据';
-            document.getElementById('ov-equity').textContent = this.fmt(snapshot.total_equity);
-            document.getElementById('ov-trade-count').textContent = trades.length;
 
             const syncEl = document.getElementById('ov-sync-status');
             if (syncEl) {
@@ -405,33 +414,117 @@ const App = {
             const aiEl = document.getElementById('ov-ai-status');
             if (aiEl) aiEl.textContent = status.ai_model || '--';
 
-            // 实时行情状态
             this._updateQuoteStatus();
-            // 每秒刷新行情状态
             if (!this._quoteStatusTimer) {
                 this._quoteStatusTimer = setInterval(() => this._updateQuoteStatus(), 1000);
             }
 
             Watchlist.render(watchlist);
 
+            // 持仓明细
+            this._renderPositions(snapshot);
+
+            // 最近交易
             const tradesBody = document.querySelector('#ov-trades-table tbody');
             if (tradesBody && trades.length > 0) {
-                tradesBody.innerHTML = trades.slice(-10).reverse().map(t => `
-                    <tr><td>${this.escapeHTML(t.time) || '--'}</td><td>${this.escapeHTML(t.code)}</td><td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td><td>${this.fmt(t.equity)}</td></tr>
+                tradesBody.innerHTML = trades.map(t => `
+                    <tr><td>${this.escapeHTML(t.time) || '--'}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)}</a></td><td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
                 `).join('');
             }
 
+            // 图表
             this._overviewChartData = equityHistory;
+            this._overviewBenchmarkData = benchmark;
             this._overviewChartMode = 'equity';
             try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
             try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
             try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
+
+            // 市场情绪
+            if (marketStats) this._renderMarketStats(marketStats);
         } catch (e) {
             if (stockCountEl) stockCountEl.textContent = '--';
             this.toast('总览数据加载失败: ' + e.message, 'error');
         } finally {
             if (refreshBtn) refreshBtn.disabled = false;
         }
+    },
+
+    _renderMetric(id, pnl, pnlPct, isCurrency) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const sign = pnl >= 0 ? '+' : '';
+        const text = isCurrency ? `${sign}¥${Math.abs(pnl).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}` : `${sign}${(pnlPct * 100).toFixed(2)}%`;
+        el.textContent = text;
+        el.className = 'stat-value ' + (pnl >= 0 ? 'text-danger' : 'text-success');
+    },
+
+    _renderPctMetric(id, value, alwaysRed) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
+        if (alwaysRed) el.className = 'stat-value text-danger';
+        else el.className = 'stat-value ' + (value >= 0 ? 'text-danger' : 'text-success');
+    },
+
+    _renderPositions(snapshot) {
+        const tbody = document.querySelector('#ov-positions-table tbody');
+        if (!tbody) return;
+        const positions = snapshot.positions || [];
+        if (positions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-muted">暂无持仓</td></tr>';
+            return;
+        }
+        const totalEquity = snapshot.total_equity || 1;
+        tbody.innerHTML = positions.map(p => {
+            const pctClass = p.pnl >= 0 ? 'text-danger' : 'text-success';
+            const sign = p.pnl >= 0 ? '+' : '';
+            const weight = ((p.market_value / totalEquity) * 100).toFixed(1);
+            return `<tr>
+                <td><a href="#" class="stock-link" data-code="${this.escapeHTML(p.code)}">${this.escapeHTML(p.code)}</a></td>
+                <td>${this.escapeHTML(p.code)}</td>
+                <td>${p.volume}</td>
+                <td>¥${p.avg_price.toFixed(3)}</td>
+                <td class="${pctClass}">¥${p.current_price.toFixed(3)}</td>
+                <td class="${pctClass}">${sign}¥${Math.abs(p.pnl).toFixed(2)}</td>
+                <td class="${pctClass}">${sign}${(p.pnl_pct * 100).toFixed(2)}%</td>
+                <td>${weight}%</td>
+            </tr>`;
+        }).join('') + `<tr class="pos-summary">
+            <td colspan="2"><strong>合计</strong></td>
+            <td>${positions.reduce((s, p) => s + p.volume, 0)}</td>
+            <td></td>
+            <td></td>
+            <td class="${snapshot.total_pnl >= 0 ? 'text-danger' : 'text-success'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}¥${Math.abs(snapshot.total_pnl).toFixed(2)}</strong></td>
+            <td class="${snapshot.total_pnl >= 0 ? 'text-danger' : 'text-success'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}${(snapshot.total_pnl_pct * 100).toFixed(2)}%</strong></td>
+            <td></td>
+        </tr>`;
+    },
+
+    _renderMarketStats(stats) {
+        const el = document.getElementById('ov-market-stats');
+        if (!el || !stats) return;
+        const up = stats.up_count || 0;
+        const flat = stats.flat_count || 0;
+        const down = stats.down_count || 0;
+        const total = up + flat + down || 1;
+        const upPct = (up / total * 100).toFixed(0);
+        const flatPct = (flat / total * 100).toFixed(0);
+        const downPct = (down / total * 100).toFixed(0);
+
+        el.innerHTML = `
+            <div class="market-stat-row">
+                <span class="market-stat-label">涨跌分布</span>
+                <div class="market-stat-bar">
+                    <div class="bar-up" style="width:${upPct}%">${up}</div>
+                    <div class="bar-flat" style="width:${flatPct}%">${flat}</div>
+                    <div class="bar-down" style="width:${downPct}%">${down}</div>
+                </div>
+            </div>
+            <div class="market-stat-extra">
+                <span>涨停 <strong class="text-danger">${stats.limit_up || 0}</strong></span>
+                <span>跌停 <strong class="text-success">${stats.limit_down || 0}</strong></span>
+            </div>`;
     },
 
     renderEquityChart(data) {
@@ -510,15 +603,68 @@ const App = {
         });
     },
 
+    renderBenchmarkChart(equityData, benchmarkData) {
+        const canvasId = 'ov-overview-chart';
+        if (!equityData || equityData.length < 2) { ChartFactory.showEmpty(canvasId); return; }
+
+        const baseEquity = equityData[0].equity;
+        const portfolioReturns = equityData.map(d => ((d.equity - baseEquity) / baseEquity * 100));
+        const labels = equityData.map(d => d.date ? d.date.substring(5) : '');
+
+        const datasets = [{
+            label: '模拟盘',
+            data: portfolioReturns,
+            color: '#ef5350',
+            borderWidth: 2,
+            pointRadius: 0,
+        }];
+
+        if (benchmarkData && benchmarkData.length > 0) {
+            const benchMap = {};
+            benchmarkData.forEach(b => { benchMap[b.date] = b.return_pct; });
+            const benchReturns = equityData.map(d => benchMap[d.date] ?? null);
+            datasets.push({
+                label: '沪深300',
+                data: benchReturns,
+                color: '#4fc3f7',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderDash: [4, 4],
+            });
+        }
+
+        ChartFactory.line(canvasId, { labels, datasets }, 'overviewChart', {
+            plugins: {
+                legend: { display: true, position: 'top', labels: { color: '#a29c95', font: { size: 11 }, boxWidth: 12, padding: 16 } },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%`,
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    ticks: { callback: v => v.toFixed(1) + '%', color: '#a29c95', font: { size: 11 } },
+                    grid: { color: 'rgba(227,225,219,0.25)' },
+                },
+                x: {
+                    ticks: { maxTicksLimit: 8, color: '#a29c95', font: { size: 11 } },
+                    grid: { display: false },
+                },
+            },
+        });
+    },
+
     _switchOverviewChart(mode) {
         if (this._overviewChartMode === mode) return;
         this._overviewChartMode = mode;
         document.querySelectorAll('.chart-toggle-btn').forEach(b =>
             b.classList.toggle('active', b.dataset.mode === mode));
-        document.getElementById('ov-chart-title').textContent =
-            mode === 'equity' ? '资产走势' : '每日收益';
+        const titles = { equity: '资产走势', daily: '每日收益', benchmark: '收益对比' };
+        document.getElementById('ov-chart-title').textContent = titles[mode] || '资产走势';
         if (mode === 'equity') this.renderEquityChart(this._overviewChartData);
-        else this.renderReturnDistribution(this._overviewChartData);
+        else if (mode === 'daily') this.renderReturnDistribution(this._overviewChartData);
+        else if (mode === 'benchmark') this.renderBenchmarkChart(this._overviewChartData, this._overviewBenchmarkData);
     },
 
     renderMarketIndices(indices) {
@@ -607,6 +753,7 @@ const App = {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>运行中...';
             document.getElementById('bt-results').style.display = 'none';
+            this._showProgress(0, '');
 
             const body = {
                 strategy: document.getElementById('bt-strategy').value,
@@ -621,24 +768,77 @@ const App = {
             };
 
             try {
-                const res = await fetch('/api/backtest/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${proto}//${location.host}/api/backtest/ws/run`);
+                this._btWs = ws;
+
+                const result = await new Promise((resolve, reject) => {
+                    ws.onopen = () => ws.send(JSON.stringify(body));
+                    ws.onmessage = (evt) => {
+                        const msg = JSON.parse(evt.data);
+                        if (msg.type === 'progress') {
+                            this._showProgress(msg.progress, msg.current_date, msg.elapsed, msg.remaining);
+                        } else if (msg.type === 'complete') {
+                            resolve(msg.data);
+                        } else if (msg.type === 'error') {
+                            reject(new Error(msg.message));
+                        }
+                    };
+                    ws.onerror = () => reject(new Error('WebSocket连接失败'));
+                    ws.onclose = (evt) => {
+                        if (!evt.wasClean) reject(new Error('连接中断'));
+                    };
+                    setTimeout(() => {
+                        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                            ws.close();
+                            reject(new Error('回测超时'));
+                        }
+                    }, 300000);
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                this.showBacktestResults(data, body);
+
+                this.showBacktestResults(result, body);
                 this.toast('回测完成', 'success');
-                // 自动触发多策略对比
                 this.compareStrategies();
             } catch (err) {
                 this.toast('回测失败: ' + err.message, 'error');
             } finally {
                 btn.disabled = false;
                 btn.textContent = '运行回测';
+                this._hideProgress();
+                if (this._btWs) {
+                    try { this._btWs.close(); } catch (e) { /* ignore */ }
+                    this._btWs = null;
+                }
             }
         });
+    },
+
+    _showProgress(progress, currentDate, elapsed, remaining) {
+        let bar = document.getElementById('bt-progress-wrap');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'bt-progress-wrap';
+            bar.className = 'bt-progress';
+            bar.innerHTML = '<div class="bt-progress-bar"><div class="bt-progress-fill" id="bt-progress-fill"></div></div><div class="bt-progress-text" id="bt-progress-text"></div>';
+            const form = document.getElementById('backtest-form');
+            if (form) form.parentNode.insertBefore(bar, form.nextSibling);
+        }
+        bar.style.display = '';
+        const fill = document.getElementById('bt-progress-fill');
+        const text = document.getElementById('bt-progress-text');
+        if (fill) fill.style.width = (progress * 100).toFixed(1) + '%';
+        if (text) {
+            let info = (progress * 100).toFixed(1) + '%';
+            if (currentDate) info += ' · ' + currentDate;
+            if (elapsed != null) info += ' · 已用' + elapsed + 's';
+            if (remaining != null && remaining > 0) info += ' · 剩余约' + remaining + 's';
+            text.textContent = info;
+        }
+    },
+
+    _hideProgress() {
+        const bar = document.getElementById('bt-progress-wrap');
+        if (bar) bar.style.display = 'none';
     },
 
     bindStrategyChips() {

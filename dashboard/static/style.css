@@ -954,6 +954,28 @@ input:focus, select:focus, textarea:focus {
 .sd-stat label { font-size: 0.75rem; color: var(--text-secondary); }
 .sd-stat span { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
 
+/* 阶段涨幅 */
+.sd-period-returns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 2rem;
+    padding: 0.75rem 0;
+}
+.sd-period-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 80px;
+}
+.sd-period-item label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+.sd-period-item span {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
 /* 专业指标网格 */
 .sd-stats-grid {
     display: grid;
@@ -999,6 +1021,16 @@ input:focus, select:focus, textarea:focus {
 }
 .sd-tab:hover { background: var(--bg-tertiary); }
 .sd-tab.active:hover { background: var(--text-primary); }
+.sd-indicator-selector { margin-left: auto; }
+.sd-indicator-selector select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
 .sd-orderbook { margin-bottom: 1rem; }
 .sd-orderbook h3 { font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-secondary); }
 .sd-ob-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -1006,18 +1038,21 @@ input:focus, select:focus, textarea:focus {
 .sd-ob-row {
     display: flex;
     align-items: center;
-    padding: 4px 8px;
+    justify-content: center;
+    padding: 5px 8px;
     font-size: 0.85rem;
     border-radius: 3px;
-    gap: 8px;
+    gap: 12px;
 }
 .sd-ob-row.ask { background: rgba(38,166,154,0.08); }
 .sd-ob-row.bid { background: rgba(239,83,80,0.08); }
-.sd-ob-level { width: 2.5rem; color: var(--text-secondary); flex-shrink: 0; }
-.sd-ob-price { flex: 1; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-.sd-ob-vol { width: 4.5rem; text-align: right; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.sd-ob-level { width: 2.5rem; color: var(--text-secondary); flex-shrink: 0; text-align: center; }
+.sd-ob-price { width: 4rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sd-ob-vol { width: 5rem; text-align: center; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .sd-ob-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; font-size: 0.85rem; }
 .sd-flow-source { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+/* 隐藏 LightweightCharts 的 TradingView logo 链接 */
+#tv-attr-logo { display: none !important; }
 .sd-flow-desc { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
 
 /* 行情详情页布局 */
@@ -1141,6 +1176,30 @@ input:focus, select:focus, textarea:focus {
     box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 
+/* 6列指标卡片 */
+.stats-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.75rem; }
+@media (max-width: 1100px) { .stats-grid-6 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px) { .stats-grid-6 { grid-template-columns: repeat(2, 1fr); } }
+
+/* 双列布局 */
+.overview-dual-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .overview-dual-row { grid-template-columns: 1fr; } }
+
+/* 持仓明细表格 */
+#ov-positions-table th, #ov-positions-table td { font-variant-numeric: tabular-nums; }
+#ov-positions-table .pos-summary td { font-weight: 600; border-top: 2px solid var(--border-color); }
+
+/* 市场情绪面板 */
+.market-stats-panel { display: flex; flex-direction: column; gap: 0.75rem; }
+.market-stat-row { display: flex; align-items: center; gap: 0.75rem; }
+.market-stat-label { width: 60px; font-size: 13px; color: var(--text-secondary); flex-shrink: 0; }
+.market-stat-bar { flex: 1; height: 24px; border-radius: 4px; overflow: hidden; display: flex; background: var(--bg-secondary); }
+.market-stat-bar .bar-up { background: #ef5350; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; min-width: 32px; }
+.market-stat-bar .bar-flat { background: #a29c95; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; min-width: 24px; }
+.market-stat-bar .bar-down { background: #10b981; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; min-width: 32px; }
+.market-stat-extra { display: flex; gap: 1.5rem; font-size: 13px; margin-top: 0.25rem; }
+.market-stat-extra span { color: var(--text-secondary); }
+
 @media (prefers-reduced-motion: reduce) {
     * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
@@ -1184,4 +1243,32 @@ input:focus, select:focus, textarea:focus {
 
 .chip input:checked + span {
     color: inherit;
+}
+
+/* ── 回测进度条 ── */
+.bt-progress {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+}
+.bt-progress-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+.bt-progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--accent-color), #4ecdc4);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+.bt-progress-text {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    text-align: center;
 }

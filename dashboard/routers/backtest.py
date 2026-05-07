@@ -1,7 +1,10 @@
 """回测 API"""
+import asyncio
+import json
+import time
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel
 
@@ -299,3 +302,129 @@ async def list_benchmarks():
         {"code": "sz399006", "name": "创业板指"},
         {"code": "sz399303", "name": "国证2000"},
     ]
+
+
+@router.websocket("/ws/run")
+async def ws_backtest(ws: WebSocket):
+    """WebSocket 回测（带实时进度推送）"""
+    await ws.accept()
+    try:
+        raw = await ws.receive_text()
+        req = json.loads(raw)
+
+        strategy_name = req.get("strategy", "dual_ma")
+        if strategy_name not in STRATEGIES:
+            await ws.send_json({"type": "error", "message": f"未知策略: {strategy_name}"})
+            await ws.close()
+            return
+
+        config = BacktestConfig(
+            initial_cash=req.get("initial_cash", 100000),
+            commission_rate=req.get("commission_rate", 0.0003),
+            stamp_tax_rate=req.get("stamp_tax_rate", 0.001),
+            slippage=req.get("slippage", 0.002),
+            enable_risk=req.get("enable_risk", False),
+        )
+        strategy = STRATEGIES[strategy_name]()
+        engine = BacktestEngine(config=config)
+
+        benchmark = req.get("benchmark", "")
+        if benchmark:
+            _ensure_benchmark_data(benchmark, req["start_date"], req["end_date"])
+
+        start_time = time.time()
+        total_days = [0]
+
+        def on_progress(progress, current_date, day_idx, total):
+            total_days[0] = total
+            elapsed = time.time() - start_time
+            remaining = (elapsed / progress - elapsed) if progress > 0 else 0
+            try:
+                asyncio.get_event_loop().create_task(ws.send_json({
+                    "type": "progress",
+                    "progress": round(progress, 4),
+                    "current_date": current_date,
+                    "day_index": day_idx,
+                    "total_days": total,
+                    "elapsed": round(elapsed, 1),
+                    "remaining": round(remaining, 1),
+                }))
+            except Exception:
+                pass
+
+        # 在线程中运行回测
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: engine.run(
+            strategy, req.get("codes", ["000001"]),
+            req["start_date"], req["end_date"],
+            benchmark_code=benchmark,
+            progress_callback=on_progress,
+        ))
+
+        # 发送最终结果
+        await ws.send_json({
+            "type": "complete",
+            "data": {
+                "start_date": str(result.start_date) if result.start_date else None,
+                "end_date": str(result.end_date) if result.end_date else None,
+                "initial_cash": result.initial_cash,
+                "final_equity": round(result.final_equity, 2),
+                "total_return": round(result.total_return, 4),
+                "annual_return": round(result.annual_return, 4),
+                "max_drawdown": round(result.max_drawdown, 4),
+                "sharpe_ratio": round(result.sharpe_ratio, 2),
+                "sortino_ratio": round(result.sortino_ratio, 2),
+                "calmar_ratio": round(result.calmar_ratio, 2),
+                "information_ratio": round(result.information_ratio, 2),
+                "alpha": round(result.alpha, 4),
+                "beta": round(result.beta, 4),
+                "win_rate": round(result.win_rate, 4),
+                "profit_loss_ratio": round(result.profit_loss_ratio, 2),
+                "max_consecutive_wins": result.max_consecutive_wins,
+                "max_consecutive_losses": result.max_consecutive_losses,
+                "total_trades": result.total_trades,
+                "equity_curve": [
+                    {"date": str(p["date"]), "equity": round(p["equity"], 2)}
+                    for p in result.equity_curve
+                ],
+                "benchmark_curve": [
+                    {"date": str(p["date"]), "equity": round(p["equity"], 4)}
+                    for p in result.benchmark_curve
+                ],
+                "trades": [
+                    {
+                        "code": t.code,
+                        "direction": t.direction.value,
+                        "price": round(t.price, 2),
+                        "volume": t.volume,
+                        "datetime": str(t.datetime) if t.datetime else None,
+                        "entry_price": round(t.entry_price, 2),
+                    }
+                    for t in result.trades
+                ],
+                "risk_alerts": [
+                    {
+                        "date": str(a.date),
+                        "level": a.level.value,
+                        "category": a.category,
+                        "message": a.message,
+                    }
+                    for a in result.risk_alerts
+                ],
+                "warmup_days": result.warmup_days,
+                "error": result.error,
+            },
+        })
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket回测异常: {e}")
+        try:
+            await ws.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass

@@ -91,6 +91,7 @@ class BacktestEngine:
         warmup_periods: int = 20,
         min_trading_days: int = 5,
         benchmark_code: str = "",
+        progress_callback=None,
     ) -> BacktestResult:
         """运行回测"""
         logger.info(f"回测开始: {start_date} ~ {end_date}, 标的: {codes}")
@@ -200,6 +201,12 @@ class BacktestEngine:
             # 记录权益曲线
             equity = portfolio.get_total_equity(prices)
             portfolio.equity_curve.append({"date": current_date, "equity": equity})
+
+            # 进度回调
+            if progress_callback:
+                day_idx = len(portfolio.equity_curve)
+                progress = day_idx / len(backtest_dates)
+                progress_callback(progress, str(current_date), day_idx, len(backtest_dates))
 
         # 加载基准数据
         benchmark_curve = []

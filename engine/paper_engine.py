@@ -8,6 +8,7 @@ from typing import Optional
 
 from loguru import logger
 
+from config.settings import LOG_DIR
 from data.collector.realtime import RealtimeCollector, RealtimeQuote
 from engine.backtest_engine import BacktestConfig
 from risk.position import PositionManager
@@ -22,14 +23,14 @@ class PaperConfig:
     commission_rate: float = 0.0003   # 万三佣金
     stamp_tax_rate: float = 0.001     # 千一印花税
     slippage: float = 0.002           # 0.2% 滑点
-    state_dir: str = "logs/paper"     # 状态持久化目录
+    state_dir: str = str(LOG_DIR / "paper")  # 状态持久化目录
     enable_risk: bool = True          # 启用风控
 
 
 class PaperTradeLog:
     """交易日志"""
 
-    def __init__(self, log_dir: str = "logs/paper"):
+    def __init__(self, log_dir: str = str(LOG_DIR / "paper")):
         self._dir = Path(log_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._log_file = self._dir / f"trades_{datetime.now():%Y%m%d}.jsonl"
@@ -65,7 +66,7 @@ class PaperTradeLog:
 class PaperStateManager:
     """模拟盘状态持久化"""
 
-    def __init__(self, state_dir: str = "logs/paper"):
+    def __init__(self, state_dir: str = str(LOG_DIR / "paper")):
         self._dir = Path(state_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._state_file = self._dir / "portfolio_state.json"

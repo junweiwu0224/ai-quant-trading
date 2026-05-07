@@ -1,5 +1,4 @@
 # Core
-vnpy==4.3.0
 akshare>=1.14.0
 
 # Database
@@ -16,12 +15,11 @@ numpy>=1.24.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 jinja2>=3.1.0
+pydantic>=2.0
+httpx
 
 # Scheduler
 apscheduler>=3.10.0
-
-# Technical Analysis
-ta-lib>=0.4.28
 
 # Testing
 pytest>=7.4.0

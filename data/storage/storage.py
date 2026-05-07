@@ -4,7 +4,7 @@ from typing import Optional
 
 import pandas as pd
 from loguru import logger
-from sqlalchemy import Column, Date, Float, Integer, String, create_engine, text
+from sqlalchemy import Column, Date, Float, Integer, String, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from config.settings import DB_DIR, DB_PATH, DB_URL
@@ -25,6 +25,10 @@ class StockDaily(Base):
     close = Column(Float)
     volume = Column(Float)
     amount = Column(Float)
+
+    __table_args__ = (
+        UniqueConstraint("code", "date", name="uq_stock_daily_code_date"),
+    )
 
 
 class StockInfo(Base):
@@ -175,6 +179,26 @@ class DataStorage:
         try:
             rows = session.query(StockInfo.code).all()
             return [r.code for r in rows]
+        finally:
+            session.close()
+
+    def get_stock_list(self) -> pd.DataFrame:
+        """获取股票列表（含名称、行业），返回 DataFrame"""
+        session = self._get_session()
+        try:
+            rows = session.query(StockInfo).all()
+            if not rows:
+                return pd.DataFrame()
+            return pd.DataFrame(
+                [
+                    {
+                        "code": r.code,
+                        "name": r.name or "",
+                        "industry": r.industry or "",
+                    }
+                    for r in rows
+                ]
+            )
         finally:
             session.close()
 

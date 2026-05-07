@@ -22,11 +22,16 @@ STRATEGIES = {
 @click.option("--code", "-c", default="000001", help="股票代码")
 @click.option("--strategy", "-s", default="dual_ma", type=click.Choice(STRATEGIES.keys()), help="策略名称")
 @click.option("--start", default="20240101", help="起始日期 (YYYYMMDD)")
-@click.option("--end", default="20260507", help="结束日期 (YYYYMMDD)")
+@click.option("--end", default=None, help="结束日期 (YYYYMMDD)，默认今天")
 @click.option("--cash", default=1000000, type=float, help="初始资金")
 def backtest(code, strategy, start, end, cash):
     """运行回测"""
+    from datetime import datetime
+
     setup_logging()
+
+    if end is None:
+        end = datetime.now().strftime("%Y%m%d")
 
     config = BacktestConfig(initial_cash=cash)
     engine = BacktestEngine(config)

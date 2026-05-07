@@ -1,88 +1,287 @@
-{% extends "base.html" %}
-{% block title %}总览 - AI 量化交易系统{% endblock %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 量化交易系统</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">AI Quant</div>
+        <ul>
+            <li><a href="#" class="nav-link active" data-tab="overview">总览</a></li>
+            <li><a href="#" class="nav-link" data-tab="backtest">回测</a></li>
+            <li><a href="#" class="nav-link" data-tab="portfolio">持仓</a></li>
+            <li><a href="#" class="nav-link" data-tab="risk">风控</a></li>
+            <li><a href="#" class="nav-link" data-tab="strategy">策略管理</a></li>
+        </ul>
+    </nav>
 
-{% block content %}
-<div class="page-header">
-    <h1>系统总览</h1>
-</div>
+    <main class="content">
 
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">总资产</div>
-        <div class="stat-value" id="total-equity">--</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">可用现金</div>
-        <div class="stat-value" id="cash">--</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">持仓数量</div>
-        <div class="stat-value" id="position-count">--</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">今日交易</div>
-        <div class="stat-value" id="trade-count">--</div>
-    </div>
-</div>
+        <!-- ═══ Tab 1: 总览 ═══ -->
+        <section class="tab-panel active" id="tab-overview">
+            <div class="page-header">
+                <h1>系统总览</h1>
+                <button class="btn btn-sm" onclick="App.loadOverview()">刷新</button>
+            </div>
 
-<div class="card">
-    <h2>系统模块</h2>
-    <div class="module-grid">
-        <div class="module-item">
-            <h3>数据层</h3>
-            <p>AKShare 采集 + SQLite 存储</p>
-            <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="module-item">
-            <h3>回测引擎</h3>
-            <p>策略模板 + 3 个内置策略</p>
-            <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="module-item">
-            <h3>AI Alpha</h3>
-            <p>因子库 + LightGBM + Optuna</p>
-            <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="module-item">
-            <h3>风控模块</h3>
-            <p>仓位管理 + 止损止盈 + 监控</p>
-            <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="module-item">
-            <h3>模拟盘</h3>
-            <p>实时行情 + 虚拟下单</p>
-            <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="module-item">
-            <h3>可视化面板</h3>
-            <p>FastAPI + Jinja2 + Chart.js</p>
-            <span class="badge badge-info">当前</span>
-        </div>
-    </div>
-</div>
-{% endblock %}
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">总资产</div>
+                    <div class="stat-value" id="ov-equity">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">可用现金</div>
+                    <div class="stat-value" id="ov-cash">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">持仓数量</div>
+                    <div class="stat-value" id="ov-pos-count">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">今日交易</div>
+                    <div class="stat-value" id="ov-trade-count">--</div>
+                </div>
+            </div>
 
-{% block scripts %}
-<script>
-async function loadData() {
-    try {
-        const res = await fetch('/api/portfolio/snapshot');
-        const data = await res.json();
-        document.getElementById('total-equity').textContent = '¥' + data.total_equity.toLocaleString();
-        document.getElementById('cash').textContent = '¥' + data.cash.toLocaleString();
-        document.getElementById('position-count').textContent = data.positions.length;
-    } catch (e) {
-        console.log('无模拟盘数据');
-    }
+            <div class="card">
+                <h2>系统模块</h2>
+                <div class="module-grid" id="ov-modules"></div>
+            </div>
 
-    try {
-        const res = await fetch('/api/portfolio/trades');
-        const trades = await res.json();
-        document.getElementById('trade-count').textContent = trades.length;
-    } catch (e) {
-        document.getElementById('trade-count').textContent = '0';
-    }
-}
-loadData();
-</script>
-{% endblock %}
+            <div class="card">
+                <h2>最近交易</h2>
+                <div class="table-wrap">
+                    <table id="ov-trades-table">
+                        <thead>
+                            <tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="6" class="text-muted">暂无交易数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ Tab 2: 回测 ═══ -->
+        <section class="tab-panel" id="tab-backtest">
+            <div class="page-header">
+                <h1>策略回测</h1>
+            </div>
+
+            <div class="card">
+                <h2>回测参数</h2>
+                <form id="backtest-form" class="form-row">
+                    <div class="form-group">
+                        <label>策略</label>
+                        <select id="bt-strategy">
+                            <option value="dual_ma">双均线策略</option>
+                            <option value="bollinger">布林带策略</option>
+                            <option value="momentum">动量策略</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>股票代码</label>
+                        <input type="text" id="bt-code" value="000001" placeholder="如 000001" list="stock-list">
+                        <datalist id="stock-list"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label>开始日期</label>
+                        <input type="date" id="bt-start" value="2024-01-01">
+                    </div>
+                    <div class="form-group">
+                        <label>结束日期</label>
+                        <input type="date" id="bt-end">
+                    </div>
+                    <div class="form-group">
+                        <label>初始资金</label>
+                        <input type="number" id="bt-cash" value="1000000">
+                    </div>
+                    <div class="form-group">
+                        <label>启用风控</label>
+                        <select id="bt-risk">
+                            <option value="false">否</option>
+                            <option value="true">是</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="submit" class="btn btn-primary" id="bt-run-btn">运行回测</button>
+                    </div>
+                </form>
+            </div>
+
+            <div id="bt-results" style="display:none">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">总收益率</div>
+                        <div class="stat-value" id="bt-return">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">年化收益</div>
+                        <div class="stat-value" id="bt-annual">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">最大回撤</div>
+                        <div class="stat-value text-danger" id="bt-dd">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">夏普比率</div>
+                        <div class="stat-value" id="bt-sharpe">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">胜率</div>
+                        <div class="stat-value" id="bt-winrate">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">交易次数</div>
+                        <div class="stat-value" id="bt-trades">--</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>收益曲线</h2>
+                    <canvas id="bt-equity-chart" height="80"></canvas>
+                </div>
+
+                <div class="card">
+                    <h2>交易明细</h2>
+                    <div class="table-wrap">
+                        <table id="bt-trades-table">
+                            <thead>
+                                <tr><th>日期</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>入场价</th></tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card" id="bt-alerts-card" style="display:none">
+                    <h2>风控告警</h2>
+                    <div class="table-wrap">
+                        <table id="bt-alerts-table">
+                            <thead>
+                                <tr><th>日期</th><th>级别</th><th>类别</th><th>消息</th></tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ Tab 3: 持仓 ═══ -->
+        <section class="tab-panel" id="tab-portfolio">
+            <div class="page-header">
+                <h1>持仓监控</h1>
+                <button class="btn btn-sm" onclick="App.loadPortfolio()">刷新</button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">总资产</div>
+                    <div class="stat-value" id="pf-equity">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">现金</div>
+                    <div class="stat-value" id="pf-cash">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">持仓市值</div>
+                    <div class="stat-value" id="pf-mv">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">持仓数</div>
+                    <div class="stat-value" id="pf-count">--</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>持仓明细</h2>
+                <div class="table-wrap">
+                    <table id="pf-positions">
+                        <thead>
+                            <tr><th>代码</th><th>数量</th><th>均价</th><th>市值</th><th>占比</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="5" class="text-muted">暂无持仓数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>今日交易</h2>
+                <div class="table-wrap">
+                    <table id="pf-trades">
+                        <thead>
+                            <tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>权益</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="6" class="text-muted">今日无交易</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ Tab 4: 风控 ═══ -->
+        <section class="tab-panel" id="tab-risk">
+            <div class="page-header">
+                <h1>风控面板</h1>
+                <button class="btn btn-sm" onclick="App.loadRisk()">刷新</button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">总权益</div>
+                    <div class="stat-value" id="rk-equity">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">现金占比</div>
+                    <div class="stat-value" id="rk-cash-pct">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">持仓数</div>
+                    <div class="stat-value" id="rk-pos-count">--</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>仓位分布</h2>
+                <canvas id="rk-position-chart" height="60"></canvas>
+            </div>
+
+            <div class="card">
+                <h2>风控规则</h2>
+                <div class="table-wrap">
+                    <table id="rk-rules">
+                        <thead>
+                            <tr><th>规则</th><th>阈值</th><th>当前值</th><th>状态</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="4" class="text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ Tab 5: 策略管理 ═══ -->
+        <section class="tab-panel" id="tab-strategy">
+            <div class="page-header">
+                <h1>策略管理</h1>
+            </div>
+
+            <div class="strategy-grid" id="st-list"></div>
+        </section>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

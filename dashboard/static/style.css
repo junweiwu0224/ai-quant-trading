@@ -51,6 +51,7 @@ body {
     text-decoration: none;
     font-size: 0.9rem;
     transition: all 0.15s;
+    cursor: pointer;
 }
 
 .sidebar a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
@@ -74,6 +75,15 @@ body {
 .page-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
+}
+
+/* ── Tab 切换 ── */
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
 }
 
 /* ── 统计卡片 ── */
@@ -141,6 +151,63 @@ body {
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-bottom: 0.5rem;
+}
+
+/* ── 策略网格 ── */
+.strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.strategy-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: border-color 0.15s;
+}
+
+.strategy-card:hover {
+    border-color: var(--primary);
+}
+
+.strategy-card h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+}
+
+.strategy-type {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    background: rgba(79,140,255,0.15);
+    color: var(--primary);
+    margin-bottom: 0.75rem;
+}
+
+.strategy-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    line-height: 1.5;
+}
+
+.strategy-params {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 1rem;
+    font-family: monospace;
+}
+
+.strategy-actions {
+    display: flex;
+    gap: 0.5rem;
 }
 
 /* ── 表格 ── */
@@ -235,11 +302,20 @@ input:focus, select:focus {
 .badge-success { background: rgba(52,211,153,0.15); color: var(--success); }
 .badge-info { background: rgba(79,140,255,0.15); color: var(--primary); }
 .badge-danger { background: rgba(239,68,68,0.15); color: var(--danger); }
+.badge-warning { background: rgba(245,158,11,0.15); color: var(--warning); }
 
 /* ── 文字 ── */
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }
 .text-muted { color: var(--text-muted); }
+
+/* ── 加载状态 ── */
+.loading {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
 
 /* ── 响应式 ── */
 @media (max-width: 768px) {
@@ -247,4 +323,5 @@ input:focus, select:focus {
     .content { margin-left: 0; padding: 1rem; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .form-row { flex-direction: column; }
+    .strategy-grid { grid-template-columns: 1fr; }
 }

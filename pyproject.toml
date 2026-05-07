@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+]

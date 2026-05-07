@@ -13,20 +13,11 @@ class TestPages:
         assert res.status_code == 200
         assert "AI 量化交易系统" in res.text
 
-    def test_backtest_page(self):
-        res = client.get("/backtest")
-        assert res.status_code == 200
-        assert "回测报告" in res.text
-
-    def test_portfolio_page(self):
-        res = client.get("/portfolio")
-        assert res.status_code == 200
-        assert "持仓监控" in res.text
-
-    def test_risk_page(self):
-        res = client.get("/risk")
-        assert res.status_code == 200
-        assert "风控面板" in res.text
+    def test_old_routes_removed(self):
+        """旧的多页面路由应返回 404"""
+        for path in ["/backtest", "/portfolio", "/risk"]:
+            res = client.get(path)
+            assert res.status_code == 404
 
 
 class TestBacktestAPI:
@@ -84,3 +75,34 @@ class TestPortfolioAPI:
     def test_risk_no_data(self):
         res = client.get("/api/portfolio/risk")
         assert res.status_code == 200
+
+
+class TestSystemAPI:
+    def test_system_status(self):
+        res = client.get("/api/system/status")
+        assert res.status_code == 200
+        data = res.json()
+        assert "modules" in data
+        assert "db_stats" in data
+        assert len(data["modules"]) == 6
+
+    def test_system_strategies(self):
+        res = client.get("/api/system/strategies")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 3
+        for s in data:
+            assert "name" in s
+            assert "label" in s
+            assert "description" in s
+            assert "params" in s
+
+    def test_risk_rules(self):
+        res = client.get("/api/system/risk/rules")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 6
+        for rule in data:
+            assert "name" in rule
+            assert "threshold" in rule
+            assert "status" in rule

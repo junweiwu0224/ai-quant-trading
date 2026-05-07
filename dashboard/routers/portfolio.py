@@ -6,6 +6,8 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from config.settings import LOG_DIR
+
 router = APIRouter()
 
 
@@ -28,7 +30,7 @@ class PortfolioSnapshot(BaseModel):
     total_pnl_pct: float = 0
 
 
-def _load_paper_state(state_dir: str = "logs/paper") -> Optional[dict]:
+def _load_paper_state(state_dir: str = str(LOG_DIR / "paper")) -> Optional[dict]:
     """加载模拟盘状态"""
     state_file = Path(state_dir) / "portfolio_state.json"
     if not state_file.exists():
@@ -39,7 +41,7 @@ def _load_paper_state(state_dir: str = "logs/paper") -> Optional[dict]:
         return None
 
 
-def _load_trades_today(state_dir: str = "logs/paper") -> list[dict]:
+def _load_trades_today(state_dir: str = str(LOG_DIR / "paper")) -> list[dict]:
     """加载今日交易记录"""
     from datetime import datetime
     log_file = Path(state_dir) / f"trades_{datetime.now():%Y%m%d}.jsonl"

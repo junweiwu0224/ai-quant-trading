@@ -8,6 +8,7 @@ from typing import Optional
 
 from loguru import logger
 
+from config.settings import LOG_DIR
 from data.collector.realtime import RealtimeCollector
 from engine.broker import BrokerGateway, OrderSide, OrderStatus, SimulatedBroker
 from engine.paper_engine import PaperTradeLog, PaperConfig
@@ -20,7 +21,7 @@ from strategy.base import Bar, BaseStrategy, Direction, Portfolio
 class LiveConfig:
     """实盘配置"""
     interval_seconds: int = 30
-    state_dir: str = "logs/live"
+    state_dir: str = str(LOG_DIR / "live")
     enable_risk: bool = True
     dry_run: bool = True  # True=模拟盘模式，False=实盘
 

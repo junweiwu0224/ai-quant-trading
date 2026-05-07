@@ -11,3 +11,6 @@ data/db/*.db
 dist/
 build/
 .claude/
+tests/
+docs/
+README.md

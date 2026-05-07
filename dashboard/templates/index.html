@@ -151,6 +151,7 @@
                     <div class="chart-toggle-btns">
                         <button class="chart-toggle-btn active" data-mode="equity" onclick="App._switchOverviewChart('equity')">资产走势</button>
                         <button class="chart-toggle-btn" data-mode="daily" onclick="App._switchOverviewChart('daily')">每日收益</button>
+                        <button class="chart-toggle-btn" data-mode="benchmark" onclick="App._switchOverviewChart('benchmark')">收益对比</button>
                     </div>
                 </div>
                 <div style="height:250px"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
@@ -236,8 +237,6 @@
                     </table>
                 </div>
             </div>
-                </div>
-            </div>
 
         </section>
 
@@ -281,6 +280,23 @@
                         <div class="sd-stat"><label>换手率</label><span id="sd-turnover">--</span></div>
                         <div class="sd-stat"><label>振幅</label><span id="sd-amp">--</span></div>
                         <div class="sd-stat"><label>量比</label><span id="sd-vr">--</span></div>
+                    </div>
+                    <div class="sd-stats" id="sd-stats-extra">
+                        <div class="sd-stat"><label>涨停价</label><span id="sd-limit-up">--</span></div>
+                        <div class="sd-stat"><label>跌停价</label><span id="sd-limit-down">--</span></div>
+                        <div class="sd-stat"><label>外盘</label><span id="sd-outer-vol">--</span></div>
+                        <div class="sd-stat"><label>内盘</label><span id="sd-inner-vol">--</span></div>
+                    </div>
+                </div>
+
+                <!-- 阶段涨幅卡片 -->
+                <div class="card">
+                    <h3>阶段涨幅</h3>
+                    <div class="sd-period-returns" id="sd-period-returns">
+                        <div class="sd-period-item"><label>5日</label><span id="sd-ret-5d">--</span></div>
+                        <div class="sd-period-item"><label>20日</label><span id="sd-ret-20d">--</span></div>
+                        <div class="sd-period-item"><label>60日</label><span id="sd-ret-60d">--</span></div>
+                        <div class="sd-period-item"><label>年初至今</label><span id="sd-ret-ytd">--</span></div>
                     </div>
                 </div>
 
@@ -399,6 +415,62 @@
                     <p class="sd-flow-desc">主力=超大单+大单 | 散户=中单+小单 | <span class="text-danger">红=净流入</span> <span class="text-success">绿=净流出</span></p>
                     <div id="sd-capital-chart" style="height:300px"></div>
                 </div>
+
+                <!-- 利润趋势 -->
+                <div class="card">
+                    <h3>利润趋势（近8季度）</h3>
+                    <div id="sd-profit-chart" style="height:300px"></div>
+                </div>
+
+                <!-- 十大流通股东 -->
+                <div class="card">
+                    <h3>十大流通股东</h3>
+                    <div class="sd-table-wrapper">
+                        <table class="sd-table" id="sd-shareholders-table">
+                            <thead>
+                                <tr>
+                                    <th>股东名称</th>
+                                    <th>持股(万股)</th>
+                                    <th>占比(%)</th>
+                                    <th>变动(万股)</th>
+                                    <th>变动(%)</th>
+                                    <th>报告期</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sd-shareholders-body">
+                                <tr><td colspan="6" class="text-muted">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 分红历史 -->
+                <div class="card">
+                    <h3>分红历史</h3>
+                    <div class="sd-table-wrapper">
+                        <table class="sd-table" id="sd-dividends-table">
+                            <thead>
+                                <tr>
+                                    <th>报告期</th>
+                                    <th>分红方案</th>
+                                    <th>进度</th>
+                                    <th>公告日期</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sd-dividends-body">
+                                <tr><td colspan="4" class="text-muted">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 公告信息 -->
+                <div class="card">
+                    <h3>最近公告</h3>
+                    <div class="sd-announcements" id="sd-announcements">
+                        <p class="text-muted">加载中...</p>
+                    </div>
+                </div>
             </div>
 
             <!-- 未选择股票提示 -->
@@ -508,6 +580,27 @@
                 <div class="card">
                     <h2>回撤曲线</h2>
                     <div style="height:220px"><canvas id="bt-drawdown-chart" aria-label="回撤曲线图"></canvas></div>
+                </div>
+
+                <!-- 深度分析 -->
+                <div class="card">
+                    <h2>深度分析</h2>
+                    <div class="analysis-tabs">
+                        <button class="analysis-tab active" data-panel="returns">收益分布</button>
+                        <button class="analysis-tab" data-panel="trades">交易分析</button>
+                        <button class="analysis-tab" data-panel="weekday">星期效应</button>
+                    </div>
+                    <div class="analysis-panel active" id="bt-panel-returns">
+                        <div class="analysis-stats" id="bt-return-stats"></div>
+                        <div style="height:220px"><canvas id="bt-return-dist-chart" aria-label="收益分布图"></canvas></div>
+                    </div>
+                    <div class="analysis-panel" id="bt-panel-trades">
+                        <div class="analysis-stats" id="bt-trade-stats"></div>
+                        <div style="height:220px"><canvas id="bt-trade-pnl-chart" aria-label="盈亏分布图"></canvas></div>
+                    </div>
+                    <div class="analysis-panel" id="bt-panel-weekday">
+                        <div style="height:220px"><canvas id="bt-weekday-chart" aria-label="星期效应图"></canvas></div>
+                    </div>
                 </div>
 
                 <!-- 多策略对比 -->

@@ -976,6 +976,72 @@ input:focus, select:focus, textarea:focus {
     font-weight: 700;
 }
 
+/* 表格样式 */
+.sd-table-wrapper {
+    overflow-x: auto;
+    margin-top: 0.5rem;
+}
+.sd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+.sd-table th,
+.sd-table td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.sd-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.sd-table tr:hover {
+    background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+.sd-table .text-danger { color: var(--error-color); }
+.sd-table .text-success { color: var(--success-color); }
+.sd-table .text-muted { color: var(--text-muted); text-align: center; }
+
+/* 公告列表 */
+.sd-announcements {
+    max-height: 400px;
+    overflow-y: auto;
+}
+.sd-ann-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.sd-ann-item:last-child { border-bottom: none; }
+.sd-ann-date {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 80px;
+}
+.sd-ann-type {
+    font-size: 0.75rem;
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.sd-ann-title {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sd-ann-title:hover { color: var(--primary-color); text-decoration: underline; }
+
 /* 专业指标网格 */
 .sd-stats-grid {
     display: grid;
@@ -1272,3 +1338,45 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-secondary);
     text-align: center;
 }
+
+/* ── 深度分析面板 ── */
+.analysis-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: 2px;
+    margin-bottom: 1rem;
+}
+.analysis-tab {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    transition: all 0.15s;
+}
+.analysis-tab:hover { color: var(--text-primary); }
+.analysis-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+.analysis-panel { display: none; }
+.analysis-panel.active { display: block; }
+.analysis-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin-bottom: 1rem;
+    font-size: 13px;
+}
+.analysis-stats .as-item {
+    display: flex;
+    gap: 0.375rem;
+}
+.analysis-stats .as-label { color: var(--text-secondary); }
+.analysis-stats .as-value { font-weight: 600; font-variant-numeric: tabular-nums; }

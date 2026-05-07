@@ -428,3 +428,194 @@ async def ws_backtest(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
+
+
+@router.post("/analysis/returns")
+async def analysis_returns(req: BacktestRequest):
+    """收益分布分析（直方图、偏度、峰度）"""
+    if req.strategy not in STRATEGIES:
+        return {"error": "未知策略"}
+
+    config = BacktestConfig(
+        initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
+        enable_risk=req.enable_risk,
+    )
+    strategy = STRATEGIES[req.strategy]()
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    if not result.equity_curve or len(result.equity_curve) < 2:
+        return {"error": "数据不足"}
+
+    equities = [p["equity"] for p in result.equity_curve]
+    daily_returns = [(equities[i] - equities[i - 1]) / equities[i - 1] for i in range(1, len(equities))]
+
+    if not daily_returns:
+        return {"error": "无日收益率数据"}
+
+    n = len(daily_returns)
+    mean = sum(daily_returns) / n
+    variance = sum((r - mean) ** 2 for r in daily_returns) / n
+    std = variance ** 0.5
+
+    # 偏度
+    skewness = sum((r - mean) ** 3 for r in daily_returns) / (n * std ** 3) if std > 0 else 0
+    # 峰度
+    kurtosis = sum((r - mean) ** 4 for r in daily_returns) / (n * std ** 4) - 3 if std > 0 else 0
+
+    # 直方图分桶
+    min_r = min(daily_returns)
+    max_r = max(daily_returns)
+    bin_count = min(30, max(10, n // 10))
+    bin_width = (max_r - min_r) / bin_count if max_r > min_r else 0.001
+    bins = []
+    counts = []
+    for i in range(bin_count):
+        lo = min_r + i * bin_width
+        hi = lo + bin_width
+        count = sum(1 for r in daily_returns if lo <= r < hi)
+        bins.append(round((lo + hi) / 2 * 100, 3))  # 百分比
+        counts.append(count)
+
+    return {
+        "histogram": {"bins": bins, "counts": counts},
+        "stats": {
+            "mean": round(mean * 100, 4),
+            "std": round(std * 100, 4),
+            "skewness": round(skewness, 4),
+            "kurtosis": round(kurtosis, 4),
+            "min": round(min_r * 100, 4),
+            "max": round(max_r * 100, 4),
+            "positive_days": sum(1 for r in daily_returns if r > 0),
+            "negative_days": sum(1 for r in daily_returns if r < 0),
+        },
+    }
+
+
+@router.post("/analysis/trades")
+async def analysis_trades(req: BacktestRequest):
+    """交易分析（盈亏分布、持仓时间、连续盈亏）"""
+    if req.strategy not in STRATEGIES:
+        return {"error": "未知策略"}
+
+    config = BacktestConfig(
+        initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
+        enable_risk=req.enable_risk,
+    )
+    strategy = STRATEGIES[req.strategy]()
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    sell_trades = [t for t in result.trades if t.direction.value == "short"]
+    if not sell_trades:
+        return {"trades": [], "stats": {}}
+
+    pnl_list = []
+    holding_days_list = []
+    for t in sell_trades:
+        if t.entry_price > 0:
+            pnl_pct = (t.price - t.entry_price) / t.entry_price * 100
+            pnl_list.append(round(pnl_pct, 4))
+            # 简单估算持仓天数（如果有entry_date信息可用，否则跳过）
+
+    # 盈亏分布直方图
+    if pnl_list:
+        min_pnl = min(pnl_list)
+        max_pnl = max(pnl_list)
+        bin_count = min(20, max(5, len(pnl_list) // 3))
+        bin_width = (max_pnl - min_pnl) / bin_count if max_pnl > min_pnl else 0.5
+        pnl_bins = []
+        pnl_counts = []
+        for i in range(bin_count):
+            lo = min_pnl + i * bin_width
+            hi = lo + bin_width
+            count = sum(1 for p in pnl_list if lo <= p < hi)
+            pnl_bins.append(round((lo + hi) / 2, 2))
+            pnl_counts.append(count)
+    else:
+        pnl_bins, pnl_counts = [], []
+
+    # 连续盈亏统计
+    streaks_w, streaks_l = [], []
+    cur_w, cur_l = 0, 0
+    for p in pnl_list:
+        if p > 0:
+            cur_w += 1
+            if cur_l > 0:
+                streaks_l.append(cur_l)
+            cur_l = 0
+        else:
+            cur_l += 1
+            if cur_w > 0:
+                streaks_w.append(cur_w)
+            cur_w = 0
+    if cur_w > 0:
+        streaks_w.append(cur_w)
+    if cur_l > 0:
+        streaks_l.append(cur_l)
+
+    return {
+        "pnl_distribution": {"bins": pnl_bins, "counts": pnl_counts},
+        "pnl_list": pnl_list,
+        "stats": {
+            "total_trades": len(sell_trades),
+            "win_count": sum(1 for p in pnl_list if p > 0),
+            "loss_count": sum(1 for p in pnl_list if p <= 0),
+            "avg_win": round(sum(p for p in pnl_list if p > 0) / max(1, sum(1 for p in pnl_list if p > 0)), 2),
+            "avg_loss": round(sum(p for p in pnl_list if p <= 0) / max(1, sum(1 for p in pnl_list if p <= 0)), 2),
+            "max_win": round(max(pnl_list), 2) if pnl_list else 0,
+            "max_loss": round(min(pnl_list), 2) if pnl_list else 0,
+            "max_consecutive_wins": max(streaks_w) if streaks_w else 0,
+            "max_consecutive_losses": max(streaks_l) if streaks_l else 0,
+        },
+    }
+
+
+@router.post("/analysis/weekday")
+async def analysis_weekday(req: BacktestRequest):
+    """星期几效应分析"""
+    if req.strategy not in STRATEGIES:
+        return {"error": "未知策略"}
+
+    config = BacktestConfig(
+        initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
+        enable_risk=req.enable_risk,
+    )
+    strategy = STRATEGIES[req.strategy]()
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    if not result.equity_curve or len(result.equity_curve) < 2:
+        return {"error": "数据不足"}
+
+    # 按星期几分组计算日收益
+    weekday_returns = {i: [] for i in range(5)}  # 0=周一 ... 4=周五
+    equities = result.equity_curve
+    for i in range(1, len(equities)):
+        d = equities[i]["date"]
+        wd = d.weekday()
+        if wd < 5:
+            ret = (equities[i]["equity"] - equities[i - 1]["equity"]) / equities[i - 1]["equity"]
+            weekday_returns[wd].append(ret)
+
+    labels = ["周一", "周二", "周三", "周四", "周五"]
+    avg_returns = []
+    for wd in range(5):
+        rets = weekday_returns[wd]
+        avg = sum(rets) / len(rets) * 100 if rets else 0
+        avg_returns.append(round(avg, 4))
+
+    return {
+        "labels": labels,
+        "avg_returns": avg_returns,
+        "counts": [len(weekday_returns[i]) for i in range(5)],
+    }

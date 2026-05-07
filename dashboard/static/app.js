@@ -482,7 +482,7 @@ const App = {
             const weight = ((p.market_value / totalEquity) * 100).toFixed(1);
             return `<tr>
                 <td><a href="#" class="stock-link" data-code="${this.escapeHTML(p.code)}">${this.escapeHTML(p.code)}</a></td>
-                <td>${this.escapeHTML(p.code)}</td>
+                <td>${this.escapeHTML(p.name) || '--'}</td>
                 <td>${p.volume}</td>
                 <td>¥${p.avg_price.toFixed(3)}</td>
                 <td class="${pctClass}">¥${p.current_price.toFixed(3)}</td>
@@ -957,6 +957,9 @@ const App = {
         } catch (e) {
             this.toast('月度收益/回撤数据加载失败', 'error');
         }
+        // 加载深度分析
+        this._loadAnalysis(reqBody);
+        this._bindAnalysisTabs();
     },
 
     renderMonthlyHeatmap(data) {
@@ -995,6 +998,105 @@ const App = {
             scales: {
                 y: { ticks: { color: ChartFactory.getColors().textMuted, callback: v => v + '%' } },
             },
+        });
+    },
+
+    _bindAnalysisTabs() {
+        document.querySelectorAll('.analysis-tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.analysis-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.analysis-panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                const panel = document.getElementById('bt-panel-' + tab.dataset.panel);
+                if (panel) panel.classList.add('active');
+            };
+        });
+    },
+
+    async _loadAnalysis(reqBody) {
+        const post = (url) => fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reqBody),
+        }).then(r => r.json());
+
+        const [returnsData, tradesData, weekdayData] = await Promise.all([
+            post('/api/backtest/analysis/returns').catch(() => null),
+            post('/api/backtest/analysis/trades').catch(() => null),
+            post('/api/backtest/analysis/weekday').catch(() => null),
+        ]);
+
+        if (returnsData && !returnsData.error) this._renderReturnDist(returnsData);
+        if (tradesData && !tradesData.error) this._renderTradeAnalysis(tradesData);
+        if (weekdayData && !weekdayData.error) this._renderWeekday(weekdayData);
+    },
+
+    _renderReturnDist(data) {
+        const h = data.histogram;
+        const s = data.stats;
+        const statsEl = document.getElementById('bt-return-stats');
+        if (statsEl) {
+            statsEl.innerHTML = [
+                `<span class="as-item"><span class="as-label">均值:</span><span class="as-value">${s.mean}%</span></span>`,
+                `<span class="as-item"><span class="as-label">标准差:</span><span class="as-value">${s.std}%</span></span>`,
+                `<span class="as-item"><span class="as-label">偏度:</span><span class="as-value">${s.skewness}</span></span>`,
+                `<span class="as-item"><span class="as-label">峰度:</span><span class="as-value">${s.kurtosis}</span></span>`,
+                `<span class="as-item"><span class="as-label">上涨天数:</span><span class="as-value text-danger">${s.positive_days}</span></span>`,
+                `<span class="as-item"><span class="as-label">下跌天数:</span><span class="as-value text-success">${s.negative_days}</span></span>`,
+            ].join('');
+        }
+        if (h && h.bins.length > 0) {
+            const colors = h.bins.map(b => b >= 0 ? 'rgba(239,83,80,0.7)' : 'rgba(16,185,129,0.7)');
+            ChartFactory.bar('bt-return-dist-chart', {
+                labels: h.bins.map(b => b.toFixed(1) + '%'),
+                values: h.counts,
+                colors,
+            }, 'returnDist', {
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { maxTicksLimit: 10 } } },
+            });
+        }
+    },
+
+    _renderTradeAnalysis(data) {
+        const s = data.stats;
+        const statsEl = document.getElementById('bt-trade-stats');
+        if (statsEl && s) {
+            statsEl.innerHTML = [
+                `<span class="as-item"><span class="as-label">总交易:</span><span class="as-value">${s.total_trades}</span></span>`,
+                `<span class="as-item"><span class="as-label">盈利:</span><span class="as-value text-danger">${s.win_count}</span></span>`,
+                `<span class="as-item"><span class="as-label">亏损:</span><span class="as-value text-success">${s.loss_count}</span></span>`,
+                `<span class="as-item"><span class="as-label">平均盈利:</span><span class="as-value text-danger">+${s.avg_win}%</span></span>`,
+                `<span class="as-item"><span class="as-label">平均亏损:</span><span class="as-value text-success">${s.avg_loss}%</span></span>`,
+                `<span class="as-item"><span class="as-label">最大单笔盈利:</span><span class="as-value text-danger">+${s.max_win}%</span></span>`,
+                `<span class="as-item"><span class="as-label">最大单笔亏损:</span><span class="as-value text-success">${s.max_loss}%</span></span>`,
+                `<span class="as-item"><span class="as-label">最大连胜:</span><span class="as-value">${s.max_consecutive_wins}</span></span>`,
+                `<span class="as-item"><span class="as-label">最大连亏:</span><span class="as-value">${s.max_consecutive_losses}</span></span>`,
+            ].join('');
+        }
+        const pd = data.pnl_distribution;
+        if (pd && pd.bins.length > 0) {
+            const colors = pd.bins.map(b => b >= 0 ? 'rgba(239,83,80,0.7)' : 'rgba(16,185,129,0.7)');
+            ChartFactory.bar('bt-trade-pnl-chart', {
+                labels: pd.bins.map(b => b.toFixed(1) + '%'),
+                values: pd.counts,
+                colors,
+            }, 'tradePnl', {
+                plugins: { legend: { display: false } },
+            });
+        }
+    },
+
+    _renderWeekday(data) {
+        if (!data || !data.labels) return;
+        const colors = data.avg_returns.map(v => v >= 0 ? 'rgba(239,83,80,0.7)' : 'rgba(16,185,129,0.7)');
+        ChartFactory.bar('bt-weekday-chart', {
+            labels: data.labels,
+            values: data.avg_returns,
+            colors,
+        }, 'weekday', {
+            plugins: { legend: { display: false } },
+            scales: { y: { ticks: { callback: v => v.toFixed(3) + '%' } } },
         });
     },
 

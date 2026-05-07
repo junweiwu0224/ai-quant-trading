@@ -2,13 +2,38 @@
 
 const App = {
     charts: {},
+    stockCache: null,
 
     init() {
         this.bindTabs();
         this.bindBacktest();
         this.setDefaultDate();
-        this.loadOverview();
+        this.handleHashRoute();
         this.loadStockList();
+        window.addEventListener('hashchange', () => this.handleHashRoute());
+    },
+
+    /* ── Toast 通知 ── */
+    toast(message, type = 'info') {
+        let container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
+    },
+
+    /* ── URL Hash 路由 ── */
+    handleHashRoute() {
+        const hash = location.hash.replace('#', '') || 'overview';
+        const validTabs = ['overview', 'backtest', 'portfolio', 'risk', 'strategy'];
+        const tab = validTabs.includes(hash) ? hash : 'overview';
+        this.switchTab(tab, false);
     },
 
     /* ── Tab 路由 ── */
@@ -16,17 +41,22 @@ const App = {
         document.querySelectorAll('.nav-link').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                const tab = link.dataset.tab;
-                this.switchTab(tab);
+                this.switchTab(link.dataset.tab, true);
             });
         });
     },
 
-    switchTab(tab) {
+    switchTab(tab, updateHash = true) {
         document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
         document.querySelectorAll(`.nav-link[data-tab="${tab}"]`).forEach(l => l.classList.add('active'));
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         document.getElementById(`tab-${tab}`).classList.add('active');
+
+        if (updateHash) history.replaceState(null, '', `#${tab}`);
+
+        // 更新标题
+        const titles = { overview: '总览', backtest: '回测', portfolio: '持仓', risk: '风控', strategy: '策略管理' };
+        document.title = `${titles[tab] || '总览'} - AI 量化交易系统`;
 
         // 懒加载
         const loaders = {
@@ -43,31 +73,44 @@ const App = {
         document.getElementById('bt-end').value = today;
     },
 
-    /* ── 股票搜索自动补全 ── */
+    /* ── 股票列表（缓存） ── */
     async loadStockList() {
         try {
             const res = await fetch('/api/backtest/stocks');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
+            this.stockCache = data;
             const list = document.getElementById('stock-list');
             list.innerHTML = data.map(s =>
                 `<option value="${s.code}">${s.code} ${s.name}</option>`
             ).join('');
         } catch (e) {
-            // 静默失败
+            this.toast('股票列表加载失败', 'error');
         }
+    },
+
+    /* ── 安全获取数据 ── */
+    async fetchJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${url} 返回 ${res.status}`);
+        return res.json();
     },
 
     /* ── Tab 1: 总览 ── */
     async loadOverview() {
+        const stockCountEl = document.getElementById('ov-stock-count');
+        stockCountEl.innerHTML = '<span class="spinner"></span>';
+
         try {
-            const [snapshot, trades, status, stocks] = await Promise.all([
-                fetch('/api/portfolio/snapshot').then(r => r.json()),
-                fetch('/api/portfolio/trades').then(r => r.json()),
-                fetch('/api/system/status').then(r => r.json()),
-                fetch('/api/backtest/stocks').then(r => r.json()),
+            const [snapshot, trades, status] = await Promise.all([
+                this.fetchJSON('/api/portfolio/snapshot'),
+                this.fetchJSON('/api/portfolio/trades'),
+                this.fetchJSON('/api/system/status'),
             ]);
 
-            // 统计卡片
+            // 使用缓存的股票列表，避免重复请求
+            const stocks = this.stockCache || [];
+
             const dbStats = status.db_stats || {};
             document.getElementById('ov-stock-count').textContent = dbStats.stock_count || 0;
             document.getElementById('ov-latest-date').textContent = dbStats.latest_date || '无数据';
@@ -100,9 +143,9 @@ const App = {
             }
 
             // 最近交易
+            const tradesBody = document.querySelector('#ov-trades-table tbody');
             if (trades.length > 0) {
-                const tbody = document.querySelector('#ov-trades-table tbody');
-                tbody.innerHTML = trades.slice(-10).reverse().map(t => `
+                tradesBody.innerHTML = trades.slice(-10).reverse().map(t => `
                     <tr>
                         <td>${t.time || '--'}</td>
                         <td>${t.code}</td>
@@ -114,7 +157,8 @@ const App = {
                 `).join('');
             }
         } catch (e) {
-            console.log('总览数据加载失败:', e);
+            stockCountEl.textContent = '--';
+            this.toast('总览数据加载失败: ' + e.message, 'error');
         }
     },
 
@@ -122,16 +166,30 @@ const App = {
     bindBacktest() {
         document.getElementById('backtest-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            // 表单验证
+            const code = document.getElementById('bt-code').value.trim();
+            const startDate = document.getElementById('bt-start').value;
+            const endDate = document.getElementById('bt-end').value;
+            const cash = parseFloat(document.getElementById('bt-cash').value);
+
+            if (!code) { this.toast('请输入股票代码', 'error'); return; }
+            if (startDate > endDate) { this.toast('开始日期不能晚于结束日期', 'error'); return; }
+            if (cash <= 0) { this.toast('初始资金必须大于 0', 'error'); return; }
+
             const btn = document.getElementById('bt-run-btn');
             btn.disabled = true;
-            btn.textContent = '运行中...';
+            btn.innerHTML = '<span class="spinner"></span>运行中...';
+
+            // 清除旧结果
+            document.getElementById('bt-results').style.display = 'none';
 
             const body = {
                 strategy: document.getElementById('bt-strategy').value,
-                codes: [document.getElementById('bt-code').value],
-                start_date: document.getElementById('bt-start').value,
-                end_date: document.getElementById('bt-end').value,
-                initial_cash: parseFloat(document.getElementById('bt-cash').value),
+                codes: [code],
+                start_date: startDate,
+                end_date: endDate,
+                initial_cash: cash,
                 enable_risk: document.getElementById('bt-risk').value === 'true',
             };
 
@@ -141,10 +199,12 @@ const App = {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 this.showBacktestResults(data);
+                this.toast('回测完成', 'success');
             } catch (err) {
-                alert('回测失败: ' + err.message);
+                this.toast('回测失败: ' + err.message, 'error');
             } finally {
                 btn.disabled = false;
                 btn.textContent = '运行回测';
@@ -153,59 +213,70 @@ const App = {
     },
 
     showBacktestResults(data) {
+        const safe = (v, d = 0) => v != null ? v : d;
+
         document.getElementById('bt-results').style.display = '';
-        document.getElementById('bt-return').textContent = (data.total_return * 100).toFixed(2) + '%';
-        document.getElementById('bt-annual').textContent = (data.annual_return * 100).toFixed(2) + '%';
-        document.getElementById('bt-dd').textContent = (data.max_drawdown * 100).toFixed(2) + '%';
-        document.getElementById('bt-sharpe').textContent = data.sharpe_ratio;
-        document.getElementById('bt-winrate').textContent = (data.win_rate * 100).toFixed(1) + '%';
-        document.getElementById('bt-trades').textContent = data.total_trades;
+        document.getElementById('bt-return').textContent = (safe(data.total_return) * 100).toFixed(2) + '%';
+        document.getElementById('bt-annual').textContent = (safe(data.annual_return) * 100).toFixed(2) + '%';
+        document.getElementById('bt-dd').textContent = (safe(data.max_drawdown) * 100).toFixed(2) + '%';
+        document.getElementById('bt-sharpe').textContent = safe(data.sharpe_ratio);
+        document.getElementById('bt-winrate').textContent = (safe(data.win_rate) * 100).toFixed(1) + '%';
+        document.getElementById('bt-trades').textContent = safe(data.total_trades);
 
         // 收益曲线
+        const curve = data.equity_curve || [];
         if (this.charts.equity) this.charts.equity.destroy();
-        const ctx = document.getElementById('bt-equity-chart').getContext('2d');
-        this.charts.equity = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: data.equity_curve.map(p => p.date),
-                datasets: [{
-                    label: '权益',
-                    data: data.equity_curve.map(p => p.equity),
-                    borderColor: '#4f8cff',
-                    backgroundColor: 'rgba(79,140,255,0.1)',
-                    fill: true,
-                    pointRadius: 0,
-                    borderWidth: 1.5,
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { display: true, ticks: { maxTicksLimit: 10 } },
-                    y: { display: true },
+        if (curve.length > 0) {
+            const ctx = document.getElementById('bt-equity-chart').getContext('2d');
+            this.charts.equity = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: curve.map(p => p.date),
+                    datasets: [{
+                        label: '权益',
+                        data: curve.map(p => p.equity),
+                        borderColor: '#4f8cff',
+                        backgroundColor: 'rgba(79,140,255,0.1)',
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 1.5,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: true, ticks: { maxTicksLimit: 10, color: '#71717a' } },
+                        y: { display: true, ticks: { color: '#71717a' } },
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // 交易明细
+        const trades = data.trades || [];
         const tbody = document.querySelector('#bt-trades-table tbody');
-        tbody.innerHTML = data.trades.map(t => `
-            <tr>
-                <td>${t.datetime || '--'}</td>
-                <td>${t.code}</td>
-                <td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td>
-                <td>${t.price}</td>
-                <td>${t.volume}</td>
-                <td>${t.entry_price || '--'}</td>
-            </tr>
-        `).join('');
+        if (trades.length > 0) {
+            tbody.innerHTML = trades.map(t => `
+                <tr>
+                    <td>${t.datetime || '--'}</td>
+                    <td>${t.code}</td>
+                    <td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td>
+                    <td>${t.price}</td>
+                    <td>${t.volume}</td>
+                    <td>${t.entry_price || '--'}</td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-muted">无交易记录</td></tr>';
+        }
 
         // 风控告警
-        if (data.risk_alerts && data.risk_alerts.length > 0) {
+        const alerts = data.risk_alerts || [];
+        if (alerts.length > 0) {
             document.getElementById('bt-alerts-card').style.display = '';
-            const alertBody = document.querySelector('#bt-alerts-table tbody');
-            alertBody.innerHTML = data.risk_alerts.map(a => `
+            document.querySelector('#bt-alerts-table tbody').innerHTML = alerts.map(a => `
                 <tr>
                     <td>${a.date}</td>
                     <td><span class="badge badge-${a.level === 'critical' ? 'danger' : 'warning'}">${a.level}</span></td>
@@ -222,8 +293,8 @@ const App = {
     async loadPortfolio() {
         try {
             const [snapshot, trades] = await Promise.all([
-                fetch('/api/portfolio/snapshot').then(r => r.json()),
-                fetch('/api/portfolio/trades').then(r => r.json()),
+                this.fetchJSON('/api/portfolio/snapshot'),
+                this.fetchJSON('/api/portfolio/trades'),
             ]);
 
             document.getElementById('pf-equity').textContent = this.fmt(snapshot.total_equity);
@@ -264,17 +335,14 @@ const App = {
                 tradeBody.innerHTML = '<tr><td colspan="6" class="text-muted">今日无交易</td></tr>';
             }
         } catch (e) {
-            console.log('持仓数据加载失败:', e);
+            this.toast('持仓数据加载失败', 'error');
         }
     },
 
     /* ── Tab 4: 风控 ── */
     async loadRisk() {
         try {
-            const [risk, rules] = await Promise.all([
-                fetch('/api/portfolio/risk').then(r => r.json()),
-                fetch('/api/system/risk/rules').then(r => r.json()),
-            ]);
+            const risk = await this.fetchJSON('/api/portfolio/risk');
 
             document.getElementById('rk-equity').textContent = this.fmt(risk.total_equity);
             document.getElementById('rk-cash-pct').textContent = (risk.cash_pct * 100).toFixed(1) + '%';
@@ -300,12 +368,18 @@ const App = {
                     },
                     options: {
                         responsive: true,
-                        plugins: { legend: { position: 'right' } }
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'right', labels: { color: '#e4e4e7' } } }
                     }
                 });
             }
+        } catch (e) {
+            this.toast('风控数据加载失败', 'error');
+        }
 
-            // 风控规则
+        // 风控规则（独立请求，失败不影响其他）
+        try {
+            const rules = await this.fetchJSON('/api/system/risk/rules');
             const rulesBody = document.querySelector('#rk-rules tbody');
             rulesBody.innerHTML = rules.map(r => `
                 <tr>
@@ -316,15 +390,17 @@ const App = {
                 </tr>
             `).join('');
         } catch (e) {
-            console.log('风控数据加载失败:', e);
+            // 风控规则加载失败静默处理
         }
     },
 
     /* ── Tab 5: 策略管理 ── */
     async loadStrategies() {
+        const grid = document.getElementById('st-list');
+        grid.innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
+
         try {
-            const strategies = await fetch('/api/system/strategies').then(r => r.json());
-            const grid = document.getElementById('st-list');
+            const strategies = await this.fetchJSON('/api/system/strategies');
             grid.innerHTML = strategies.map(s => `
                 <div class="strategy-card">
                     <h3>${s.label}</h3>
@@ -337,18 +413,20 @@ const App = {
                 </div>
             `).join('');
         } catch (e) {
-            console.log('策略数据加载失败:', e);
+            grid.innerHTML = '<div class="empty-state"><p>策略加载失败，请刷新重试</p></div>';
+            this.toast('策略数据加载失败', 'error');
         }
     },
 
     quickBacktest(strategyName) {
         document.getElementById('bt-strategy').value = strategyName;
-        this.switchTab('backtest');
+        this.switchTab('backtest', true);
     },
 
     /* ── 工具函数 ── */
     fmt(value) {
-        if (value == null || value === 0) return '¥0';
+        if (value == null) return '--';
+        if (value === 0) return '¥0';
         return '¥' + Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
     },
 };

@@ -60,15 +60,18 @@ const App = {
     /* ── Tab 1: 总览 ── */
     async loadOverview() {
         try {
-            const [snapshot, trades, status] = await Promise.all([
+            const [snapshot, trades, status, stocks] = await Promise.all([
                 fetch('/api/portfolio/snapshot').then(r => r.json()),
                 fetch('/api/portfolio/trades').then(r => r.json()),
                 fetch('/api/system/status').then(r => r.json()),
+                fetch('/api/backtest/stocks').then(r => r.json()),
             ]);
 
+            // 统计卡片
+            const dbStats = status.db_stats || {};
+            document.getElementById('ov-stock-count').textContent = dbStats.stock_count || 0;
+            document.getElementById('ov-latest-date').textContent = dbStats.latest_date || '无数据';
             document.getElementById('ov-equity').textContent = this.fmt(snapshot.total_equity);
-            document.getElementById('ov-cash').textContent = this.fmt(snapshot.cash);
-            document.getElementById('ov-pos-count').textContent = snapshot.positions.length;
             document.getElementById('ov-trade-count').textContent = trades.length;
 
             // 模块网格
@@ -80,6 +83,21 @@ const App = {
                 </div>
             `).join('');
             document.getElementById('ov-modules').innerHTML = modulesHtml;
+
+            // 股票列表
+            const stockBody = document.querySelector('#ov-stocks-table tbody');
+            if (stocks.length > 0) {
+                document.getElementById('ov-stock-hint').textContent = `(共 ${stocks.length} 只)`;
+                stockBody.innerHTML = stocks.slice(0, 30).map(s => `
+                    <tr>
+                        <td>${s.code}</td>
+                        <td>${s.name || '--'}</td>
+                        <td>${s.industry || '--'}</td>
+                    </tr>
+                `).join('');
+            } else {
+                stockBody.innerHTML = '<tr><td colspan="3" class="text-muted">数据库中暂无股票数据，请先运行数据采集</td></tr>';
+            }
 
             // 最近交易
             if (trades.length > 0) {

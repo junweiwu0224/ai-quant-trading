@@ -41,16 +41,16 @@
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-label">总资产</div>
+                    <div class="stat-label">数据库股票数</div>
+                    <div class="stat-value" id="ov-stock-count">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">最新数据日期</div>
+                    <div class="stat-value" id="ov-latest-date">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">模拟盘资产</div>
                     <div class="stat-value" id="ov-equity">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">可用现金</div>
-                    <div class="stat-value" id="ov-cash">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">持仓数量</div>
-                    <div class="stat-value" id="ov-pos-count">--</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">今日交易</div>
@@ -61,6 +61,20 @@
             <div class="card">
                 <h2>系统模块</h2>
                 <div class="module-grid" id="ov-modules"></div>
+            </div>
+
+            <div class="card">
+                <h2>股票列表 <span class="text-muted" id="ov-stock-hint"></span></h2>
+                <div class="table-wrap">
+                    <table id="ov-stocks-table">
+                        <thead>
+                            <tr><th>代码</th><th>名称</th><th>行业</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="3" class="text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <div class="card">

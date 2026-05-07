@@ -589,6 +589,8 @@ const App = {
             if (!checkbox) return;
             checkbox.checked = !checkbox.checked;
             chip.classList.toggle('active', checkbox.checked);
+            // 策略选择变化时自动触发对比
+            this.compareStrategies();
         });
     },
 

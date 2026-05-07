@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}总览 - AI 量化交易系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>系统总览</h1>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">总资产</div>
+        <div class="stat-value" id="total-equity">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">可用现金</div>
+        <div class="stat-value" id="cash">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">持仓数量</div>
+        <div class="stat-value" id="position-count">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">今日交易</div>
+        <div class="stat-value" id="trade-count">--</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>系统模块</h2>
+    <div class="module-grid">
+        <div class="module-item">
+            <h3>数据层</h3>
+            <p>AKShare 采集 + SQLite 存储</p>
+            <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="module-item">
+            <h3>回测引擎</h3>
+            <p>策略模板 + 3 个内置策略</p>
+            <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="module-item">
+            <h3>AI Alpha</h3>
+            <p>因子库 + LightGBM + Optuna</p>
+            <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="module-item">
+            <h3>风控模块</h3>
+            <p>仓位管理 + 止损止盈 + 监控</p>
+            <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="module-item">
+            <h3>模拟盘</h3>
+            <p>实时行情 + 虚拟下单</p>
+            <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="module-item">
+            <h3>可视化面板</h3>
+            <p>FastAPI + Jinja2 + Chart.js</p>
+            <span class="badge badge-info">当前</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadData() {
+    try {
+        const res = await fetch('/api/portfolio/snapshot');
+        const data = await res.json();
+        document.getElementById('total-equity').textContent = '¥' + data.total_equity.toLocaleString();
+        document.getElementById('cash').textContent = '¥' + data.cash.toLocaleString();
+        document.getElementById('position-count').textContent = data.positions.length;
+    } catch (e) {
+        console.log('无模拟盘数据');
+    }
+
+    try {
+        const res = await fetch('/api/portfolio/trades');
+        const trades = await res.json();
+        document.getElementById('trade-count').textContent = trades.length;
+    } catch (e) {
+        document.getElementById('trade-count').textContent = '0';
+    }
+}
+loadData();
+</script>
+{% endblock %}

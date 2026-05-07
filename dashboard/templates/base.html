@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI 量化交易系统{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">AI Quant</div>
+        <ul>
+            <li><a href="/" class="{% if active == 'home' %}active{% endif %}">总览</a></li>
+            <li><a href="/backtest" class="{% if active == 'backtest' %}active{% endif %}">回测报告</a></li>
+            <li><a href="/portfolio" class="{% if active == 'portfolio' %}active{% endif %}">持仓监控</a></li>
+            <li><a href="/risk" class="{% if active == 'risk' %}active{% endif %}">风控面板</a></li>
+        </ul>
+    </nav>
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

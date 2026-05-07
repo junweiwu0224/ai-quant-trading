@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}持仓监控 - AI 量化交易系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>持仓监控</h1>
+    <button class="btn btn-sm" onclick="loadData()">刷新</button>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">总资产</div>
+        <div class="stat-value" id="total-equity">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">现金</div>
+        <div class="stat-value" id="cash">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">持仓市值</div>
+        <div class="stat-value" id="market-value">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">持仓数</div>
+        <div class="stat-value" id="pos-count">--</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>持仓明细</h2>
+    <div class="table-wrap">
+        <table id="positions-table">
+            <thead>
+                <tr>
+                    <th>代码</th>
+                    <th>数量</th>
+                    <th>均价</th>
+                    <th>市值</th>
+                    <th>占比</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td colspan="5" class="text-muted">暂无持仓数据</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>今日交易</h2>
+    <div class="table-wrap">
+        <table id="trades-table">
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>代码</th>
+                    <th>方向</th>
+                    <th>价格</th>
+                    <th>数量</th>
+                    <th>权益</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td colspan="6" class="text-muted">今日无交易</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadData() {
+    try {
+        const res = await fetch('/api/portfolio/snapshot');
+        const data = await res.json();
+        document.getElementById('total-equity').textContent = '¥' + data.total_equity.toLocaleString();
+        document.getElementById('cash').textContent = '¥' + data.cash.toLocaleString();
+        document.getElementById('market-value').textContent = '¥' + data.market_value.toLocaleString();
+        document.getElementById('pos-count').textContent = data.positions.length;
+
+        const tbody = document.querySelector('#positions-table tbody');
+        if (data.positions.length > 0) {
+            tbody.innerHTML = data.positions.map(p => `<tr>
+                <td>${p.code}</td>
+                <td>${p.volume}</td>
+                <td>¥${p.avg_price}</td>
+                <td>¥${p.market_value.toLocaleString()}</td>
+                <td>${(p.market_value / data.total_equity * 100).toFixed(1)}%</td>
+            </tr>`).join('');
+        }
+    } catch (e) {
+        console.log('无持仓数据');
+    }
+
+    try {
+        const res = await fetch('/api/portfolio/trades');
+        const trades = await res.json();
+        const tbody = document.querySelector('#trades-table tbody');
+        if (trades.length > 0) {
+            tbody.innerHTML = trades.map(t => `<tr>
+                <td>${t.time || '--'}</td>
+                <td>${t.code}</td>
+                <td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td>
+                <td>¥${t.price}</td>
+                <td>${t.volume}</td>
+                <td>¥${t.equity?.toLocaleString() || '--'}</td>
+            </tr>`).join('');
+        }
+    } catch (e) {
+        console.log('无交易数据');
+    }
+}
+loadData();
+</script>
+{% endblock %}

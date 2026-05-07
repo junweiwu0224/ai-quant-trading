@@ -1,0 +1,44 @@
+services:
+  dashboard:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+
+  paper:
+    build: .
+    command: ["python", "scripts/run_paper.py", "-s", "dual_ma", "-c", "000001", "-c", "600519"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+    profiles:
+      - trading
+
+  live:
+    build: .
+    command: ["python", "scripts/run_live.py", "-s", "dual_ma", "-c", "000001"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+    profiles:
+      - trading
+
+  backtest:
+    build: .
+    command: ["python", "scripts/run_backtest.py", "-s", "dual_ma", "-c", "000001"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+    profiles:
+      - trading

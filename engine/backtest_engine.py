@@ -269,7 +269,7 @@ class BacktestEngine:
         portfolio: Portfolio,
         prices: dict[str, float],
     ):
-        """过滤不符合仓位规则的挂单"""
+        """过滤不符合仓位规则的挂单，自动调整仓位大小"""
         if not self._position_mgr:
             return
 
@@ -285,9 +285,20 @@ class BacktestEngine:
                     prices=prices,
                 )
                 if not passed:
-                    order.status = "cancelled"
-                    logger.info(f"[仓位] 拒绝买入 {order.code}: {reason}")
-                    continue
+                    # 自动调整仓位大小以符合风控配置
+                    max_volume = self._position_mgr.calc_max_volume(
+                        code=order.code,
+                        price=order.price,
+                        portfolio=portfolio,
+                        prices=prices,
+                    )
+                    if max_volume >= 100:  # 至少1手
+                        order.volume = max_volume
+                        logger.info(f"[仓位] 调整买入 {order.code}: {order.volume} 股（原 {order.volume} 股）")
+                    else:
+                        order.status = "cancelled"
+                        logger.info(f"[仓位] 拒绝买入 {order.code}: {reason}")
+                        continue
             kept.append(order)
         strategy._pending_orders = kept
 

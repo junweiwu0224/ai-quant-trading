@@ -317,7 +317,8 @@
                 <div class="sd-main-grid">
                     <div class="card sd-chart-card">
                         <div class="sd-chart-tabs">
-                            <button class="sd-tab active" data-period="daily">日K</button>
+                            <button class="sd-tab active" data-period="timeline">分时</button>
+                            <button class="sd-tab" data-period="daily">日K</button>
                             <button class="sd-tab" data-period="weekly">周K</button>
                             <button class="sd-tab" data-period="monthly">月K</button>
                             <button class="sd-tab" data-period="60m">60分</button>
@@ -335,16 +336,10 @@
                     </div>
                 </div>
 
-                <!-- 分时图 + 资金流向 并排 -->
-                <div class="sd-sub-grid">
-                    <div class="card">
-                        <h3>今日分时</h3>
-                        <div id="sd-timeline-chart" style="height:220px"></div>
-                    </div>
-                    <div class="card">
-                        <h3>资金流向（近20日）</h3>
-                        <div id="sd-capital-chart" style="height:220px"></div>
-                    </div>
+                <!-- 资金流向 -->
+                <div class="card">
+                    <h3>资金流向（近20日）</h3>
+                    <div id="sd-capital-chart" style="height:300px"></div>
                 </div>
             </div>
 
@@ -386,7 +381,7 @@
                     </div>
                     <div class="form-group">
                         <label for="bt-cash">初始资金</label>
-                        <input type="number" id="bt-cash" value="1000000" min="1" required>
+                        <input type="number" id="bt-cash" value="100000" min="1" required>
                     </div>
                     <div class="form-group">
                         <label for="bt-risk">启用风控</label>

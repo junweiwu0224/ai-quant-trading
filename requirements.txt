@@ -14,7 +14,8 @@ numpy>=1.24.0
 
 # Web Dashboard
 fastapi>=0.104.0
-uvicorn>=0.24.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
 jinja2>=3.1.0
 pydantic>=2.0
 httpx
@@ -29,3 +30,6 @@ pytest>=7.4.0
 python-dotenv>=1.0.0
 loguru>=0.7.0
 click>=8.0.0
+
+# PDF Report
+reportlab>=4.0.0

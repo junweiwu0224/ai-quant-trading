@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from data.storage import DataStorage
 from data.collector.collector import StockCollector
 from engine.backtest_engine import BacktestConfig, BacktestEngine
+from engine.report_generator import generate_backtest_report
 from strategy.dual_ma import DualMAStrategy
 from strategy.bollinger import BollingerStrategy
 from strategy.momentum import MomentumStrategy
@@ -619,3 +620,68 @@ async def analysis_weekday(req: BacktestRequest):
         "avg_returns": avg_returns,
         "counts": [len(weekday_returns[i]) for i in range(5)],
     }
+
+
+@router.post("/report/pdf")
+async def generate_report_pdf(req: BacktestRequest):
+    """生成回测 PDF 报告"""
+    if req.strategy not in STRATEGIES:
+        return {"error": "未知策略"}
+
+    strategy_cls = STRATEGIES[req.strategy]
+    strategy = strategy_cls()
+
+    config = BacktestConfig(
+        initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
+        enable_risk=req.enable_risk,
+    )
+    if req.benchmark:
+        _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+        config.benchmark_code = req.benchmark
+
+    engine = BacktestEngine(config=config)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None, lambda: engine.run(strategy, req.codes, req.start_date, req.end_date)
+    )
+
+    # 构建报告数据
+    report_data = {
+        "strategy": req.strategy,
+        "codes": req.codes,
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+        "initial_cash": req.initial_cash,
+        "commission_rate": req.commission_rate,
+        "stamp_tax_rate": req.stamp_tax_rate,
+        "slippage": req.slippage,
+        "benchmark": req.benchmark or "None",
+        "total_return": result.total_return,
+        "annual_return": result.annual_return,
+        "sharpe_ratio": result.sharpe_ratio,
+        "sortino_ratio": result.sortino_ratio,
+        "max_drawdown": result.max_drawdown,
+        "calmar_ratio": result.calmar_ratio,
+        "win_rate": result.win_rate,
+        "profit_loss_ratio": result.profit_loss_ratio,
+        "alpha": result.alpha,
+        "beta": result.beta,
+        "information_ratio": result.information_ratio,
+        "total_trades": result.total_trades,
+        "max_consecutive_wins": result.max_consecutive_wins,
+        "max_consecutive_losses": result.max_consecutive_losses,
+        "trades": [t.__dict__ if hasattr(t, '__dict__') else t for t in result.trades],
+        "risk_alerts": result.risk_alerts if hasattr(result, 'risk_alerts') else [],
+    }
+
+    pdf_bytes = generate_backtest_report(report_data)
+
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=backtest_report.pdf"},
+    )

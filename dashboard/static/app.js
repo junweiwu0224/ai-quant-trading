@@ -9,10 +9,16 @@ const App = {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     },
 
-    async fetchJSON(url) {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`${url} 返回 ${res.status}`);
-        return res.json();
+    async fetchJSON(url, timeout = 15000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+            const res = await fetch(url, { signal: controller.signal });
+            if (!res.ok) throw new Error(`${url} 返回 ${res.status}`);
+            return res.json();
+        } finally {
+            clearTimeout(timer);
+        }
     },
 
     fmt(value) {
@@ -109,14 +115,22 @@ const App = {
         }
     },
 
-    _updateWatchlistPrices(quotes) {
+    _buildWatchlistIndex() {
+        this._watchlistRowMap = new Map();
         const rows = document.querySelectorAll('#ov-stocks-table tbody tr');
         rows.forEach(row => {
             const codeCell = row.cells?.[0];
             if (!codeCell) return;
             const code = codeCell.textContent.trim();
-            const q = quotes[code];
-            if (!q) return;
+            if (code) this._watchlistRowMap.set(code, row);
+        });
+    },
+
+    _updateWatchlistPrices(quotes) {
+        if (!this._watchlistRowMap) this._buildWatchlistIndex();
+        for (const [code, q] of Object.entries(quotes)) {
+            const row = this._watchlistRowMap.get(code);
+            if (!row) continue;
             // 列: 代码(0) 名称(1) 行业(2) 板块(3) 概念(4) 最新价(5) 涨跌幅(6)
             const industryCell = row.cells?.[2];
             if (industryCell && q.industry) {
@@ -154,7 +168,7 @@ const App = {
                 pctEl.textContent = pctText;
                 changeCell.className = q.change_pct >= 0 ? 'text-up' : 'text-down';
             }
-        });
+        }
     },
 
     /* 侧边栏折叠 */
@@ -289,15 +303,11 @@ const App = {
                 );
             };
 
-            // 回测搜索框（单选）
-            const btSearch = new SearchBox('bt-code', 'bt-code-dropdown', {
+            // 回测搜索框（多选，支持组合回测）
+            this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', {
                 maxResults: 30,
-                formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
-            btSearch.setDataSource(watchlistFilter);
-            btSearch.onSelect((item) => {
-                document.getElementById('bt-code').value = item.code;
-            });
+            this.btMultiSearch.setDataSource(watchlistFilter);
 
             // AI Alpha 搜索框（单选）
             const alphaSearch = new SearchBox('alpha-code', 'alpha-code-dropdown', {
@@ -379,6 +389,53 @@ const App = {
         this.toast('CSV导出成功', 'success');
     },
 
+    async exportPDF() {
+        const data = this._lastBacktestData;
+        if (!data) { this.toast('请先运行回测', 'error'); return; }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+
+        try {
+            const body = {
+                strategy: document.getElementById('bt-strategy').value,
+                codes: this.btMultiSearch
+                    ? this.btMultiSearch.getSelectedCodes()
+                    : [document.getElementById('bt-code').value.trim()].filter(Boolean),
+                start_date: document.getElementById('bt-start').value,
+                end_date: document.getElementById('bt-end').value,
+                initial_cash: parseFloat(document.getElementById('bt-cash').value) || 100000,
+                commission_rate: parseFloat(document.getElementById('bt-commission').value) || 0.0003,
+                stamp_tax_rate: parseFloat(document.getElementById('bt-stamp-tax').value) || 0.001,
+                slippage: parseFloat(document.getElementById('bt-slippage').value) || 0.002,
+                benchmark: document.getElementById('bt-benchmark').value || '',
+                enable_risk: document.getElementById('bt-risk').value === 'true',
+            };
+
+            const res = await fetch('/api/backtest/report/pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `backtest_report_${body.start_date}_${body.end_date}.pdf`;
+            a.click();
+            URL.revokeObjectURL(url);
+            this.toast('PDF报告已生成', 'success');
+        } catch (err) {
+            this.toast('PDF生成失败: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '导出PDF报告';
+        }
+    },
+
     quickBacktest(strategyName) {
         document.getElementById('bt-strategy').value = strategyName;
         this.switchTab('backtest');
@@ -441,6 +498,7 @@ const App = {
             }
 
             Watchlist.render(watchlist);
+            this._buildWatchlistIndex();
 
             // 持仓明细
             this._renderPositions(snapshot);
@@ -765,12 +823,15 @@ const App = {
         if (!form) return;
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const code = document.getElementById('bt-code').value.trim();
+            // 支持多选和单选两种模式
+            const codes = this.btMultiSearch
+                ? this.btMultiSearch.getSelectedCodes()
+                : [document.getElementById('bt-code').value.trim()].filter(Boolean);
             const startDate = document.getElementById('bt-start').value;
             const endDate = document.getElementById('bt-end').value;
             const cash = parseFloat(document.getElementById('bt-cash').value);
 
-            if (!code) { this.toast('请输入股票代码', 'error'); return; }
+            if (codes.length === 0) { this.toast('请至少选择一只股票', 'error'); return; }
             if (startDate > endDate) { this.toast('开始日期不能晚于结束日期', 'error'); return; }
             if (cash <= 0) { this.toast('初始资金必须大于 0', 'error'); return; }
 
@@ -782,7 +843,7 @@ const App = {
 
             const body = {
                 strategy: document.getElementById('bt-strategy').value,
-                codes: [code],
+                codes: codes,
                 start_date: startDate, end_date: endDate,
                 initial_cash: cash,
                 commission_rate: parseFloat(document.getElementById('bt-commission').value) || 0.0003,
@@ -1131,8 +1192,10 @@ const App = {
         if (!form) return;
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const code = document.getElementById('bt-code').value.trim();
-            if (!code) { this.toast('请先选择股票代码', 'error'); return; }
+            const codes = this.btMultiSearch
+                ? this.btMultiSearch.getSelectedCodes()
+                : [document.getElementById('bt-code').value.trim()].filter(Boolean);
+            if (codes.length === 0) { this.toast('请先选择股票代码', 'error'); return; }
 
             const btn = document.getElementById('opt-run-btn');
             btn.disabled = true;
@@ -1143,7 +1206,7 @@ const App = {
 
             const body = {
                 strategy: document.getElementById('bt-strategy').value,
-                codes: [code],
+                codes: codes,
                 start_date: document.getElementById('bt-start').value,
                 end_date: document.getElementById('bt-end').value,
                 initial_cash: parseFloat(document.getElementById('bt-cash').value) || 100000,
@@ -1222,8 +1285,10 @@ const App = {
         if (!form) return;
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const code = document.getElementById('bt-code').value.trim();
-            if (!code) { this.toast('请先选择股票代码', 'error'); return; }
+            const codes = this.btMultiSearch
+                ? this.btMultiSearch.getSelectedCodes()
+                : [document.getElementById('bt-code').value.trim()].filter(Boolean);
+            if (codes.length === 0) { this.toast('请先选择股票代码', 'error'); return; }
 
             const btn = document.getElementById('sens-run-btn');
             btn.disabled = true;
@@ -1234,7 +1299,7 @@ const App = {
 
             const body = {
                 strategy: document.getElementById('bt-strategy').value,
-                codes: [code],
+                codes: codes,
                 start_date: document.getElementById('bt-start').value,
                 end_date: document.getElementById('bt-end').value,
                 initial_cash: parseFloat(document.getElementById('bt-cash').value) || 100000,
@@ -1415,18 +1480,21 @@ const App = {
             ].join('');
         }
 
-        // 绘制直方图
+        // 绘制直方图（使用计数器优化，O(n) 替代 O(n*m)）
         const binCount = 30;
         const minR = finalReturns[0];
         const maxR = finalReturns[finalReturns.length - 1];
         const binW = (maxR - minR) / binCount || 1;
         const bins = [];
-        const counts = [];
+        const counts = new Array(binCount).fill(0);
         for (let i = 0; i < binCount; i++) {
             const lo = minR + i * binW;
             const hi = lo + binW;
             bins.push(((lo + hi) / 2).toFixed(1));
-            counts.push(finalReturns.filter(r => r >= lo && r < hi).length);
+        }
+        for (const r of finalReturns) {
+            const idx = Math.min(Math.floor((r - minR) / binW), binCount - 1);
+            counts[idx]++;
         }
         const colors = bins.map(b => parseFloat(b) >= 0 ? 'rgba(239,83,80,0.6)' : 'rgba(16,185,129,0.6)');
         ChartFactory.bar('mc-chart', { labels: bins, values: counts, colors }, 'monteCarlo', {
@@ -1437,11 +1505,13 @@ const App = {
     async compareStrategies() {
         const strategies = [...document.querySelectorAll('#bt-compare-section input:checked')].map(el => el.value);
         if (strategies.length === 0) return;
-        const code = document.getElementById('bt-code').value.trim();
-        if (!code) return;
+        const codes = this.btMultiSearch
+            ? this.btMultiSearch.getSelectedCodes()
+            : [document.getElementById('bt-code').value.trim()].filter(Boolean);
+        if (codes.length === 0) return;
 
         const body = {
-            strategies, codes: [code],
+            strategies, codes: codes,
             start_date: document.getElementById('bt-start').value,
             end_date: document.getElementById('bt-end').value,
             initial_cash: parseFloat(document.getElementById('bt-cash').value),

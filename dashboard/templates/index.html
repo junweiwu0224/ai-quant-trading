@@ -199,7 +199,7 @@
                             <div class="stat-value" id="ov-quote-status">--</div>
                         </div>
                     </div>
-                    <div class="stats-grid" style="margin-top:0.5rem">
+                    <div class="stats-grid mt-sm">
                         <div class="stat-card">
                             <div class="stat-label">数据库股票数</div>
                             <div class="stat-value" id="ov-stock-count">--</div>
@@ -223,7 +223,7 @@
             <!-- Row 7: 自选股管理 -->
             <div class="card">
                 <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
-                <div class="watchlist-add" style="margin-bottom:1rem">
+                <div class="watchlist-add mb-md">
                     <div class="search-box" id="watchlist-search-box">
                         <input type="text" id="watchlist-input" class="search-input" placeholder="点击搜索并选择自选股（支持多选）" autocomplete="off" aria-label="搜索并选择自选股">
                         <div class="search-dropdown" id="watchlist-search-results"></div>
@@ -458,7 +458,7 @@
                                 </tr>
                             </thead>
                             <tbody id="sd-dividends-body">
-                                <tr><td colspan="4" class="text-muted">加载中...</td></tr>
+                                <tr><td colspan="4" class="loading"><span class="spinner"></span>加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -468,7 +468,7 @@
                 <div class="card">
                     <h3>最近公告</h3>
                     <div class="sd-announcements" id="sd-announcements">
-                        <p class="text-muted">加载中...</p>
+                        <div class="loading"><span class="spinner"></span>加载中...</div>
                     </div>
                 </div>
 
@@ -489,7 +489,7 @@
                                 </tr>
                             </thead>
                             <tbody id="sd-industry-body">
-                                <tr><td colspan="6" class="text-muted">加载中...</td></tr>
+                                <tr><td colspan="6" class="loading"><span class="spinner"></span>加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -511,8 +511,8 @@
             </div>
 
             <!-- 未选择股票提示 -->
-            <div id="sd-placeholder" class="card" style="text-align:center;padding:3rem">
-                <p class="text-muted" style="font-size:1.1rem">请在上方输入股票代码或名称查看详情</p>
+            <div id="sd-placeholder" class="card text-center py-lg">
+                <p class="text-muted text-lg">请在上方输入股票代码或名称查看详情</p>
             </div>
         </section>
 
@@ -531,12 +531,14 @@
                             <option value="momentum">动量策略</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label for="bt-code">股票代码</label>
+                    <div class="form-group min-w-md">
+                        <label for="bt-code">股票代码 <small class="text-muted">(可多选)</small></label>
                         <div class="search-box" id="bt-code-box">
-                            <input type="text" id="bt-code" class="search-input" placeholder="点击选择股票" readonly autocomplete="off" required>
+                            <input type="text" id="bt-code" class="search-input" placeholder="搜索添加股票" autocomplete="off">
                             <div class="search-dropdown" id="bt-code-dropdown"></div>
                         </div>
+                        <div id="bt-codes-tags" class="codes-tags"></div>
+                        <input type="hidden" id="bt-codes-json" value="[]">
                     </div>
                     <div class="form-group">
                         <label for="bt-start">开始日期</label>
@@ -600,8 +602,9 @@
                     <div class="stat-card"><div class="stat-label">最大连续亏损</div><div class="stat-value" id="bt-max-loss-streak">--</div></div>
                     <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value" id="bt-trades">--</div></div>
                 </div>
-                <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+                <div class="flex-wrap mt-md">
                     <button class="btn btn-sm" onclick="App.exportCSV()">导出CSV</button>
+                    <button class="btn btn-sm btn-primary" onclick="App.exportPDF()">导出PDF报告</button>
                 </div>
 
                 <div class="card">
@@ -675,7 +678,7 @@
                 <!-- 参数优化 -->
                 <div class="card">
                     <h2>参数优化</h2>
-                    <form id="bt-optimize-form" class="form-row" style="margin-bottom:1rem">
+                    <form id="bt-optimize-form" class="form-row mb-md">
                         <div class="form-group">
                             <label for="opt-metric">优化目标</label>
                             <select id="opt-metric">
@@ -720,7 +723,7 @@
                 <!-- 参数敏感性分析 -->
                 <div class="card">
                     <h2>参数敏感性分析</h2>
-                    <form id="bt-sensitivity-form" class="form-row" style="margin-bottom:1rem">
+                    <form id="bt-sensitivity-form" class="form-row mb-md">
                         <div class="form-group">
                             <label for="sens-metric">分析指标</label>
                             <select id="sens-metric">
@@ -763,9 +766,9 @@
                 <!-- 蒙特卡洛模拟 -->
                 <div class="card">
                     <h2>蒙特卡洛模拟</h2>
-                    <div style="margin-bottom:0.75rem">
+                    <div class="mb-md">
                         <button class="btn btn-sm" id="mc-run-btn" onclick="App.runMonteCarlo()">运行模拟</button>
-                        <span class="text-muted" style="margin-left:0.5rem;font-size:12px">随机打乱交易顺序，评估策略稳健性</span>
+                        <span class="text-muted ml-sm text-xs">随机打乱交易顺序，评估策略稳健性</span>
                     </div>
                     <div id="mc-result" style="display:none">
                         <div class="analysis-stats" id="mc-stats"></div>
@@ -789,7 +792,7 @@
         <section class="tab-panel" id="tab-portfolio" role="tabpanel" aria-labelledby="nav-portfolio">
             <div class="page-header">
                 <h1>持仓监控</h1>
-                <div style="display:flex;gap:0.5rem">
+                <div class="flex-center">
                     <button class="btn btn-sm" onclick="App.toggleBrokerConfig()">账户配置</button>
                     <button class="btn btn-sm" onclick="App.loadPortfolio()">刷新</button>
                 </div>
@@ -825,13 +828,13 @@
                     </div>
                     <div class="form-group">
                         <span></span>
-                        <div style="display:flex;gap:0.5rem">
+                        <div class="flex-center">
                             <button type="button" class="btn btn-primary btn-sm" onclick="App.saveBrokerConfig()">保存配置</button>
                             <button type="button" class="btn btn-sm" onclick="App.testBrokerConn()">测试连接</button>
                         </div>
                     </div>
                 </form>
-                <p class="text-muted" style="font-size:12px;margin-top:8px">
+                <p class="text-muted text-xs mt-sm">
                     CTP/XTP 需要部署对应的 Gateway 服务。当前仅支持模拟盘交易。
                 </p>
             </div>
@@ -902,7 +905,7 @@
                 <div class="table-wrap">
                     <table id="rk-rules">
                         <thead><tr><th>规则</th><th>阈值</th><th>当前值</th><th>状态</th></tr></thead>
-                        <tbody><tr><td colspan="4" class="text-muted">加载中...</td></tr></tbody>
+                        <tbody><tr><td colspan="4" class="loading"><span class="spinner"></span>加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -913,7 +916,7 @@
             <div class="page-header">
                 <h1>AI Alpha</h1>
                 <div class="form-row">
-                    <div class="form-group" style="min-width:200px">
+                    <div class="form-group min-w-sm">
                         <div class="search-box" id="alpha-code-box">
                             <input type="text" id="alpha-code" class="search-input" placeholder="点击选择股票" readonly autocomplete="off">
                             <div class="search-dropdown" id="alpha-code-dropdown"></div>
@@ -989,7 +992,7 @@
                     </div>
                     <div class="form-group">
                         <span></span>
-                        <div style="display:flex;gap:0.5rem">
+                        <div class="flex-center">
                             <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="Paper.start()">启动</button>
                             <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="Paper.stop()" disabled>停止</button>
                             <button type="button" class="btn btn-sm" onclick="Paper.reset()">重置</button>

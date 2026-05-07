@@ -221,10 +221,10 @@ class BaseStrategy:
 - [x] 验证：浏览器能访问并展示数据
 
 ### Phase 7: 实盘对接（第12周+）
-- [ ] CTP/XTP 网关配置
-- [ ] 实盘交易流程
-- [ ] 生产环境部署
-- [ ] 验证：模拟资金小规模实盘测试
+- [x] CTP/XTP 网关配置（抽象 BrokerGateway 接口 + SimulatedBroker 实现）
+- [x] 实盘交易流程（LiveTradingEngine + 风控集成）
+- [x] 生产环境部署（run_live.py 启动脚本）
+- [x] 验证：模拟资金小规模实盘测试
 
 ---
 

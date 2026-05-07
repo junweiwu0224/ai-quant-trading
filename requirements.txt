@@ -29,3 +29,4 @@ pytest>=7.4.0
 # Utils
 python-dotenv>=1.0.0
 loguru>=0.7.0
+click>=8.0.0

@@ -726,6 +726,30 @@ input:focus, select:focus, textarea:focus {
     font-size: 13px;
 }
 
+.sb-loading {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
+.sb-loading::after {
+    content: '';
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--text-tertiary);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: sb-spin 0.6s linear infinite;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+@keyframes sb-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* 多选标签 */
 .sb-tags {
     display: flex;
@@ -874,6 +898,290 @@ input:focus, select:focus, textarea:focus {
     .search-results { max-height: 180px; }
 }
 
+/* ── 股票详情面板 ── */
+.stock-detail-header { margin-bottom: 1rem; }
+.sd-title { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.sd-title h2 { font-size: 1.4rem; margin: 0; }
+.sd-code { color: var(--text-secondary); font-size: 0.95rem; }
+.sd-industry, .sd-sector {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+.sd-price-row { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem; }
+.sd-price { font-size: 2rem; font-weight: 700; }
+.sd-change { font-size: 1.1rem; font-weight: 600; }
+.sd-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.sd-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    background: var(--bg-quinary);
+    color: var(--text-secondary);
+    border: 1px solid var(--floating-border);
+}
+
+/* 股票链接 */
+.stock-link {
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: none;
+}
+.stock-link:hover { text-decoration: underline; }
+
+/* 概念单元格 */
+.concepts-cell {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.concepts-cell .sd-tag { font-size: 0.7rem; padding: 1px 5px; }
+.sd-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--floating-border);
+    border-bottom: 1px solid var(--floating-border);
+    margin-bottom: 1rem;
+}
+.sd-stat { display: flex; flex-direction: column; }
+.sd-stat label { font-size: 0.75rem; color: var(--text-secondary); }
+.sd-stat span { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
+
+/* 专业指标网格 */
+.sd-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.sd-stats-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.sd-stats-section h4 {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sd-stats-section .sd-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+}
+.sd-chart-section { margin-bottom: 1.5rem; }
+.sd-chart-section h3 { font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-secondary); }
+.sd-chart-tabs { display: flex; gap: 0.25rem; margin-bottom: 0.5rem; }
+.sd-tab {
+    padding: 4px 12px;
+    border: 1px solid var(--floating-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.sd-tab.active {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    border-color: var(--text-primary);
+}
+.sd-tab:hover { background: var(--bg-tertiary); }
+.sd-tab.active:hover { background: var(--text-primary); }
+.sd-orderbook { margin-bottom: 1rem; }
+.sd-orderbook h3 { font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-secondary); }
+.sd-ob-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.sd-ob-title { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+.sd-ob-row {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    border-radius: 3px;
+    gap: 8px;
+}
+.sd-ob-row.ask { background: rgba(38,166,154,0.08); }
+.sd-ob-row.bid { background: rgba(239,83,80,0.08); }
+.sd-ob-level { width: 2.5rem; color: var(--text-secondary); flex-shrink: 0; }
+.sd-ob-price { flex: 1; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sd-ob-vol { width: 4.5rem; text-align: right; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.sd-ob-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; font-size: 0.85rem; }
+.sd-flow-source { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+.sd-flow-desc { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+
+/* 行情详情页布局 */
+.sd-selector { display: flex; gap: 0.5rem; align-items: center; }
+.sd-selector .search-box { flex: 1; }
+.sd-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.sd-chart-card { min-width: 0; }
+.sd-orderbook-card { min-width: 0; }
+.sd-sub-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+/* 市场大盘 */
+.market-card { grid-column: 1 / -1; }
+.market-indices {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.market-index {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    text-align: center;
+}
+.market-index .idx-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.market-index .idx-price {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.market-index .idx-change {
+    font-size: 13px;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+.market-sectors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+.market-sector-col h3 {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+.sector-list {
+    max-height: 320px;
+    overflow-y: auto;
+}
+.sector-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+.sector-row:hover {
+    background: var(--bg-secondary);
+}
+.sector-row .sr-rank {
+    width: 20px;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+.sector-row .sr-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sector-row .sr-count {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin: 0 8px;
+    flex-shrink: 0;
+}
+.sector-row .sr-pct {
+    width: 64px;
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+    .sd-main-grid { grid-template-columns: 1fr; }
+    .sd-sub-grid { grid-template-columns: 1fr; }
+    .market-indices { flex-direction: column; }
+    .market-sectors { grid-template-columns: 1fr; }
+}
+
+/* 图表切换按钮 */
+.chart-toggle-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.chart-toggle-header h2 { flex: 1; }
+.chart-toggle-btns { display: flex; gap: 2px; background: var(--bg-secondary, #f5f5f0); border-radius: 6px; padding: 2px; }
+.chart-toggle-btn {
+    padding: 4px 12px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 12px; color: var(--text-secondary, #6d6760);
+    background: transparent; transition: background 0.15s, color 0.15s;
+}
+.chart-toggle-btn:hover { color: var(--text-primary, #1a1a2e); }
+.chart-toggle-btn.active {
+    background: var(--bg-primary, #fff); color: var(--text-primary, #1a1a2e);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
 @media (prefers-reduced-motion: reduce) {
     * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* 策略选择器 */
+.strategy-selector {
+    margin-bottom: 1rem;
+}
+
+.strategy-chips {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 1rem;
+    border: 1px solid var(--border-color, #e5e5e5);
+    background: var(--bg-primary, #fff);
+    color: var(--text-secondary, #6d6760);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.chip:hover {
+    border-color: var(--accent-color, #4f46e5);
+    color: var(--accent-color, #4f46e5);
+}
+
+.chip.active {
+    background: var(--accent-color, #4f46e5);
+    border-color: var(--accent-color, #4f46e5);
+    color: #fff;
+}
+
+.chip input:checked + span {
+    color: inherit;
 }

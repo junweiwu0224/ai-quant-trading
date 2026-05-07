@@ -38,6 +38,7 @@ const App = {
     init() {
         this.bindTabs();
         this.bindBacktest();
+        this.bindStrategyChips();
         this.setDefaultDate();
         this.loadStockList();
         this.initSidebar();
@@ -383,6 +384,7 @@ const App = {
             datasets: [{ data: data.map(p => p.equity), fill: true }],
         }, 'overviewChart', {
             plugins: {
+                legend: { display: false },
                 tooltip: {
                     callbacks: {
                         label: ctx => `资产: ¥${ctx.parsed.y.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
@@ -566,12 +568,27 @@ const App = {
                 const data = await res.json();
                 this.showBacktestResults(data, body);
                 this.toast('回测完成', 'success');
+                // 自动触发多策略对比
+                this.compareStrategies();
             } catch (err) {
                 this.toast('回测失败: ' + err.message, 'error');
             } finally {
                 btn.disabled = false;
                 btn.textContent = '运行回测';
             }
+        });
+    },
+
+    bindStrategyChips() {
+        // 绑定策略选择器的点击事件
+        document.addEventListener('click', (e) => {
+            const chip = e.target.closest('.chip');
+            if (!chip) return;
+            e.preventDefault();
+            const checkbox = chip.querySelector('input[type="checkbox"]');
+            if (!checkbox) return;
+            checkbox.checked = !checkbox.checked;
+            chip.classList.toggle('active', checkbox.checked);
         });
     },
 
@@ -690,9 +707,9 @@ const App = {
 
     async compareStrategies() {
         const strategies = [...document.querySelectorAll('#bt-compare-section input:checked')].map(el => el.value);
-        if (strategies.length === 0) { this.toast('请选择至少一个策略', 'error'); return; }
+        if (strategies.length === 0) return;
         const code = document.getElementById('bt-code').value.trim();
-        if (!code) { this.toast('请输入股票代码', 'error'); return; }
+        if (!code) return;
 
         const body = {
             strategies, codes: [code],
@@ -701,16 +718,13 @@ const App = {
             initial_cash: parseFloat(document.getElementById('bt-cash').value),
         };
 
-        const btn = document.querySelector('button[onclick="App.compareStrategies()"]');
-        if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.innerHTML = '<span class="spinner"></span>对比中...'; }
-
         try {
             const res = await fetch('/api/backtest/compare', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const results = await res.json();
-            if (!results || results.length === 0) { this.toast('无对比数据', 'info'); return; }
+            if (!results || results.length === 0) return;
 
             const labelMap = { dual_ma: '双均线', bollinger: '布林带', momentum: '动量' };
             const palette = ChartFactory.palette();
@@ -725,9 +739,7 @@ const App = {
                 plugins: { legend: { labels: { color: ChartFactory.getColors().text } } },
             });
         } catch (e) {
-            this.toast('策略对比失败: ' + e.message, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '对比'; }
+            console.error('策略对比失败:', e);
         }
     },
 

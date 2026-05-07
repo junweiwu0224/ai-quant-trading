@@ -339,6 +339,7 @@
                 <!-- 资金流向 -->
                 <div class="card">
                     <h3>资金流向（近20日）</h3>
+                    <p class="sd-flow-desc">主力=超大单+大单 | 散户=中单+小单 | <span class="text-danger">红=净流入</span> <span class="text-success">绿=净流出</span></p>
                     <div id="sd-capital-chart" style="height:300px"></div>
                 </div>
             </div>
@@ -397,23 +398,6 @@
                 </form>
             </div>
 
-            <!-- 多策略对比 -->
-            <div class="card" id="bt-compare-section">
-                <h2>多策略收益对比</h2>
-                <div class="form-row" style="margin-bottom:1rem">
-                    <div class="form-group">
-                        <label>对比策略</label>
-                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-                            <label><input type="checkbox" value="dual_ma" checked> 双均线</label>
-                            <label><input type="checkbox" value="bollinger" checked> 布林带</label>
-                            <label><input type="checkbox" value="momentum" checked> 动量</label>
-                        </div>
-                    </div>
-                    <button type="button" class="btn btn-sm" onclick="App.compareStrategies()">对比</button>
-                </div>
-                <div style="height:280px"><canvas id="bt-compare-chart" aria-label="多策略收益对比图"></canvas></div>
-            </div>
-
             <div id="bt-results" style="display:none">
                 <div id="bt-warmup-info" class="alert alert-info" style="display:none"></div>
                 <div class="stats-grid">
@@ -438,6 +422,28 @@
                 <div class="card">
                     <h2>回撤曲线</h2>
                     <div style="height:220px"><canvas id="bt-drawdown-chart" aria-label="回撤曲线图"></canvas></div>
+                </div>
+
+                <!-- 多策略对比 -->
+                <div class="card" id="bt-compare-section">
+                    <h2>多策略收益对比</h2>
+                    <div class="strategy-selector">
+                        <div class="strategy-chips">
+                            <label class="chip active" data-strategy="dual_ma">
+                                <input type="checkbox" value="dual_ma" checked hidden>
+                                <span>双均线</span>
+                            </label>
+                            <label class="chip active" data-strategy="bollinger">
+                                <input type="checkbox" value="bollinger" checked hidden>
+                                <span>布林带</span>
+                            </label>
+                            <label class="chip active" data-strategy="momentum">
+                                <input type="checkbox" value="momentum" checked hidden>
+                                <span>动量</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div style="height:280px"><canvas id="bt-compare-chart" aria-label="多策略收益对比图"></canvas></div>
                 </div>
 
                 <div class="card">

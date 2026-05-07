@@ -94,3 +94,56 @@ class StockCollector:
                 logger.error(f"[{code}] 采集失败: {e}")
                 results[code] = pd.DataFrame()
         return results
+
+    def get_index_daily(
+        self,
+        code: str,
+        start_date: str = DEFAULT_START_DATE,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """获取指数日K线数据"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y%m%d")
+
+        logger.debug(f"[{code}] 采集指数日K: {start_date} ~ {end_date}")
+        try:
+            df = self._retry(
+                ak.stock_zh_index_daily,
+                symbol=code,
+            )
+        except Exception:
+            # 备用接口
+            df = self._retry(
+                ak.index_zh_a_hist,
+                symbol=code,
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # 统一列名
+        col_map = {
+            "日期": "date", "date": "date",
+            "开盘": "open", "open": "open",
+            "最高": "high", "high": "high",
+            "最低": "low", "low": "low",
+            "收盘": "close", "close": "close",
+            "成交量": "volume", "volume": "volume",
+            "成交额": "amount", "amount": "amount",
+        }
+        df = df.rename(columns=col_map)
+        cols = ["date", "open", "high", "low", "close", "volume", "amount"]
+        df = df[[c for c in cols if c in df.columns]].copy()
+        df["date"] = pd.to_datetime(df["date"])
+        if "volume" not in df.columns:
+            df["volume"] = 0
+        if "amount" not in df.columns:
+            df["amount"] = 0
+        # 筛选日期范围
+        start_dt = pd.Timestamp(start_date)
+        end_dt = pd.Timestamp(end_date)
+        df = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
+        return df

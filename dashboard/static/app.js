@@ -41,6 +41,7 @@ const App = {
         this.bindStrategyChips();
         this.setDefaultDate();
         this.loadStockList();
+        this.loadBenchmarks();
         this.initSidebar();
         this.loadOverview();
         this._startMarketRefresh();
@@ -302,6 +303,63 @@ const App = {
         }
     },
 
+    async loadBenchmarks() {
+        try {
+            const benchmarks = await this.fetchJSON('/api/backtest/benchmarks');
+            const select = document.getElementById('bt-benchmark');
+            if (!select || !benchmarks) return;
+            benchmarks.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.code;
+                opt.textContent = b.name;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error('基准列表加载失败:', e);
+        }
+    },
+
+    exportCSV() {
+        const data = this._lastBacktestData;
+        if (!data) { this.toast('请先运行回测', 'error'); return; }
+
+        const rows = [['日期', '权益']];
+        (data.equity_curve || []).forEach(p => {
+            rows.push([p.date, p.equity]);
+        });
+
+        // 添加交易明细
+        rows.push([]);
+        rows.push(['交易明细']);
+        rows.push(['日期', '代码', '方向', '价格', '数量', '入场价']);
+        (data.trades || []).forEach(t => {
+            rows.push([t.datetime, t.code, t.direction === 'long' ? '买入' : '卖出', t.price, t.volume, t.entry_price || '']);
+        });
+
+        // 添加统计指标
+        rows.push([]);
+        rows.push(['统计指标']);
+        rows.push(['总收益率', (data.total_return * 100).toFixed(2) + '%']);
+        rows.push(['年化收益', (data.annual_return * 100).toFixed(2) + '%']);
+        rows.push(['最大回撤', (data.max_drawdown * 100).toFixed(2) + '%']);
+        rows.push(['夏普比率', data.sharpe_ratio]);
+        rows.push(['Sortino比率', data.sortino_ratio]);
+        rows.push(['Calmar比率', data.calmar_ratio]);
+        rows.push(['胜率', (data.win_rate * 100).toFixed(1) + '%']);
+        rows.push(['盈亏比', data.profit_loss_ratio]);
+        rows.push(['交易次数', data.total_trades]);
+
+        const csv = '﻿' + rows.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backtest_${data.start_date}_${data.end_date}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.toast('CSV导出成功', 'success');
+    },
+
     quickBacktest(strategyName) {
         document.getElementById('bt-strategy').value = strategyName;
         this.switchTab('backtest');
@@ -555,6 +613,10 @@ const App = {
                 codes: [code],
                 start_date: startDate, end_date: endDate,
                 initial_cash: cash,
+                commission_rate: parseFloat(document.getElementById('bt-commission').value) || 0.0003,
+                stamp_tax_rate: parseFloat(document.getElementById('bt-stamp-tax').value) || 0.001,
+                slippage: parseFloat(document.getElementById('bt-slippage').value) || 0.002,
+                benchmark: document.getElementById('bt-benchmark').value || '',
                 enable_risk: document.getElementById('bt-risk').value === 'true',
             };
 
@@ -621,14 +683,43 @@ const App = {
         document.getElementById('bt-annual').textContent = (safe(data.annual_return) * 100).toFixed(2) + '%';
         document.getElementById('bt-dd').textContent = (safe(data.max_drawdown) * 100).toFixed(2) + '%';
         document.getElementById('bt-sharpe').textContent = safe(data.sharpe_ratio);
+        document.getElementById('bt-sortino').textContent = safe(data.sortino_ratio);
+        document.getElementById('bt-calmar').textContent = safe(data.calmar_ratio);
+        document.getElementById('bt-info-ratio').textContent = safe(data.information_ratio);
+        document.getElementById('bt-alpha').textContent = safe(data.alpha);
+        document.getElementById('bt-beta').textContent = safe(data.beta);
         document.getElementById('bt-winrate').textContent = (safe(data.win_rate) * 100).toFixed(1) + '%';
+        document.getElementById('bt-pl-ratio').textContent = safe(data.profit_loss_ratio);
+        document.getElementById('bt-max-win-streak').textContent = safe(data.max_consecutive_wins);
+        document.getElementById('bt-max-loss-streak').textContent = safe(data.max_consecutive_losses);
         document.getElementById('bt-trades').textContent = safe(data.total_trades);
 
+        // 保存数据供导出使用
+        this._lastBacktestData = data;
+        this._lastBacktestBody = reqBody;
+
         const curve = data.equity_curve || [];
+        const benchmarkCurve = data.benchmark_curve || [];
         if (curve.length > 0) {
+            const datasets = [{ data: curve.map(p => p.equity), fill: true, label: '策略收益' }];
+            if (benchmarkCurve.length > 0) {
+                // 对齐基准数据到策略日期
+                const bmMap = {};
+                benchmarkCurve.forEach(p => { bmMap[p.date] = p.equity; });
+                const bmData = curve.map(p => bmMap[p.date] != null ? bmMap[p.date] * (curve[0]?.equity || 1) : null);
+                datasets.push({
+                    data: bmData,
+                    fill: false,
+                    label: '基准',
+                    borderDash: [5, 5],
+                    borderColor: 'rgba(255,152,0,0.8)',
+                    backgroundColor: 'transparent',
+                    pointRadius: 0,
+                });
+            }
             ChartFactory.line('bt-equity-chart', {
                 labels: curve.map(p => p.date),
-                datasets: [{ data: curve.map(p => p.equity), fill: true }],
+                datasets,
             }, 'equity');
         }
 

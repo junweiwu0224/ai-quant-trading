@@ -2,9 +2,11 @@
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from loguru import logger
 from pydantic import BaseModel
 
 from data.storage import DataStorage
+from data.collector.collector import StockCollector
 from engine.backtest_engine import BacktestConfig, BacktestEngine
 from strategy.dual_ma import DualMAStrategy
 from strategy.bollinger import BollingerStrategy
@@ -19,6 +21,25 @@ STRATEGIES = {
 }
 
 storage = DataStorage()
+collector = StockCollector()
+
+
+def _ensure_benchmark_data(benchmark_code: str, start_date: str, end_date: str):
+    """确保基准指数数据已入库，没有则自动采集"""
+    import pandas as pd
+    from datetime import date
+    start = pd.Timestamp(start_date).date()
+    end = pd.Timestamp(end_date).date()
+    existing = storage.get_stock_daily(benchmark_code, start, end)
+    if not existing.empty and len(existing) >= 10:
+        return
+    try:
+        logger.info(f"采集基准数据: {benchmark_code}")
+        df = collector.get_index_daily(benchmark_code, start_date.replace("-", ""), end_date.replace("-", ""))
+        if not df.empty:
+            storage.save_stock_daily(benchmark_code, df)
+    except Exception as e:
+        logger.warning(f"基准数据采集失败: {e}")
 
 
 class BacktestRequest(BaseModel):
@@ -27,6 +48,10 @@ class BacktestRequest(BaseModel):
     start_date: str = "2024-01-01"
     end_date: str = "2024-12-31"
     initial_cash: float = 1_000_000
+    commission_rate: float = 0.0003
+    stamp_tax_rate: float = 0.001
+    slippage: float = 0.002
+    benchmark: str = ""
     enable_risk: bool = False
 
 
@@ -47,9 +72,18 @@ class BacktestResponse(BaseModel):
     annual_return: float = 0
     max_drawdown: float = 0
     sharpe_ratio: float = 0
+    sortino_ratio: float = 0
+    calmar_ratio: float = 0
+    information_ratio: float = 0
+    alpha: float = 0
+    beta: float = 0
     win_rate: float = 0
+    profit_loss_ratio: float = 0
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
     total_trades: int = 0
     equity_curve: list[dict] = []
+    benchmark_curve: list[dict] = []
     trades: list[dict] = []
     risk_alerts: list[dict] = []
     warmup_days: int = 0
@@ -64,12 +98,22 @@ async def run_backtest(req: BacktestRequest):
 
     config = BacktestConfig(
         initial_cash=req.initial_cash,
+        commission_rate=req.commission_rate,
+        stamp_tax_rate=req.stamp_tax_rate,
+        slippage=req.slippage,
         enable_risk=req.enable_risk,
     )
     strategy = STRATEGIES[req.strategy]()
     engine = BacktestEngine(config=config)
 
-    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+    # 确保基准数据可用
+    if req.benchmark:
+        _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+
+    result = engine.run(
+        strategy, req.codes, req.start_date, req.end_date,
+        benchmark_code=req.benchmark,
+    )
 
     return BacktestResponse(
         start_date=str(result.start_date) if result.start_date else None,
@@ -80,11 +124,23 @@ async def run_backtest(req: BacktestRequest):
         annual_return=round(result.annual_return, 4),
         max_drawdown=round(result.max_drawdown, 4),
         sharpe_ratio=round(result.sharpe_ratio, 2),
+        sortino_ratio=round(result.sortino_ratio, 2),
+        calmar_ratio=round(result.calmar_ratio, 2),
+        information_ratio=round(result.information_ratio, 2),
+        alpha=round(result.alpha, 4),
+        beta=round(result.beta, 4),
         win_rate=round(result.win_rate, 4),
+        profit_loss_ratio=round(result.profit_loss_ratio, 2),
+        max_consecutive_wins=result.max_consecutive_wins,
+        max_consecutive_losses=result.max_consecutive_losses,
         total_trades=result.total_trades,
         equity_curve=[
             {"date": str(p["date"]), "equity": round(p["equity"], 2)}
             for p in result.equity_curve
+        ],
+        benchmark_curve=[
+            {"date": str(p["date"]), "equity": round(p["equity"], 4)}
+            for p in result.benchmark_curve
         ],
         trades=[
             {
@@ -231,3 +287,15 @@ async def drawdown_curve(req: BacktestRequest):
         })
 
     return output
+
+
+@router.get("/benchmarks")
+async def list_benchmarks():
+    """列出可用基准指数"""
+    return [
+        {"code": "sh000300", "name": "沪深300"},
+        {"code": "sh000905", "name": "中证500"},
+        {"code": "sh000016", "name": "上证50"},
+        {"code": "sz399006", "name": "创业板指"},
+        {"code": "sz399303", "name": "国证2000"},
+    ]

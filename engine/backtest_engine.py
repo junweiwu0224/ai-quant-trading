@@ -1,4 +1,5 @@
 """回测引擎"""
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
@@ -34,9 +35,18 @@ class BacktestResult:
     annual_return: float = 0.0
     max_drawdown: float = 0.0
     sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+    information_ratio: float = 0.0
+    alpha: float = 0.0
+    beta: float = 0.0
     win_rate: float = 0.0
+    profit_loss_ratio: float = 0.0
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
     total_trades: int = 0
     equity_curve: list = field(default_factory=list)
+    benchmark_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
     risk_alerts: list = field(default_factory=list)
     warmup_days: int = 0
@@ -80,6 +90,7 @@ class BacktestEngine:
         end_date: str,
         warmup_periods: int = 20,
         min_trading_days: int = 5,
+        benchmark_code: str = "",
     ) -> BacktestResult:
         """运行回测"""
         logger.info(f"回测开始: {start_date} ~ {end_date}, 标的: {codes}")
@@ -190,8 +201,13 @@ class BacktestEngine:
             equity = portfolio.get_total_equity(prices)
             portfolio.equity_curve.append({"date": current_date, "equity": equity})
 
+        # 加载基准数据
+        benchmark_curve = []
+        if benchmark_code:
+            benchmark_curve = self._load_benchmark(benchmark_code, start_date, end_date)
+
         # 生成报告
-        result = self._generate_report(portfolio)
+        result = self._generate_report(portfolio, benchmark_curve)
         result.warmup_days = len(warmup_dates)
         logger.info(f"回测完成: 总收益 {result.total_return:.2%}, 最大回撤 {result.max_drawdown:.2%}")
         return result
@@ -222,6 +238,25 @@ class BacktestEngine:
             ]
             result[code] = bars
         return result
+
+    def _load_benchmark(self, benchmark_code: str, start_date: str, end_date: str) -> list[dict]:
+        """加载基准指数数据"""
+        start = pd.Timestamp(start_date).date()
+        end = pd.Timestamp(end_date).date()
+        df = self._storage.get_stock_daily(benchmark_code, start, end)
+        if df.empty:
+            logger.warning(f"基准 {benchmark_code} 无数据")
+            return []
+        # 转换为收益率曲线（以第一天为基准归一化到1）
+        closes = df["close"].tolist()
+        dates = df["date"].tolist()
+        if not closes or closes[0] == 0:
+            return []
+        first_close = closes[0]
+        return [
+            {"date": d, "equity": round(c / first_close, 6)}
+            for d, c in zip(dates, closes)
+        ]
 
     def _check_stoploss(
         self,
@@ -375,7 +410,9 @@ class BacktestEngine:
                 )
                 strategy.record_trade(trade)
 
-    def _generate_report(self, portfolio: Portfolio) -> BacktestResult:
+    def _generate_report(
+        self, portfolio: Portfolio, benchmark_curve: list[dict] | None = None
+    ) -> BacktestResult:
         """生成回测报告"""
         curve = portfolio.equity_curve
         if not curve:
@@ -403,29 +440,106 @@ class BacktestEngine:
             if dd > max_dd:
                 max_dd = dd
 
-        # 夏普比率（日收益率）
+        # 日收益率序列
+        daily_returns = []
         if len(equities) > 1:
             daily_returns = [
                 (equities[i] - equities[i - 1]) / equities[i - 1]
                 for i in range(1, len(equities))
             ]
+
+        # 夏普比率
+        sharpe = 0.0
+        if daily_returns:
             avg_ret = sum(daily_returns) / len(daily_returns)
             std_ret = (sum((r - avg_ret) ** 2 for r in daily_returns) / len(daily_returns)) ** 0.5
             sharpe = (avg_ret / std_ret * (252 ** 0.5)) if std_ret > 0 else 0.0
-        else:
-            sharpe = 0.0
 
-        # 胜率
+        # Sortino比率（只考虑下行波动率）
+        sortino = 0.0
+        if daily_returns:
+            avg_ret = sum(daily_returns) / len(daily_returns)
+            downside = [r for r in daily_returns if r < 0]
+            if downside:
+                downside_std = (sum(r ** 2 for r in downside) / len(downside)) ** 0.5
+                sortino = (avg_ret / downside_std * (252 ** 0.5)) if downside_std > 0 else 0.0
+
+        # Calmar比率（年化收益 / 最大回撤）
+        calmar = annual_return / max_dd if max_dd > 0 else 0.0
+
+        # 基准相关指标（Alpha、Beta、信息比率）
+        alpha = 0.0
+        beta = 0.0
+        info_ratio = 0.0
+        if benchmark_curve and len(benchmark_curve) > 1 and len(daily_returns) > 1:
+            # 计算基准日收益率
+            bm_equities = [p["equity"] for p in benchmark_curve]
+            bm_returns = [
+                (bm_equities[i] - bm_equities[i - 1]) / bm_equities[i - 1]
+                for i in range(1, len(bm_equities))
+            ]
+            # 对齐长度（取较短的）
+            min_len = min(len(daily_returns), len(bm_returns))
+            port_ret = daily_returns[:min_len]
+            bm_ret = bm_returns[:min_len]
+
+            if min_len > 1:
+                avg_port = sum(port_ret) / min_len
+                avg_bm = sum(bm_ret) / min_len
+
+                # Beta = Cov(Rp, Rm) / Var(Rm)
+                cov = sum((p - avg_port) * (b - avg_bm) for p, b in zip(port_ret, bm_ret)) / min_len
+                var_bm = sum((b - avg_bm) ** 2 for b in bm_ret) / min_len
+                beta = cov / var_bm if var_bm > 0 else 0.0
+
+                # Alpha = Rp - [Rf + β(Rm - Rf)]，Rf取年化3%
+                rf_daily = 0.03 / 252
+                alpha = (avg_port - rf_daily - beta * (avg_bm - rf_daily)) * 252
+
+                # 信息比率 = 超额收益均值 / 跟踪误差
+                excess = [p - b for p, b in zip(port_ret, bm_ret)]
+                avg_excess = sum(excess) / min_len
+                tracking_error = (sum((e - avg_excess) ** 2 for e in excess) / min_len) ** 0.5
+                info_ratio = (avg_excess / tracking_error * (252 ** 0.5)) if tracking_error > 0 else 0.0
+
+        # 胜率和盈亏比
         trades = portfolio.trades
         sell_trades = [t for t in trades if t.direction == Direction.SHORT]
+        win_rate = 0.0
+        profit_loss_ratio = 0.0
+        max_consecutive_wins = 0
+        max_consecutive_losses = 0
+
         if sell_trades:
             wins = 0
+            total_profit = 0.0
+            total_loss = 0.0
+            win_count = 0
+            loss_count = 0
+            current_streak_w = 0
+            current_streak_l = 0
+
             for t in sell_trades:
-                if t.entry_price > 0 and t.price > t.entry_price:
-                    wins += 1
+                if t.entry_price > 0:
+                    pnl = (t.price - t.entry_price) / t.entry_price
+                    if pnl > 0:
+                        wins += 1
+                        total_profit += pnl
+                        win_count += 1
+                        current_streak_w += 1
+                        current_streak_l = 0
+                        max_consecutive_wins = max(max_consecutive_wins, current_streak_w)
+                    else:
+                        total_loss += abs(pnl)
+                        loss_count += 1
+                        current_streak_l += 1
+                        current_streak_w = 0
+                        max_consecutive_losses = max(max_consecutive_losses, current_streak_l)
+
             win_rate = wins / len(sell_trades)
-        else:
-            win_rate = 0.0
+            avg_profit = total_profit / win_count if win_count > 0 else 0.0
+            avg_loss = total_loss / loss_count if loss_count > 0 else 0.0
+            profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 0.0
 
         return BacktestResult(
             start_date=dates[0],
@@ -436,9 +550,18 @@ class BacktestEngine:
             annual_return=annual_return,
             max_drawdown=max_dd,
             sharpe_ratio=sharpe,
+            sortino_ratio=sortino,
+            calmar_ratio=calmar,
+            information_ratio=info_ratio,
+            alpha=alpha,
+            beta=beta,
             win_rate=win_rate,
+            profit_loss_ratio=profit_loss_ratio,
+            max_consecutive_wins=max_consecutive_wins,
+            max_consecutive_losses=max_consecutive_losses,
             total_trades=len(trades),
             equity_curve=curve,
+            benchmark_curve=benchmark_curve or [],
             trades=[t for t in trades],
             risk_alerts=self._risk_monitor.alerts if self._risk_monitor else [],
         )

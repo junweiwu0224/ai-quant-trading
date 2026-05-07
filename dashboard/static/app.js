@@ -3,14 +3,14 @@
 const App = {
     charts: {},
     stockCache: null,
+    currentTab: 'overview',
 
     init() {
         this.bindTabs();
         this.bindBacktest();
         this.setDefaultDate();
-        this.handleHashRoute();
         this.loadStockList();
-        window.addEventListener('hashchange', () => this.handleHashRoute());
+        this.loadOverview();
     },
 
     /* ── Toast 通知 ── */
@@ -28,44 +28,40 @@ const App = {
         setTimeout(() => el.remove(), 3000);
     },
 
-    /* ── URL Hash 路由 ── */
-    handleHashRoute() {
-        const hash = location.hash.replace('#', '') || 'overview';
-        const validTabs = ['overview', 'backtest', 'portfolio', 'risk', 'strategy'];
-        const tab = validTabs.includes(hash) ? hash : 'overview';
-        this.switchTab(tab, false);
-    },
-
     /* ── Tab 路由 ── */
     bindTabs() {
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.switchTab(link.dataset.tab, true);
-            });
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('.nav-link');
+            if (!link) return;
+            e.preventDefault();
+            const tab = link.dataset.tab;
+            if (tab) this.switchTab(tab);
         });
     },
 
-    switchTab(tab, updateHash = true) {
-        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-        document.querySelectorAll(`.nav-link[data-tab="${tab}"]`).forEach(l => l.classList.add('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        document.getElementById(`tab-${tab}`).classList.add('active');
+    switchTab(tab) {
+        if (this.currentTab === tab) return;
+        this.currentTab = tab;
 
-        if (updateHash) history.replaceState(null, '', `#${tab}`);
+        // 更新导航高亮
+        document.querySelectorAll('.nav-link').forEach(l => {
+            l.classList.toggle('active', l.dataset.tab === tab);
+        });
+
+        // 切换面板
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById('tab-' + tab);
+        if (panel) panel.classList.add('active');
 
         // 更新标题
         const titles = { overview: '总览', backtest: '回测', portfolio: '持仓', risk: '风控', strategy: '策略管理' };
-        document.title = `${titles[tab] || '总览'} - AI 量化交易系统`;
+        document.title = (titles[tab] || '总览') + ' - AI 量化交易系统';
 
         // 懒加载
-        const loaders = {
-            overview: () => this.loadOverview(),
-            portfolio: () => this.loadPortfolio(),
-            risk: () => this.loadRisk(),
-            strategy: () => this.loadStrategies(),
-        };
-        if (loaders[tab]) loaders[tab]();
+        if (tab === 'overview') this.loadOverview();
+        else if (tab === 'portfolio') this.loadPortfolio();
+        else if (tab === 'risk') this.loadRisk();
+        else if (tab === 'strategy') this.loadStrategies();
     },
 
     setDefaultDate() {

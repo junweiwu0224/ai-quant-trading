@@ -7,6 +7,9 @@ import pandas as pd
 from loguru import logger
 
 from data.storage import DataStorage
+from risk.position import PositionManager
+from risk.stoploss import StopLossManager
+from risk.monitor import RiskAlert, RiskMonitor
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 
 
@@ -17,6 +20,7 @@ class BacktestConfig:
     commission_rate: float = 0.0003  # 万三佣金
     stamp_tax_rate: float = 0.001  # 千一印花税（卖出收取）
     slippage: float = 0.002  # 0.2% 滑点
+    enable_risk: bool = False  # 是否启用风控
 
 
 @dataclass
@@ -34,6 +38,7 @@ class BacktestResult:
     total_trades: int = 0
     equity_curve: list = field(default_factory=list)
     trades: list = field(default_factory=list)
+    risk_alerts: list = field(default_factory=list)
 
     def summary(self) -> dict:
         return {
@@ -52,9 +57,18 @@ class BacktestResult:
 class BacktestEngine:
     """回测引擎"""
 
-    def __init__(self, config: Optional[BacktestConfig] = None):
+    def __init__(
+        self,
+        config: Optional[BacktestConfig] = None,
+        position_manager: Optional[PositionManager] = None,
+        stoploss_manager: Optional[StopLossManager] = None,
+        risk_monitor: Optional[RiskMonitor] = None,
+    ):
         self._config = config or BacktestConfig()
         self._storage = DataStorage()
+        self._position_mgr = position_manager or (PositionManager() if self._config.enable_risk else None)
+        self._stoploss_mgr = stoploss_manager or (StopLossManager() if self._config.enable_risk else None)
+        self._risk_monitor = risk_monitor or (RiskMonitor() if self._config.enable_risk else None)
 
     def run(
         self,
@@ -91,17 +105,41 @@ class BacktestEngine:
             # 1. 先处理上一日挂单
             self._match_orders(strategy, portfolio, daily_bars)
 
-            # 2. 推送当日K线（过滤停牌/零成交量）
-            for bar in daily_bars.values():
-                if bar.volume > 0 and bar.open > 0:
-                    strategy.on_bar(bar)
+            # 计算当日价格和权益
+            prices = {code: bar.close for code, bar in daily_bars.items()}
+            equity = portfolio.get_total_equity(prices)
 
-            # 3. 处理当日新挂单（下一日撮合）
-            # 挂单在 strategy.on_bar 中通过 buy/sell 提交
-            # 这里不做撮合，留到下一日
+            # 2. 风控：止损检查
+            if self._stoploss_mgr:
+                self._stoploss_mgr.update_equity(current_date, equity)
+                self._check_stoploss(strategy, portfolio, daily_bars, equity)
+
+            # 3. 风控：更新权益后重新计算（止损可能已平仓）
+            equity = portfolio.get_total_equity(prices)
+
+            # 4. 风控：日亏损限额检查（触发则跳过新交易）
+            skip_trading = False
+            if self._stoploss_mgr:
+                dl_signal = self._stoploss_mgr.check_daily_loss(equity)
+                if dl_signal:
+                    skip_trading = True
+                    logger.warning(f"[风控] {dl_signal.reason}")
+
+            # 5. 推送当日K线（过滤停牌/零成交量）
+            if not skip_trading:
+                for bar in daily_bars.values():
+                    if bar.volume > 0 and bar.open > 0:
+                        strategy.on_bar(bar)
+
+            # 6. 风控：仓位检查 — 过滤不合规的挂单
+            if self._position_mgr:
+                self._filter_orders_by_position(strategy, portfolio, prices)
+
+            # 7. 风控监控：记录风险快照
+            if self._risk_monitor:
+                self._risk_monitor.snapshot(current_date, portfolio, prices)
 
             # 记录权益曲线
-            prices = {code: bar.close for code, bar in daily_bars.items()}
             equity = portfolio.get_total_equity(prices)
             portfolio.equity_curve.append({"date": current_date, "equity": equity})
 
@@ -136,6 +174,74 @@ class BacktestEngine:
             ]
             result[code] = bars
         return result
+
+    def _check_stoploss(
+        self,
+        strategy: BaseStrategy,
+        portfolio: Portfolio,
+        daily_bars: dict[str, Bar],
+        equity: float,
+    ):
+        """检查止损规则，触发则生成卖出订单"""
+        if not self._stoploss_mgr:
+            return
+
+        for code, vol in list(portfolio.positions.items()):
+            if vol <= 0:
+                continue
+            bar = daily_bars.get(code)
+            if bar is None:
+                continue
+
+            entry_price = portfolio.avg_prices.get(code, 0)
+            signals = self._stoploss_mgr.check_all(
+                code=code,
+                entry_price=entry_price,
+                current_price=bar.close,
+                equity=equity,
+            )
+
+            for signal in signals:
+                if signal.code == "*":
+                    # 全局信号：全部平仓
+                    for c, v in list(portfolio.positions.items()):
+                        if v > 0:
+                            strategy.sell(c, daily_bars.get(c, bar).close, v)
+                    logger.warning(f"[止损] {signal.reason}")
+                    return
+                elif signal.action == "sell" and vol > 0:
+                    strategy.sell(code, bar.close, vol)
+                    self._stoploss_mgr.clear_trailing_high(code)
+                    logger.warning(f"[止损] {signal.reason}")
+                    break
+
+    def _filter_orders_by_position(
+        self,
+        strategy: BaseStrategy,
+        portfolio: Portfolio,
+        prices: dict[str, float],
+    ):
+        """过滤不符合仓位规则的挂单"""
+        if not self._position_mgr:
+            return
+
+        pending = strategy.get_pending_orders()
+        kept = []
+        for order in pending:
+            if order.direction == Direction.LONG:
+                passed, reason = self._position_mgr.check_buy(
+                    code=order.code,
+                    price=order.price,
+                    volume=order.volume,
+                    portfolio=portfolio,
+                    prices=prices,
+                )
+                if not passed:
+                    order.status = "cancelled"
+                    logger.info(f"[仓位] 拒绝买入 {order.code}: {reason}")
+                    continue
+            kept.append(order)
+        strategy._pending_orders = kept
 
     def _match_orders(self, strategy: BaseStrategy, portfolio: Portfolio, daily_bars: dict[str, Bar]):
         """撮合挂单（以当日开盘价 + 滑点模拟）"""
@@ -275,4 +381,5 @@ class BacktestEngine:
             total_trades=len(trades),
             equity_curve=curve,
             trades=[t for t in trades],
+            risk_alerts=self._risk_monitor.alerts if self._risk_monitor else [],
         )

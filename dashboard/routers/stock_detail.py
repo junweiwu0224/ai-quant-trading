@@ -181,7 +181,7 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
     )
     try:
         data = await _fetch_async(url)
-        d = data.get("data", {})
+        d = (data.get("data") or {})
         klines = d.get("klines", [])
         name = d.get("name", "")
 
@@ -232,7 +232,7 @@ async def get_timeline(code: str):
     )
     try:
         data = await _fetch_async(url)
-        d = data.get("data", {})
+        d = (data.get("data") or {})
         trends = d.get("trends", [])
         pre_close = d.get("preClose", 0)
 
@@ -283,7 +283,8 @@ async def get_capital_flow(code: str, days: int = 20):
         data = await _fetch_async(url)
         if not data:
             return {"code": code, "flow": []}
-        klines = data.get("data", {}).get("klines", [])
+        inner = data.get("data") or {}
+        klines = inner.get("klines") or []
 
         parsed = []
         for k in klines:
@@ -326,7 +327,7 @@ async def get_order_book(code: str):
     )
     try:
         data = await _fetch_async(url)
-        d = data.get("data", {})
+        d = (data.get("data") or {})
 
         def price_fmt(v):
             if v is None or v == "-": return 0
@@ -595,7 +596,7 @@ async def get_announcements(code: str):
                 return json.loads(resp.read())
         data = await asyncio.to_thread(_fetch_ann)
 
-        ann_list = data.get("data", {}).get("list", [])
+        ann_list = (data.get("data") or {}).get("list", [])
         announcements = []
         for ann in ann_list:
             notice_date = ann.get("notice_date", "")
@@ -655,7 +656,7 @@ async def get_industry_comparison(code: str):
                         f"&_={int(time.time() * 1000)}"
                     )
                     board_data = await _fetch_async(board_list_url)
-                    board_list = board_data.get("data", {}).get("diff", [])
+                    board_list = board_(data.get("data") or {}).get("diff", [])
                     if not board_list:
                         break
 
@@ -696,7 +697,7 @@ async def get_industry_comparison(code: str):
             )
             try:
                 comp_data = await _fetch_async(comp_url)
-                comp_list = comp_data.get("data", {}).get("diff", [])
+                comp_list = comp_(data.get("data") or {}).get("diff", [])
 
                 for item in comp_list:
                     s_code = item.get("f12", "")
@@ -855,7 +856,7 @@ async def market_hot_sectors():
             f"&_={ts}"
         )
         data = _fetch(url)
-        items = data.get("data", {}).get("diff", [])
+        items = (data.get("data") or {}).get("diff", [])
         result = []
         for item in items:
             leader_code = str(item.get("f140", ""))
@@ -894,7 +895,7 @@ async def market_stats():
             f"&_={int(time.time() * 1000)}"
         )
         data = await _fetch_async(url)
-        items = data.get("data", {}).get("diff", [])
+        items = (data.get("data") or {}).get("diff", [])
         if not items:
             return {"up_count": 0, "down_count": 0, "flat_count": 0, "limit_up": 0, "limit_down": 0}
         item = items[0]
@@ -923,7 +924,7 @@ async def market_benchmark(count: int = 60):
             f"&_={int(time.time() * 1000)}"
         )
         data = await _fetch_async(url)
-        klines = data.get("data", {}).get("klines", [])
+        klines = (data.get("data") or {}).get("klines", [])
         if not klines:
             return []
 

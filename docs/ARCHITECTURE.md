@@ -61,6 +61,7 @@ quant-trading-system/
 | collector | 拉取日K数据 | AKShare |
 | storage | 数据清洗、入库、查询、自选股管理 | SQLite |
 | scheduler | 后台定时同步自选股数据 | APScheduler BackgroundScheduler |
+| quote_service | 实时行情服务（混合架构） | Xueqiu + push2delay |
 
 **数据流：**
 ```
@@ -68,6 +69,27 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
                               ↑
                     scheduler（每日16:30自动同步自选股）
                     watchlist API（添加自选股时自动采集）
+```
+
+**行情服务架构（quote_service.py）：**
+
+采用 Xueqiu + push2delay 混合行情架构：
+- **Xueqiu**：快速行情（价格/涨跌幅/成交量），无行业/板块/概念
+- **push2delay.eastmoney.com**：延迟行情 CDN，包含行业/板块/概念/市值/PE/PB
+- **混合策略**：Xueqiu 优先，push2delay 补充行业/板块/概念数据
+- **批量接口**：`_fetch_batch_quotes()` 一次请求获取多只股票行情
+- **单只接口**：`_fetch_single_quote()` 自动 enrich Xueqiu 数据
+
+```
+_fetch_single_quote(code)
+  ├── Xueqiu → 价格/涨跌幅/成交量
+  └── push2delay → 行业/板块/概念/市值/PE/PB
+      └── 合并为完整 QuoteData
+
+_fetch_batch_quotes(codes)
+  ├── Xueqiu 批量 → 基础行情
+  └── push2delay 批量 → 补充行业/板块/概念
+      └── 合并返回
 ```
 
 **数据表：**
@@ -122,14 +144,51 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 **技术栈：** FastAPI + Jinja2 + Vanilla JS + Chart.js v4
 
 **设计系统：** 对标 cli-proxy-api 暖灰色系设计
-- 主色 `#8b8680`，CSS 变量驱动
+- 主色 `#8b8680`，CSS 变量驱动，支持亮色/深色双主题
 - 侧边栏 240px / 折叠 68px，响应式断点 768px/1024px/480px
 - 玻璃态模态框、骨架屏加载
+
+**总览页布局（从上到下）：**
+```
+┌──────────────────────────────────────────────┐
+│ 核心指标卡片（总资产/当日盈亏/累计收益/最大回撤/夏普/持仓数）│
+├──────────────────────────────────────────────┤
+│ 市场情绪（涨跌分布/涨停/跌停）                   │
+├──────────────────────────────────────────────┤
+│ 市场大盘（指数/行业板块TOP10/概念板块TOP10）       │
+├──────────────────────────────────────────────┤
+│ 自选股管理（搜索选择+tags+表格）                  │
+├──────────────────────────────────────────────┤
+│ 资产走势（折线图/柱状图/基准对比）                │
+├──────────────────────────────────────────────┤
+│ 持仓明细                                       │
+├──────────────────────────────────────────────┤
+│ 最近交易                                       │
+├──────────────────────────────────────────────┤
+│ 系统状态（模拟盘/AI模型/行情/数据库/最新日期）     │
+└──────────────────────────────────────────────┘
+```
+
+**性能优化（P0-P3）：**
+| 优化 | 策略 | 效果 |
+|------|------|------|
+| P0 增删局部更新 | 增删自选股不调 loadOverview，局部 DOM 更新 | 增删 <200ms |
+| P1 分阶段渲染 | loadOverview 拆为阶段1(核心) + 阶段2(图表市场) | 首屏 <500ms |
+| P2 股票列表缓存 | 全量 6000 只缓存 5 分钟 | 下拉框 <100ms |
+| P3 请求去重 | 同一股票 300ms 内不重复操作 | 防止堆积 |
+
+**自选股管理功能：**
+- 已选股票以 tags 常驻搜索框下方，点击 × 可删除
+- 下拉框显示全量 5000+ 只股票，已选股票不出现在下拉框
+- 删除后立即可搜索重新添加（MultiSearchBox._selected 同步清除）
+- 添加后 2.5s 延迟刷新表格（等待行业/板块/概念 enrichment）
+- 深色模式：localStorage 持久化偏好，支持系统 prefers-color-scheme
 
 **Tab 页面：**
 | Tab | 功能 |
 |-----|------|
-| 总览 | 系统状态、资产走势、收益分布、自选股管理 |
+| 总览 | 核心指标、市场情绪、市场大盘、自选股管理、资产走势、持仓明细、最近交易、系统状态 |
+| 行情详情 | 股票搜索、K线图、分时图、资金流向、技术指标、板块/概念 |
 | 回测 | 策略选择、股票搜索（自选股下拉）、运行回测、收益曲线/月度热力图/回撤曲线/交易明细 |
 | 持仓 | 持仓监控、盈亏图表、行业分布、券商账户配置 |
 | 风控 | 仓位分布、风控规则状态 |
@@ -140,21 +199,30 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 **前端组件：**
 | 文件 | 职责 |
 |------|------|
+| `app.js` | 主入口（Tab 路由、主题切换、侧边栏、总览/回测/持仓/风控/AI Alpha） |
+| `overview.js` | 总览模块（分阶段渲染、图表切换、市场指数/板块） |
+| `watchlist.js` | 自选股管理（局部更新、股票缓存、tags、排序） |
 | `charts.js` | ChartFactory 图表工厂（line/bar/doughnut/pie/horizontalBar/showEmpty） |
-| `search.js` | SearchBox 单选搜索下拉 + MultiSearchBox 多选搜索下拉（搜索内置在下拉中） |
-| `watchlist.js` | 自选股管理（添加/删除/同步数据） |
+| `search.js` | SearchBox 单选搜索下拉 + MultiSearchBox 多选搜索下拉 |
+| `stock-detail.js` | 行情详情（K线/分时/资金流向/技术指标/板块概念） |
 | `paper.js` | 模拟盘控制（启动/停止/重置/状态轮询） |
-| `strategy.js` | 策略 CRUD + 结构化参数表单 |
-| `app.js` | 主入口（Tab 路由、总览/回测/持仓/风控/AI Alpha、券商配置） |
+| `paper-trading.js` | 模拟盘交易面板（买卖/持仓/交易记录） |
+| `portfolio.js` | 持仓模块（持仓监控/盈亏图表/行业分布） |
+| `portfolio-table.js` | 持仓表格增强（排序/分页） |
+| `risk.js` | 风控模块（仓位分布/风控规则） |
+| `alpha.js` | AI Alpha 模块（因子/训练/预测/信号） |
+| `utils.js` | 工具函数（enhanceTable/skeletonRows） |
+| `realtime-quotes.js` | WebSocket 实时行情（连接/订阅/推送） |
 
 **API 路由：**
 | 路由 | 说明 |
 |------|------|
 | `/api/backtest/*` | 回测运行、策略列表、股票搜索、月度收益、回撤曲线、多策略对比 |
-| `/api/portfolio/*` | 持仓快照、交易记录、风控状态、权益历史、行业分布 |
+| `/api/portfolio/*` | 持仓快照、交易记录、风控状态、权益历史、行业分布、基准对比 |
+| `/api/stock/*` | 股票搜索、K线、分时、资金流向、技术指标、市场指数、热门板块、市场统计 |
 | `/api/system/*` | 系统状态、DB 统计 |
 | `/api/alpha/*` | AI Alpha 分析（因子重要性、训练曲线、预测、信号） |
-| `/api/watchlist/*` | 自选股 CRUD + 数据同步 |
+| `/api/watchlist/*` | 自选股 CRUD + F10 行业/板块/概念 enrichment |
 | `/api/paper/*` | 模拟盘控制（start/stop/reset/status） |
 | `/api/strategy/*` | 策略 CRUD（内置策略参数覆盖） |
 | `/api/broker/*` | 券商账户配置 |
@@ -297,4 +365,4 @@ class BrokerGateway(ABC):
 
 ---
 
-*文档版本: v2.0 | 日期: 2026-05-07*
+*文档版本: v3.0 | 日期: 2026-05-08*

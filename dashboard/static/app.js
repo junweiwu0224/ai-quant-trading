@@ -347,9 +347,9 @@ const App = {
         let endDate;
         try {
             const status = await this.fetchJSON('/api/system/status');
-            endDate = status.db_stats?.latest_date || new Date().toISOString().split('T')[0];
+            endDate = status.db_stats?.latest_date || Utils.todayBeijing();
         } catch {
-            endDate = new Date().toISOString().split('T')[0];
+            endDate = Utils.todayBeijing();
         }
 
         const d = new Date(endDate);
@@ -358,7 +358,7 @@ const App = {
         if (startD.getMonth() !== (d.getMonth() - 1 + 12) % 12) {
             startD.setDate(0);
         }
-        const startDate = startD.toISOString().split('T')[0];
+        const startDate = startD.toLocaleDateString('sv-SE', Utils._bjOpts);
 
         document.getElementById('bt-start').value = startDate;
         document.getElementById('bt-end').value = endDate;

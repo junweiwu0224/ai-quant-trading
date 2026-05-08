@@ -2,6 +2,7 @@
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Query
@@ -251,7 +252,7 @@ async def update_stop_loss(code: str, req: UpdateStopLossRequest):
                 (
                     req.stop_loss_price,
                     req.take_profit_price,
-                    datetime.now().isoformat(),
+                    now_beijing_iso(),
                     code,
                 )
             )
@@ -503,7 +504,7 @@ async def get_trade_stats_v2(
     """获取交易统计"""
     try:
         with _get_db() as conn:
-            start_date = (datetime.now() - timedelta(days=days)).isoformat()
+            start_date = (now_beijing() - timedelta(days=days)).isoformat()
 
             # 总交易次数
             cursor = conn.execute(
@@ -635,7 +636,7 @@ async def export_trades_v2(
                 "data": {
                     "format": "csv",
                     "content": output.getvalue(),
-                    "filename": f"trades_{datetime.now():%Y%m%d_%H%M%S}.csv",
+                    "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.csv",
                 },
             }
         else:
@@ -645,7 +646,7 @@ async def export_trades_v2(
                 "data": {
                     "format": "json",
                     "content": trades,
-                    "filename": f"trades_{datetime.now():%Y%m%d_%H%M%S}.json",
+                    "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.json",
                 },
             }
     except Exception as e:

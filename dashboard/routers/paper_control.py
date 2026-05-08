@@ -43,13 +43,17 @@ class PaperManager:
         from strategy.bollinger import BollingerStrategy
         from strategy.momentum import MomentumStrategy
         from strategy.loader import load_strategy_from_code
+        from strategy.manager import StrategyManager
         from config.settings import LOG_DIR
 
-        strategy_map = {
+        # 内置策略类映射
+        _builtin_classes = {
             "dual_ma": DualMAStrategy,
             "bollinger": BollingerStrategy,
             "momentum": MomentumStrategy,
         }
+
+        strategy_mgr = StrategyManager()
 
         # 优先使用自定义代码
         if req.custom_code:
@@ -57,10 +61,25 @@ class PaperManager:
             if not strategy:
                 raise ValueError("自定义策略代码加载失败")
         else:
-            cls = strategy_map.get(req.strategy)
-            if not cls:
+            # 从策略管理系统查找策略
+            strategy_info = strategy_mgr.get(req.strategy)
+            if not strategy_info:
                 raise ValueError(f"未知策略: {req.strategy}")
-            strategy = cls(**(req.params or {}))
+
+            if strategy_info.get("code"):
+                # 自定义代码策略：从管理系统加载
+                merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
+                strategy = load_strategy_from_code(strategy_info["code"], params=merged_params)
+                if not strategy:
+                    raise ValueError(f"自定义策略 {req.strategy} 代码加载失败")
+            else:
+                # 内置策略：使用管理系统保存的参数覆盖 + 请求参数
+                cls = _builtin_classes.get(req.strategy)
+                if not cls:
+                    raise ValueError(f"未找到策略类: {req.strategy}")
+                # 参数优先级：请求参数 > 管理系统覆盖 > 默认值
+                merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
+                strategy = cls(**merged_params)
 
         config = PaperConfig(
             interval_seconds=req.interval,
@@ -69,6 +88,8 @@ class PaperManager:
         )
 
         engine = PaperEngine(strategy=strategy, codes=req.codes, config=config)
+        # 设置策略名称（用于 portfolio.strategies 记录）
+        engine.strategy_name = req.strategy
         # 恢复或重置资金
         if not engine._state_mgr.load():
             engine._portfolio.cash = req.cash
@@ -128,8 +149,22 @@ class PaperManager:
 
         engine = self._engine
         portfolio = engine.portfolio if engine else None
-        equity = portfolio.cash if portfolio else 0
         positions = dict(portfolio.positions) if portfolio else {}
+
+        # 从 QuoteService 获取当前价格，计算总权益（现金 + 持仓市值）
+        equity = portfolio.cash if portfolio else 0
+        if portfolio and positions:
+            try:
+                from data.collector.quote_service import get_quote_service
+                qs = get_quote_service()
+                prices = {}
+                for code in positions:
+                    q = qs.get_quote(code)
+                    if q:
+                        prices[code] = q.price
+                equity = portfolio.get_total_equity(prices)
+            except Exception:
+                pass  # 获取行情失败时回退到现金
 
         # 从 trade log 获取今日交易数
         trade_count = 0

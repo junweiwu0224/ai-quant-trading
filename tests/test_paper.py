@@ -1,20 +1,20 @@
 """模拟盘引擎测试"""
 import json
 import tempfile
-from datetime import datetime
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from data.collector.realtime import RealtimeQuote
+from data.collector.quote_service import QuoteData
 from engine.paper_engine import PaperConfig, PaperEngine, PaperStateManager, PaperTradeLog
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 
 
-def make_quote(code: str, price: float, **kwargs) -> RealtimeQuote:
+def make_quote(code: str, price: float, **kwargs) -> QuoteData:
     """创建测试用行情"""
-    return RealtimeQuote(
+    return QuoteData(
         code=code,
         name=kwargs.get("name", f"测试{code}"),
         price=price,
@@ -25,7 +25,7 @@ def make_quote(code: str, price: float, **kwargs) -> RealtimeQuote:
         volume=kwargs.get("volume", 100000),
         amount=kwargs.get("amount", price * 100000),
         change_pct=kwargs.get("change_pct", 0.0),
-        timestamp=datetime.now(),
+        timestamp=time.time(),
     )
 
 
@@ -61,9 +61,9 @@ class SellAfterBuyStrategy(BaseStrategy):
                 self.sell(bar.code, bar.close, pos)
 
 
-# ── RealtimeQuote 测试 ──
+# ── QuoteData 测试 ──
 
-class TestRealtimeQuote:
+class TestQuoteData:
     def test_create_quote(self):
         q = make_quote("000001", 10.5)
         assert q.code == "000001"
@@ -149,10 +149,10 @@ class TestPaperEngine:
         )
         return PaperEngine(strategy=strategy, codes=codes, config=config)
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_run_once_buy(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.paper_engine.get_quote_service")
+    def test_run_once_buy(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "000001": make_quote("000001", 10.0),
         }
 
@@ -165,19 +165,19 @@ class TestPaperEngine:
         assert result["positions"]["000001"] == 1000
         assert result["cash"] < 1_000_000
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_run_once_no_quotes(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {}
+    @patch("engine.paper_engine.get_quote_service")
+    def test_run_once_no_quotes(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {}
 
         engine = self._make_engine()
         result = engine.run_once()
         assert "error" in result
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_run_once_buy_and_sell(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.side_effect = [
+    @patch("engine.paper_engine.get_quote_service")
+    def test_run_once_buy_and_sell(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.side_effect = [
             {"000001": make_quote("000001", 10.0)},
             {"000001": make_quote("000001", 10.5)},
         ]
@@ -189,15 +189,19 @@ class TestPaperEngine:
         result1 = engine.run_once()
         assert result1["new_trades"] == 1
 
+        # T+1 结算（模拟次日）
+        engine._today_bought.clear()
+        engine._today_date = ""
+
         # 第二轮：卖出
         result2 = engine.run_once()
         assert result2["new_trades"] == 1
         assert "000001" not in result2["positions"] or result2["positions"]["000001"] == 0
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_state_persistence(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.paper_engine.get_quote_service")
+    def test_state_persistence(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "000001": make_quote("000001", 10.0),
         }
 
@@ -211,10 +215,10 @@ class TestPaperEngine:
             assert engine2.portfolio.positions.get("000001", 0) == 1000
             assert engine2.portfolio.cash < 1_000_000
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_insufficient_funds(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.paper_engine.get_quote_service")
+    def test_insufficient_funds(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "600519": make_quote("600519", 1800.0),
         }
 
@@ -227,10 +231,10 @@ class TestPaperEngine:
         assert result["new_trades"] == 0
         assert engine.portfolio.positions.get("600519", 0) == 0
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_commission_and_slippage(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.paper_engine.get_quote_service")
+    def test_commission_and_slippage(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "000001": make_quote("000001", 10.0),
         }
 
@@ -243,10 +247,10 @@ class TestPaperEngine:
         assert spent > 10_020
         assert spent < 10_100  # 不应太多
 
-    @patch("engine.paper_engine.RealtimeCollector")
-    def test_stop_engine(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.paper_engine.get_quote_service")
+    def test_stop_engine(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "000001": make_quote("000001", 10.0),
         }
 

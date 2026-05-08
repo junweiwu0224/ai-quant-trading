@@ -9,6 +9,16 @@ from typing import Optional
 from loguru import logger
 
 from config.settings import LOG_DIR, PROJECT_ROOT
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+
+
+def _is_trading_hours() -> bool:
+    """判断当前是否在 A 股交易时段（周一至周五 9:30-11:30, 13:00-15:00）"""
+    now = now_beijing()
+    if now.weekday() >= 5:  # 周六日
+        return False
+    t = now.hour * 60 + now.minute
+    return (570 <= t <= 690) or (780 <= t <= 900)  # 9:30-11:30, 13:00-15:00
 from data.collector.quote_service import QuoteData, get_quote_service
 from engine.backtest_engine import BacktestConfig
 from engine.models import PaperConfig as NewPaperConfig
@@ -38,13 +48,13 @@ class PaperTradeLog:
     def __init__(self, log_dir: str = str(LOG_DIR / "paper")):
         self._dir = Path(log_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._log_file = self._dir / f"trades_{datetime.now():%Y%m%d}.jsonl"
+        self._log_file = self._dir / f"trades_{now_beijing():%Y%m%d}.jsonl"
         self._trades: list[dict] = []
 
     def record(self, trade: Trade, equity: float):
         """记录成交"""
         entry = {
-            "time": datetime.now().isoformat(),
+            "time": now_beijing_iso(),
             "code": trade.code,
             "direction": trade.direction.value,
             "price": round(trade.price, 3),
@@ -80,16 +90,18 @@ class PaperStateManager:
         self._state_file = self._dir / "portfolio_state.json"
         self._snapshot_file = self._dir / "portfolio_snapshots.jsonl"
 
-    def save(self, portfolio: Portfolio):
+    def save(self, portfolio: Portfolio, today_bought: Optional[dict] = None, today_date: str = ""):
         """保存投资组合状态"""
         state = {
-            "saved_at": datetime.now().isoformat(),
+            "saved_at": now_beijing_iso(),
             "cash": portfolio.cash,
             "positions": dict(portfolio.positions),
             "avg_prices": {k: round(v, 4) for k, v in portfolio.avg_prices.items()},
             "trade_count": len(portfolio.trades),
             "entry_dates": dict(portfolio.entry_dates),
             "strategies": dict(portfolio.strategies),
+            "today_bought": dict(today_bought) if today_bought else {},
+            "today_date": today_date,
         }
         self._state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
         logger.debug(f"状态已保存: 现金={portfolio.cash:,.0f}")
@@ -147,6 +159,11 @@ class PaperEngine:
         self._portfolio = self._init_portfolio()
         self._strategy.init(self._portfolio)
 
+        # T+1 限制：记录当日买入的股票数量
+        self._today_bought: dict[str, int] = {}
+        self._today_date: str = ""
+        self.strategy_name: str = ""  # 由外部设置，用于 portfolio.strategies 记录
+
     def _init_portfolio(self) -> Portfolio:
         """初始化或恢复投资组合"""
         state = self._state_mgr.load()
@@ -158,6 +175,16 @@ class PaperEngine:
                 entry_dates=state.get("entry_dates", {}),
                 strategies=state.get("strategies", {}),
             )
+            # 恢复 T+1 状态
+            saved_date = state.get("today_date", "")
+            today_str = now_beijing().strftime("%Y-%m-%d")
+            if saved_date == today_str:
+                self._today_bought = dict(state.get("today_bought", {}))
+                self._today_date = saved_date
+                logger.info(f"恢复 T+1 状态: {self._today_bought}")
+            else:
+                self._today_bought = {}
+                self._today_date = ""
             logger.info(f"恢复投资组合: 现金={portfolio.cash:,.0f}, 持仓={portfolio.positions}")
             return portfolio
         return Portfolio(cash=self._config.initial_cash)
@@ -193,7 +220,11 @@ class PaperEngine:
         if not quotes:
             return {"error": "无行情数据"}
 
-        now = datetime.now().date()
+        now = now_beijing().date()
+        today_str = now.strftime("%Y-%m-%d")
+        if today_str != self._today_date:
+            self._today_bought.clear()
+            self._today_date = today_str
         prices = {c: q.price for c, q in quotes.items()}
         equity = self._portfolio.get_total_equity(prices)
 
@@ -216,24 +247,30 @@ class PaperEngine:
             )
             self._strategy.on_bar(bar)
 
-        # 4. 撮合挂单
-        new_trades = self._match_orders(quotes)
-
-        # 5. 风控：仓位过滤
+        # 4. 风控：仓位过滤（必须在撮合前执行）
         if self._position_mgr:
             self._filter_orders(prices)
 
-        # 6. 记录交易
+        # 5. 加载 DB 中的手动订单到引擎队列
+        self._load_db_orders()
+
+        # 6. 撮合挂单
+        new_trades = self._match_orders(quotes)
+
+        # 7. 记录交易
         for trade in new_trades:
             equity = self._portfolio.get_total_equity(prices)
             self._trade_log.record(trade, equity)
 
-        # 7. 保存状态
-        self._state_mgr.save(self._portfolio)
+        # 8. 同步状态到 DB（持仓 + 交易 + 订单）
+        self._sync_to_db(new_trades)
+
+        # 9. 保存状态文件（含 T+1 数据）
+        self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
 
         equity = self._portfolio.get_total_equity(prices)
         return {
-            "time": datetime.now().isoformat(),
+            "time": now_beijing_iso(),
             "equity": round(equity, 2),
             "cash": round(self._portfolio.cash, 2),
             "positions": dict(self._portfolio.positions),
@@ -249,7 +286,18 @@ class PaperEngine:
         consecutive_errors = 0
         MAX_CONSECUTIVE_ERRORS = 10
 
+        _non_trading_logged = False
+
         while self._running:
+            # 非交易时段跳过（周末、午休、盘前盘后）
+            if not _is_trading_hours():
+                if not _non_trading_logged:
+                    logger.info("非交易时段，模拟盘等待中（交易时段: 周一至周五 9:30-11:30, 13:00-15:00）")
+                    _non_trading_logged = True
+                time.sleep(self._config.interval_seconds)
+                continue
+            _non_trading_logged = False
+
             try:
                 result = self.run_once()
                 consecutive_errors = 0  # 成功后重置
@@ -272,16 +320,40 @@ class PaperEngine:
 
             time.sleep(self._config.interval_seconds)
 
-        # 退出前保存状态
-        self._state_mgr.save(self._portfolio)
+        # 退出前保存状态（含 T+1 数据）
+        self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
         logger.info("模拟盘已停止")
 
     def stop(self):
         """停止模拟盘"""
         self._running = False
 
+    def _load_position_stop_prices(self) -> dict[str, dict]:
+        """从 DB 加载每个持仓的止损止盈价"""
+        result = {}
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._order_manager.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT code, stop_loss_price, take_profit_price FROM paper_positions "
+                "WHERE stop_loss_price IS NOT NULL OR take_profit_price IS NOT NULL"
+            )
+            for row in cursor.fetchall():
+                result[row["code"]] = {
+                    "stop_loss": row["stop_loss_price"],
+                    "take_profit": row["take_profit_price"],
+                }
+            conn.close()
+        except Exception as e:
+            logger.debug(f"加载止损止盈价失败: {e}")
+        return result
+
     def _check_stoploss(self, quotes: dict[str, QuoteData], equity: float):
-        """止损检查"""
+        """止损检查：优先检查 DB 中的止损止盈价，再检查百分比规则"""
+        # 加载 DB 中的止损止盈价（每轮都读，确保实时更新）
+        db_stop_prices = self._load_position_stop_prices()
+
         for code, vol in list(self._portfolio.positions.items()):
             if vol <= 0:
                 continue
@@ -290,6 +362,26 @@ class PaperEngine:
                 continue
 
             entry_price = self._portfolio.avg_prices.get(code, 0)
+
+            # 1. 优先检查 DB 中设置的止损止盈价
+            stop_cfg = db_stop_prices.get(code)
+            if stop_cfg:
+                if stop_cfg["stop_loss"] and quote.price <= stop_cfg["stop_loss"]:
+                    self._submit_sell(code, quote.price, vol)
+                    logger.warning(
+                        f"[止损] {code} 触发止损价 {stop_cfg['stop_loss']:.2f}，"
+                        f"当前 {quote.price:.2f}"
+                    )
+                    continue
+                if stop_cfg["take_profit"] and quote.price >= stop_cfg["take_profit"]:
+                    self._submit_sell(code, quote.price, vol)
+                    logger.warning(
+                        f"[止盈] {code} 触发止盈价 {stop_cfg['take_profit']:.2f}，"
+                        f"当前 {quote.price:.2f}"
+                    )
+                    continue
+
+            # 2. 回退到百分比规则
             signals = self._stoploss_mgr.check_all(
                 code=code,
                 entry_price=entry_price,
@@ -323,6 +415,8 @@ class PaperEngine:
             quote = quotes.get(order.code)
             if quote is None:
                 order.status = "cancelled"
+                if hasattr(order, '_db_order_id'):
+                    self._update_db_order_status(order._db_order_id, "cancelled")
                 continue
 
             if order.direction == Direction.LONG:
@@ -342,11 +436,11 @@ class PaperEngine:
 
                     # 记录建仓日期和变动类型
                     if old_vol == 0:
-                        self._portfolio.entry_dates[order.code] = datetime.now().strftime("%Y-%m-%d")
+                        self._portfolio.entry_dates[order.code] = now_beijing().strftime("%Y-%m-%d")
                         action_type = "new"
                     else:
                         action_type = "add"
-                    self._portfolio.strategies[order.code] = getattr(self._strategy, 'name', self._strategy.__class__.__name__)
+                    self._portfolio.strategies[order.code] = self.strategy_name or self._strategy.__class__.__name__
 
                     trade = Trade(
                         code=order.code,
@@ -354,19 +448,32 @@ class PaperEngine:
                         price=fill_price,
                         volume=order.volume,
                         order_id=order.order_id,
-                        datetime=datetime.now().date(),
+                        datetime=now_beijing().date(),
                     )
+                    if hasattr(order, '_db_order_id'):
+                        trade._db_order_id = order._db_order_id
                     self._strategy.record_trade(trade)
                     trades.append(trade)
+                    # T+1：记录当日买入量
+                    self._today_bought[order.code] = self._today_bought.get(order.code, 0) + order.volume
                 else:
                     order.status = "cancelled"
+                    if hasattr(order, '_db_order_id'):
+                        self._update_db_order_status(order._db_order_id, "cancelled")
                     logger.warning(f"[{order.code}] 资金不足，取消买入")
 
             elif order.direction == Direction.SHORT:
                 current_pos = self._portfolio.positions.get(order.code, 0)
-                actual_vol = min(order.volume, current_pos)
+                # T+1：扣除当日买入的不可卖数量
+                today_bought = self._today_bought.get(order.code, 0)
+                sellable = max(0, current_pos - today_bought)
+                actual_vol = min(order.volume, sellable)
                 if actual_vol <= 0:
                     order.status = "cancelled"
+                    if hasattr(order, '_db_order_id'):
+                        self._update_db_order_status(order._db_order_id, "cancelled")
+                    if current_pos > 0 and today_bought > 0:
+                        logger.info(f"[{order.code}] T+1限制：持仓{current_pos}股，今日买入{today_bought}股，可卖0股")
                     continue
 
                 fill_price = quote.price * (1 - self._config.slippage)
@@ -392,9 +499,11 @@ class PaperEngine:
                     price=fill_price,
                     volume=actual_vol,
                     order_id=order.order_id,
-                    datetime=datetime.now().date(),
+                    datetime=now_beijing().date(),
                     entry_price=entry_price,
                 )
+                if hasattr(order, '_db_order_id'):
+                    trade._db_order_id = order._db_order_id
                 self._strategy.record_trade(trade)
                 trades.append(trade)
 
@@ -415,7 +524,166 @@ class PaperEngine:
                 )
                 if not passed:
                     order.status = "cancelled"
+                    if hasattr(order, '_db_order_id'):
+                        self._update_db_order_status(order._db_order_id, "cancelled")
                     logger.info(f"[仓位] 拒绝买入 {order.code}: {reason}")
                     continue
             kept.append(order)
         self._strategy._pending_orders = kept
+
+    def _update_db_order_status(self, db_order_id: str, status: str):
+        """更新 DB 中订单状态"""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._order_manager.db_path)
+            conn.execute(
+                "UPDATE paper_orders SET status=?, updated_at=? WHERE order_id=?",
+                (status, now_beijing_iso(), db_order_id),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug(f"更新 DB 订单状态失败: {e}")
+
+    def _load_db_orders(self):
+        """从 DB 加载手动提交的待处理订单到引擎队列"""
+        try:
+            import sqlite3
+            from engine.models import Direction as ModelDirection
+            conn = sqlite3.connect(self._order_manager.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM paper_orders WHERE status = 'pending' ORDER BY created_at ASC"
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+            for row in rows:
+                # 转换为引擎内部 Order
+                direction = Direction.LONG if row["direction"] == "long" else Direction.SHORT
+                order = Order(
+                    code=row["code"],
+                    direction=direction,
+                    price=row["price"] or 0.0,
+                    volume=row["volume"],
+                    order_id=0,  # 引擎内部 ID
+                )
+                # 附带 DB order_id 用于后续状态更新
+                order._db_order_id = row["order_id"]
+                self._strategy._pending_orders.append(order)
+
+            if rows:
+                logger.debug(f"从 DB 加载 {len(rows)} 笔手动订单")
+        except Exception as e:
+            logger.debug(f"加载 DB 订单失败: {e}")
+
+    def _sync_to_db(self, new_trades: list[Trade]):
+        """同步引擎状态到 DB（持仓 + 交易 + 订单状态）"""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._order_manager.db_path)
+            now_str = now_beijing_iso()
+
+            # 1. 同步持仓到 paper_positions 表
+            # 先获取现有持仓的止损止盈价（避免覆盖用户设置）
+            existing = {}
+            cursor = conn.execute("SELECT code, stop_loss_price, take_profit_price, max_position_pct FROM paper_positions")
+            for row in cursor.fetchall():
+                existing[row["code"]] = {
+                    "stop_loss": row["stop_loss_price"],
+                    "take_profit": row["take_profit_price"],
+                    "max_pct": row["max_position_pct"],
+                }
+
+            # 删除不再持有的持仓
+            held_codes = set(self._portfolio.positions.keys())
+            if held_codes:
+                placeholders = ",".join("?" * len(held_codes))
+                conn.execute(
+                    f"DELETE FROM paper_positions WHERE code NOT IN ({placeholders})",
+                    list(held_codes),
+                )
+            else:
+                conn.execute("DELETE FROM paper_positions")
+
+            # 获取当前价格
+            quotes = self._quote_service.get_all_quotes()
+            prices = {c: q.price for c, q in quotes.items()} if quotes else {}
+
+            # 更新/插入持仓
+            for code, vol in self._portfolio.positions.items():
+                if vol <= 0:
+                    continue
+                avg_price = self._portfolio.avg_prices.get(code, 0)
+                current_price = prices.get(code, avg_price)
+                market_value = current_price * vol
+                unrealized_pnl = (current_price - avg_price) * vol
+                unrealized_pnl_pct = (current_price / avg_price - 1) if avg_price > 0 else 0
+
+                prev = existing.get(code, {})
+                stop_loss = prev.get("stop_loss")
+                take_profit = prev.get("take_profit")
+                max_pct = prev.get("max_pct", 0.3)
+
+                conn.execute(
+                    """INSERT INTO paper_positions
+                    (code, volume, avg_price, current_price, market_value,
+                     unrealized_pnl, unrealized_pnl_pct, stop_loss_price, take_profit_price,
+                     max_position_pct, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(code) DO UPDATE SET
+                        volume=excluded.volume, avg_price=excluded.avg_price,
+                        current_price=excluded.current_price, market_value=excluded.market_value,
+                        unrealized_pnl=excluded.unrealized_pnl, unrealized_pnl_pct=excluded.unrealized_pnl_pct,
+                        stop_loss_price=excluded.stop_loss_price, take_profit_price=excluded.take_profit_price,
+                        max_position_pct=excluded.max_position_pct, updated_at=excluded.updated_at""",
+                    (code, vol, round(avg_price, 4), round(current_price, 4),
+                     round(market_value, 2), round(unrealized_pnl, 2),
+                     round(unrealized_pnl_pct, 4), stop_loss, take_profit,
+                     max_pct, now_str),
+                )
+
+            # 2. 同步新交易到 paper_trades 表
+            for trade in new_trades:
+                entry_price = trade.entry_price or self._portfolio.avg_prices.get(trade.code, 0)
+                profit = 0.0
+                profit_pct = 0.0
+                if trade.direction == Direction.SHORT and entry_price > 0:
+                    profit = (trade.price - entry_price) * trade.volume
+                    profit_pct = trade.price / entry_price - 1
+                elif trade.direction == Direction.LONG and entry_price > 0:
+                    # 买入时 profit 为 0（尚未实现盈亏）
+                    pass
+
+                commission = max(trade.price * trade.volume * self._config.commission_rate, 5.0)
+                stamp_tax = trade.price * trade.volume * self._config.stamp_tax_rate if trade.direction == Direction.SHORT else 0
+                equity = self._portfolio.get_total_equity(prices)
+
+                trade_id = f"TRD-{trade.trade_id:06d}"
+                db_order_id = getattr(trade, '_db_order_id', None) or f"ORD-AUTO-{trade.order_id:06d}"
+
+                conn.execute(
+                    """INSERT OR IGNORE INTO paper_trades
+                    (trade_id, order_id, code, direction, price, volume,
+                     entry_price, profit, profit_pct, commission, stamp_tax,
+                     equity_after, strategy_name, signal_reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (trade_id, db_order_id, trade.code, trade.direction.value,
+                     round(trade.price, 4), trade.volume, round(entry_price, 4),
+                     round(profit, 2), round(profit_pct, 4),
+                     round(commission, 2), round(stamp_tax, 2),
+                     round(equity, 2), self.strategy_name, "",
+                     now_str),
+                )
+
+                # 更新对应的 DB 订单状态为 filled
+                if hasattr(trade, '_db_order_id') and trade._db_order_id:
+                    conn.execute(
+                        "UPDATE paper_orders SET status='filled', filled_price=?, filled_volume=?, updated_at=? WHERE order_id=?",
+                        (round(trade.price, 4), trade.volume, now_str, trade._db_order_id),
+                    )
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"同步到 DB 失败: {e}")

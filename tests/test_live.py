@@ -1,22 +1,23 @@
 """实盘交易引擎测试"""
 import tempfile
+import time
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from data.collector.realtime import RealtimeQuote
+from data.collector.quote_service import QuoteData
 from engine.broker import AccountInfo, OrderResult, OrderSide, OrderStatus, PositionInfo, SimulatedBroker
 from engine.live_engine import LiveConfig, LiveTradingEngine, LivePortfolioAdapter
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio
 
 
-def make_quote(code: str, price: float) -> RealtimeQuote:
-    return RealtimeQuote(
+def make_quote(code: str, price: float) -> QuoteData:
+    return QuoteData(
         code=code, name=f"测试{code}", price=price,
         open=price, high=price * 1.02, low=price * 0.98,
         pre_close=price, volume=100000, amount=price * 100000,
-        change_pct=0.0, timestamp=datetime.now(),
+        change_pct=0.0, timestamp=time.time(),
     )
 
 
@@ -160,10 +161,10 @@ class TestLivePortfolioAdapter:
 # ── LiveTradingEngine 测试 ──
 
 class TestLiveTradingEngine:
-    @patch("engine.live_engine.RealtimeCollector")
-    def test_run_once_dry_run(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.live_engine.get_quote_service")
+    def test_run_once_dry_run(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "000001": make_quote("000001", 10.0),
         }
 
@@ -185,10 +186,10 @@ class TestLiveTradingEngine:
         assert result["new_trades"] == 1
         assert "000001" in result["positions"]
 
-    @patch("engine.live_engine.RealtimeCollector")
-    def test_run_once_no_quotes(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {}
+    @patch("engine.live_engine.get_quote_service")
+    def test_run_once_no_quotes(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {}
 
         broker = SimulatedBroker()
         config = LiveConfig(state_dir=tempfile.mkdtemp(), enable_risk=False)
@@ -200,10 +201,10 @@ class TestLiveTradingEngine:
         result = engine.run_once()
         assert "error" in result
 
-    @patch("engine.live_engine.RealtimeCollector")
-    def test_stop_engine(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {}
+    @patch("engine.live_engine.get_quote_service")
+    def test_stop_engine(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {}
 
         broker = SimulatedBroker()
         config = LiveConfig(state_dir=tempfile.mkdtemp(), enable_risk=False)
@@ -216,10 +217,10 @@ class TestLiveTradingEngine:
         engine.stop()
         assert engine._running is False
 
-    @patch("engine.live_engine.RealtimeCollector")
-    def test_insufficient_funds(self, MockCollector):
-        mock_collector = MockCollector.return_value
-        mock_collector.fetch_realtime.return_value = {
+    @patch("engine.live_engine.get_quote_service")
+    def test_insufficient_funds(self, MockService):
+        mock_service = MockService.return_value
+        mock_service.get_all_quotes.return_value = {
             "600519": make_quote("600519", 1800.0),
         }
 

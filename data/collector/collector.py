@@ -1,6 +1,7 @@
 """AKShare 数据采集"""
 import time
 from datetime import date, datetime
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from typing import Optional
 
 import akshare as ak
@@ -45,7 +46,7 @@ class StockCollector:
     ) -> pd.DataFrame:
         """获取单只股票日K线数据"""
         if end_date is None:
-            end_date = datetime.now().strftime("%Y%m%d")
+            end_date = today_beijing_compact()
 
         logger.debug(f"[{code}] 采集日K: {start_date} ~ {end_date}")
         df = self._retry(
@@ -103,7 +104,7 @@ class StockCollector:
     ) -> pd.DataFrame:
         """获取指数日K线数据"""
         if end_date is None:
-            end_date = datetime.now().strftime("%Y%m%d")
+            end_date = today_beijing_compact()
 
         logger.debug(f"[{code}] 采集指数日K: {start_date} ~ {end_date}")
         try:

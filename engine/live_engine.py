@@ -9,6 +9,7 @@ from typing import Optional
 from loguru import logger
 
 from config.settings import LOG_DIR
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from data.collector.quote_service import QuoteData, get_quote_service
 from engine.broker import BrokerGateway, OrderSide, OrderStatus, SimulatedBroker
 from engine.paper_engine import PaperTradeLog, PaperConfig
@@ -121,7 +122,7 @@ class LiveTradingEngine:
         if not quotes:
             return {"error": "无行情数据"}
 
-        now = datetime.now().date()
+        now = now_beijing().date()
         prices = {c: q.price for c, q in quotes.items()}
 
         # 设置模拟价格
@@ -163,7 +164,7 @@ class LiveTradingEngine:
 
         account = self._broker.get_account()
         return {
-            "time": datetime.now().isoformat(),
+            "time": now_beijing_iso(),
             "equity": round(account.total_equity, 2),
             "cash": round(account.available, 2),
             "market_value": round(account.market_value, 2),
@@ -272,7 +273,7 @@ class LiveTradingEngine:
                     price=result.filled_price,
                     volume=result.filled_volume,
                     order_id=order.order_id,
-                    datetime=datetime.now().date(),
+                    datetime=now_beijing().date(),
                     entry_price=self._portfolio.avg_prices.get(order.code, 0),
                 )
                 self._strategy.record_trade(trade)

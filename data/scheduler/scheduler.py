@@ -30,7 +30,7 @@ class DataScheduler:
             try:
                 latest = self._storage.get_latest_date(code)
                 start = latest.strftime("%Y%m%d") if latest else "20200101"
-                end = datetime.now().strftime("%Y%m%d")
+                end = today_beijing_compact()
                 df = self._collector.get_stock_daily(code, start_date=start, end_date=end)
                 if not df.empty:
                     self._storage.save_stock_daily(code, df)

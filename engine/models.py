@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import PROJECT_ROOT
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 
 
 class Direction(Enum):
@@ -48,8 +49,8 @@ class PaperOrder:
     slippage: float = 0
     strategy_name: Optional[str] = None
     signal_reason: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=now_beijing)
+    updated_at: datetime = field(default_factory=now_beijing)
 
     def to_dict(self) -> dict:
         return {
@@ -85,8 +86,8 @@ class PaperPosition:
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
     max_position_pct: float = 0.3
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=now_beijing)
+    updated_at: datetime = field(default_factory=now_beijing)
 
     def update_price(self, current_price: float):
         """更新当前价格和盈亏"""
@@ -95,7 +96,7 @@ class PaperPosition:
         cost = self.volume * self.avg_price
         self.unrealized_pnl = self.market_value - cost
         self.unrealized_pnl_pct = (self.unrealized_pnl / cost * 100) if cost > 0 else 0
-        self.updated_at = datetime.now()
+        self.updated_at = now_beijing()
 
     def to_dict(self) -> dict:
         return {
@@ -131,7 +132,7 @@ class PaperTrade:
     equity_after: float = 0
     strategy_name: Optional[str] = None
     signal_reason: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=now_beijing)
 
     def to_dict(self) -> dict:
         return {
@@ -229,7 +230,7 @@ class RiskEvent:
     trigger_price: Optional[float]
     action: str  # sell / reject / alert
     reason: str
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=now_beijing)
 
     def to_dict(self) -> dict:
         return {

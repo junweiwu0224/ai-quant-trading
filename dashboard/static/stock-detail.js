@@ -3,10 +3,9 @@
 const StockDetail = {
     _klineChart: null,
     _klineResizeObs: null,
-    _candleSeries: null,
-    _volumeSeries: null,
-    _maSeries: {},
-    _indicatorSeries: {},
+    _indicatorPaneId: null,
+    _avgOverlays: null,
+    _timelineIndicatorsRegistered: false,
     _profitChart: null,
     _northChart: null,
     _capitalChart: null,
@@ -14,6 +13,8 @@ const StockDetail = {
     _currentPeriod: 'daily',
     _currentIndicator: '',
     _currentKlines: null,
+    _currentTimelineTrends: null,
+    _currentTimelinePreClose: null,
     _searchBox: null,
 
     init() {
@@ -34,6 +35,21 @@ const StockDetail = {
         this._searchBox.onSelect((item) => this.open(item.code));
         this._bindChartTabs();
         this._bindIndicatorSelector();
+
+        // 默认分时模式，隐藏指标选择器
+        const indicatorEl = document.querySelector('.sd-indicator-selector');
+        if (indicatorEl) indicatorEl.style.display = 'none';
+
+        // 主题切换时重绘 KLineChart（canvas 不响应 CSS 变量）
+        this._themeObserver = new MutationObserver(() => {
+            if (!this._klineChart) return;
+            if (this._currentPeriod === 'timeline' && this._currentTimelineTrends) {
+                this._renderTimelineChart(this._currentTimelineTrends, this._currentTimelinePreClose);
+            } else if (this._currentKlines) {
+                this._renderKlineChart(this._currentKlines);
+            }
+        });
+        this._themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     },
 
     /** 打开某只股票的详情 */
@@ -556,17 +572,6 @@ const StockDetail = {
         }
     },
 
-    /** 移除 LightweightCharts 内置的 TradingView logo 链接 */
-    _removeTVLogo(container) {
-        const remove = () => {
-            const logo = container.querySelector('#tv-attr-logo');
-            if (logo) logo.remove();
-        };
-        remove();
-        setTimeout(remove, 100);
-        setTimeout(remove, 500);
-    },
-
     async _loadKline(code, period) {
         this._currentPeriod = period;
         try {
@@ -586,315 +591,203 @@ const StockDetail = {
         }
     },
 
+    /** 读取页面 CSS 变量 */
+    _cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    },
+
+    /** KLineChart 动态样式（跟随页面主题） */
+    _klineStyles() {
+        const c = (name) => this._cssVar(name);
+        const upColor = c('--up-color') || '#c65746';
+        const downColor = c('--down-color') || '#10b981';
+        const textPrimary = c('--text-primary') || '#2d2a26';
+        const textSecondary = c('--text-secondary') || '#6d6760';
+        const borderColor = c('--border-color') || '#e3e1db';
+        const bgPrimary = c('--bg-primary') || '#f0eee8';
+        const bgSecondary = c('--bg-secondary') || '#faf9f5';
+        const gridColor = borderColor;
+        return {
+            grid: {
+                show: true,
+                horizontal: { color: gridColor },
+                vertical: { color: gridColor },
+            },
+            candle: {
+                type: 'solid',
+                bar: {
+                    upColor: upColor,
+                    downColor: downColor,
+                    upBorderColor: upColor,
+                    downBorderColor: downColor,
+                    upWickColor: upColor,
+                    downWickColor: downColor,
+                },
+                priceMark: {
+                    show: true,
+                    high: { show: true, color: textSecondary, textSize: 10 },
+                    low: { show: true, color: textSecondary, textSize: 10 },
+                    last: {
+                        show: true,
+                        upColor: upColor,
+                        downColor: downColor,
+                        noChangeColor: textSecondary,
+                        line: { show: true, style: 'dashed', size: 1 },
+                        text: { show: true, size: 11, color: '#fff', style: 'fill', borderRadius: 2, paddingLeft: 4, paddingTop: 2, paddingRight: 4, paddingBottom: 2 },
+                    },
+                },
+                tooltip: {
+                    showRule: 'always',
+                    showType: 'standard',
+                    text: { size: 12, color: textPrimary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
+                },
+                area: {
+                    lineColor: '#4fc3f7',
+                    lineSize: 2,
+                    value: 'close',
+                    backgroundColor: [
+                        { offset: 0, color: 'rgba(79,195,247,0.35)' },
+                        { offset: 1, color: 'rgba(79,195,247,0.03)' },
+                    ],
+                },
+            },
+            indicator: {
+                ohlc: { upColor: upColor, downColor: downColor },
+                bars: [
+                    { upColor: upColor + '99', downColor: downColor + '99', noChangeColor: textSecondary },
+                ],
+                lines: [
+                    { color: '#e6a817', size: 1 },
+                    { color: '#2196f3', size: 1 },
+                    { color: '#ff7043', size: 1 },
+                    { color: '#66bb6a', size: 1 },
+                    { color: '#ab47bc', size: 1 },
+                    { color: '#00bcd4', size: 1 },
+                ],
+                tooltip: {
+                    showRule: 'always',
+                    showType: 'standard',
+                    text: { size: 12, color: textPrimary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
+                },
+            },
+            xAxis: {
+                show: true,
+                size: 'auto',
+                axisLine: { show: true, color: borderColor },
+                tickLine: { show: true, color: borderColor },
+                tickText: { show: true, color: textSecondary, size: 11 },
+            },
+            yAxis: {
+                show: true,
+                size: 'auto',
+                position: 'right',
+                type: 'normal',
+                axisLine: { show: true, color: borderColor },
+                tickLine: { show: true, color: borderColor },
+                tickText: { show: true, color: textSecondary, size: 11 },
+            },
+            separator: { size: 1, color: borderColor, activeBackgroundColor: bgPrimary },
+            crosshair: {
+                show: true,
+                horizontal: { show: true, line: { show: true, style: 'dashed', color: textSecondary }, text: { show: true, color: '#fff', size: 11, backgroundColor: textPrimary, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 } },
+                vertical: { show: true, line: { show: true, style: 'dashed', color: textSecondary }, text: { show: true, color: '#fff', size: 11, backgroundColor: textPrimary, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 } },
+            },
+        };
+    },
+
+    /** 使用 KLineChart 渲染 K 线图 */
     _renderKlineChart(klines) {
         const container = document.getElementById('sd-kline-chart');
         if (!container) return;
 
+        // 销毁旧图表
         if (this._klineChart) {
-            this._klineChart.remove();
+            klinecharts.dispose(this._klineChart);
             this._klineChart = null;
         }
-        // 断开旧 ResizeObserver
         if (this._klineResizeObs) {
             this._klineResizeObs.disconnect();
             this._klineResizeObs = null;
         }
-        this._indicatorSeries = {};
+        this._indicatorPaneId = null;
+
+        // 清除容器残留内容
+        container.innerHTML = '';
 
         if (!klines || klines.length === 0) {
             container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem">暂无K线数据</p>';
             return;
         }
 
-        // 存储 K 线数据供指标使用
         this._currentKlines = klines;
 
-        // 根据是否有副图指标调整高度
-        const hasSubIndicator = this._currentIndicator && ['MACD', 'KDJ', 'RSI', 'WR', 'OBV'].includes(this._currentIndicator);
-        const mainHeight = hasSubIndicator ? 300 : 400;
-
-        const chart = LightweightCharts.createChart(container, {
-            width: container.clientWidth,
-            height: hasSubIndicator ? 420 : 400,
-            layout: {
-                background: { type: 'solid', color: '#1a1a2e' },
-                textColor: '#e0e0e0',
-            },
-            grid: {
-                vertLines: { color: '#2a2a3e' },
-                horzLines: { color: '#2a2a3e' },
-            },
-            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-            rightPriceScale: { borderColor: '#3a3a4e' },
-            timeScale: { borderColor: '#3a3a4e', timeVisible: true, timeZone: 'Asia/Shanghai' },
-            watermark: { visible: false },
-        });
+        // 初始化 KLineChart（中文 + 跟随页面主题）
+        const chart = klinecharts.init(container, { locale: 'zh-CN', styles: this._klineStyles() });
         this._klineChart = chart;
-        this._removeTVLogo(container);
 
-        // K 线（A股：红涨绿跌）
-        const candleSeries = chart.addCandlestickSeries({
-            upColor: '#ef5350',
-            downColor: '#26a69a',
-            borderUpColor: '#ef5350',
-            borderDownColor: '#26a69a',
-            wickUpColor: '#ef5350',
-            wickDownColor: '#26a69a',
-        });
-        candleSeries.setData(klines.map(k => ({
-            time: k.date,
+        // 加载 K 线数据（timestamp 转毫秒）
+        chart.applyNewData(klines.map(k => ({
+            timestamp: new Date(k.date + 'T00:00:00+08:00').getTime(),
             open: k.open,
             high: k.high,
             low: k.low,
             close: k.close,
+            volume: k.volume,
         })));
-        this._candleSeries = candleSeries;
 
-        // 成交量（主图底部）
-        const volumeSeries = chart.addHistogramSeries({
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'volume',
-        });
-        chart.priceScale('volume').applyOptions({
-            scaleMargins: { top: hasSubIndicator ? 0.65 : 0.8, bottom: 0 },
-        });
-        volumeSeries.setData(klines.map(k => ({
-            time: k.date,
-            value: k.volume,
-            color: k.close >= k.open ? 'rgba(239,83,80,0.5)' : 'rgba(38,166,154,0.5)',
-        })));
-        this._volumeSeries = volumeSeries;
+        // MA 均线（叠加主图）
+        chart.createIndicator('MA', false, { id: 'candle_pane' });
 
-        // MA 均线
-        this._addMA(chart, klines, 5, '#f6d365');
-        this._addMA(chart, klines, 10, '#42e695');
-        this._addMA(chart, klines, 20, '#bb86fc');
-        this._addMA(chart, klines, 60, '#03dac6');
+        // 成交量（独立 pane）
+        chart.createIndicator('VOL', false);
 
-        // BOLL 布林带（叠加在主图上）
+        // BOLL 布林带（叠加主图，替代 MA 显示）
         if (this._currentIndicator === 'BOLL') {
-            this._addBOLL(chart, klines);
+            chart.createIndicator('BOLL', false, { id: 'candle_pane' });
         }
 
-        // 副图指标
-        if (hasSubIndicator) {
-            this._addSubIndicator(chart, klines, this._currentIndicator);
+        // 副图指标（MACD/KDJ/RSI/WR/OBV）
+        const subIndicators = ['MACD', 'KDJ', 'RSI', 'WR', 'OBV'];
+        if (this._currentIndicator && subIndicators.includes(this._currentIndicator)) {
+            const result = chart.createIndicator(this._currentIndicator, false);
+            this._indicatorPaneId = Array.isArray(result) ? result[0] : result;
         }
 
-        chart.timeScale().fitContent();
-
-        this._klineResizeObs = new ResizeObserver(() => {
-            chart.applyOptions({ width: container.clientWidth });
-        });
+        // 自适应宽度
+        this._klineResizeObs = new ResizeObserver(() => chart.resize());
         this._klineResizeObs.observe(container);
     },
 
-    _addMA(chart, klines, period, color) {
-        const maData = [];
-        for (let i = period - 1; i < klines.length; i++) {
-            let sum = 0;
-            for (let j = i - period + 1; j <= i; j++) {
-                sum += klines[j].close;
-            }
-            maData.push({ time: klines[i].date, value: sum / period });
-        }
-        const series = chart.addLineSeries({
-            color: color,
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false,
-        });
-        series.setData(maData);
-        this._maSeries[`ma${period}`] = series;
-    },
-
-    /** BOLL 布林带（叠加在主图上） */
-    _addBOLL(chart, klines) {
-        const boll = TechnicalIndicators.calculate(klines, 'BOLL');
-        if (!boll) return;
-
-        const upperSeries = chart.addLineSeries({
-            color: '#ff9800',
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        upperSeries.setData(boll.dates.map((d, i) => ({ time: d, value: boll.upper[i] })));
-
-        const middleSeries = chart.addLineSeries({
-            color: '#fff',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        middleSeries.setData(boll.dates.map((d, i) => ({ time: d, value: boll.middle[i] })));
-
-        const lowerSeries = chart.addLineSeries({
-            color: '#2196f3',
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        lowerSeries.setData(boll.dates.map((d, i) => ({ time: d, value: boll.lower[i] })));
-
-        this._indicatorSeries = { upper: upperSeries, middle: middleSeries, lower: lowerSeries };
-    },
-
-    /** 副图指标（MACD/KDJ/RSI/WR/OBV） */
-    _addSubIndicator(chart, klines, name) {
-        const indicator = TechnicalIndicators.calculate(klines, name);
-        if (!indicator) return;
-
-        const scaleId = 'indicator';
-        chart.priceScale(scaleId).applyOptions({
-            scaleMargins: { top: 0.7, bottom: 0 },
-        });
-
-        switch (name) {
-            case 'MACD':
-                this._addMACDSub(chart, indicator, scaleId);
-                break;
-            case 'KDJ':
-                this._addKDJSub(chart, indicator, scaleId);
-                break;
-            case 'RSI':
-                this._addRSISub(chart, indicator, scaleId);
-                break;
-            case 'WR':
-                this._addWRSub(chart, indicator, scaleId);
-                break;
-            case 'OBV':
-                this._addOBVSub(chart, indicator, scaleId);
-                break;
-        }
-    },
-
-    _addMACDSub(chart, data, scaleId) {
-        // MACD 柱状图
-        const macdSeries = chart.addHistogramSeries({
-            priceScaleId: scaleId,
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-        });
-        macdSeries.setData(data.dates.map((d, i) => ({
-            time: d,
-            value: data.macd[i],
-            color: data.macd[i] >= 0 ? 'rgba(239,83,80,0.8)' : 'rgba(38,166,154,0.8)',
-        })));
-
-        // DIF 线
-        const difSeries = chart.addLineSeries({
-            color: '#ffd54f',
-            lineWidth: 1,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        difSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.dif[i] })));
-
-        // DEA 线
-        const deaSeries = chart.addLineSeries({
-            color: '#4fc3f7',
-            lineWidth: 1,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        deaSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.dea[i] })));
-
-        this._indicatorSeries = { macd: macdSeries, dif: difSeries, dea: deaSeries };
-    },
-
-    _addKDJSub(chart, data, scaleId) {
-        const colors = { k: '#ffd54f', d: '#4fc3f7', j: '#ff7043' };
-        const series = {};
-        for (const key of ['k', 'd', 'j']) {
-            const s = chart.addLineSeries({
-                color: colors[key],
-                lineWidth: 1,
-                priceScaleId: scaleId,
-                priceLineVisible: false,
-                lastValueVisible: false,
-            });
-            s.setData(data.dates.map((d, i) => ({ time: d, value: data[key][i] })));
-            series[key] = s;
-        }
-        this._indicatorSeries = series;
-    },
-
-    _addRSISub(chart, data, scaleId) {
-        const rsiSeries = chart.addLineSeries({
-            color: '#ffd54f',
-            lineWidth: 1,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        rsiSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.rsi[i] })));
-
-        // 30/70 参考线
-        const ref30 = chart.addLineSeries({
-            color: 'rgba(255,255,255,0.2)',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        ref30.setData(data.dates.map(d => ({ time: d, value: 30 })));
-
-        const ref70 = chart.addLineSeries({
-            color: 'rgba(255,255,255,0.2)',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        ref70.setData(data.dates.map(d => ({ time: d, value: 70 })));
-
-        this._indicatorSeries = { rsi: rsiSeries, ref30, ref70 };
-    },
-
-    _addWRSub(chart, data, scaleId) {
-        const wrSeries = chart.addLineSeries({
-            color: '#ff7043',
-            lineWidth: 1,
-            priceScaleId: scaleId,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        wrSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.wr[i] })));
-        this._indicatorSeries = { wr: wrSeries };
-    },
-
-    _addOBVSub(chart, data, scaleId) {
-        const obvSeries = chart.addLineSeries({
-            color: '#66bb6a',
-            lineWidth: 1,
-            priceScaleId: scaleId,
-            priceFormat: { type: 'volume' },
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-        obvSeries.setData(data.dates.map((d, i) => ({ time: d, value: data.obv[i] })));
-        this._indicatorSeries = { obv: obvSeries };
-    },
-
-    /** 绑定指标选择器事件 */
+    /** 绑定指标选择器事件（KLineChart 版） */
     _bindIndicatorSelector() {
         const select = document.getElementById('sd-indicator-select');
         if (!select) return;
         select.addEventListener('change', () => {
-            this._currentIndicator = select.value;
+            const chart = this._klineChart;
+            const subIndicators = ['MACD', 'KDJ', 'RSI', 'WR', 'OBV'];
+            const newValue = select.value;
+
+            // 移除旧副图指标
+            if (this._indicatorPaneId && chart) {
+                chart.removeIndicator(this._indicatorPaneId);
+                this._indicatorPaneId = null;
+            }
+
+            this._currentIndicator = newValue;
+
             if (this._currentPeriod === 'timeline') {
                 // 分时模式下选指标 → 自动切到日K
-                if (select.value && this._currentCode) {
+                if (newValue && this._currentCode) {
                     this._loadKline(this._currentCode, 'daily');
                 }
-            } else if (this._currentKlines) {
-                this._renderKlineChart(this._currentKlines);
+            } else if (chart && this._currentKlines) {
+                // BOLL 叠加主图，需要重建
+                if (newValue === 'BOLL') {
+                    chart.createIndicator('BOLL', false, { id: 'candle_pane' });
+                } else if (subIndicators.includes(newValue)) {
+                    const result = chart.createIndicator(newValue, false);
+                    this._indicatorPaneId = Array.isArray(result) ? result[0] : result;
+                }
             }
         });
     },
@@ -910,21 +803,194 @@ const StockDetail = {
         }
     },
 
+
+    /** 注册分时图专用指标（成交量涨跌着色 + 涨跌双色区域） */
+    _registerTimelineIndicators() {
+        if (this._timelineIndicatorsRegistered) return;
+        this._timelineIndicatorsRegistered = true;
+
+        // 分时成交量（涨跌着色基于昨收）
+        klinecharts.registerIndicator({
+            name: 'TIMELINE_VOL',
+            shortName: '成交量',
+            series: 'volume',
+            shouldFormatBigNumber: true,
+            precision: 0,
+            minValue: 0,
+            figures: [{
+                key: 'vol', title: 'VOL: ', type: 'bar', baseValue: 0,
+                styles: ({ data }) => {
+                    const cur = data.current;
+                    if (!cur) return {};
+                    const pc = cur.preClose;
+                    if (pc == null) return {};
+                    if (cur.close > pc) return { color: '#c65746' };
+                    if (cur.close < pc) return { color: '#10b981' };
+                    return {};
+                },
+            }],
+            calc: (dataList, indicator) => {
+                const pc = indicator.extendData;
+                return dataList.map(k => ({
+                    vol: k.volume ?? 0,
+                    close: k.close,
+                    preClose: pc,
+                }));
+            },
+        });
+
+        // Y轴涨跌幅百分比标签（左侧显示）
+        klinecharts.registerIndicator({
+            name: 'TIMELINE_PCT',
+            shortName: '涨跌幅',
+            series: 'price',
+            figures: [],
+            calc: (dataList, indicator) => {
+                const pc = indicator.extendData;
+                return dataList.map(k => ({ pct: pc ? ((k.close - pc) / pc * 100) : 0 }));
+            },
+            draw: ({ ctx, indicator, yAxis, bounding }) => {
+                const pc = indicator.extendData;
+                if (!pc || pc <= 0) return false;
+                const range = yAxis.getRange?.();
+                if (!range) return false;
+                const { displayFrom, displayTo } = range;
+                const step = (displayTo - displayFrom) / 6;
+                ctx.save();
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                for (let v = displayFrom; v <= displayTo; v += step) {
+                    const pct = ((v - pc) / pc * 100);
+                    const y = yAxis.convertToPixel(v);
+                    if (y < 0 || y > bounding.height) continue;
+                    const pctText = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+                    ctx.fillStyle = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
+                    ctx.fillText(pctText, -4, y + 3);
+                }
+                ctx.restore();
+                return true;
+            },
+        });
+
+        // 分时图涨跌双色区域（自定义绘制）
+        klinecharts.registerIndicator({
+            name: 'TIMELINE_AREA',
+            shortName: '走势',
+            series: 'price',
+            figures: [],
+            calc: (dataList) => dataList.map(k => ({ close: k.close })),
+            draw: ({ ctx, indicator, xAxis, yAxis, bounding }) => {
+                const pc = indicator.extendData;
+                if (pc == null) return false;
+                const dataList = indicator.result;
+                if (!dataList || dataList.length < 2) return false;
+
+                const getX = (i) => xAxis.convertToPixel(i);
+                const getY = (v) => yAxis.convertToPixel(v);
+                const upColor = '#c65746';
+                const downColor = '#10b981';
+                const upBg = 'rgba(198, 87, 70, 0.18)';
+                const downBg = 'rgba(16, 185, 129, 0.18)';
+                const y0 = getY(pc);
+
+                // 涨区填充（价格 >= 昨收）
+                ctx.save();
+                ctx.beginPath();
+                let started = false;
+                let lastAbove = null;
+                for (let i = 0; i < dataList.length; i++) {
+                    const v = dataList[i].close;
+                    if (v == null) continue;
+                    const above = v >= pc;
+                    if (lastAbove !== null && above !== lastAbove) {
+                        const prev = dataList[i - 1]?.close;
+                        if (prev != null) {
+                            const x0 = getX(i - 1), x1 = getX(i);
+                            const ratio = (pc - prev) / (v - prev);
+                            ctx.lineTo(x0 + ratio * (x1 - x0), y0);
+                        }
+                    }
+                    if (above) {
+                        ctx.lineTo(getX(i), getY(v));
+                        if (!started) started = true;
+                    } else if (started) {
+                        ctx.lineTo(getX(i), y0);
+                    }
+                    lastAbove = above;
+                }
+                ctx.lineTo(getX(dataList.length - 1), y0);
+                ctx.closePath();
+                ctx.fillStyle = upBg;
+                ctx.fill();
+                ctx.restore();
+
+                // 跌区填充（价格 < 昨收）
+                ctx.save();
+                ctx.beginPath();
+                started = false;
+                let lastBelow = null;
+                for (let i = 0; i < dataList.length; i++) {
+                    const v = dataList[i].close;
+                    if (v == null) continue;
+                    const below = v < pc;
+                    if (lastBelow !== null && below !== lastBelow) {
+                        const prev = dataList[i - 1]?.close;
+                        if (prev != null) {
+                            const x0 = getX(i - 1), x1 = getX(i);
+                            const ratio = (pc - prev) / (v - prev);
+                            ctx.lineTo(x0 + ratio * (x1 - x0), y0);
+                        }
+                    }
+                    if (below) {
+                        ctx.lineTo(getX(i), getY(v));
+                        if (!started) started = true;
+                    } else if (started) {
+                        ctx.lineTo(getX(i), y0);
+                    }
+                    lastBelow = below;
+                }
+                ctx.lineTo(getX(dataList.length - 1), y0);
+                ctx.closePath();
+                ctx.fillStyle = downBg;
+                ctx.fill();
+                ctx.restore();
+
+                // 价格线（两色：涨红跌绿）
+                ctx.save();
+                ctx.lineWidth = 2;
+                ctx.lineJoin = 'round';
+                for (let i = 1; i < dataList.length; i++) {
+                    const v = dataList[i].close;
+                    const pv = dataList[i - 1]?.close;
+                    if (v == null || pv == null) continue;
+                    ctx.beginPath();
+                    ctx.strokeStyle = v >= pc ? upColor : downColor;
+                    ctx.moveTo(getX(i - 1), getY(pv));
+                    ctx.lineTo(getX(i), getY(v));
+                    ctx.stroke();
+                }
+                ctx.restore();
+
+                return true;
+            },
+        });
+    },
+
+    /** 使用 KLineChart 渲染分时图（涨跌双色区域） */
     _renderTimelineChart(trends, preClose) {
         const container = document.getElementById('sd-kline-chart');
         if (!container) return;
 
-        // 清除现有图表
+        // 销毁旧图表
         if (this._klineChart) {
-            this._klineChart.remove();
+            klinecharts.dispose(this._klineChart);
             this._klineChart = null;
         }
         if (this._klineResizeObs) {
             this._klineResizeObs.disconnect();
             this._klineResizeObs = null;
         }
-        this._indicatorSeries = {};
-
+        this._indicatorPaneId = null;
         container.innerHTML = '';
 
         if (!trends || trends.length === 0) {
@@ -932,108 +998,203 @@ const StockDetail = {
             return;
         }
 
-        // 使用 LightweightCharts 渲染分时图
-        const chart = LightweightCharts.createChart(container, {
-            width: container.clientWidth,
-            height: 400,
-            layout: {
-                background: { type: 'solid', color: '#1a1a2e' },
-                textColor: '#e0e0e0',
-            },
-            grid: {
-                vertLines: { color: '#2a2a3e' },
-                horzLines: { color: '#2a2a3e' },
-            },
-            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-            rightPriceScale: { borderColor: '#3a3a4e' },
-            timeScale: { borderColor: '#3a3a4e', timeVisible: true, timeZone: 'Asia/Shanghai' },
-            watermark: { visible: false },
-        });
-        // 移除 TradingView logo
-        this._removeTVLogo(container);
+        // 保存数据供主题切换重绘
+        this._currentTimelineTrends = trends;
+        this._currentTimelinePreClose = preClose;
 
-        // 转换时间格式
+        // 初始化 KLineChart（默认样式）
+        // 分时模式下隐藏默认蜡烛（由 TIMELINE_AREA 自定义绘制）
+        const baseStyles = this._klineStyles();
+        const timelineStyles = {
+            ...baseStyles,
+            candle: {
+                ...baseStyles.candle,
+                type: 'area',
+                area: {
+                    lineColor: 'transparent',
+                    lineSize: 0,
+                    value: 'close',
+                    backgroundColor: [{ offset: 0, color: 'transparent' }, { offset: 1, color: 'transparent' }],
+                },
+                priceMark: { show: false },
+                tooltip: { showRule: 'none' },
+            },
+        };
+        const chart = klinecharts.init(container, { locale: 'zh-CN', styles: timelineStyles });
+        this._klineChart = chart;
+
+        // 解析时间字符串为毫秒时间戳
         const parseTime = (timeStr) => {
             const parts = timeStr.split(' ');
             if (parts.length > 1) {
                 const [date, time] = parts;
                 const [year, month, day] = date.split('-');
                 const [hour, minute] = time.split(':');
-                return new Date(year, month - 1, day, hour, minute).getTime() / 1000;
+                return new Date(year, month - 1, day, hour, minute).getTime();
             }
-            return new Date(timeStr).getTime() / 1000;
+            return new Date(timeStr).getTime();
         };
 
-        // 分时价格线
-        const areaSeries = chart.addAreaSeries({
-            topColor: 'rgba(79, 195, 247, 0.4)',
-            bottomColor: 'rgba(79, 195, 247, 0.05)',
-            lineColor: '#4fc3f7',
-            lineWidth: 2,
+        // 加载分时数据
+        chart.applyNewData(trends.map(t => ({
+            timestamp: parseTime(t.time),
+            open: t.close,
+            high: t.close,
+            low: t.close,
+            close: t.close,
+            volume: t.volume,
+        })));
+
+        // 注册分时专用指标
+        this._registerTimelineIndicators();
+
+        // 涨跌双色区域指标（自定义绘制走势线+区域填充）
+        const areaResult = chart.createIndicator('TIMELINE_AREA', false, { id: 'candle_pane' });
+        const areaPaneId = Array.isArray(areaResult) ? areaResult[0] : areaResult;
+        chart.overrideIndicator({
+            name: 'TIMELINE_AREA',
+            paneId: areaPaneId,
+            extendData: preClose,
         });
 
-        const timelineData = trends.map(t => ({
-            time: parseTime(t.time),
-            value: t.close,
-        }));
-        areaSeries.setData(timelineData);
-
-        // 均价线
-        const avgSeries = chart.addLineSeries({
-            color: '#ffd54f',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            priceLineVisible: false,
-            lastValueVisible: false,
-        });
-
-        const avgData = trends.map(t => ({
-            time: parseTime(t.time),
-            value: t.avg_price,
-        }));
-        avgSeries.setData(avgData);
+        // 均价线（segment overlay 绘制逐段连线）
+        this._addTimelineAvgOverlay(chart, trends, parseTime);
 
         // 昨收参考线
         if (preClose) {
-            const preCloseSeries = chart.addLineSeries({
-                color: 'rgba(255,255,255,0.3)',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                priceLineVisible: false,
-                lastValueVisible: false,
-            });
-
-            const preCloseData = trends.map(t => ({
-                time: parseTime(t.time),
-                value: preClose,
-            }));
-            preCloseSeries.setData(preCloseData);
+            this._addPreCloseOverlay(chart, trends, parseTime, preClose);
         }
 
-        // 成交量
-        const volumeSeries = chart.addHistogramSeries({
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'volume',
+        // 分时成交量（涨跌着色）
+        const volResult = chart.createIndicator('TIMELINE_VOL', false);
+        const volPaneId = Array.isArray(volResult) ? volResult[0] : volResult;
+        chart.overrideIndicator({
+            name: 'TIMELINE_VOL',
+            paneId: volPaneId,
+            extendData: preClose,
         });
 
-        chart.priceScale('volume').applyOptions({
-            scaleMargins: { top: 0.8, bottom: 0 },
+        // Y轴涨跌幅百分比标签（自定义绘制叠加在主图 Y 轴上）
+        if (preClose && preClose > 0) {
+            const pctResult = chart.createIndicator('TIMELINE_PCT', false, { id: 'candle_pane' });
+            const pctPaneId = Array.isArray(pctResult) ? pctResult[0] : pctResult;
+            chart.overrideIndicator({
+                name: 'TIMELINE_PCT',
+                paneId: pctPaneId,
+                extendData: preClose,
+            });
+        }
+
+        // 十字光标联动 — 更新数据面板
+        const infoPanel = document.getElementById('sd-timeline-info');
+        if (infoPanel) infoPanel.classList.remove('hidden');
+        const lastTrend = trends[trends.length - 1];
+        this._updateTimelineInfo(lastTrend, preClose, trends);
+
+        chart.subscribeAction('onCrosshairChange', (crosshair) => {
+            if (!crosshair || !crosshair.kLineData) {
+                this._updateTimelineInfo(lastTrend, preClose, trends);
+                return;
+            }
+            const idx = crosshair.dataIndex;
+            const t = trends[idx];
+            if (t) this._updateTimelineInfo(t, preClose, trends);
         });
 
-        const volumeData = trends.map(t => ({
-            time: parseTime(t.time),
-            value: t.volume,
-            color: t.close >= preClose ? 'rgba(239,83,80,0.5)' : 'rgba(38,166,154,0.5)',
-        }));
-        volumeSeries.setData(volumeData);
+        // Y轴自动缩放（放大后线始终可见）
+        chart.setAutoScale(true);
 
         chart.timeScale().fitContent();
 
-        // 响应式
-        this._klineResizeObs = new ResizeObserver(() => {
-            chart.applyOptions({ width: container.clientWidth });
-        });
+        // 自适应宽度
+        this._klineResizeObs = new ResizeObserver(() => chart.resize());
         this._klineResizeObs.observe(container);
+    },
+
+    /** 更新分时信息面板 */
+    _updateTimelineInfo(trend, preClose, trends) {
+        const set = (id, val, cls) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = val;
+            if (cls) el.className = cls;
+        };
+
+        // 时间
+        const timeStr = trend.time ? trend.time.split(' ')[1] || trend.time : '--:--';
+        set('sd-ti-time', timeStr);
+
+        // 现价
+        const price = trend.close;
+        const priceClass = preClose ? (price >= preClose ? 'text-up' : 'text-down') : '';
+        set('sd-ti-price', price != null ? price.toFixed(2) : '--', priceClass);
+
+        // 均价
+        const avg = trend.avg_price;
+        set('sd-ti-avg', avg != null ? avg.toFixed(2) : '--');
+
+        // 涨跌 = 现价 - 昨收
+        if (preClose && price != null) {
+            const change = price - preClose;
+            const sign = change >= 0 ? '+' : '';
+            set('sd-ti-change', sign + change.toFixed(2), change >= 0 ? 'text-up' : 'text-down');
+
+            const pct = (change / preClose * 100);
+            set('sd-ti-pct', sign + pct.toFixed(2) + '%', change >= 0 ? 'text-up' : 'text-down');
+        } else {
+            set('sd-ti-change', '--');
+            set('sd-ti-pct', '--');
+        }
+
+        // 量
+        const vol = trend.volume;
+        if (vol != null) {
+            const volStr = vol >= 1e8 ? (vol / 1e8).toFixed(2) + '亿'
+                : vol >= 1e4 ? (vol / 1e4).toFixed(2) + '万'
+                : vol.toFixed(0);
+            set('sd-ti-vol', volStr + '手');
+        }
+
+        // 额（volume * price 近似）
+        if (vol != null && price != null) {
+            const amount = vol * price;
+            const amtStr = amount >= 1e12 ? (amount / 1e12).toFixed(2) + '万亿'
+                : amount >= 1e8 ? (amount / 1e8).toFixed(2) + '亿'
+                : amount >= 1e4 ? (amount / 1e4).toFixed(2) + '万'
+                : amount.toFixed(0);
+            set('sd-ti-amount', amtStr);
+        }
+    },
+
+    /** 均价线 overlay（逐段 segment 连线） */
+    _addTimelineAvgOverlay(chart, trends, parseTime) {
+        const segs = [];
+        for (let i = 1; i < trends.length; i++) {
+            if (trends[i].avg_price == null || trends[i - 1].avg_price == null) continue;
+            segs.push(chart.createOverlay({
+                name: 'segment',
+                points: [
+                    { timestamp: parseTime(trends[i - 1].time), value: trends[i - 1].avg_price },
+                    { timestamp: parseTime(trends[i].time), value: trends[i].avg_price },
+                ],
+                styles: { line: { style: 'solid', color: '#e6a817', size: 1 } },
+                lock: true,
+            }));
+        }
+        this._avgOverlays = segs;
+    },
+
+    /** 昨收参考线 overlay（水平延伸线） */
+    _addPreCloseOverlay(chart, trends, parseTime, preClose) {
+        chart.createOverlay({
+            name: 'straightLine',
+            points: [
+                { timestamp: parseTime(trends[0].time), value: preClose },
+                { timestamp: parseTime(trends[trends.length - 1].time), value: preClose },
+            ],
+            styles: { line: { style: 'dashed', color: 'rgba(128,128,128,0.5)', size: 1 } },
+            lock: true,
+        });
     },
 
     async _loadCapitalFlow(code) {
@@ -1236,6 +1397,18 @@ const StockDetail = {
                 t.classList.toggle('active', isActive);
                 t.setAttribute('aria-selected', isActive);
             });
+
+            // 分时模式隐藏指标选择器，K线模式显示
+            const indicatorEl = document.querySelector('.sd-indicator-selector');
+            if (indicatorEl) {
+                indicatorEl.style.display = period === 'timeline' ? 'none' : '';
+            }
+
+            // 分时信息面板：分时模式显示，K线模式隐藏
+            const infoPanel = document.getElementById('sd-timeline-info');
+            if (infoPanel) {
+                infoPanel.classList.toggle('hidden', period !== 'timeline');
+            }
 
             if (period === 'timeline') {
                 this._loadTimeline(this._currentCode);

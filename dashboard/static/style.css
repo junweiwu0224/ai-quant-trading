@@ -1417,6 +1417,32 @@ input:focus, select:focus, textarea:focus {
     margin-bottom: 1rem;
 }
 .sd-chart-card { min-width: 0; }
+
+/* 分时信息面板 */
+.sd-timeline-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.78rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.25rem;
+    flex-wrap: wrap;
+    line-height: 1.6;
+}
+.sd-timeline-info.hidden { display: none; }
+.sd-ti-time {
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 3.5em;
+}
+.sd-ti-item { display: inline-flex; gap: 0.25rem; align-items: baseline; }
+.sd-ti-item label {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+.sd-ti-item .text-up { color: var(--up-color); }
+.sd-ti-item .text-down { color: var(--down-color); }
 .sd-orderbook-card { min-width: 0; }
 .sd-sub-grid {
     display: grid;

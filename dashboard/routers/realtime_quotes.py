@@ -2,6 +2,7 @@
 import asyncio
 import json
 from datetime import datetime
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -44,7 +45,7 @@ async def _broadcast_quotes(quotes: dict[str, QuoteData]):
     payload = json.dumps({
         "type": "quotes",
         "data": {code: _quote_to_dict(q) for code, q in quotes.items()},
-        "time": datetime.now().isoformat(),
+        "time": now_beijing_iso(),
     })
 
     disconnected = []
@@ -96,7 +97,7 @@ async def websocket_quotes(ws: WebSocket):
         await ws.send_text(json.dumps({
             "type": "quotes",
             "data": {code: _quote_to_dict(q) for code, q in cached.items()},
-            "time": datetime.now().isoformat(),
+            "time": now_beijing_iso(),
         }))
 
     # 发送当前状态

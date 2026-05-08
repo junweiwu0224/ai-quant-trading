@@ -84,7 +84,7 @@ Object.assign(App, {
         const el = document.getElementById('pf-last-update');
         if (el && this._pf.snapshot?.update_time) {
             const t = new Date(this._pf.snapshot.update_time);
-            el.textContent = `更新于 ${t.toLocaleTimeString()}`;
+            el.textContent = `更新于 ${Utils.formatBeijingTimeOnly(this._pf.snapshot.update_time)}`;
         }
     },
 });

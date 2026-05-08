@@ -7,6 +7,7 @@ from typing import List, Optional
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from engine.models import (
     Direction, OrderStatus, OrderType,
     PaperConfig, PaperOrder, PaperTrade
@@ -94,7 +95,7 @@ class OrderManager:
 
             conn.execute(
                 "UPDATE paper_orders SET status = 'cancelled', updated_at = ? WHERE order_id = ?",
-                (datetime.now().isoformat(), order_id)
+                (now_beijing_iso(), order_id)
             )
             conn.commit()
 
@@ -279,7 +280,7 @@ class OrderManager:
             order.stamp_tax = stamp_tax
             order.slippage = config.slippage
             order.status = OrderStatus.FILLED
-            order.updated_at = datetime.now()
+            order.updated_at = now_beijing()
 
             self._update_order(order)
 
@@ -309,7 +310,7 @@ class OrderManager:
         except Exception as e:
             logger.error(f"订单执行失败: {e}")
             order.status = OrderStatus.REJECTED
-            order.updated_at = datetime.now()
+            order.updated_at = now_beijing()
             self._update_order(order)
             return None
 

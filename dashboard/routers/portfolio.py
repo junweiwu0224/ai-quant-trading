@@ -18,6 +18,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from config.settings import LOG_DIR
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from data.storage.storage import DataStorage
 
 router = APIRouter()
@@ -407,7 +408,7 @@ async def _load_paper_state(state_dir: str = str(LOG_DIR / "paper")) -> Optional
 
 async def _load_trades_today(state_dir: str = str(LOG_DIR / "paper")) -> list[dict]:
     """加载今日交易记录"""
-    log_file = Path(state_dir) / f"trades_{datetime.now():%Y%m%d}.jsonl"
+    log_file = Path(state_dir) / f"trades_{now_beijing():%Y%m%d}.jsonl"
     if not log_file.exists():
         return []
     try:
@@ -625,7 +626,7 @@ async def get_portfolio():
         benchmark=benchmark,
         capital=capital,
         stop_loss_alerts=stop_loss_alerts,
-        update_time=datetime.now().isoformat(),
+        update_time=now_beijing_iso(),
     )
 
 
@@ -657,7 +658,16 @@ async def get_recent_trades(limit: int = 20):
                     continue
         if len(all_trades) >= limit:
             break
-    return sorted(all_trades, key=lambda t: t.get("time", ""), reverse=True)[:limit]
+    trades = sorted(all_trades, key=lambda t: t.get("time", ""), reverse=True)[:limit]
+    # 补充股票名称
+    try:
+        df = _get_storage().get_stock_list()
+        name_map = dict(zip(df["code"], df["name"])) if not df.empty else {}
+        for t in trades:
+            t["name"] = name_map.get(t.get("code", ""), "")
+    except Exception:
+        pass
+    return trades
 
 
 @router.get("/trades/history", response_model=TradeListResponse)
@@ -1178,7 +1188,7 @@ async def save_snapshot():
 
     entry = {
         "date": today_str,
-        "time": datetime.now().isoformat(),
+        "time": now_beijing_iso(),
         "cash": state.get("cash", 0),
         "positions": dict(state.get("positions", {})),
         "avg_prices": dict(state.get("avg_prices", {})),

@@ -68,7 +68,7 @@ Object.assign(App, {
             const tradesBody = document.querySelector('#ov-trades-table tbody');
             if (tradesBody && trades.length > 0) {
                 tradesBody.innerHTML = trades.map(t => `
-                    <tr><td>${this.escapeHTML(t.time) || '--'}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)}</a></td><td class="${(t.direction === 'long' || t.direction === 'buy') ? 'text-up' : 'text-down'}">${(t.direction === 'long' || t.direction === 'buy') ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
+                    <tr><td>${Utils.formatBeijingTime(t.time)}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)} ${this.escapeHTML(t.name || '')}</a></td><td class="${(t.direction === 'long' || t.direction === 'buy') ? 'text-up' : 'text-down'}">${(t.direction === 'long' || t.direction === 'buy') ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
                 `).join('');
             }
 

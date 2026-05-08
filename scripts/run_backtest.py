@@ -31,7 +31,7 @@ def backtest(code, strategy, start, end, cash):
     setup_logging()
 
     if end is None:
-        end = datetime.now().strftime("%Y%m%d")
+        end = today_beijing_compact()
 
     config = BacktestConfig(initial_cash=cash)
     engine = BacktestEngine(config)

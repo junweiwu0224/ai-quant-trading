@@ -1,6 +1,7 @@
 """策略版本管理 & 回测结果持久化 API"""
 import json
 from datetime import datetime
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from typing import Optional
 
 from fastapi import APIRouter
@@ -86,7 +87,7 @@ async def save_version(req: VersionCreateRequest):
             description=req.description,
             params=json.dumps(req.params, ensure_ascii=False),
             code=req.code,
-            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            created_at=now_beijing().strftime("%Y-%m-%d %H:%M:%S"),
             is_current=1,
         )
         session.add(record)
@@ -212,7 +213,7 @@ async def save_record(req: RecordSaveRequest):
     try:
         record = BacktestRecord(
             strategy_name=req.strategy_name,
-            label=req.label or f"{req.strategy_name}_{datetime.now().strftime('%m%d_%H%M')}",
+            label=req.label or f"{req.strategy_name}_{now_beijing().strftime('%m%d_%H%M')}",
             codes=json.dumps(req.codes),
             start_date=req.start_date,
             end_date=req.end_date,
@@ -225,7 +226,7 @@ async def save_record(req: RecordSaveRequest):
             total_trades=r.get("total_trades"),
             params=json.dumps(r.get("params", {}), ensure_ascii=False),
             result_json=json.dumps(r, ensure_ascii=False),
-            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            created_at=now_beijing().strftime("%Y-%m-%d %H:%M:%S"),
         )
         session.add(record)
         session.commit()

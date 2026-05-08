@@ -230,4 +230,43 @@ const Utils = {
             reset: () => { currentPage = 1; searchTerm = ''; render(); },
         };
     },
+
+    /** 北京时间格式化 */
+    _bjOpts: { timeZone: 'Asia/Shanghai' },
+
+    /** 格式化为北京时间完整字符串 YYYY-MM-DD HH:mm:ss */
+    formatBeijingTime(dateStr, opts) {
+        if (!dateStr) return '--';
+        const d = new Date(dateStr);
+        if (isNaN(d)) return '--';
+        return d.toLocaleString('zh-CN', { ...this._bjOpts, ...opts });
+    },
+
+    /** 格式化为北京时间日期 YYYY-MM-DD */
+    formatBeijingDate(dateStr) {
+        if (!dateStr) return '--';
+        const d = new Date(dateStr);
+        if (isNaN(d)) return '--';
+        return d.toLocaleDateString('zh-CN', this._bjOpts);
+    },
+
+    /** 格式化为北京时间时间 HH:mm:ss */
+    formatBeijingTimeOnly(dateStr) {
+        if (!dateStr) return '--';
+        const d = new Date(dateStr);
+        if (isNaN(d)) return '--';
+        return d.toLocaleTimeString('zh-CN', this._bjOpts);
+    },
+
+    /** 获取北京时间今天的 YYYY-MM-DD 字符串 */
+    todayBeijing() {
+        return new Date().toLocaleDateString('sv-SE', this._bjOpts);
+    },
+
+    /** 获取北京时间 N 天前的 YYYY-MM-DD 字符串 */
+    daysAgoBeijing(n) {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return d.toLocaleDateString('sv-SE', this._bjOpts);
+    },
 };

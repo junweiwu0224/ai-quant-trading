@@ -1,56 +1,17 @@
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 """自选股管理 API"""
-import requests
+import threading
+
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
 from data.storage.storage import DataStorage
 from data.collector.quote_service import get_quote_service
+from data.collector.http_client import fetch_industry_batch
 
 router = APIRouter()
 storage = DataStorage()
-
-_DATACENTER_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
-_DATACENTER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "https://emweb.securities.eastmoney.com/",
-}
-
-
-def _fetch_industry_batch(codes: list[str]) -> dict[str, dict[str, str]]:
-    """从东方财富 F10 API 批量获取股票分类，返回 {code: {industry, sector, concepts}}"""
-    if not codes:
-        return {}
-    try:
-        code_list = ",".join(f'"{c}"' for c in codes)
-        params = {
-            "reportName": "RPT_F10_BASIC_ORGINFO",
-            "columns": "SECURITY_CODE,INDUSTRYCSRC1,BOARD_NAME_LEVEL",
-            "filter": f"(SECURITY_CODE in ({code_list}))",
-            "pageSize": len(codes),
-            "pageNumber": 1,
-            "source": "HSF10",
-            "client": "PC",
-        }
-        resp = requests.get(_DATACENTER_URL, params=params, headers=_DATACENTER_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        result = {}
-        for row in (data.get("result", {}) or {}).get("data", []) or []:
-            code = row.get("SECURITY_CODE", "")
-            if not code:
-                continue
-            industry = row.get("INDUSTRYCSRC1", "")
-            board_level = row.get("BOARD_NAME_LEVEL", "")
-            # BOARD_NAME_LEVEL 格式: "一级分类-二级分类-三级分类"
-            parts = [p.strip() for p in board_level.split("-") if p.strip()] if board_level else []
-            sector = parts[1] if len(parts) >= 2 else ""
-            concepts = parts[2] if len(parts) >= 3 else ""
-            result[code] = {"industry": industry, "sector": sector, "concepts": concepts}
-        return result
-    except Exception as e:
-        logger.warning(f"获取行业数据失败: {e}")
-        return {}
 
 
 class AddWatchlistRequest(BaseModel):
@@ -65,7 +26,7 @@ async def get_watchlist():
     # 对行业为空的股票，从东方财富 F10 API 补充行业/板块/概念数据
     empty_codes = [s["code"] for s in stocks if not s.get("industry")]
     if empty_codes:
-        info_map = _fetch_industry_batch(empty_codes)
+        info_map = fetch_industry_batch(empty_codes)
         if info_map:
             for s in stocks:
                 info = info_map.get(s["code"])
@@ -87,7 +48,7 @@ async def get_watchlist():
     # 补充板块/概念为空的股票（push2 stock/get 暂不可用时）
     sector_empty = [s["code"] for s in stocks if not s.get("sector")]
     if sector_empty:
-        info_map = _fetch_industry_batch(sector_empty)
+        info_map = fetch_industry_batch(sector_empty)
         for s in stocks:
             info = info_map.get(s["code"])
             if info:
@@ -124,48 +85,52 @@ async def add_to_watchlist(req: AddWatchlistRequest):
     if not code:
         raise HTTPException(400, "股票代码不能为空")
 
-    # 检查股票是否在数据库中
+    # 检查股票是否在数据库中（快速路径：DB 查询）
     stock_list = storage.get_stock_list()
     if stock_list.empty or code not in stock_list["code"].values:
-        # 尝试从 AKShare 查询
-        try:
-            from data.collector.collector import StockCollector
-            collector = StockCollector()
-            all_stocks = collector.get_stock_list()
-            match = all_stocks[all_stocks["code"] == code]
-            if match.empty:
-                raise HTTPException(404, f"股票代码 {code} 不存在")
-            # 保存到 stock_info
-            storage.save_stock_info(match)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(500, f"查询股票信息失败: {e}")
+        # 股票不在 DB，后台异步采集（不阻塞响应）
+        def _bg_discover():
+            try:
+                from data.collector.collector import StockCollector
+                collector = StockCollector()
+                all_stocks = collector.get_stock_list()
+                match = all_stocks[all_stocks["code"] == code]
+                if not match.empty:
+                    storage.save_stock_info(match)
+                    logger.info(f"后台发现股票 {code}，已保存")
+                else:
+                    logger.warning(f"股票 {code} 不存在")
+            except Exception as e:
+                logger.warning(f"后台发现股票 {code} 失败: {e}")
+
+        threading.Thread(target=_bg_discover, daemon=True, name=f"discover-{code}").start()
 
     added = storage.add_to_watchlist(code)
     if not added:
         return {"message": "已在自选股中", "code": code}
 
-    # 自动触发数据采集
-    try:
-        from data.collector.collector import StockCollector
-        from datetime import datetime
-        collector = StockCollector()
-        latest = storage.get_latest_date(code)
-        start = str(latest) if latest else "20200101"
-        end = datetime.now().strftime("%Y%m%d")
-        df = collector.get_stock_daily(code, start_date=start, end_date=end)
-        if not df.empty:
-            storage.save_stock_daily(code, df)
-    except Exception as e:
-        from loguru import logger
-        logger.warning(f"自动采集 {code} 数据失败: {e}")
-
-    # 更新行情订阅
+    # 更新行情订阅（立即，不阻塞响应）
     try:
         get_quote_service().subscribe([code])
     except Exception:
         pass
+
+    # 后台采集历史数据（不阻塞响应）
+    def _bg_collect():
+        try:
+            from data.collector.collector import StockCollector
+            collector = StockCollector()
+            latest = storage.get_latest_date(code)
+            start = str(latest) if latest else "20200101"
+            end = now_beijing().strftime("%Y%m%d")
+            df = collector.get_stock_daily(code, start_date=start, end_date=end)
+            if not df.empty:
+                storage.save_stock_daily(code, df)
+                logger.info(f"后台采集 {code} 完成: {len(df)} 条")
+        except Exception as e:
+            logger.warning(f"后台采集 {code} 数据失败: {e}")
+
+    threading.Thread(target=_bg_collect, daemon=True, name=f"collect-{code}").start()
 
     return {"message": "添加成功", "code": code}
 
@@ -204,7 +169,7 @@ async def sync_watchlist():
         try:
             latest = storage.get_latest_date(code)
             start = str(latest) if latest else "20200101"
-            end = datetime.now().strftime("%Y%m%d")
+            end = now_beijing().strftime("%Y%m%d")
             df = collector.get_stock_daily(code, start_date=start, end_date=end)
             if not df.empty:
                 storage.save_stock_daily(code, df)

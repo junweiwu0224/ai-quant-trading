@@ -1,6 +1,7 @@
 """PDF 回测报告生成器"""
 import io
 from datetime import datetime
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from typing import Any
 
 from reportlab.lib import colors
@@ -48,7 +49,7 @@ def generate_backtest_report(data: dict[str, Any]) -> bytes:
 
     # ── 标题 ──
     elements.append(Paragraph('AI Quant Backtest Report', styles['TitleCN']))
-    gen_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    gen_time = now_beijing().strftime('%Y-%m-%d %H:%M:%S')
     strategy = data.get('strategy', 'N/A')
     codes = ', '.join(data.get('codes', []))
     date_range = f"{data.get('start_date', '')} ~ {data.get('end_date', '')}"

@@ -6,6 +6,7 @@ from typing import List, Dict, Optional
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from engine.models import (
     Direction, EquityCurvePoint, PaperTrade, PerformanceMetrics
 )
@@ -183,7 +184,7 @@ class PerformanceAnalyzer:
                     metrics.avg_loss,
                     metrics.max_consecutive_wins,
                     metrics.max_consecutive_losses,
-                    datetime.now().isoformat(),
+                    now_beijing_iso(),
                 )
             )
             conn.commit()
@@ -209,7 +210,7 @@ class PerformanceAnalyzer:
                     point.market_value,
                     point.benchmark_value,
                     point.drawdown,
-                    datetime.now().isoformat(),
+                    now_beijing_iso(),
                 )
             )
             conn.commit()
@@ -225,7 +226,7 @@ class PerformanceAnalyzer:
         conn = self._get_conn()
         try:
             if days:
-                start_date = (datetime.now() - timedelta(days=days)).isoformat()
+                start_date = (now_beijing() - timedelta(days=days)).isoformat()
                 cursor = conn.execute(
                     "SELECT * FROM paper_trades WHERE created_at >= ? ORDER BY created_at ASC",
                     (start_date,)
@@ -282,7 +283,7 @@ class PerformanceAnalyzer:
                 params.append(end_date.isoformat())
 
             if days:
-                start = (datetime.now() - timedelta(days=days)).isoformat()
+                start = (now_beijing() - timedelta(days=days)).isoformat()
                 conditions.append("timestamp >= ?")
                 params.append(start)
 

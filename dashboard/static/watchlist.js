@@ -100,6 +100,7 @@ const Watchlist = {
             const stockBody = document.querySelector('#ov-stocks-table tbody');
             const hintEl = document.getElementById('ov-stock-hint');
             this._renderRows(this._lastData, stockBody, hintEl);
+            App._watchlistRowMap = null; // 重建索引，让 WebSocket 更新能命中新行
 
             // 更新 tags
             if (this._multiSearch) {
@@ -157,6 +158,7 @@ const Watchlist = {
             const stockBody = document.querySelector('#ov-stocks-table tbody');
             const hintEl = document.getElementById('ov-stock-hint');
             this._renderRows(fresh, stockBody, hintEl);
+            App._watchlistRowMap = null; // 重建索引
             if (this._multiSearch) {
                 this._multiSearch.setSelected(fresh);
             }
@@ -174,6 +176,7 @@ const Watchlist = {
         this._lastData = list;
         this._bindSortHeaders();
         this._renderRows(list, stockBody, hintEl);
+        App._watchlistRowMap = null; // 重建索引
     },
 
     _bindSortHeaders() {

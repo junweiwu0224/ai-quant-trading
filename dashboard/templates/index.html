@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="AI 量化交易系统 - 回测、持仓、风控一体化面板">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=9">
+    <link rel="stylesheet" href="/static/style.css?v=10">
     <link rel="stylesheet" href="/static/paper-trading.css?v=1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-    <script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/technical-indicators.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
 </head>
 <body>
     <a href="#tab-overview" class="skip-link">跳到主要内容</a>
@@ -197,7 +196,7 @@
                 <h2>最近交易</h2>
                 <div class="table-wrap">
                     <table id="ov-trades-table">
-                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
+                        <thead><tr><th>时间</th><th>股票</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
                         <tbody><tr><td colspan="5" class="text-muted">暂无交易数据</td></tr></tbody>
                     </table>
                 </div>
@@ -292,6 +291,16 @@
                 <!-- K线图 + 五档盘口 并排 -->
                 <div class="sd-main-grid">
                     <div class="card sd-chart-card">
+                        <!-- 分时信息面板（分时模式显示，K线模式隐藏） -->
+                        <div class="sd-timeline-info" id="sd-timeline-info">
+                            <span class="sd-ti-time" id="sd-ti-time">--:--</span>
+                            <span class="sd-ti-item"><label>现价</label><span id="sd-ti-price">--</span></span>
+                            <span class="sd-ti-item"><label>均价</label><span id="sd-ti-avg">--</span></span>
+                            <span class="sd-ti-item"><label>涨跌</label><span id="sd-ti-change">--</span></span>
+                            <span class="sd-ti-item"><label>涨幅</label><span id="sd-ti-pct">--</span></span>
+                            <span class="sd-ti-item"><label>量</label><span id="sd-ti-vol">--</span></span>
+                            <span class="sd-ti-item"><label>额</label><span id="sd-ti-amount">--</span></span>
+                        </div>
                         <div class="sd-chart-tabs" role="tablist" aria-label="K线周期">
                             <button class="sd-tab active" data-period="timeline" role="tab" aria-selected="true">分时</button>
                             <button class="sd-tab" data-period="daily" role="tab" aria-selected="false">日K</button>
@@ -1354,185 +1363,288 @@
                 <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value" id="pt-sharpe-ratio">--</div></div>
             </div>
 
-            <!-- 配置面板 -->
-            <div class="card">
-                <h2>配置</h2>
-                <form id="paper-form" class="form-row">
-                    <div class="form-group">
-                        <label for="pp-strategy">策略</label>
-                        <select id="pp-strategy">
-                            <option value="dual_ma">双均线策略</option>
-                            <option value="bollinger">布林带策略</option>
-                            <option value="momentum">动量策略</option>
-                        </select>
+            <!-- 子 Tab 导航 -->
+            <div class="sub-tabs" id="paper-sub-tabs" role="tablist">
+                <button class="sub-tab active paper-sub-tab" data-tab="console" role="tab" aria-selected="true" id="paper-tab-console">控制台</button>
+                <button class="sub-tab paper-sub-tab" data-tab="trade" role="tab" aria-selected="false" id="paper-tab-trade">交易</button>
+                <button class="sub-tab paper-sub-tab" data-tab="perf" role="tab" aria-selected="false" id="paper-tab-perf">绩效</button>
+                <button class="sub-tab paper-sub-tab" data-tab="history" role="tab" aria-selected="false" id="paper-tab-history">历史</button>
+            </div>
+
+            <div id="paper-sub-panels">
+                <!-- 子Tab 1: 控制台 -->
+                <div class="paper-sub-panel" id="paper-panel-console" role="tabpanel" aria-labelledby="paper-tab-console">
+                    <!-- 配置面板 -->
+                    <div class="card">
+                        <h2>配置</h2>
+                        <form id="paper-form" class="form-row">
+                            <div class="form-group">
+                                <label for="pp-strategy">策略</label>
+                                <select id="pp-strategy">
+                                    <option value="dual_ma">双均线策略</option>
+                                    <option value="bollinger">布林带策略</option>
+                                    <option value="momentum">动量策略</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>股票代码</label>
+                                <div class="search-box" id="pp-codes-box">
+                                    <input type="text" id="pp-codes" class="search-input" placeholder="点击选择股票（可多选）" readonly autocomplete="off" required aria-label="选择模拟盘股票">
+                                    <div class="search-dropdown" id="pp-codes-dropdown"></div>
+                                    <div class="sb-tags" id="pp-codes-tags"></div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="pp-interval">轮询间隔(秒)</label>
+                                <input type="number" id="pp-interval" value="30" min="5" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pp-cash">初始资金</label>
+                                <input type="number" id="pp-cash" value="1000000" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pp-risk">风控</label>
+                                <select id="pp-risk"><option value="true">启用</option><option value="false">关闭</option></select>
+                            </div>
+                            <div class="form-group">
+                                <span></span>
+                                <div class="flex-center">
+                                    <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="Paper.start()">启动</button>
+                                    <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="Paper.stop()" disabled>停止</button>
+                                    <button type="button" class="btn btn-sm" onclick="Paper.reset()">重置</button>
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                    <div class="form-group">
-                        <label>股票代码</label>
-                        <div class="search-box" id="pp-codes-box">
-                            <input type="text" id="pp-codes" class="search-input" placeholder="点击选择股票（可多选）" readonly autocomplete="off" required aria-label="选择模拟盘股票">
-                            <div class="search-dropdown" id="pp-codes-dropdown"></div>
-                            <div class="sb-tags" id="pp-codes-tags"></div>
+
+                    <!-- 资金曲线 -->
+                    <div class="card">
+                        <h2>资金曲线</h2>
+                        <div class="chart-container chart-h-md">
+                            <canvas id="pt-equity-chart" aria-label="资金曲线"></canvas>
+                        </div>
+                        <div id="pt-equity-empty" class="text-center text-muted" style="padding: 2rem; display: none;">
+                            <p style="font-size: 1.125rem; margin-bottom: 0.5rem;">📈 启动模拟盘查看资金曲线</p>
+                            <p style="font-size: 0.875rem;">配置策略和股票后点击「启动」按钮开始交易</p>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label for="pp-interval">轮询间隔(秒)</label>
-                        <input type="number" id="pp-interval" value="30" min="5" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="pp-cash">初始资金</label>
-                        <input type="number" id="pp-cash" value="1000000" min="1" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="pp-risk">风控</label>
-                        <select id="pp-risk"><option value="true">启用</option><option value="false">关闭</option></select>
-                    </div>
-                    <div class="form-group">
-                        <span></span>
-                        <div class="flex-center">
-                            <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="Paper.start()">启动</button>
-                            <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="Paper.stop()" disabled>停止</button>
-                            <button type="button" class="btn btn-sm" onclick="Paper.reset()">重置</button>
+
+                    <!-- 回撤曲线 -->
+                    <div class="card">
+                        <h2>回撤曲线</h2>
+                        <div class="chart-container chart-h-sm">
+                            <canvas id="pt-drawdown-chart" aria-label="回撤曲线"></canvas>
                         </div>
                     </div>
-                </form>
-            </div>
+                </div>
 
-            <!-- 订单面板 -->
-            <div class="card">
-                <h2>手动下单</h2>
-                <form id="pt-order-form" class="form-row">
-                    <div class="form-group">
-                        <label for="pt-code">股票代码</label>
-                        <input type="text" id="pt-code" placeholder="输入股票代码" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="pt-direction">方向</label>
-                        <select id="pt-direction">
-                            <option value="buy">买入</option>
-                            <option value="sell">卖出</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="pt-order-type">订单类型</label>
-                        <select id="pt-order-type">
-                            <option value="market">市价单</option>
-                            <option value="limit">限价单</option>
-                            <option value="stop_loss">止损单</option>
-                            <option value="take_profit">止盈单</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="pt-price-group" style="display:none">
-                        <label for="pt-price">价格</label>
-                        <input type="number" id="pt-price" step="0.01" placeholder="输入价格">
-                    </div>
-                    <div class="form-group">
-                        <label for="pt-volume">数量</label>
-                        <input type="number" id="pt-volume" min="100" step="100" placeholder="100" required>
-                        <div class="pt-qty-btns">
-                            <button type="button" class="btn btn-sm pt-qty-btn" data-qty="100">100</button>
-                            <button type="button" class="btn btn-sm pt-qty-btn" data-qty="500">500</button>
-                            <button type="button" class="btn btn-sm pt-qty-btn" data-qty="1000">1000</button>
-                            <button type="button" class="btn btn-sm pt-qty-btn" data-qty="5000">5000</button>
+                <!-- 子Tab 2: 交易 -->
+                <div class="paper-sub-panel hidden" id="paper-panel-trade" role="tabpanel" aria-labelledby="paper-tab-trade">
+                    <!-- 订单面板 -->
+                    <div class="card">
+                        <h2>手动下单</h2>
+                        <form id="pt-order-form" class="form-row">
+                            <div class="form-group">
+                                <label for="pt-code">股票代码</label>
+                                <input type="text" id="pt-code" placeholder="输入股票代码" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pt-direction">方向</label>
+                                <select id="pt-direction">
+                                    <option value="buy">买入</option>
+                                    <option value="sell">卖出</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pt-order-type">订单类型</label>
+                                <select id="pt-order-type">
+                                    <option value="market">市价单</option>
+                                    <option value="limit">限价单</option>
+                                    <option value="stop_loss">止损单</option>
+                                    <option value="take_profit">止盈单</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="pt-price-group" style="display:none">
+                                <label for="pt-price">价格</label>
+                                <input type="number" id="pt-price" step="0.01" placeholder="输入价格">
+                            </div>
+                            <div class="form-group">
+                                <label for="pt-volume">数量</label>
+                                <input type="number" id="pt-volume" min="100" step="100" placeholder="100" required>
+                                <div class="pt-qty-btns">
+                                    <button type="button" class="btn btn-sm pt-qty-btn" data-qty="100">100</button>
+                                    <button type="button" class="btn btn-sm pt-qty-btn" data-qty="500">500</button>
+                                    <button type="button" class="btn btn-sm pt-qty-btn" data-qty="1000">1000</button>
+                                    <button type="button" class="btn btn-sm pt-qty-btn" data-qty="5000">5000</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <span></span>
+                                <button type="submit" class="btn btn-primary">下单</button>
+                            </div>
+                        </form>
+                        <!-- 实时行情预览 -->
+                        <div id="pt-quote-preview" class="hidden" style="margin-top: 0.75rem; padding: 0.75rem; background: var(--color-surface-alt, #f9fafb); border-radius: 0.375rem;">
+                            <div class="flex-between" style="margin-bottom: 0.5rem;">
+                                <span id="pt-quote-name" style="font-weight: 600;">--</span>
+                                <span id="pt-quote-code" class="text-muted">--</span>
+                            </div>
+                            <div class="flex-between">
+                                <span id="pt-quote-price" style="font-size: 1.25rem; font-weight: 700;">--</span>
+                                <span id="pt-quote-change" style="font-weight: 600;">--</span>
+                            </div>
+                            <div class="flex-between" style="margin-top: 0.25rem; font-size: 0.875rem;">
+                                <span>最高: <span id="pt-quote-high">--</span></span>
+                                <span>最低: <span id="pt-quote-low">--</span></span>
+                                <span>成交量: <span id="pt-quote-volume">--</span></span>
+                            </div>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <span></span>
-                        <button type="submit" class="btn btn-primary">下单</button>
+
+                    <!-- 挂单管理 -->
+                    <div class="card">
+                        <h2>挂单管理</h2>
+                        <div class="table-wrap">
+                            <table id="pt-orders-table">
+                                <thead><tr><th>代码</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
+                                <tbody><tr><td colspan="7" class="text-muted" style="text-align:center">暂无挂单</td></tr></tbody>
+                            </table>
+                        </div>
                     </div>
-                </form>
-            </div>
 
-            <!-- 挂单管理 -->
-            <div class="card">
-                <h2>挂单管理</h2>
-                <div class="table-wrap">
-                    <table id="pt-orders-table">
-                        <thead><tr><th>代码</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
-                        <tbody><tr><td colspan="7" class="text-muted" style="text-align:center">暂无挂单</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
+                    <!-- 持仓明细 -->
+                    <div class="card">
+                        <h2>持仓明细</h2>
+                        <div class="flex-wrap mb-md">
+                            <button class="btn btn-sm btn-danger" id="pt-close-all-btn" onclick="PaperTrading.closeAllPositions()">一键清仓</button>
+                        </div>
+                        <div class="table-wrap">
+                            <table id="pt-positions-table">
+                                <thead><tr><th>股票</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th><th>盈亏率</th><th>止损止盈距离</th><th>止损价</th><th>止盈价</th></tr></thead>
+                                <tbody><tr><td colspan="10" class="text-muted" style="text-align:center">暂无持仓</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div id="pt-positions-empty" class="text-center text-muted" style="padding: 1.5rem; display: none;">
+                            <p>📊 启动模拟盘后自动创建持仓</p>
+                        </div>
+                    </div>
 
-            <!-- 持仓明细 -->
-            <div class="card">
-                <h2>持仓明细</h2>
-                <div class="table-wrap">
-                    <table id="pt-positions-table">
-                        <thead><tr><th>代码</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th><th>盈亏率</th><th>止损价</th><th>止盈价</th></tr></thead>
-                        <tbody><tr><td colspan="9" class="text-muted" style="text-align:center">暂无持仓</td></tr></tbody>
-                    </table>
+                    <!-- 持仓配比 -->
+                    <div class="card" id="pt-position-pie-card">
+                        <h2>持仓配比</h2>
+                        <div class="chart-container chart-h-md">
+                            <canvas id="pt-position-pie" aria-label="持仓配比饼图"></canvas>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <!-- 绩效统计 -->
-            <div class="card">
-                <h2>绩效统计</h2>
-                <div class="stats-grid stats-grid-6">
-                    <div class="stat-card"><div class="stat-label">总权益</div><div class="stat-value" id="pt-total-equity">--</div></div>
-                    <div class="stat-card"><div class="stat-label">当日收益</div><div class="stat-value" id="pt-daily-return">--</div></div>
-                    <div class="stat-card"><div class="stat-label">累计收益</div><div class="stat-value" id="pt-cumulative-return">--</div></div>
-                    <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value" id="pt-max-drawdown">--</div></div>
-                    <div class="stat-card"><div class="stat-label">Sortino</div><div class="stat-value" id="pt-sortino-ratio">--</div></div>
-                    <div class="stat-card"><div class="stat-label">Calmar</div><div class="stat-value" id="pt-calmar-ratio">--</div></div>
-                </div>
-                <div class="stats-grid mt-md">
-                    <div class="stat-card"><div class="stat-label">盈亏比</div><div class="stat-value" id="pt-profit-loss-ratio">--</div></div>
-                    <div class="stat-card"><div class="stat-label">总交易数</div><div class="stat-value" id="pt-total-trades">--</div></div>
-                    <div class="stat-card"><div class="stat-label">盈利次数</div><div class="stat-value" id="pt-winning-trades">--</div></div>
-                    <div class="stat-card"><div class="stat-label">亏损次数</div><div class="stat-value" id="pt-losing-trades">--</div></div>
-                    <div class="stat-card"><div class="stat-label">平均盈利</div><div class="stat-value" id="pt-avg-win">--</div></div>
-                    <div class="stat-card"><div class="stat-label">平均亏损</div><div class="stat-value" id="pt-avg-loss">--</div></div>
-                    <div class="stat-card"><div class="stat-label">最大连胜</div><div class="stat-value" id="pt-max-consecutive-wins">--</div></div>
-                    <div class="stat-card"><div class="stat-label">最大连亏</div><div class="stat-value" id="pt-max-consecutive-losses">--</div></div>
-                </div>
-            </div>
+                <!-- 子Tab 3: 绩效 -->
+                <div class="paper-sub-panel hidden" id="paper-panel-perf" role="tabpanel" aria-labelledby="paper-tab-perf">
+                    <!-- 绩效统计 - 收益指标 -->
+                    <div class="card">
+                        <h2>收益指标</h2>
+                        <div class="stats-grid stats-grid-6">
+                            <div class="stat-card"><div class="stat-label">总权益</div><div class="stat-value" id="pt-total-equity">--</div></div>
+                            <div class="stat-card"><div class="stat-label">当日收益</div><div class="stat-value" id="pt-daily-return">--</div></div>
+                            <div class="stat-card"><div class="stat-label">累计收益</div><div class="stat-value" id="pt-cumulative-return">--</div></div>
+                            <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value" id="pt-max-drawdown">--</div></div>
+                            <div class="stat-card"><div class="stat-label">Sortino</div><div class="stat-value" id="pt-sortino-ratio">--</div></div>
+                            <div class="stat-card"><div class="stat-label">Calmar</div><div class="stat-value" id="pt-calmar-ratio">--</div></div>
+                        </div>
+                    </div>
 
-            <!-- 资金曲线 -->
-            <div class="card">
-                <h2>资金曲线</h2>
-                <div class="chart-container chart-h-md">
-                    <canvas id="pt-equity-chart" aria-label="资金曲线"></canvas>
-                </div>
-            </div>
+                    <!-- 绩效统计 - 交易指标 -->
+                    <div class="card">
+                        <h2>交易指标</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value" id="pt-win-rate-perf">--</div></div>
+                            <div class="stat-card"><div class="stat-label">盈亏比</div><div class="stat-value" id="pt-profit-loss-ratio">--</div></div>
+                            <div class="stat-card"><div class="stat-label">总交易数</div><div class="stat-value" id="pt-total-trades">--</div></div>
+                            <div class="stat-card"><div class="stat-label">盈利次数</div><div class="stat-value" id="pt-winning-trades">--</div></div>
+                            <div class="stat-card"><div class="stat-label">亏损次数</div><div class="stat-value" id="pt-losing-trades">--</div></div>
+                            <div class="stat-card"><div class="stat-label">平均盈利</div><div class="stat-value" id="pt-avg-win">--</div></div>
+                            <div class="stat-card"><div class="stat-label">平均亏损</div><div class="stat-value" id="pt-avg-loss">--</div></div>
+                            <div class="stat-card"><div class="stat-label">最大连胜</div><div class="stat-value" id="pt-max-consecutive-wins">--</div></div>
+                            <div class="stat-card"><div class="stat-label">最大连亏</div><div class="stat-value" id="pt-max-consecutive-losses">--</div></div>
+                        </div>
+                    </div>
 
-            <!-- 回撤曲线 -->
-            <div class="card">
-                <h2>回撤曲线</h2>
-                <div class="chart-container chart-h-sm">
-                    <canvas id="pt-drawdown-chart" aria-label="回撤曲线"></canvas>
-                </div>
-            </div>
+                    <!-- 月度收益热力图 -->
+                    <div class="card">
+                        <h2>月度收益热力图</h2>
+                        <div id="pt-monthly-heatmap" class="heatmap-container"></div>
+                    </div>
 
-            <!-- 月度收益热力图 -->
-            <div class="card">
-                <h2>月度收益热力图</h2>
-                <div id="pt-monthly-heatmap" class="heatmap-container"></div>
-            </div>
+                    <!-- 收益分布 -->
+                    <div class="card">
+                        <h2>收益分布</h2>
+                        <div class="chart-container chart-h-md">
+                            <canvas id="pt-return-dist-chart" aria-label="收益分布图"></canvas>
+                        </div>
+                    </div>
 
-            <!-- 交易历史 -->
-            <div class="card">
-                <h2>交易历史</h2>
-                <div class="flex-wrap mb-md">
-                    <button class="btn btn-sm" onclick="PaperTrading.exportTrades('csv')">导出CSV</button>
-                    <button class="btn btn-sm" onclick="PaperTrading.exportTrades('json')">导出JSON</button>
-                </div>
-                <div class="table-wrap">
-                    <table id="pt-trades-table">
-                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>盈亏</th><th>策略</th><th>信号原因</th></tr></thead>
-                        <tbody><tr><td colspan="8" class="text-muted" style="text-align:center">暂无交易</td></tr></tbody>
-                    </table>
-                </div>
-                <div id="pt-trades-pagination" class="mt-md"></div>
-            </div>
+                    <!-- 星期效应 -->
+                    <div class="card">
+                        <h2>星期效应</h2>
+                        <div class="chart-container chart-h-md">
+                            <canvas id="pt-weekday-chart" aria-label="星期效应图"></canvas>
+                        </div>
+                    </div>
 
-            <!-- 风控事件 -->
-            <div class="card">
-                <h2>风控事件</h2>
-                <div class="table-wrap">
-                    <table id="pt-risk-events-table">
-                        <thead><tr><th>时间</th><th>代码</th><th>类型</th><th>触发价格</th><th>原因</th></tr></thead>
-                        <tbody><tr><td colspan="5" class="text-muted" style="text-align:center">暂无风控事件</td></tr></tbody>
-                    </table>
+                    <!-- 绩效趋势 -->
+                    <div class="card">
+                        <h2>绩效趋势</h2>
+                        <div class="chart-container chart-h-md">
+                            <canvas id="pt-perf-trend-chart" aria-label="绩效趋势图"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 交易频率 -->
+                    <div class="card">
+                        <h2>交易频率（按星期）</h2>
+                        <div class="chart-container chart-h-sm">
+                            <canvas id="pt-frequency-chart" aria-label="交易频率图"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 子Tab 4: 历史 -->
+                <div class="paper-sub-panel hidden" id="paper-panel-history" role="tabpanel" aria-labelledby="paper-tab-history">
+                    <!-- 交易历史 -->
+                    <div class="card">
+                        <h2>交易历史</h2>
+                        <div class="flex-wrap mb-md" style="gap:0.5rem;align-items:center">
+                            <input type="text" id="pt-filter-code" class="form-control form-control-sm" placeholder="筛选代码" style="width:120px" oninput="PaperTrading.onTradeFilterChange()">
+                            <select id="pt-filter-direction" class="form-control form-control-sm" style="width:90px" onchange="PaperTrading.onTradeFilterChange()">
+                                <option value="">全部</option>
+                                <option value="long">买入</option>
+                                <option value="short">卖出</option>
+                            </select>
+                            <button class="btn btn-sm" onclick="PaperTrading.exportTrades('csv')">导出CSV</button>
+                            <button class="btn btn-sm" onclick="PaperTrading.exportTrades('json')">导出JSON</button>
+                        </div>
+                        <div class="table-wrap">
+                            <table id="pt-trades-table">
+                                <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>盈亏</th><th>费用</th><th>策略</th><th>信号原因</th></tr></thead>
+                                <tbody><tr><td colspan="9" class="text-muted" style="text-align:center">暂无交易</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div id="pt-trades-empty" class="text-center text-muted" style="padding: 1.5rem; display: none;">
+                            <p>📝 启动模拟盘后自动记录交易</p>
+                        </div>
+                        <div id="pt-trades-pagination" class="mt-md"></div>
+                    </div>
+
+                    <!-- 风控事件 -->
+                    <div class="card">
+                        <h2>风控事件</h2>
+                        <div class="table-wrap">
+                            <table id="pt-risk-events-table">
+                                <thead><tr><th>时间</th><th>代码</th><th>类型</th><th>触发价格</th><th>原因</th></tr></thead>
+                                <tbody><tr><td colspan="5" class="text-muted" style="text-align:center">暂无风控事件</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1563,7 +1675,7 @@
     <script src="/static/paper-trading.js?v=1"></script>
     <script src="/static/strategy.js?v=4"></script>
     <script src="/static/realtime.js?v=2"></script>
-    <script src="/static/stock-detail.js?v=3"></script>
+    <script src="/static/stock-detail.js?v=6"></script>
     <script src="/static/app.js?v=10"></script>
     <script src="/static/overview.js?v=2"></script>
     <script src="/static/backtest.js?v=2"></script>

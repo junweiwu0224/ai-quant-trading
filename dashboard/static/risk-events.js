@@ -35,8 +35,7 @@ Object.assign(App, {
 
         container.innerHTML = `<div class="rk-timeline">
             ${paged.map(ev => {
-                const t = new Date(ev.created_at);
-                const timeStr = t.toLocaleDateString() + ' ' + t.toLocaleTimeString();
+                const timeStr = Utils.formatBeijingTime(ev.created_at);
                 const typeLabel = typeLabels[ev.event_type] || ev.event_type;
                 const badgeCls = typeColors[ev.event_type] || 'badge-info';
 

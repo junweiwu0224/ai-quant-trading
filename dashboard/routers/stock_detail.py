@@ -1,79 +1,29 @@
 """股票详情 API — K 线、资金流向、分时"""
 import asyncio
-import json
 import time
-import threading
-from functools import wraps
-from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
+from data.collector.cache import TTLCache
+from data.collector.http_client import code_to_secid, fetch_json, fetch_kline as _fetch_kline_shared
+
 router = APIRouter()
 
-# ── 内存缓存（TTL + LRU淘汰） ──
-_cache: dict[str, tuple[float, object]] = {}
-_cache_lock = threading.Lock()
-_CACHE_MAX_SIZE = 500
-_cache_ops = 0
+# ── TTL 缓存 ──
+_cache = TTLCache(max_size=500)
 
+_TTL_QUOTE = 5
+_TTL_KLINE = 60
+_TTL_FINANCIAL = 300
+_TTL_BOARD = 600
 
-def _cache_get(key: str) -> object | None:
-    """读缓存，过期返回 None"""
-    with _cache_lock:
-        entry = _cache.get(key)
-        if entry and entry[0] > time.time():
-            return entry[1]
-        _cache.pop(key, None)
-        return None
-
-
-def _cache_evict():
-    """淘汰过期条目 + 超限时LRU淘汰最旧"""
-    global _cache_ops
-    _cache_ops += 1
-    if _cache_ops < 50:
-        return
-    _cache_ops = 0
-    now = time.time()
-    expired = [k for k, (exp, _) in _cache.items() if exp <= now]
-    for k in expired:
-        _cache.pop(k, None)
-    if len(_cache) > _CACHE_MAX_SIZE:
-        sorted_keys = sorted(_cache, key=lambda k: _cache[k][0])
-        for k in sorted_keys[:len(_cache) - _CACHE_MAX_SIZE]:
-            _cache.pop(k, None)
-
-
-def _cache_set(key: str, value: object, ttl: int):
-    """写缓存"""
-    with _cache_lock:
-        _cache[key] = (time.time() + ttl, value)
-        _cache_evict()
-
-
-def _cached(key: str, ttl: int):
-    """缓存装饰器（同步函数）"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            cached = _cache_get(key)
-            if cached is not None:
-                return cached
-            result = func(*args, **kwargs)
-            _cache_set(key, result, ttl)
-            return result
-        return wrapper
-    return decorator
+_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"}
 
 
 async def _fetch_async(url: str) -> dict:
-    """异步包装的 HTTP 请求，不阻塞事件循环"""
-    def _do_fetch():
-        req = Request(url, headers=_HEADERS)
-        with urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
-    return await asyncio.to_thread(_do_fetch)
+    """异步包装的 HTTP 请求"""
+    return await asyncio.to_thread(fetch_json, url, None, 10.0, _HEADERS)
 
 
 @router.post("/sync-all")
@@ -118,14 +68,6 @@ async def search_stocks(
         logger.error(f"搜索股票失败: {e}")
         return []
 
-_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"}
-
-# 缓存 TTL（秒）
-_TTL_QUOTE = 5       # 实时行情
-_TTL_KLINE = 60      # K线、分时
-_TTL_FINANCIAL = 300  # 财务、股东、分红、公告、北向
-_TTL_BOARD = 600     # 板块列表
-
 
 def _validate_code(code: str) -> str:
     """校验股票代码：6位数字"""
@@ -133,16 +75,6 @@ def _validate_code(code: str) -> str:
     if not code.isdigit() or len(code) != 6:
         raise HTTPException(400, f"无效的股票代码: {code}，需要6位数字")
     return code
-
-
-def _secid(code: str) -> str:
-    return f"1.{code}" if code.startswith("6") else f"0.{code}"
-
-
-def _fetch(url: str) -> dict:
-    req = Request(url, headers=_HEADERS)
-    with urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
 
 
 def _fmt_cap(v: float) -> str:
@@ -163,89 +95,38 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
     """获取 K 线数据（push2his 优先，腾讯回退）"""
     code = _validate_code(code)
     cache_key = f"kline:{code}:{period}:{count}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
 
-    klt_map = {
-        "1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60,
-        "daily": 101, "weekly": 102, "monthly": 103,
-    }
-    klt = klt_map.get(period, 101)
-    secid = _secid(code)
+    # 使用共享 K 线模块
+    raw = await asyncio.to_thread(_fetch_kline_shared, code, count, period)
+    if not raw:
+        result = {"code": code, "name": "", "period": period, "klines": []}
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
 
-    # 尝试 push2his
     parsed = []
-    name = ""
-    try:
-        url = (
-            f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
-            f"?secid={secid}"
-            f"&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
-            f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-            f"&klt={klt}&fqt=1&end=20500101&lmt={count}"
-            f"&_={int(time.time()*1000)}"
-        )
-        data = await _fetch_async(url)
-        d = (data.get("data") or {})
-        klines = d.get("klines", [])
-        name = d.get("name", "")
-        for k in klines:
-            parts = k.split(",")
-            if len(parts) >= 11:
-                parsed.append({
-                    "date": parts[0],
-                    "open": float(parts[1]),
-                    "close": float(parts[2]),
-                    "high": float(parts[3]),
-                    "low": float(parts[4]),
-                    "volume": float(parts[5]),
-                    "amount": float(parts[6]),
-                    "amplitude": float(parts[7]),
-                    "change_pct": float(parts[8]),
-                    "change": float(parts[9]),
-                    "turnover": float(parts[10]),
-                })
-    except Exception as e:
-        logger.warning(f"push2his K线获取失败，尝试腾讯回退: {e}")
+    for parts in raw["klines_raw"]:
+        if len(parts) >= 6:
+            o, c, h, l = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+            vol = float(parts[5])
+            parsed.append({
+                "date": parts[0],
+                "open": o,
+                "close": c,
+                "high": h,
+                "low": l,
+                "volume": vol,
+                "amount": float(parts[6]) if len(parts) >= 7 else 0,
+                "amplitude": round((h - l) / o * 100, 2) if o else 0,
+                "change_pct": round((c - o) / o * 100, 2) if o else 0,
+                "change": round(c - o, 2),
+                "turnover": float(parts[10]) if len(parts) >= 11 else 0,
+            })
 
-    # push2his 失败时回退腾讯 API（仅支持日/周/月）
-    if not parsed and period in ("daily", "weekly", "monthly", "1m", "5m", "15m", "30m", "60m"):
-        try:
-            prefix = "sz" if not code.startswith("6") else "sh"
-            period_map = {"daily": "day", "weekly": "week", "monthly": "month"}
-            tencent_period = period_map.get(period, "day")
-            turl = (
-                f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-                f"?param={prefix}{code},{tencent_period},,,{count},qfq"
-            )
-            tdata = await _fetch_async(turl)
-            stock_data = (tdata.get("data") or {}).get(f"{prefix}{code}", {})
-            klines = stock_data.get(f"qfq{tencent_period}") or stock_data.get(tencent_period) or []
-            for k in klines:
-                if len(k) >= 6:
-                    o, c, h, l = float(k[1]), float(k[2]), float(k[3]), float(k[4])
-                    vol = float(k[5])
-                    parsed.append({
-                        "date": k[0],
-                        "open": o,
-                        "close": c,
-                        "high": h,
-                        "low": l,
-                        "volume": vol,
-                        "amount": 0,
-                        "amplitude": round((h - l) / o * 100, 2) if o else 0,
-                        "change_pct": round((c - o) / o * 100, 2) if o else 0,
-                        "change": round(c - o, 2),
-                        "turnover": 0,
-                    })
-            if parsed:
-                logger.info(f"腾讯K线回退成功: {code} {period} -> {len(parsed)} 条")
-        except Exception as e:
-            logger.error(f"腾讯K线回退也失败: {e}")
-
-    result = {"code": code, "name": name, "period": period, "klines": parsed}
-    _cache_set(cache_key, result, _TTL_KLINE)
+    result = {"code": code, "name": raw.get("name", ""), "period": period, "klines": parsed}
+    _cache.set(cache_key, result, _TTL_KLINE)
     return result
 
 
@@ -254,11 +135,11 @@ async def get_timeline(code: str):
     """获取今日分时数据"""
     code = _validate_code(code)
     cache_key = f"timeline:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
 
-    secid = _secid(code)
+    secid = code_to_secid(code)
     url = (
         f"https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
         f"?secid={secid}"
@@ -288,7 +169,7 @@ async def get_timeline(code: str):
                 })
 
         result = {"code": code, "pre_close": pre_close, "trends": parsed}
-        _cache_set(cache_key, result, _TTL_QUOTE)
+        _cache.set(cache_key, result, _TTL_QUOTE)
         return result
     except HTTPException:
         raise
@@ -302,11 +183,11 @@ async def get_capital_flow(code: str, days: int = 20):
     """获取资金流向（日级别）"""
     code = _validate_code(code)
     cache_key = f"capital:{code}:{days}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
 
-    secid = _secid(code)
+    secid = code_to_secid(code)
     url = (
         f"https://push2delay.eastmoney.com/api/qt/stock/fflow/daykline/get"
         f"?secid={secid}"
@@ -336,7 +217,7 @@ async def get_capital_flow(code: str, days: int = 20):
                 })
 
         result = {"code": code, "flow": parsed}
-        _cache_set(cache_key, result, _TTL_KLINE)
+        _cache.set(cache_key, result, _TTL_KLINE)
         return result
     except HTTPException:
         raise
@@ -350,11 +231,11 @@ async def get_order_book(code: str):
     """获取五档盘口"""
     code = _validate_code(code)
     cache_key = f"orderbook:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
 
-    secid = _secid(code)
+    secid = code_to_secid(code)
     url = (
         f"https://push2delay.eastmoney.com/api/qt/stock/get"
         f"?secid={secid}"
@@ -377,14 +258,14 @@ async def get_order_book(code: str):
             asks.append({"price": price_fmt(d.get(f"f{pk}")), "volume": int(d.get(f"f{vk}", 0) or 0)})
 
         result = {"code": code, "bids": bids, "asks": asks}
-        _cache_set(cache_key, result, _TTL_QUOTE)
+        _cache.set(cache_key, result, _TTL_QUOTE)
         return result
     except Exception as e:
         logger.warning(f"盘口数据获取失败 (push2 stock/get 暂不可用): {e}")
         # 返回空盘口数据（优雅降级）
         empty = [{"price": 0, "volume": 0} for _ in range(5)]
         result = {"code": code, "bids": empty, "asks": empty}
-        _cache_set(cache_key, result, _TTL_QUOTE)
+        _cache.set(cache_key, result, _TTL_QUOTE)
         return result
 
 
@@ -392,7 +273,7 @@ async def get_order_book(code: str):
 async def get_stock_detail(code: str):
     """获取股票完整详情（聚合接口）"""
     code = _validate_code(code)
-    from data.collector.quote_service import get_quote_service, _fetch_financial_data
+    from data.collector.quote_service import get_quote_service, _fetch_financial_data, QuoteData
 
     service = get_quote_service()
     quote = service.get_quote(code)
@@ -403,11 +284,12 @@ async def get_stock_detail(code: str):
         if not quote:
             raise HTTPException(404, f"股票 {code} 数据获取失败")
 
-    # QuoteService 缓存不含财务指标，始终补充
+    # 补充财务指标：优先用后台预缓存，回退到 on-demand（带 30 分钟 TTL）
     if not quote.eps and not quote.high_52w:
-        fin = await asyncio.to_thread(_fetch_financial_data, code)
+        fin = service.get_financial_data(code)
+        if not fin:
+            fin = await asyncio.to_thread(_fetch_financial_data, code)
         if fin:
-            from data.collector.quote_service import QuoteData
             quote = QuoteData(
                 **{**quote.__dict__,
                    "high_52w": fin.get("high_52w", quote.high_52w),
@@ -431,17 +313,6 @@ async def get_stock_detail(code: str):
                    "dividend_yield": fin.get("dividend_yield", quote.dividend_yield),
                 }
             )
-
-    # 雪球 API 不返回名称，从数据库补充
-    name = quote.name
-    if not name:
-        from data.storage.storage import DataStorage
-        _storage = DataStorage()
-        _df = _storage.get_stock_list()
-        if not _df.empty:
-            _match = _df[_df["code"] == code]
-            if not _match.empty:
-                name = _match.iloc[0].get("name", "")
 
     return {
         "code": quote.code,
@@ -497,8 +368,8 @@ async def get_profit_trend(code: str):
     """获取近8季度营收和净利润趋势"""
     code = _validate_code(code)
     cache_key = f"profit:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         url = (
@@ -536,7 +407,7 @@ async def get_profit_trend(code: str):
         # 反转为时间正序
         trends.reverse()
         result = {"code": code, "trends": trends}
-        _cache_set(cache_key, result, _TTL_FINANCIAL)
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 利润趋势失败: {e}")
@@ -548,8 +419,8 @@ async def get_shareholders(code: str):
     """获取十大流通股东"""
     code = _validate_code(code)
     cache_key = f"shareholders:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         url = (
@@ -592,7 +463,7 @@ async def get_shareholders(code: str):
             })
 
         result = {"code": code, "shareholders": shareholders}
-        _cache_set(cache_key, result, _TTL_FINANCIAL)
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 股东数据失败: {e}")
@@ -604,8 +475,8 @@ async def get_dividends(code: str):
     """获取分红历史"""
     code = _validate_code(code)
     cache_key = f"dividends:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         url = (
@@ -644,7 +515,7 @@ async def get_dividends(code: str):
             })
 
         result = {"code": code, "dividends": dividends}
-        _cache_set(cache_key, result, _TTL_FINANCIAL)
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 分红数据失败: {e}")
@@ -656,8 +527,8 @@ async def get_announcements(code: str):
     """获取最近公告"""
     code = _validate_code(code)
     cache_key = f"announcements:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         url = (
@@ -693,7 +564,7 @@ async def get_announcements(code: str):
             })
 
         result = {"code": code, "announcements": announcements}
-        _cache_set(cache_key, result, _TTL_FINANCIAL)
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 公告失败: {e}")
@@ -705,8 +576,8 @@ async def get_industry_comparison(code: str):
     """获取同行业对比数据"""
     code = _validate_code(code)
     cache_key = f"industry:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         from data.collector.quote_service import _fetch_single_quote
@@ -824,7 +695,7 @@ async def get_industry_comparison(code: str):
 
         display_industry = board_name or industry
         result = {"code": code, "industry": display_industry, "board_code": board_code, "stocks": stocks}
-        _cache_set(cache_key, result, _TTL_BOARD)
+        _cache.set(cache_key, result, _TTL_BOARD)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 行业对比失败: {e}")
@@ -836,8 +707,8 @@ async def get_northbound(code: str):
     """获取北向资金持仓数据"""
     code = _validate_code(code)
     cache_key = f"northbound:{code}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    hit, cached = _cache.get(cache_key)
+    if hit:
         return cached
     try:
         url = (
@@ -875,7 +746,7 @@ async def get_northbound(code: str):
                 "a_ratio": latest.get("a_ratio", 0),
             },
         }
-        _cache_set(cache_key, result, _TTL_FINANCIAL)
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
         return result
     except Exception as e:
         logger.error(f"获取 {code} 北向资金失败: {e}")
@@ -902,7 +773,7 @@ async def market_indices():
             f"&secids={secids}"
             f"&_={int(time.time() * 1000)}"
         )
-        data = _fetch(url)
+        data = fetch_json(url)
         diff = (data.get("data") or {}).get("diff", [])
 
         # 建立 secid -> name 映射
@@ -941,7 +812,7 @@ async def market_hot_sectors():
             f"&fs={fs}&fields=f3,f12,f14,f104,f105"
             f"&_={ts}"
         )
-        data = _fetch(url)
+        data = fetch_json(url)
         items = (data.get("data") or {}).get("diff", [])
         result = []
         for item in items:
@@ -1004,7 +875,10 @@ async def market_stats():
         )
 
         items = (stats_data.get("data") or {}).get("diff", [])
-        item = items[0] if items else {}
+        # 累加三个指数的涨跌家数（上证+深证+创业板）
+        up_total = sum(it.get("f104", 0) or 0 for it in items)
+        down_total = sum(it.get("f105", 0) or 0 for it in items)
+        flat_total = sum(it.get("f106", 0) or 0 for it in items)
 
         up_stocks = (up_data.get("data") or {}).get("diff", [])
         limit_up = sum(1 for s in up_stocks if s.get("f3", 0) >= 9.9)
@@ -1013,9 +887,9 @@ async def market_stats():
         limit_down = sum(1 for s in down_stocks if s.get("f3", 0) <= -9.9)
 
         return {
-            "up_count": item.get("f104", 0),
-            "down_count": item.get("f105", 0),
-            "flat_count": item.get("f106", 0),
+            "up_count": up_total,
+            "down_count": down_total,
+            "flat_count": flat_total,
             "limit_up": limit_up,
             "limit_down": limit_down,
         }

@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
+from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from engine.models import (
     Direction, OrderStatus, PaperConfig, PaperOrder, PaperPosition, RiskEvent
 )
@@ -202,7 +203,7 @@ class RiskManager:
                 params.append(event_type)
 
             from datetime import timedelta
-            start_date = (datetime.now() - timedelta(days=days)).isoformat()
+            start_date = (now_beijing() - timedelta(days=days)).isoformat()
             conditions.append("created_at >= ?")
             params.append(start_date)
 
@@ -324,7 +325,7 @@ class RiskManager:
                    ON CONFLICT(code) DO UPDATE SET
                      highest_price = MAX(highest_price, excluded.highest_price),
                      updated_at = excluded.updated_at""",
-                (code, price, datetime.now().isoformat())
+                (code, price, now_beijing_iso())
             )
             conn.commit()
         except Exception as e:

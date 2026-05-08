@@ -49,6 +49,47 @@ class UserWatchlist(Base):
     added_at = Column(String(30))
 
 
+class StrategyVersion(Base):
+    """策略版本表"""
+    __tablename__ = "strategy_version"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_name = Column(String(50), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    label = Column(String(100))
+    description = Column(String(500))
+    params = Column(String(2000))  # JSON string
+    code = Column(String(10000))   # 策略代码
+    created_at = Column(String(30))
+    is_current = Column(Integer, default=1)  # 1=当前版本, 0=历史版本
+
+    __table_args__ = (
+        UniqueConstraint("strategy_name", "version", name="uq_strategy_version"),
+    )
+
+
+class BacktestRecord(Base):
+    """回测记录表"""
+    __tablename__ = "backtest_record"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_name = Column(String(50), nullable=False, index=True)
+    label = Column(String(100))
+    codes = Column(String(500))  # JSON array string
+    start_date = Column(String(10))
+    end_date = Column(String(10))
+    initial_cash = Column(Float)
+    total_return = Column(Float)
+    annual_return = Column(Float)
+    max_drawdown = Column(Float)
+    sharpe_ratio = Column(Float)
+    win_rate = Column(Float)
+    total_trades = Column(Integer)
+    params = Column(String(2000))  # JSON string
+    result_json = Column(String(50000))  # 完整结果JSON
+    created_at = Column(String(30))
+
+
 class DataStorage:
     """数据存储管理"""
 
@@ -276,25 +317,38 @@ class DataStorage:
         """获取自选股列表（含名称、行业、最新价、数据日期）"""
         session = self._get_session()
         try:
-            codes = [r.code for r in session.query(UserWatchlist.code).all()]
-            if not codes:
+            # 单次 JOIN 查询获取自选股 + 股票信息
+            rows = (
+                session.query(
+                    UserWatchlist.code,
+                    StockInfo.name,
+                    StockInfo.industry,
+                )
+                .outerjoin(StockInfo, UserWatchlist.code == StockInfo.code)
+                .all()
+            )
+            if not rows:
                 return []
-            result = []
+
+            # 批量获取最新价格（每个 code 一次查询，但避免了 N*2 次）
+            codes = [r.code for r in rows]
+            latest_prices = {}
             for code in codes:
-                info = session.get(StockInfo, code)
                 latest = (
-                    session.query(StockDaily)
+                    session.query(StockDaily.close, StockDaily.date)
                     .filter(StockDaily.code == code)
                     .order_by(StockDaily.date.desc())
                     .first()
                 )
-                result.append({
-                    "code": code,
-                    "name": info.name if info else "",
-                    "industry": info.industry if info else "",
-                    "latest_price": latest.close if latest else None,
-                    "latest_date": str(latest.date) if latest else None,
-                })
-            return result
+                if latest:
+                    latest_prices[code] = {"price": latest.close, "date": str(latest.date)}
+
+            return [{
+                "code": r.code,
+                "name": r.name or "",
+                "industry": r.industry or "",
+                "latest_price": latest_prices.get(r.code, {}).get("price"),
+                "latest_date": latest_prices.get(r.code, {}).get("date"),
+            } for r in rows]
         finally:
             session.close()

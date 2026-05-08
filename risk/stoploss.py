@@ -211,3 +211,7 @@ class StopLossManager:
     def clear_trailing_high(self, code: str):
         """清除追踪止损记录（持仓清仓后调用）"""
         self._trailing_highs.pop(code, None)
+
+    def get_trailing_high(self, code: str) -> float:
+        """获取追踪止损最高价"""
+        return self._trailing_highs.get(code, 0.0)

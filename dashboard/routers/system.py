@@ -1,5 +1,9 @@
 """系统状态与策略管理 API"""
+import asyncio
+import json
+
 from fastapi import APIRouter
+from loguru import logger
 
 from data.storage.storage import DataStorage
 
@@ -22,15 +26,15 @@ async def get_system_status():
             latest = storage.get_latest_date(codes[0])
             if latest:
                 data_range = str(latest)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"获取系统状态失败: {e}")
 
     paper_running = False
     try:
         from dashboard.routers.paper_control import _manager
         paper_running = _manager.is_running
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"获取模拟盘状态失败: {e}")
 
     return {
         "db_stats": {
@@ -55,14 +59,14 @@ async def get_risk_rules():
     """返回风控规则及当前状态"""
     state = None
     try:
-        import json
         from pathlib import Path
         from config.settings import LOG_DIR
         state_file = LOG_DIR / "paper" / "portfolio_state.json"
         if state_file.exists():
-            state = json.loads(state_file.read_text())
-    except Exception:
-        pass
+            content = await asyncio.to_thread(state_file.read_text)
+            state = json.loads(content)
+    except Exception as e:
+        logger.warning(f"读取风控状态失败: {e}")
 
     cash = state.get("cash", 0) if state else 0
     positions = state.get("positions", {}) if state else {}

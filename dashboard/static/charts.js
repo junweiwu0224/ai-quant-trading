@@ -2,10 +2,12 @@
 
 const ChartFactory = {
     _instances: {},
+    _colorCache: null,
 
     getColors() {
+        if (this._colorCache) return this._colorCache;
         const s = getComputedStyle(document.documentElement);
-        return {
+        this._colorCache = {
             primary: s.getPropertyValue('--chart-1').trim() || '#8b8680',
             success: s.getPropertyValue('--chart-2').trim() || '#10b981',
             warning: s.getPropertyValue('--chart-3').trim() || '#e0aa14',
@@ -17,7 +19,10 @@ const ChartFactory = {
             textMuted: s.getPropertyValue('--text-tertiary').trim() || '#a29c95',
             border: s.getPropertyValue('--border-color').trim() || '#e3e1db',
         };
+        return this._colorCache;
     },
+
+    invalidateColors() { this._colorCache = null; },
 
     palette() {
         const c = this.getColors();
@@ -29,6 +34,13 @@ const ChartFactory = {
             this._instances[key].destroy();
             this._instances[key] = null;
         }
+    },
+
+    _removeEmpty(canvasId) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        const empty = el.parentElement?.querySelector('.chart-empty');
+        if (empty) empty.remove();
     },
 
     showEmpty(canvasId) {
@@ -49,7 +61,12 @@ const ChartFactory = {
         return {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { enabled: true },
+            },
             scales: {
                 x: { ticks: { maxTicksLimit: 10, color: c.textMuted, font: { size: 11 } }, grid: { color: c.border + '40' } },
                 y: { ticks: { color: c.textMuted, font: { size: 11 } }, grid: { color: c.border + '40' } },
@@ -58,10 +75,27 @@ const ChartFactory = {
     },
 
     line(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        const existing = this._instances[key];
+        if (existing && existing.config.type === 'line') {
+            existing.data.labels = data.labels;
+            existing.data.datasets = data.datasets.map((ds, i) => ({
+                label: ds.label || '',
+                data: ds.data,
+                borderColor: ds.color || this.palette()[i],
+                backgroundColor: ds.fill ? (ds.color || this.palette()[i]) + '1a' : undefined,
+                fill: !!ds.fill,
+                pointRadius: ds.pointRadius ?? 0,
+                borderWidth: ds.borderWidth ?? 1.5,
+                borderDash: ds.borderDash || [],
+                yAxisID: ds.yAxisID,
+            }));
+            existing.update();
+            return existing;
+        }
         this.destroy(key);
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
-        const c = this.getColors();
         const config = {
             type: 'line',
             data: {
@@ -88,6 +122,16 @@ const ChartFactory = {
     },
 
     bar(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        const existing = this._instances[key];
+        if (existing && existing.config.type === 'bar') {
+            existing.data.labels = data.labels;
+            existing.data.datasets[0].data = data.values;
+            existing.data.datasets[0].backgroundColor = data.colors || data.values.map((_, i) => this.palette()[i % this.palette().length] + 'b3');
+            existing.data.datasets[0].borderColor = data.borderColors || data.values.map((_, i) => this.palette()[i % this.palette().length]);
+            existing.update();
+            return existing;
+        }
         this.destroy(key);
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
@@ -109,6 +153,14 @@ const ChartFactory = {
     },
 
     doughnut(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        const existing = this._instances[key];
+        if (existing && existing.config.type === 'doughnut') {
+            existing.data.labels = data.labels;
+            existing.data.datasets[0].data = data.values;
+            existing.update();
+            return existing;
+        }
         this.destroy(key);
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
@@ -131,6 +183,14 @@ const ChartFactory = {
     },
 
     pie(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        const existing = this._instances[key];
+        if (existing && existing.config.type === 'pie') {
+            existing.data.labels = data.labels;
+            existing.data.datasets[0].data = data.values;
+            existing.update();
+            return existing;
+        }
         this.destroy(key);
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
@@ -153,6 +213,14 @@ const ChartFactory = {
     },
 
     horizontalBar(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        const existing = this._instances[key];
+        if (existing && existing.config.type === 'bar' && existing.options.indexAxis === 'y') {
+            existing.data.labels = data.labels;
+            existing.data.datasets[0].data = data.values;
+            existing.update();
+            return existing;
+        }
         this.destroy(key);
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
@@ -174,6 +242,36 @@ const ChartFactory = {
                 scales: {
                     x: { ticks: { color: c.textMuted }, grid: { color: c.border + '40' } },
                     y: { ticks: { color: c.text, font: { size: 11 } }, grid: { display: false } },
+                },
+                ...opts,
+            },
+        };
+        this._instances[key] = new Chart(ctx.getContext('2d'), config);
+        return this._instances[key];
+    },
+
+    scatter(canvasId, data, key, opts = {}) {
+        this._removeEmpty(canvasId);
+        this.destroy(key);
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return null;
+        const c = this.getColors();
+        const config = {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: key,
+                    data: data,
+                    backgroundColor: c.primary + '80',
+                    borderColor: c.primary,
+                    pointRadius: 3,
+                }],
+            },
+            options: {
+                ...this._baseOptions(),
+                scales: {
+                    x: { ticks: { color: c.textMuted }, grid: { color: c.border + '40' } },
+                    y: { ticks: { color: c.textMuted }, grid: { color: c.border + '40' } },
                 },
                 ...opts,
             },

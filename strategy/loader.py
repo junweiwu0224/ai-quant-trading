@@ -1,4 +1,5 @@
 """动态策略加载器：从 Python 代码实例化自定义策略"""
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -8,6 +9,57 @@ from typing import Optional
 from loguru import logger
 
 from strategy.base import BaseStrategy
+
+# 安全的内置函数白名单 — 阻止 __import__、__subclasses__ 等危险访问
+_BLOCKED_BUILTINS = frozenset({
+    'os', 'sys', 'subprocess', 'shutil', 'importlib', 'eval', 'exec', 'compile',
+    'open', 'input', 'globals', 'locals', 'breakpoint', 'exit', 'quit',
+    '__import__', '__build_class__', '__loader__',
+})
+
+# 允许的导入模块白名单
+_ALLOWED_IMPORT_ROOTS = frozenset({
+    'strategy', 'numpy', 'math', 'statistics', 'collections', 'itertools',
+    'datetime', 'typing', 'dataclasses', 'enum', 'abc', 'copy', 'functools',
+})
+
+
+def _build_safe_builtins() -> dict:
+    """构建受限的 builtins 字典（移除危险内置函数）"""
+    source = __builtins__ if isinstance(__builtins__, dict) else __builtins__.__dict__
+    return {k: v for k, v in source.items() if k not in _BLOCKED_BUILTINS}
+
+
+class _StrategyCodeValidator(ast.NodeVisitor):
+    """AST 白名单验证器 — 阻止危险的导入和 dunder 属性访问"""
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            root = alias.name.split('.')[0]
+            if root not in _ALLOWED_IMPORT_ROOTS:
+                raise ValueError(f"禁止导入: {alias.name}")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        if node.module:
+            root = node.module.split('.')[0]
+            if root not in _ALLOWED_IMPORT_ROOTS:
+                raise ValueError(f"禁止导入: {node.module}")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        attr = node.attr
+        # 阻止 __dunder__ 属性访问（__class__, __bases__, __subclasses__ 等）
+        if attr.startswith('__') and attr.endswith('__'):
+            if attr not in ('__init__', '__name__', '__dict__', '__doc__'):
+                raise ValueError(f"禁止访问 dunder 属性: {attr}")
+        self.generic_visit(node)
+
+
+def _validate_code_ast(code: str):
+    """AST 级别安全检查，失败抛出 ValueError"""
+    tree = ast.parse(code, '<strategy>')
+    _StrategyCodeValidator().visit(tree)
 
 
 def load_strategy_from_code(
@@ -26,6 +78,9 @@ def load_strategy_from_code(
         策略实例，失败返回 None
     """
     try:
+        # AST 白名单验证（在 exec 之前拦截危险代码）
+        _validate_code_ast(code)
+
         # 创建临时模块
         module_name = f"_custom_strategy_{id(code)}"
         spec = importlib.util.spec_from_loader(module_name, loader=None)
@@ -36,12 +91,11 @@ def load_strategy_from_code(
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
 
-        # 注入必要的导入
+        # 注入受限 builtins + 预导入安全模块
         exec_globals = {
-            "__builtins__": __builtins__,
+            "__builtins__": _build_safe_builtins(),
             "__name__": module_name,
         }
-        # 预导入常用模块
         exec("from strategy.base import BaseStrategy, Bar, Order, Trade, Portfolio", exec_globals)
         exec("import numpy as np", exec_globals)
 
@@ -87,30 +141,32 @@ def validate_strategy_code(code: str) -> tuple[bool, str]:
         (is_valid, error_message)
     """
     try:
-        compile(code, "<strategy>", "exec")
+        # AST 白名单验证（不执行代码，只做语法和安全检查）
+        _validate_code_ast(code)
     except SyntaxError as e:
         return False, f"语法错误: 行 {e.lineno}: {e.msg}"
+    except ValueError as e:
+        return False, f"安全检查失败: {e}"
 
-    # 检查是否包含 BaseStrategy 子类
+    # AST 检查是否有 BaseStrategy 子类
     try:
-        exec_globals = {"__builtins__": __builtins__}
-        exec("from strategy.base import BaseStrategy, Bar, Order, Trade, Portfolio", exec_globals)
-        exec(code, exec_globals)
-
+        tree = ast.parse(code, '<strategy>')
         found = False
-        for name, obj in exec_globals.items():
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, BaseStrategy)
-                and obj is not BaseStrategy
-            ):
-                found = True
-                break
-
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for base in node.bases:
+                    base_name = ""
+                    if isinstance(base, ast.Name):
+                        base_name = base.id
+                    elif isinstance(base, ast.Attribute):
+                        base_name = base.attr
+                    if base_name == "BaseStrategy":
+                        found = True
+                        break
         if not found:
             return False, "代码中未找到继承 BaseStrategy 的策略类"
     except Exception as e:
-        return False, f"执行错误: {e}"
+        return False, f"解析错误: {e}"
 
     return True, ""
 

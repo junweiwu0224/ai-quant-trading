@@ -52,6 +52,7 @@ class Trade:
     order_id: int = 0
     datetime: Optional[date] = None
     entry_price: float = 0.0  # 卖出时记录买入均价
+    entry_date: Optional[date] = None  # 卖出时记录买入日期
 
 
 @dataclass
@@ -63,6 +64,8 @@ class Portfolio:
     trades: list = field(default_factory=list)
     orders: list = field(default_factory=list)
     equity_curve: list = field(default_factory=list)
+    entry_dates: dict = field(default_factory=dict)    # code -> date_str
+    strategies: dict = field(default_factory=dict)      # code -> strategy_name
 
     def get_position(self, code: str) -> int:
         return self.positions.get(code, 0)

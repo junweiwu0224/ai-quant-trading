@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from data.storage.storage import DataStorage
+from data.collector.quote_service import get_quote_service
 
 router = APIRouter()
 storage = DataStorage()
@@ -14,8 +15,22 @@ class AddWatchlistRequest(BaseModel):
 
 @router.get("")
 async def get_watchlist():
-    """获取自选股列表（含名称、行业、最新价、数据日期）"""
-    return storage.get_watchlist_with_info()
+    """获取自选股列表（含名称、行业、最新价、数据日期、概念、板块）"""
+    stocks = storage.get_watchlist_with_info()
+    # 合并实时行情数据
+    try:
+        qs = get_quote_service()
+        for s in stocks:
+            q = qs.get_quote(s["code"])
+            if q:
+                s["price"] = q.price
+                s["change_pct"] = q.change_pct
+                s["industry"] = q.industry or s.get("industry", "")
+                s["sector"] = q.sector or ""
+                s["concepts"] = q.concepts.split(",") if q.concepts else []
+    except Exception:
+        pass
+    return stocks
 
 
 @router.post("")
@@ -62,6 +77,12 @@ async def add_to_watchlist(req: AddWatchlistRequest):
         from loguru import logger
         logger.warning(f"自动采集 {code} 数据失败: {e}")
 
+    # 更新行情订阅
+    try:
+        get_quote_service().subscribe([code])
+    except Exception:
+        pass
+
     return {"message": "添加成功", "code": code}
 
 
@@ -71,6 +92,13 @@ async def remove_from_watchlist(code: str):
     removed = storage.remove_from_watchlist(code)
     if not removed:
         raise HTTPException(404, f"自选股 {code} 不存在")
+
+    # 更新行情订阅
+    try:
+        get_quote_service().unsubscribe([code])
+    except Exception:
+        pass
+
     return {"message": "删除成功", "code": code}
 
 

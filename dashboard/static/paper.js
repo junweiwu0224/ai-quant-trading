@@ -221,13 +221,10 @@ const Paper = {
 
     _startPolling() {
         this._stopPolling();
-        this._pollInterval = setInterval(() => this.loadStatus(), 5000);
+        PollManager.register('paperStatus', () => this.loadStatus(), 5000);
     },
 
     _stopPolling() {
-        if (this._pollInterval) {
-            clearInterval(this._pollInterval);
-            this._pollInterval = null;
-        }
+        PollManager.cancel('paperStatus');
     },
 };

@@ -8,9 +8,13 @@ from typing import Optional
 
 from loguru import logger
 
-from config.settings import LOG_DIR
-from data.collector.realtime import RealtimeCollector, RealtimeQuote
+from config.settings import LOG_DIR, PROJECT_ROOT
+from data.collector.quote_service import QuoteData, get_quote_service
 from engine.backtest_engine import BacktestConfig
+from engine.models import PaperConfig as NewPaperConfig
+from engine.order_manager import OrderManager
+from engine.performance_analyzer import PerformanceAnalyzer
+from engine.risk_manager import RiskManager
 from risk.position import PositionManager
 from risk.stoploss import StopLossManager
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
@@ -19,6 +23,7 @@ from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 @dataclass
 class PaperConfig:
     """模拟盘配置"""
+    initial_cash: float = 1_000_000  # 初始资金
     interval_seconds: int = 30        # 行情轮询间隔
     commission_rate: float = 0.0003   # 万三佣金
     stamp_tax_rate: float = 0.001     # 千一印花税
@@ -50,12 +55,15 @@ class PaperTradeLog:
         }
         self._trades.append(entry)
 
-        with open(self._log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            with open(self._log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as e:
+            logger.error(f"交易日志写入失败: {e}")
 
         logger.info(
             f"[交易] {trade.direction.value} {trade.code} "
-            f"价格={trade.price:.2f} 数量={trade.volume} 权益={equity:,.0f}"
+            f"价格={trade.price:.2f} 数量={trade.volume} 收益={equity:,.0f}"
         )
 
     @property
@@ -70,6 +78,7 @@ class PaperStateManager:
         self._dir = Path(state_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._state_file = self._dir / "portfolio_state.json"
+        self._snapshot_file = self._dir / "portfolio_snapshots.jsonl"
 
     def save(self, portfolio: Portfolio):
         """保存投资组合状态"""
@@ -79,6 +88,8 @@ class PaperStateManager:
             "positions": dict(portfolio.positions),
             "avg_prices": {k: round(v, 4) for k, v in portfolio.avg_prices.items()},
             "trade_count": len(portfolio.trades),
+            "entry_dates": dict(portfolio.entry_dates),
+            "strategies": dict(portfolio.strategies),
         }
         self._state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
         logger.debug(f"状态已保存: 现金={portfolio.cash:,.0f}")
@@ -108,7 +119,8 @@ class PaperEngine:
         self._strategy = strategy
         self._codes = codes
         self._config = config or PaperConfig()
-        self._collector = RealtimeCollector()
+        self._quote_service = get_quote_service()
+        self._quote_service.subscribe(codes)
         self._trade_log = PaperTradeLog(self._config.state_dir)
         self._state_mgr = PaperStateManager(self._config.state_dir)
         self._running = False
@@ -116,6 +128,20 @@ class PaperEngine:
         # 风控
         self._position_mgr = PositionManager() if self._config.enable_risk else None
         self._stoploss_mgr = StopLossManager() if self._config.enable_risk else None
+
+        # 新增：订单管理器、绩效分析器、风险管理器
+        new_config = NewPaperConfig(
+            initial_cash=self._config.initial_cash,
+            interval_seconds=self._config.interval_seconds,
+            enable_risk=self._config.enable_risk,
+            commission_rate=self._config.commission_rate,
+            stamp_tax_rate=self._config.stamp_tax_rate,
+            slippage=self._config.slippage,
+            state_dir=self._config.state_dir,
+        )
+        self._order_manager = OrderManager(new_config.db_path)
+        self._performance_analyzer = PerformanceAnalyzer(new_config.db_path)
+        self._risk_manager = RiskManager(new_config, new_config.db_path)
 
         # 初始化投资组合
         self._portfolio = self._init_portfolio()
@@ -129,10 +155,12 @@ class PaperEngine:
                 cash=state["cash"],
                 positions=state["positions"],
                 avg_prices=state.get("avg_prices", {}),
+                entry_dates=state.get("entry_dates", {}),
+                strategies=state.get("strategies", {}),
             )
             logger.info(f"恢复投资组合: 现金={portfolio.cash:,.0f}, 持仓={portfolio.positions}")
             return portfolio
-        return Portfolio(cash=1_000_000.0)
+        return Portfolio(cash=self._config.initial_cash)
 
     @property
     def portfolio(self) -> Portfolio:
@@ -142,14 +170,26 @@ class PaperEngine:
     def trade_log(self) -> PaperTradeLog:
         return self._trade_log
 
+    @property
+    def order_manager(self) -> OrderManager:
+        return self._order_manager
+
+    @property
+    def performance_analyzer(self) -> PerformanceAnalyzer:
+        return self._performance_analyzer
+
+    @property
+    def risk_manager(self) -> RiskManager:
+        return self._risk_manager
+
     def run_once(self) -> dict:
         """执行一轮行情检查和策略推送
 
         Returns:
             {quotes: {...}, equity: float, positions: {...}, trades: [...]}
         """
-        # 1. 获取实时行情
-        quotes = self._collector.fetch_realtime(self._codes)
+        # 1. 从 QuoteService 获取实时行情（后台服务持续更新）
+        quotes = self._quote_service.get_all_quotes()
         if not quotes:
             return {"error": "无行情数据"}
 
@@ -206,12 +246,16 @@ class PaperEngine:
         self._running = True
         logger.info(f"模拟盘启动: 标的={self._codes}, 间隔={self._config.interval_seconds}秒")
 
+        consecutive_errors = 0
+        MAX_CONSECUTIVE_ERRORS = 10
+
         while self._running:
             try:
                 result = self.run_once()
+                consecutive_errors = 0  # 成功后重置
                 if "error" not in result:
                     logger.info(
-                        f"权益={result['equity']:,.0f} "
+                        f"收益={result['equity']:,.0f} "
                         f"现金={result['cash']:,.0f} "
                         f"持仓={len(result['positions'])}只 "
                         f"新成交={result['new_trades']}"
@@ -220,7 +264,11 @@ class PaperEngine:
                 logger.info("收到停止信号")
                 break
             except Exception as e:
-                logger.error(f"模拟盘异常: {e}")
+                consecutive_errors += 1
+                logger.error(f"模拟盘异常 ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}")
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    logger.critical("连续失败过多，模拟盘自动停止")
+                    break
 
             time.sleep(self._config.interval_seconds)
 
@@ -232,7 +280,7 @@ class PaperEngine:
         """停止模拟盘"""
         self._running = False
 
-    def _check_stoploss(self, quotes: dict[str, RealtimeQuote], equity: float):
+    def _check_stoploss(self, quotes: dict[str, QuoteData], equity: float):
         """止损检查"""
         for code, vol in list(self._portfolio.positions.items()):
             if vol <= 0:
@@ -266,7 +314,7 @@ class PaperEngine:
         """直接提交卖出（止损用）"""
         self._strategy.sell(code, price, volume)
 
-    def _match_orders(self, quotes: dict[str, RealtimeQuote]) -> list[Trade]:
+    def _match_orders(self, quotes: dict[str, QuoteData]) -> list[Trade]:
         """撮合挂单"""
         pending = self._strategy.get_pending_orders()
         trades = []
@@ -291,6 +339,14 @@ class PaperEngine:
                     self._portfolio.positions[order.code] = new_vol
                     self._portfolio.avg_prices[order.code] = new_avg
                     order.status = "filled"
+
+                    # 记录建仓日期和变动类型
+                    if old_vol == 0:
+                        self._portfolio.entry_dates[order.code] = datetime.now().strftime("%Y-%m-%d")
+                        action_type = "new"
+                    else:
+                        action_type = "add"
+                    self._portfolio.strategies[order.code] = getattr(self._strategy, 'name', self._strategy.__class__.__name__)
 
                     trade = Trade(
                         code=order.code,
@@ -325,6 +381,8 @@ class PaperEngine:
                 if self._portfolio.positions[order.code] == 0:
                     del self._portfolio.positions[order.code]
                     del self._portfolio.avg_prices[order.code]
+                    self._portfolio.entry_dates.pop(order.code, None)
+                    self._portfolio.strategies.pop(order.code, None)
 
                 order.status = "filled" if actual_vol >= order.volume else "partial"
 

@@ -10,6 +10,7 @@ class SearchBox {
             maxResults: 20,
             placeholder: '搜索代码或名称...',
             formatItem: (s) => `${s.code} ${s.name}`,
+            debounceMs: 300,
             ...options,
         };
 
@@ -19,17 +20,21 @@ class SearchBox {
         this._onSelect = null;
         this._selected = null;
         this._isOpen = false;
+        this._debounceTimer = null;
+        this._searchVersion = 0;
 
         this._build();
         this._bind();
     }
 
     _build() {
+        const listId = this.trigger.id + '-list';
         this.dropdown.innerHTML = `
             <div class="sb-filter-wrap">
-                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off">
+                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
+                    role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
             </div>
-            <div class="sb-list"></div>
+            <div class="sb-list" id="${listId}" role="listbox"></div>
         `;
         this.filterInput = this.dropdown.querySelector('.sb-filter');
         this.listEl = this.dropdown.querySelector('.sb-list');
@@ -43,11 +48,11 @@ class SearchBox {
         this.trigger.addEventListener('input', () => {
             if (!this._isOpen) this.open();
             this.filterInput.value = this.trigger.value;
-            this._search();
+            this._debouncedSearch();
         });
 
         // 下拉内搜索框输入
-        this.filterInput.addEventListener('input', () => this._search());
+        this.filterInput.addEventListener('input', () => this._debouncedSearch());
 
         // 键盘导航
         this.filterInput.addEventListener('keydown', (e) => {
@@ -78,11 +83,12 @@ class SearchBox {
         });
 
         // 点击外部关闭
-        document.addEventListener('mousedown', (e) => {
+        this._onDocMousedown = (e) => {
             if (this._isOpen && !this.dropdown.contains(e.target) && e.target !== this.trigger) {
                 this.close();
             }
-        });
+        };
+        document.addEventListener('mousedown', this._onDocMousedown);
     }
 
     setDataSource(fn) { this._dataSource = fn; }
@@ -94,6 +100,7 @@ class SearchBox {
         if (this._isOpen) return;
         this._isOpen = true;
         this.dropdown.style.display = 'flex';
+        this.filterInput.setAttribute('aria-expanded', 'true');
         this.filterInput.value = '';
         this._search();
         setTimeout(() => this.filterInput.focus(), 50);
@@ -102,26 +109,62 @@ class SearchBox {
     close() {
         this._isOpen = false;
         this.dropdown.style.display = 'none';
+        this.filterInput.setAttribute('aria-expanded', 'false');
+        this._searchVersion++;  // 使旧的异步搜索请求失效
         this.listEl.innerHTML = '';
         this._items = [];
         this._activeIdx = -1;
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+            this._debounceTimer = null;
+        }
     }
 
-    _search() {
+    destroy() {
+        this.close();
+        document.removeEventListener('mousedown', this._onDocMousedown);
+    }
+
+    _debouncedSearch() {
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+        this._debounceTimer = setTimeout(() => {
+            this._search();
+        }, this.options.debounceMs);
+    }
+
+    async _search() {
         if (!this._dataSource) return;
         const q = this.filterInput.value.trim().toLowerCase();
-        const items = this._dataSource(q).slice(0, this.options.maxResults);
-        this._items = items;
-        this._activeIdx = items.length > 0 ? 0 : -1;
+        const version = ++this._searchVersion;
 
-        if (items.length === 0) {
-            this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
-            return;
+        // 显示加载状态
+        this.listEl.innerHTML = '<div class="sb-loading">搜索中...</div>';
+
+        try {
+            const result = this._dataSource(q);
+            // 支持异步数据源
+            const items = result instanceof Promise ? await result : result;
+
+            // 检查是否是最新的搜索请求
+            if (version !== this._searchVersion) return;
+
+            const sliced = items.slice(0, this.options.maxResults);
+            this._items = sliced;
+            this._activeIdx = sliced.length > 0 ? 0 : -1;
+
+            if (sliced.length === 0) {
+                this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
+                return;
+            }
+
+            this.listEl.innerHTML = sliced.map((s, i) =>
+                `<div class="sb-item${i === 0 ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${i === 0}">${App.escapeHTML(this.options.formatItem(s))}</div>`
+            ).join('');
+        } catch (e) {
+            this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
-
-        this.listEl.innerHTML = items.map((s, i) =>
-            `<div class="sb-item${i === 0 ? ' active' : ''}" data-idx="${i}">${this.options.formatItem(s)}</div>`
-        ).join('');
     }
 
     _select(item) {
@@ -133,9 +176,11 @@ class SearchBox {
     }
 
     _highlight() {
-        this.listEl.querySelectorAll('.sb-item').forEach((el, i) =>
-            el.classList.toggle('active', i === this._activeIdx)
-        );
+        this.listEl.querySelectorAll('.sb-item').forEach((el, i) => {
+            const isActive = i === this._activeIdx;
+            el.classList.toggle('active', isActive);
+            el.setAttribute('aria-selected', isActive);
+        });
         // 滚动到可见
         const active = this.listEl.querySelector('.sb-item.active');
         if (active) active.scrollIntoView({ block: 'nearest' });
@@ -155,6 +200,7 @@ class MultiSearchBox {
             maxResults: 30,
             placeholder: '搜索代码或名称...',
             formatItem: (s) => `${s.code} ${s.name || ''}`,
+            debounceMs: 300,
             ...options,
         };
 
@@ -163,17 +209,21 @@ class MultiSearchBox {
         this._dataSource = null;
         this._selected = []; // [{code, name, ...}]
         this._isOpen = false;
+        this._debounceTimer = null;
+        this._searchVersion = 0;
 
         this._build();
         this._bind();
     }
 
     _build() {
+        const listId = this.trigger.id + '-list';
         this.dropdown.innerHTML = `
             <div class="sb-filter-wrap">
-                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off">
+                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
+                    role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
             </div>
-            <div class="sb-list"></div>
+            <div class="sb-list" id="${listId}" role="listbox"></div>
         `;
         this.filterInput = this.dropdown.querySelector('.sb-filter');
         this.listEl = this.dropdown.querySelector('.sb-list');
@@ -184,9 +234,9 @@ class MultiSearchBox {
         this.trigger.addEventListener('input', () => {
             if (!this._isOpen) this.open();
             this.filterInput.value = this.trigger.value;
-            this._search();
+            this._debouncedSearch();
         });
-        this.filterInput.addEventListener('input', () => this._search());
+        this.filterInput.addEventListener('input', () => this._debouncedSearch());
         this.filterInput.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -215,15 +265,20 @@ class MultiSearchBox {
             const tag = e.target.closest('.sb-tag-remove');
             if (!tag) return;
             const code = tag.dataset.code;
+            const item = this._selected.find(s => s.code === code);
             this._selected = this._selected.filter(s => s.code !== code);
             this._renderTags();
             this._search();
+            if (this.onToggle && item) {
+                this.onToggle(item, false);
+            }
         });
-        document.addEventListener('mousedown', (e) => {
+        this._onDocMousedown = (e) => {
             if (this._isOpen && !this.dropdown.contains(e.target) && e.target !== this.trigger) {
                 this.close();
             }
-        });
+        };
+        document.addEventListener('mousedown', this._onDocMousedown);
     }
 
     setDataSource(fn) { this._dataSource = fn; }
@@ -240,6 +295,7 @@ class MultiSearchBox {
         if (this._isOpen) return;
         this._isOpen = true;
         this.dropdown.style.display = 'flex';
+        this.filterInput.setAttribute('aria-expanded', 'true');
         this.filterInput.value = '';
         this._search();
         setTimeout(() => this.filterInput.focus(), 50);
@@ -248,56 +304,98 @@ class MultiSearchBox {
     close() {
         this._isOpen = false;
         this.dropdown.style.display = 'none';
+        this.filterInput.setAttribute('aria-expanded', 'false');
+        this._searchVersion++;  // 使旧的异步搜索请求失效
         this.listEl.innerHTML = '';
-        this.items = [];
+        this._items = [];
         this._activeIdx = -1;
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+            this._debounceTimer = null;
+        }
+    }
+
+    destroy() {
+        this.close();
+        document.removeEventListener('mousedown', this._onDocMousedown);
     }
 
     _toggle(item) {
         const idx = this._selected.findIndex(s => s.code === item.code);
-        if (idx >= 0) {
+        const wasSelected = idx >= 0;
+        if (wasSelected) {
             this._selected.splice(idx, 1);
         } else {
             this._selected.push(item);
         }
         this._renderTags();
         this._search();
+        // 回调通知外部
+        if (this.onToggle) {
+            this.onToggle(item, !wasSelected);
+        }
     }
 
     _renderTags() {
-        this.tagsContainer.innerHTML = this._selected.map(s =>
-            `<span class="sb-tag">${App.escapeHTML(s.code)}<span class="sb-tag-remove" data-code="${App.escapeHTML(s.code)}">&times;</span></span>`
-        ).join('');
-        // 更新隐藏值
-        this.trigger.value = this._selected.map(s => s.code).join(',');
+        this.tagsContainer.innerHTML = this._selected.map(s => {
+            const label = s.name ? `${s.code} ${s.name}` : s.code;
+            return `<span class="sb-tag">${App.escapeHTML(label)}<span class="sb-tag-remove" data-code="${App.escapeHTML(s.code)}">&times;</span></span>`;
+        }).join('');
+        // 输入框保持为空，标签区已展示选中项
+        this.trigger.value = '';
     }
 
-    _search() {
+    _debouncedSearch() {
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+        this._debounceTimer = setTimeout(() => {
+            this._search();
+        }, this.options.debounceMs);
+    }
+
+    async _search() {
         if (!this._dataSource) return;
         const q = this.filterInput.value.trim().toLowerCase();
-        const all = this._dataSource(q);
-        const selectedCodes = new Set(this._selected.map(s => s.code));
+        const version = ++this._searchVersion;
 
-        this._items = all.slice(0, this.options.maxResults);
-        this._activeIdx = this._items.length > 0 ? 0 : -1;
+        // 显示加载状态
+        this.listEl.innerHTML = '<div class="sb-loading">搜索中...</div>';
 
-        if (this._items.length === 0) {
-            this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
-            return;
+        try {
+            const result = this._dataSource(q);
+            // 支持异步数据源
+            const all = result instanceof Promise ? await result : result;
+
+            // 检查是否是最新的搜索请求
+            if (version !== this._searchVersion) return;
+
+            const selectedCodes = new Set(this._selected.map(s => s.code));
+
+            // 过滤掉已选中的股票
+            const filtered = all.filter(s => !selectedCodes.has(s.code));
+            this._items = filtered.slice(0, this.options.maxResults);
+            this._activeIdx = this._items.length > 0 ? 0 : -1;
+
+            if (this._items.length === 0) {
+                this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
+                return;
+            }
+
+            this.listEl.innerHTML = this._items.map((s, i) =>
+                `<div class="sb-item${i === 0 ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${i === 0}">${App.escapeHTML(this.options.formatItem(s))}</div>`
+            ).join('');
+        } catch (e) {
+            this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
-
-        this.listEl.innerHTML = this._items.map((s, i) => {
-            const checked = selectedCodes.has(s.code);
-            return `<div class="sb-item${i === 0 ? ' active' : ''}${checked ? ' sb-checked' : ''}" data-idx="${i}">
-                <span class="sb-check">${checked ? '✓' : ''}</span>${this.options.formatItem(s)}
-            </div>`;
-        }).join('');
     }
 
     _highlight() {
-        this.listEl.querySelectorAll('.sb-item').forEach((el, i) =>
-            el.classList.toggle('active', i === this._activeIdx)
-        );
+        this.listEl.querySelectorAll('.sb-item').forEach((el, i) => {
+            const isActive = i === this._activeIdx;
+            el.classList.toggle('active', isActive);
+            el.setAttribute('aria-selected', isActive);
+        });
         const active = this.listEl.querySelector('.sb-item.active');
         if (active) active.scrollIntoView({ block: 'nearest' });
     }

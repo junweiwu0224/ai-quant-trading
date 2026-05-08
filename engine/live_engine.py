@@ -9,7 +9,7 @@ from typing import Optional
 from loguru import logger
 
 from config.settings import LOG_DIR
-from data.collector.realtime import RealtimeCollector
+from data.collector.quote_service import QuoteData, get_quote_service
 from engine.broker import BrokerGateway, OrderSide, OrderStatus, SimulatedBroker
 from engine.paper_engine import PaperTradeLog, PaperConfig
 from risk.position import PositionManager
@@ -75,7 +75,8 @@ class LiveTradingEngine:
         self._strategy = strategy
         self._codes = codes
         self._config = config or LiveConfig()
-        self._collector = RealtimeCollector()
+        self._quote_service = get_quote_service()
+        self._quote_service.subscribe(codes)
         self._trade_log = PaperTradeLog(self._config.state_dir)
         self._running = False
 
@@ -115,8 +116,8 @@ class LiveTradingEngine:
         if not self._broker.is_connected():
             self._broker.connect()
 
-        # 1. 获取实时行情
-        quotes = self._collector.fetch_realtime(self._codes)
+        # 1. 从 QuoteService 获取实时行情
+        quotes = self._quote_service.get_all_quotes()
         if not quotes:
             return {"error": "无行情数据"}
 
@@ -185,7 +186,7 @@ class LiveTradingEngine:
                 result = self.run_once()
                 if "error" not in result:
                     logger.info(
-                        f"权益={result['equity']:,.0f} "
+                        f"收益={result['equity']:,.0f} "
                         f"现金={result['cash']:,.0f} "
                         f"持仓={len(result['positions'])}只 "
                         f"新成交={result['new_trades']}"

@@ -335,8 +335,9 @@ class BacktestEngine:
                         prices=prices,
                     )
                     if max_volume >= 100:  # 至少1手
+                        original_volume = order.volume  # 保存原始值
                         order.volume = max_volume
-                        logger.info(f"[仓位] 调整买入 {order.code}: {order.volume} 股（原 {order.volume} 股）")
+                        logger.info(f"[仓位] 调整买入 {order.code}: {order.volume} 股（原 {original_volume} 股）")
                     else:
                         order.status = "cancelled"
                         logger.info(f"[仓位] 拒绝买入 {order.code}: {reason}")
@@ -366,6 +367,9 @@ class BacktestEngine:
                     new_avg = (old_avg * old_vol + fill_price * order.volume) / new_vol
                     portfolio.positions[order.code] = new_vol
                     portfolio.avg_prices[order.code] = new_avg
+                    # 记录买入日期（首次建仓或加仓）
+                    if order.code not in portfolio.entry_dates:
+                        portfolio.entry_dates[order.code] = bar.date
                     order.status = "filled"
 
                     trade = Trade(
@@ -393,12 +397,15 @@ class BacktestEngine:
                 stamp_tax = revenue * self._config.stamp_tax_rate
 
                 entry_price = portfolio.avg_prices.get(order.code, fill_price)
+                entry_date = portfolio.entry_dates.get(order.code)
 
                 portfolio.cash += revenue - commission - stamp_tax
                 portfolio.positions[order.code] = current_pos - actual_vol
                 if portfolio.positions[order.code] == 0:
                     del portfolio.positions[order.code]
                     del portfolio.avg_prices[order.code]
+                    if order.code in portfolio.entry_dates:
+                        del portfolio.entry_dates[order.code]
 
                 if actual_vol < order.volume:
                     order.status = "partial"
@@ -414,6 +421,7 @@ class BacktestEngine:
                     order_id=order.order_id,
                     datetime=bar.date,
                     entry_price=entry_price,
+                    entry_date=entry_date,
                 )
                 strategy.record_trade(trade)
 
@@ -447,12 +455,13 @@ class BacktestEngine:
             if dd > max_dd:
                 max_dd = dd
 
-        # 日收益率序列
+        # 日收益率序列（防御除零）
         daily_returns = []
         if len(equities) > 1:
             daily_returns = [
                 (equities[i] - equities[i - 1]) / equities[i - 1]
                 for i in range(1, len(equities))
+                if equities[i - 1] > 0
             ]
 
         # 夏普比率
@@ -572,3 +581,114 @@ class BacktestEngine:
             trades=[t for t in trades],
             risk_alerts=self._risk_monitor.alerts if self._risk_monitor else [],
         )
+
+
+def monte_carlo_simulation(
+    trades: list[dict],
+    simulations: int = 1000,
+    seed: Optional[int] = None,
+) -> dict:
+    """蒙特卡洛模拟
+
+    通过随机打乱交易顺序来模拟策略的稳健性。
+
+    Args:
+        trades: 交易记录列表（必须包含 direction, price, entry_price 字段）
+        simulations: 模拟次数
+        seed: 随机种子（可选，用于复现结果）
+
+    Returns:
+        模拟结果字典，包含：
+        - final_returns: 最终收益率分布
+        - mean: 平均收益率
+        - percentiles: 分位数（5%, 25%, 50%, 75%, 95%）
+        - ruin_prob: 破产概率（亏损超过50%）
+        - histogram: 直方图数据
+    """
+    import random
+
+    # 使用局部 Random 实例，避免修改全局 random state
+    rng = random.Random(seed) if seed is not None else random.Random()
+
+    # 提取卖出交易的收益率
+    sell_trades = [
+        t for t in trades
+        if t.get("direction") == "short" and t.get("entry_price", 0) > 0
+    ]
+
+    if len(sell_trades) < 3:
+        return {
+            "error": "交易次数不足，至少需要3笔卖出交易",
+            "final_returns": [],
+            "mean": 0,
+            "percentiles": {},
+            "ruin_prob": 0,
+            "histogram": {"bins": [], "counts": []},
+        }
+
+    pnls = [
+        (t["price"] - t["entry_price"]) / t["entry_price"]
+        for t in sell_trades
+    ]
+
+    final_returns = []
+
+    for _ in range(simulations):
+        # 随机打乱交易顺序（使用局部 rng 实例）
+        shuffled = pnls.copy()
+        rng.shuffle(shuffled)
+
+        # 计算累积收益
+        cumulative = 1.0
+        for pnl in shuffled:
+            cumulative *= (1 + pnl)
+
+        final_returns.append((cumulative - 1) * 100)
+
+    # 排序
+    final_returns.sort()
+
+    # 计算统计指标
+    mean = sum(final_returns) / simulations
+    p5 = final_returns[int(simulations * 0.05)]
+    p25 = final_returns[int(simulations * 0.25)]
+    p50 = final_returns[int(simulations * 0.50)]
+    p75 = final_returns[int(simulations * 0.75)]
+    p95 = final_returns[int(simulations * 0.95)]
+    ruin_count = sum(1 for r in final_returns if r < -50)
+    ruin_prob = (ruin_count / simulations) * 100
+
+    # 构建直方图
+    bin_count = 30
+    min_r = final_returns[0]
+    max_r = final_returns[-1]
+    bin_width = (max_r - min_r) / bin_count if max_r > min_r else 1.0
+
+    bins = []
+    counts = [0] * bin_count
+    for i in range(bin_count):
+        lo = min_r + i * bin_width
+        hi = lo + bin_width
+        bins.append(round((lo + hi) / 2, 1))
+
+    for r in final_returns:
+        idx = min(int((r - min_r) / bin_width), bin_count - 1)
+        counts[idx] += 1
+
+    return {
+        "final_returns": final_returns,
+        "mean": round(mean, 2),
+        "percentiles": {
+            "p5": round(p5, 2),
+            "p25": round(p25, 2),
+            "p50": round(p50, 2),
+            "p75": round(p75, 2),
+            "p95": round(p95, 2),
+        },
+        "ruin_prob": round(ruin_prob, 2),
+        "simulations": simulations,
+        "histogram": {
+            "bins": [str(b) for b in bins],
+            "counts": counts,
+        },
+    }

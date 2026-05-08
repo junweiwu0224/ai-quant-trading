@@ -111,7 +111,7 @@ const Strategy = {
         overlay.className = 'modal-overlay';
 
         overlay.innerHTML = `
-            <div class="modal" style="max-width:800px;width:95vw">
+            <div class="modal" style="max-width:800px;width:95vw" role="dialog" aria-modal="true" aria-label="${isNew ? '新建代码策略' : '编辑策略代码'}">
                 <h2>${isNew ? '新建代码策略' : '编辑策略代码 — ' + App.escapeHTML(name)}</h2>
                 ${isNew ? `<div class="form-group" style="margin-bottom:12px">
                     <label>策略名称（英文标识）</label>
@@ -140,6 +140,10 @@ const Strategy = {
         `;
 
         document.body.appendChild(overlay);
+
+        // Focus first interactive element
+        const firstInput = overlay.querySelector('input, textarea');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
 
         const editor = overlay.querySelector('#modal-code-editor');
         const statusEl = overlay.querySelector('#modal-code-status');
@@ -263,7 +267,7 @@ const Strategy = {
                </div>`;
 
         overlay.innerHTML = `
-            <div class="modal">
+            <div class="modal" role="dialog" aria-modal="true" aria-label="${App.escapeHTML(title)}">
                 <h2>${App.escapeHTML(title)}</h2>
                 ${isNew ? `<div class="form-group" style="margin-bottom:12px">
                     <label>策略名称（英文标识）</label>
@@ -286,6 +290,10 @@ const Strategy = {
         `;
 
         document.body.appendChild(overlay);
+
+        // Focus first interactive element
+        const firstInput = overlay.querySelector('input, textarea, select');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
 
         // 关闭
         overlay.querySelector('#modal-st-cancel').addEventListener('click', () => overlay.remove());

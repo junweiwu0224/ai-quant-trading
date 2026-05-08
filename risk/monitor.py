@@ -1,6 +1,6 @@
 """风险监控"""
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -62,6 +62,7 @@ class RiskMonitor:
         self._daily_start_equity: float = 0.0
         self._current_date: Optional[date] = None
         self._alerts: list[RiskAlert] = []
+        self._alert_callback = None
 
     @property
     def alerts(self) -> list[RiskAlert]:
@@ -206,6 +207,14 @@ class RiskMonitor:
             message=message, value=value, threshold=threshold,
         )
         self._alerts.append(alert)
+        # 保留最近 30 天的告警，防止无限增长
+        cutoff = current_date - timedelta(days=30)
+        self._alerts = [a for a in self._alerts if a.date >= cutoff]
+        if self._alert_callback:
+            try:
+                self._alert_callback(alert)
+            except Exception as e:
+                logger.error(f"风控告警回调异常: {e}")
         if level == AlertLevel.CRITICAL:
             logger.error(f"[风控] {message}")
         else:

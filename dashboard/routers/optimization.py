@@ -3,7 +3,7 @@ import asyncio
 import json
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel
 
@@ -15,17 +15,9 @@ from engine.optimization_engine import (
     optuna_search,
     sensitivity_analysis,
 )
-from strategy.dual_ma import DualMAStrategy
-from strategy.bollinger import BollingerStrategy
-from strategy.momentum import MomentumStrategy
+from strategy.strategies import STRATEGIES
 
 router = APIRouter()
-
-STRATEGIES = {
-    "dual_ma": DualMAStrategy,
-    "bollinger": BollingerStrategy,
-    "momentum": MomentumStrategy,
-}
 
 
 class OptimizeRequest(BaseModel):
@@ -39,7 +31,7 @@ class OptimizeRequest(BaseModel):
     slippage: float = 0.002
     metric: str = "sharpe_ratio"
     method: str = "grid_search"
-    n_trials: int = 50
+    n_trials: int = Query(default=50, ge=1, le=200)
     param_ranges: Optional[dict] = None
 
 
@@ -127,7 +119,7 @@ async def run_sensitivity(req: SensitivityRequest):
         slippage=req.slippage,
     )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, lambda: sensitivity_analysis(
         strategy_cls, param_ranges, req.codes,
         req.start_date, req.end_date, config,
@@ -172,14 +164,14 @@ async def ws_optimization(ws: WebSocket):
 
         def on_progress(progress):
             try:
-                asyncio.get_event_loop().create_task(ws.send_json({
+                asyncio.get_running_loop().create_task(ws.send_json({
                     "type": "progress",
                     "progress": round(progress, 4),
                 }))
             except Exception:
                 pass
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if method == "optuna":
             result = await loop.run_in_executor(None, lambda: optuna_search(

@@ -53,7 +53,10 @@ async def get_broker_types():
 @router.get("")
 async def get_config():
     """获取当前券商配置"""
-    return _load_config()
+    config = _load_config()
+    if config.get("auth_code"):
+        config["auth_code"] = "***"
+    return config
 
 
 @router.put("")
@@ -62,7 +65,11 @@ async def update_config(req: BrokerConfig):
     data = req.model_dump()
     _save_config(data)
     logger.info(f"券商配置已更新: broker_type={data['broker_type']}")
-    return {"message": "配置已保存", "config": data}
+    # 返回时 mask auth_code，防止凭据泄露
+    response_data = data.copy()
+    if response_data.get("auth_code"):
+        response_data["auth_code"] = "***"
+    return {"message": "配置已保存", "config": response_data}
 
 
 @router.post("/test")

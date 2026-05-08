@@ -1,0 +1,147 @@
+/* ── 模拟盘完整功能样式 ── */
+
+/* 订单面板 */
+.pt-qty-btns {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.pt-qty-btn {
+    padding: 0.125rem 0.375rem;
+    font-size: 0.75rem;
+}
+
+/* 热力图 */
+.heatmap-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.heatmap-cell {
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+    text-align: center;
+    color: white;
+    font-weight: 500;
+}
+
+.heatmap-month {
+    font-size: 0.75rem;
+    opacity: 0.9;
+    margin-bottom: 0.25rem;
+}
+
+.heatmap-value {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+/* 徽章 */
+.badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.badge-warning {
+    background-color: rgba(234, 179, 8, 0.1);
+    color: #eab308;
+}
+
+.badge-success {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+
+.badge-danger {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+/* 分页 */
+.mt-md {
+    margin-top: 0.75rem;
+}
+
+.mx-sm {
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+}
+
+/* 表单控件 */
+.form-control {
+    display: block;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-text, #1f2937);
+    background-color: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: 0.375rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    border-color: var(--color-primary, #3b82f6);
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+}
+
+.form-control-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* 按钮样式补充 */
+.btn-danger {
+    background-color: var(--color-danger, #ef4444);
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background-color: var(--color-danger-hover, #dc2626);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .stats-grid-6 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .form-row {
+        flex-direction: column;
+    }
+
+    .form-group {
+        width: 100%;
+    }
+
+    .heatmap-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+    .stats-grid-6 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (min-width: 1025px) {
+    .stats-grid-6 {
+        grid-template-columns: repeat(6, 1fr);
+    }
+}

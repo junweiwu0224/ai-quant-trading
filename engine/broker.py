@@ -1,4 +1,5 @@
 """券商网关接口"""
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -128,6 +129,7 @@ class SimulatedBroker(BrokerGateway):
         self._order_counter = 0
         self._connected = False
         self._prices: dict[str, float] = {}  # 模拟价格
+        self._lock = threading.Lock()
 
     def connect(self) -> bool:
         self._connected = True
@@ -186,64 +188,69 @@ class SimulatedBroker(BrokerGateway):
         price: float,
         volume: int,
     ) -> OrderResult:
-        if not self._connected:
-            return self._reject(code, side, price, volume, "未连接")
+        with self._lock:
+            if not self._connected:
+                return self._reject(code, side, price, volume, "未连接")
 
-        self._order_counter += 1
-        order_id = f"SIM-{self._order_counter:06d}"
+            # A 股最小交易单位 100 股
+            if volume <= 0 or volume % 100 != 0:
+                return self._reject(code, side, price, volume, "交易量必须是100的整数倍")
 
-        if side == OrderSide.BUY:
-            cost = price * volume
-            commission = max(cost * 0.0003, 5.0)
-            if self._cash < cost + commission:
-                return self._reject(code, side, price, volume, "资金不足")
+            self._order_counter += 1
+            order_id = f"SIM-{self._order_counter:06d}"
 
-            self._cash -= cost + commission
-            pos = self._positions.get(code, {"volume": 0, "avg_price": 0, "available": 0})
-            old_vol = pos["volume"]
-            new_vol = old_vol + volume
-            new_avg = (pos["avg_price"] * old_vol + price * volume) / new_vol
-            self._positions[code] = {
-                "volume": new_vol,
-                "avg_price": new_avg,
-                "available": pos["available"],  # T+1，当日买入不可卖
-            }
+            if side == OrderSide.BUY:
+                cost = price * volume
+                commission = max(cost * 0.0003, 5.0)
+                if self._cash < cost + commission:
+                    return self._reject(code, side, price, volume, "资金不足")
 
-            result = OrderResult(
-                order_id=order_id, code=code, side=side,
-                price=price, volume=volume,
-                status=OrderStatus.FILLED,
-                filled_volume=volume, filled_price=price,
-            )
+                self._cash -= cost + commission
+                pos = self._positions.get(code, {"volume": 0, "avg_price": 0, "available": 0})
+                old_vol = pos["volume"]
+                new_vol = old_vol + volume
+                new_avg = (pos["avg_price"] * old_vol + price * volume) / new_vol
+                self._positions[code] = {
+                    "volume": new_vol,
+                    "avg_price": new_avg,
+                    "available": pos["available"],  # T+1，当日买入不可卖
+                }
 
-        elif side == OrderSide.SELL:
-            pos = self._positions.get(code)
-            if not pos or pos["available"] <= 0:
-                return self._reject(code, side, price, volume, "无可卖持仓")
+                result = OrderResult(
+                    order_id=order_id, code=code, side=side,
+                    price=price, volume=volume,
+                    status=OrderStatus.FILLED,
+                    filled_volume=volume, filled_price=price,
+                )
 
-            actual_vol = min(volume, pos["available"])
-            revenue = price * actual_vol
-            commission = max(revenue * 0.0003, 5.0)
-            stamp_tax = revenue * 0.001
+            elif side == OrderSide.SELL:
+                pos = self._positions.get(code)
+                if not pos or pos["available"] <= 0:
+                    return self._reject(code, side, price, volume, "无可卖持仓")
 
-            self._cash += revenue - commission - stamp_tax
-            pos["volume"] -= actual_vol
-            pos["available"] -= actual_vol
-            if pos["volume"] <= 0:
-                del self._positions[code]
+                actual_vol = min(volume, pos["available"])
+                revenue = price * actual_vol
+                commission = max(revenue * 0.0003, 5.0)
+                stamp_tax = revenue * 0.001
 
-            result = OrderResult(
-                order_id=order_id, code=code, side=side,
-                price=price, volume=volume,
-                status=OrderStatus.FILLED if actual_vol >= volume else OrderStatus.PARTIAL,
-                filled_volume=actual_vol, filled_price=price,
-            )
-        else:
-            return self._reject(code, side, price, volume, "未知方向")
+                self._cash += revenue - commission - stamp_tax
+                pos["volume"] -= actual_vol
+                pos["available"] -= actual_vol
+                if pos["volume"] <= 0:
+                    del self._positions[code]
 
-        self._orders[order_id] = result
-        logger.info(f"[模拟券商] {side.value} {code} {volume}股@{price} → {result.status.value}")
-        return result
+                result = OrderResult(
+                    order_id=order_id, code=code, side=side,
+                    price=price, volume=volume,
+                    status=OrderStatus.FILLED if actual_vol >= volume else OrderStatus.PARTIAL,
+                    filled_volume=actual_vol, filled_price=price,
+                )
+            else:
+                return self._reject(code, side, price, volume, "未知方向")
+
+            self._orders[order_id] = result
+            logger.info(f"[模拟券商] {side.value} {code} {volume}股@{price} → {result.status.value}")
+            return result
 
     def cancel_order(self, order_id: str) -> bool:
         order = self._orders.get(order_id)

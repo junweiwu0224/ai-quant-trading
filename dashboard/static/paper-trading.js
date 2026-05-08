@@ -45,21 +45,14 @@ const PaperTrading = {
     },
 
     _showSkeletons() {
-        // 统计卡片
-        const statsEl = document.querySelector('#tab-paper .stats-grid');
-        if (statsEl) statsEl.innerHTML = Utils.skeletonCards(6);
-        // 订单表格
-        const orderBody = document.querySelector('#pt-orders-table tbody');
-        if (orderBody) orderBody.innerHTML = `<tr><td colspan="8">${Utils.skeletonRows(3, 8)}</td></tr>`;
-        // 持仓表格
-        const posBody = document.querySelector('#pt-positions-table tbody');
-        if (posBody) posBody.innerHTML = `<tr><td colspan="8">${Utils.skeletonRows(3, 8)}</td></tr>`;
-        // 绩效卡片
-        const perfEl = document.getElementById('pt-performance-stats');
-        if (perfEl) perfEl.innerHTML = Utils.skeletonCards(12);
-        // 图表
-        document.querySelectorAll('#tab-paper .chart-container').forEach(el => {
-            el.innerHTML = Utils.skeletonChart(15);
+        document.querySelectorAll('#tab-paper .stat-value').forEach(el => {
+            el.classList.add('skeleton-text');
+        });
+    },
+
+    _hideSkeletons() {
+        document.querySelectorAll('#tab-paper .stat-value.skeleton-text').forEach(el => {
+            el.classList.remove('skeleton-text');
         });
     },
 
@@ -687,6 +680,7 @@ const PaperTrading = {
     },
 
     renderStatus() {
+        this._hideSkeletons();
         const statusEl = document.getElementById('pt-status');
         const equityEl = document.getElementById('pt-equity');
         const posCountEl = document.getElementById('pt-pos-count');
@@ -731,18 +725,6 @@ const PaperTrading = {
         this.loadEquityCurve();
         this.loadTrades();
         this.loadRiskEvents();
-    },
-
-    // ────────────── 工具方法 ──────────────
-
-    formatMoney(value) {
-        if (value == null) return '--';
-        return '¥' + value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    },
-
-    formatPercent(value) {
-        if (value == null) return '--';
-        return (value * 100).toFixed(2) + '%';
     },
 };
 

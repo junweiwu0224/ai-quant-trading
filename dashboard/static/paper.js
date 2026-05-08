@@ -82,46 +82,21 @@ const Paper = {
     },
 
     async loadStatus() {
-        try {
-            const data = await App.fetchJSON('/api/paper/status');
-            const statusEl = document.getElementById('pp-status');
-            const equityEl = document.getElementById('pp-equity');
-            const posCountEl = document.getElementById('pp-pos-count');
-            const tradeCountEl = document.getElementById('pp-trade-count');
+        // 委托给 PaperTrading 模块统一管理状态渲染
+        if (typeof PaperTrading !== 'undefined' && PaperTrading.loadStatus) {
+            await PaperTrading.loadStatus();
+            // 同步启动/停止按钮状态
             const startBtn = document.getElementById('pp-start-btn');
             const stopBtn = document.getElementById('pp-stop-btn');
-
-            if (statusEl) {
-                statusEl.textContent = data.running ? '运行中' : '已停止';
-                statusEl.className = 'stat-value ' + (data.running ? 'text-success' : '');
-            }
-            if (equityEl) equityEl.textContent = data.equity != null ? App.fmt(data.equity) : '--';
-            if (posCountEl) posCountEl.textContent = Object.keys(data.positions || {}).length;
-            if (tradeCountEl) tradeCountEl.textContent = data.trade_count || 0;
-
-            if (startBtn) startBtn.disabled = data.running;
-            if (stopBtn) stopBtn.disabled = !data.running;
-
-            if (data.running && !this._pollInterval) {
-                this._startPolling();
-            } else if (!data.running && this._pollInterval) {
-                this._stopPolling();
-            }
-
-            // 运行中时刷新交易历史和权益曲线
-            if (data.running) {
-                this.loadTrades();
-                this.loadEquityCurve();
-            }
-        } catch (e) {
-            // silent
+            if (startBtn) startBtn.disabled = PaperTrading.state.isRunning;
+            if (stopBtn) stopBtn.disabled = !PaperTrading.state.isRunning;
         }
     },
 
     async loadTrades() {
         try {
             const data = await App.fetchJSON('/api/paper/trades');
-            const tbody = document.querySelector('#pp-trades-table tbody');
+            const tbody = document.querySelector('#pt-trades-table tbody');
             if (!tbody) return;
 
             if (!data.trades || data.trades.length === 0) {
@@ -131,8 +106,9 @@ const Paper = {
 
             tbody.innerHTML = data.trades.slice(-50).reverse().map(t => {
                 const time = t.time ? new Date(t.time).toLocaleTimeString('zh-CN') : '--';
-                const dir = t.direction === 'long' ? '买入' : '卖出';
-                const dirClass = t.direction === 'long' ? 'text-up' : 'text-down';
+                const isBuy = t.direction === 'long' || t.direction === 'buy';
+                const dir = isBuy ? '买入' : '卖出';
+                const dirClass = isBuy ? 'text-up' : 'text-down';
                 return `<tr>
                     <td>${time}</td>
                     <td>${App.escapeHTML(t.code)}</td>
@@ -152,7 +128,7 @@ const Paper = {
             const data = await App.fetchJSON('/api/paper/equity-curve');
             if (!data.curve || data.curve.length < 2) return;
 
-            const canvas = document.getElementById('pp-equity-chart');
+            const canvas = document.getElementById('pt-equity-chart');
             if (!canvas) return;
 
             const labels = data.curve.map((p, i) => i + 1);
@@ -208,7 +184,7 @@ const Paper = {
     },
 
     _clearTrades() {
-        const tbody = document.querySelector('#pp-trades-table tbody');
+        const tbody = document.querySelector('#pt-trades-table tbody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center">暂无交易记录</td></tr>';
     },
 
@@ -220,11 +196,15 @@ const Paper = {
     },
 
     _startPolling() {
-        this._stopPolling();
-        PollManager.register('paperStatus', () => this.loadStatus(), 5000);
+        // PaperTrading 模块已管理轮询，此处仅确保其启动
+        if (typeof PaperTrading !== 'undefined' && PaperTrading.startPolling) {
+            PaperTrading.startPolling();
+        }
     },
 
     _stopPolling() {
-        PollManager.cancel('paperStatus');
+        if (typeof PaperTrading !== 'undefined' && PaperTrading.stopPolling) {
+            PaperTrading.stopPolling();
+        }
     },
 };

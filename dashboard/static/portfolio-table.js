@@ -107,7 +107,11 @@ Object.assign(App, {
         select.value = current;
     },
 
+    _pfTableEventsBound: false,
+
     _pfBindTableEvents() {
+        if (this._pfTableEventsBound) return;
+
         const searchInput = document.getElementById('pf-search');
         if (searchInput) {
             searchInput.addEventListener('input', () => {
@@ -136,5 +140,7 @@ Object.assign(App, {
                 this._pfRenderTable();
             });
         });
+
+        this._pfTableEventsBound = true;
     },
 });

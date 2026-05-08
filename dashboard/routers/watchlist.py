@@ -1,5 +1,7 @@
 """自选股管理 API"""
+import requests
 from fastapi import APIRouter, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 
 from data.storage.storage import DataStorage
@@ -7,6 +9,48 @@ from data.collector.quote_service import get_quote_service
 
 router = APIRouter()
 storage = DataStorage()
+
+_DATACENTER_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+_DATACENTER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://emweb.securities.eastmoney.com/",
+}
+
+
+def _fetch_industry_batch(codes: list[str]) -> dict[str, dict[str, str]]:
+    """从东方财富 F10 API 批量获取股票分类，返回 {code: {industry, sector, concepts}}"""
+    if not codes:
+        return {}
+    try:
+        code_list = ",".join(f'"{c}"' for c in codes)
+        params = {
+            "reportName": "RPT_F10_BASIC_ORGINFO",
+            "columns": "SECURITY_CODE,INDUSTRYCSRC1,BOARD_NAME_LEVEL",
+            "filter": f"(SECURITY_CODE in ({code_list}))",
+            "pageSize": len(codes),
+            "pageNumber": 1,
+            "source": "HSF10",
+            "client": "PC",
+        }
+        resp = requests.get(_DATACENTER_URL, params=params, headers=_DATACENTER_HEADERS, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        result = {}
+        for row in (data.get("result", {}) or {}).get("data", []) or []:
+            code = row.get("SECURITY_CODE", "")
+            if not code:
+                continue
+            industry = row.get("INDUSTRYCSRC1", "")
+            board_level = row.get("BOARD_NAME_LEVEL", "")
+            # BOARD_NAME_LEVEL 格式: "一级分类-二级分类-三级分类"
+            parts = [p.strip() for p in board_level.split("-") if p.strip()] if board_level else []
+            sector = parts[1] if len(parts) >= 2 else ""
+            concepts = parts[2] if len(parts) >= 3 else ""
+            result[code] = {"industry": industry, "sector": sector, "concepts": concepts}
+        return result
+    except Exception as e:
+        logger.warning(f"获取行业数据失败: {e}")
+        return {}
 
 
 class AddWatchlistRequest(BaseModel):
@@ -17,6 +61,43 @@ class AddWatchlistRequest(BaseModel):
 async def get_watchlist():
     """获取自选股列表（含名称、行业、最新价、数据日期、概念、板块）"""
     stocks = storage.get_watchlist_with_info()
+
+    # 对行业为空的股票，从东方财富 F10 API 补充行业/板块/概念数据
+    empty_codes = [s["code"] for s in stocks if not s.get("industry")]
+    if empty_codes:
+        info_map = _fetch_industry_batch(empty_codes)
+        if info_map:
+            for s in stocks:
+                info = info_map.get(s["code"])
+                if info:
+                    if info.get("industry"):
+                        s["industry"] = info["industry"]
+                    if info.get("sector"):
+                        s["sector"] = info["sector"]
+                    if info.get("concepts"):
+                        s["concepts"] = [info["concepts"]]
+            # 持久化行业到 stock_info 表
+            try:
+                industry_only = {k: v["industry"] for k, v in info_map.items() if v.get("industry")}
+                if industry_only:
+                    storage.update_stock_industry(industry_only)
+            except Exception as e:
+                logger.warning(f"更新 stock_info 行业数据失败: {e}")
+
+    # 补充板块/概念为空的股票（push2 stock/get 暂不可用时）
+    sector_empty = [s["code"] for s in stocks if not s.get("sector")]
+    if sector_empty:
+        info_map = _fetch_industry_batch(sector_empty)
+        for s in stocks:
+            info = info_map.get(s["code"])
+            if info:
+                if not s.get("industry") and info.get("industry"):
+                    s["industry"] = info["industry"]
+                if not s.get("sector") and info.get("sector"):
+                    s["sector"] = info["sector"]
+                if not s.get("concepts") and info.get("concepts"):
+                    s["concepts"] = [info["concepts"]]
+
     # 合并实时行情数据
     try:
         qs = get_quote_service()
@@ -25,9 +106,12 @@ async def get_watchlist():
             if q:
                 s["price"] = q.price
                 s["change_pct"] = q.change_pct
-                s["industry"] = q.industry or s.get("industry", "")
-                s["sector"] = q.sector or ""
-                s["concepts"] = q.concepts.split(",") if q.concepts else []
+                if q.industry:
+                    s["industry"] = q.industry
+                if q.sector:
+                    s["sector"] = q.sector
+                if q.concepts:
+                    s["concepts"] = q.concepts.split(",")
     except Exception:
         pass
     return stocks

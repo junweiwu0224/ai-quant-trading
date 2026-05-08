@@ -185,6 +185,31 @@ class DataStorage:
         finally:
             session.close()
 
+    def update_stock_industry(self, industry_map: dict[str, str]) -> int:
+        """批量更新股票行业信息，industry_map: {code: industry}"""
+        if not industry_map:
+            return 0
+        session = self._get_session()
+        try:
+            count = 0
+            for code, industry in industry_map.items():
+                existing = session.get(StockInfo, code)
+                if existing:
+                    existing.industry = industry
+                    count += 1
+                else:
+                    session.add(StockInfo(code=code, name="", industry=industry, list_date=""))
+                    count += 1
+            session.commit()
+            logger.info(f"更新 {count} 条行业数据")
+            return count
+        except Exception as e:
+            session.rollback()
+            logger.error(f"更新行业数据失败: {e}")
+            raise
+        finally:
+            session.close()
+
     def get_stock_daily(
         self,
         code: str,

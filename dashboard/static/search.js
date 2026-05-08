@@ -93,7 +93,6 @@ class SearchBox {
 
     setDataSource(fn) { this._dataSource = fn; }
     onSelect(callback) { this._onSelect = callback; }
-    getValue() { return this.trigger.value.trim(); }
     setValue(val) { this.trigger.value = val; }
 
     open() {

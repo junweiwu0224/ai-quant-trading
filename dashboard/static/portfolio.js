@@ -46,6 +46,7 @@ Object.assign(App, {
             this._pf.equityHistory = equityHistory;
 
             this._pfRenderAll();
+            this._hidePortfolioSkeletons();
             this._pfUpdateTime();
             this._pfBindTableEvents();
         } catch (e) {
@@ -57,15 +58,14 @@ Object.assign(App, {
     },
 
     _showPortfolioSkeletons() {
-        // 统计卡片
-        const statsEl = document.querySelector('#tab-portfolio .stats-grid');
-        if (statsEl) statsEl.innerHTML = Utils.skeletonCards(9);
-        // 持仓表格
-        const tableBody = document.querySelector('#pf-positions-table tbody');
-        if (tableBody) tableBody.innerHTML = `<tr><td colspan="10">${Utils.skeletonRows(5, 10)}</td></tr>`;
-        // 图表区域
-        document.querySelectorAll('#tab-portfolio .chart-container').forEach(el => {
-            el.innerHTML = Utils.skeletonChart(15);
+        document.querySelectorAll('#tab-portfolio .stat-value').forEach(el => {
+            el.classList.add('skeleton-text');
+        });
+    },
+
+    _hidePortfolioSkeletons() {
+        document.querySelectorAll('#tab-portfolio .stat-value.skeleton-text').forEach(el => {
+            el.classList.remove('skeleton-text');
         });
     },
 

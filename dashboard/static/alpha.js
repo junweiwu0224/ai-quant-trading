@@ -236,8 +236,9 @@ Object.assign(App, {
         const topFactors = data.filter(f => f.quantile_returns && f.quantile_returns.length > 0);
         if (topFactors.length > 0) {
             const first = topFactors[0];
+            const n = first.quantile_returns.length;
             ChartFactory.bar('alpha-quantile-chart', {
-                labels: labels.slice(0, first.quantile_returns.length),
+                labels: Array.from({ length: n }, (_, i) => `Q${i + 1}`),
                 values: first.quantile_returns,
             }, 'quantile');
         }

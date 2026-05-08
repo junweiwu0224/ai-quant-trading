@@ -147,6 +147,8 @@ def _fetch(url: str) -> dict:
 
 def _fmt_cap(v: float) -> str:
     """格式化市值"""
+    if not v or v == 0:
+        return "--"
     if v >= 1e12:
         return f"{v/1e12:.2f}万亿"
     if v >= 1e8:
@@ -158,7 +160,7 @@ def _fmt_cap(v: float) -> str:
 
 @router.get("/kline/{code}")
 async def get_kline(code: str, period: str = "daily", count: int = 120):
-    """获取 K 线数据"""
+    """获取 K 线数据（push2his 优先，腾讯回退）"""
     code = _validate_code(code)
     cache_key = f"kline:{code}:{period}:{count}"
     cached = _cache_get(cache_key)
@@ -171,21 +173,23 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
     }
     klt = klt_map.get(period, 101)
     secid = _secid(code)
-    url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        f"?secid={secid}"
-        f"&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
-        f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-        f"&klt={klt}&fqt=1&end=20500101&lmt={count}"
-        f"&_={int(time.time()*1000)}"
-    )
+
+    # 尝试 push2his
+    parsed = []
+    name = ""
     try:
+        url = (
+            f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            f"?secid={secid}"
+            f"&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
+            f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+            f"&klt={klt}&fqt=1&end=20500101&lmt={count}"
+            f"&_={int(time.time()*1000)}"
+        )
         data = await _fetch_async(url)
         d = (data.get("data") or {})
         klines = d.get("klines", [])
         name = d.get("name", "")
-
-        parsed = []
         for k in klines:
             parts = k.split(",")
             if len(parts) >= 11:
@@ -202,15 +206,47 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
                     "change": float(parts[9]),
                     "turnover": float(parts[10]),
                 })
-
-        result = {"code": code, "name": name, "period": period, "klines": parsed}
-        _cache_set(cache_key, result, _TTL_KLINE)
-        return result
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"K线数据获取失败: {e}")
-        raise HTTPException(502, f"K线数据获取失败: {e}")
+        logger.warning(f"push2his K线获取失败，尝试腾讯回退: {e}")
+
+    # push2his 失败时回退腾讯 API（仅支持日/周/月）
+    if not parsed and period in ("daily", "weekly", "monthly", "1m", "5m", "15m", "30m", "60m"):
+        try:
+            prefix = "sz" if not code.startswith("6") else "sh"
+            period_map = {"daily": "day", "weekly": "week", "monthly": "month"}
+            tencent_period = period_map.get(period, "day")
+            turl = (
+                f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                f"?param={prefix}{code},{tencent_period},,,{count},qfq"
+            )
+            tdata = await _fetch_async(turl)
+            stock_data = (tdata.get("data") or {}).get(f"{prefix}{code}", {})
+            klines = stock_data.get(f"qfq{tencent_period}") or stock_data.get(tencent_period) or []
+            for k in klines:
+                if len(k) >= 6:
+                    o, c, h, l = float(k[1]), float(k[2]), float(k[3]), float(k[4])
+                    vol = float(k[5])
+                    parsed.append({
+                        "date": k[0],
+                        "open": o,
+                        "close": c,
+                        "high": h,
+                        "low": l,
+                        "volume": vol,
+                        "amount": 0,
+                        "amplitude": round((h - l) / o * 100, 2) if o else 0,
+                        "change_pct": round((c - o) / o * 100, 2) if o else 0,
+                        "change": round(c - o, 2),
+                        "turnover": 0,
+                    })
+            if parsed:
+                logger.info(f"腾讯K线回退成功: {code} {period} -> {len(parsed)} 条")
+        except Exception as e:
+            logger.error(f"腾讯K线回退也失败: {e}")
+
+    result = {"code": code, "name": name, "period": period, "klines": parsed}
+    _cache_set(cache_key, result, _TTL_KLINE)
+    return result
 
 
 @router.get("/timeline/{code}")
@@ -224,7 +260,7 @@ async def get_timeline(code: str):
 
     secid = _secid(code)
     url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        f"https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
         f"?secid={secid}"
         f"&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
         f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
@@ -272,7 +308,7 @@ async def get_capital_flow(code: str, days: int = 20):
 
     secid = _secid(code)
     url = (
-        f"https://push2.eastmoney.com/api/qt/stock/fflow/daykline/get"
+        f"https://push2delay.eastmoney.com/api/qt/stock/fflow/daykline/get"
         f"?secid={secid}"
         f"&fields1=f1,f2,f3,f7"
         f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
@@ -320,7 +356,7 @@ async def get_order_book(code: str):
 
     secid = _secid(code)
     url = (
-        f"https://push2.eastmoney.com/api/qt/stock/get"
+        f"https://push2delay.eastmoney.com/api/qt/stock/get"
         f"?secid={secid}"
         f"&fields=f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,f19,f20,f17,f18,f15,f16,f13,f14,f11,f12"
         f"&_={int(time.time()*1000)}"
@@ -343,11 +379,13 @@ async def get_order_book(code: str):
         result = {"code": code, "bids": bids, "asks": asks}
         _cache_set(cache_key, result, _TTL_QUOTE)
         return result
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"盘口数据获取失败: {e}")
-        raise HTTPException(502, f"盘口数据获取失败: {e}")
+        logger.warning(f"盘口数据获取失败 (push2 stock/get 暂不可用): {e}")
+        # 返回空盘口数据（优雅降级）
+        empty = [{"price": 0, "volume": 0} for _ in range(5)]
+        result = {"code": code, "bids": empty, "asks": empty}
+        _cache_set(cache_key, result, _TTL_QUOTE)
+        return result
 
 
 @router.get("/detail/{code}")
@@ -365,9 +403,20 @@ async def get_stock_detail(code: str):
         if not quote:
             raise HTTPException(404, f"股票 {code} 数据获取失败")
 
+    # 雪球 API 不返回名称，从数据库补充
+    name = quote.name
+    if not name:
+        from data.storage.storage import DataStorage
+        _storage = DataStorage()
+        _df = _storage.get_stock_list()
+        if not _df.empty:
+            _match = _df[_df["code"] == code]
+            if not _match.empty:
+                name = _match.iloc[0].get("name", "")
+
     return {
         "code": quote.code,
-        "name": quote.name,
+        "name": name,
         "price": quote.price,
         "open": quote.open,
         "high": quote.high,
@@ -382,35 +431,35 @@ async def get_stock_detail(code: str):
         "concepts": [c.strip() for c in quote.concepts.split(",") if c.strip()] if quote.concepts else [],
         "market_cap": _fmt_cap(quote.market_cap),
         "circulating_cap": _fmt_cap(quote.circulating_cap),
-        "pe_ratio": round(quote.pe_ratio, 2),
-        "pb_ratio": round(quote.pb_ratio, 2),
-        "turnover_rate": round(quote.turnover_rate, 2),
-        "amplitude": round(quote.amplitude, 2),
-        "volume_ratio": round(quote.volume_ratio, 2),
-        # 新增专业字段
-        "high_52w": round(quote.high_52w, 2),
-        "low_52w": round(quote.low_52w, 2),
-        "avg_volume_5d": round(quote.avg_volume_5d, 0),
-        "avg_volume_10d": round(quote.avg_volume_10d, 0),
-        "eps": round(quote.eps, 2),
-        "bps": round(quote.bps, 2),
+        "pe_ratio": round(quote.pe_ratio, 2) or None,
+        "pb_ratio": round(quote.pb_ratio, 2) or None,
+        "turnover_rate": round(quote.turnover_rate, 2) or None,
+        "amplitude": round(quote.amplitude, 2) or None,
+        "volume_ratio": round(quote.volume_ratio, 2) or None,
+        # 新增专业字段（0 值返回 null 让前端显示 "--"）
+        "high_52w": round(quote.high_52w, 2) or None,
+        "low_52w": round(quote.low_52w, 2) or None,
+        "avg_volume_5d": round(quote.avg_volume_5d, 0) or None,
+        "avg_volume_10d": round(quote.avg_volume_10d, 0) or None,
+        "eps": round(quote.eps, 2) or None,
+        "bps": round(quote.bps, 2) or None,
         "revenue": _fmt_cap(quote.revenue),
-        "revenue_growth": round(quote.revenue_growth, 2),
+        "revenue_growth": round(quote.revenue_growth, 2) or None,
         "net_profit": _fmt_cap(quote.net_profit),
-        "net_profit_growth": round(quote.net_profit_growth, 2),
-        "gross_margin": round(quote.gross_margin, 2),
-        "net_margin": round(quote.net_margin, 2),
-        "roe": round(quote.roe, 2),
-        "debt_ratio": round(quote.debt_ratio, 2),
+        "net_profit_growth": round(quote.net_profit_growth, 2) or None,
+        "gross_margin": round(quote.gross_margin, 2) or None,
+        "net_margin": round(quote.net_margin, 2) or None,
+        "roe": round(quote.roe, 2) or None,
+        "debt_ratio": round(quote.debt_ratio, 2) or None,
         "total_shares": _fmt_cap(quote.total_shares),
         "circulating_shares": _fmt_cap(quote.circulating_shares),
-        "pe_ttm": round(quote.pe_ttm, 2),
-        "ps_ratio": round(quote.ps_ratio, 2),
-        "dividend_yield": round(quote.dividend_yield, 2),
-        "limit_up": round(quote.limit_up, 2),
-        "limit_down": round(quote.limit_down, 2),
-        "outer_volume": round(quote.outer_volume, 0),
-        "inner_volume": round(quote.inner_volume, 0),
+        "pe_ttm": round(quote.pe_ttm, 2) or None,
+        "ps_ratio": round(quote.ps_ratio, 2) or None,
+        "dividend_yield": round(quote.dividend_yield, 2) or None,
+        "limit_up": round(quote.limit_up, 2) or None,
+        "limit_down": round(quote.limit_down, 2) or None,
+        "outer_volume": round(quote.outer_volume, 0) or None,
+        "inner_volume": round(quote.inner_volume, 0) or None,
     }
 
 
@@ -649,14 +698,14 @@ async def get_industry_comparison(code: str):
                 # 分页搜索行业板块（每页100，最多5页=500个板块）
                 for pn in range(1, 6):
                     board_list_url = (
-                        f"https://push2.eastmoney.com/api/qt/clist/get"
+                        f"https://push2delay.eastmoney.com/api/qt/clist/get"
                         f"?pn={pn}&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
                         f"&fltt=2&invt=2&fid=f3&fs=m:90+t:2"
                         f"&fields=f12,f14"
                         f"&_={int(time.time() * 1000)}"
                     )
                     board_data = await _fetch_async(board_list_url)
-                    board_list = board_(data.get("data") or {}).get("diff", [])
+                    board_list = (board_data.get("data") or {}).get("diff", [])
                     if not board_list:
                         break
 
@@ -683,13 +732,13 @@ async def get_industry_comparison(code: str):
                     if len(board_list) < 100:
                         break
             except Exception as e:
-                logger.debug(f"获取板块列表失败: {e}")
+                logger.warning(f"获取板块列表失败: {e}")
 
         # 3. 如果找到了板块，获取成分股
         stocks = []
         if board_code:
             comp_url = (
-                f"https://push2.eastmoney.com/api/qt/clist/get"
+                f"https://push2delay.eastmoney.com/api/qt/clist/get"
                 f"?pn=1&pz=20&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
                 f"&fltt=2&invt=2&fid=f20&fs=b:{board_code}+f:!50"
                 f"&fields=f12,f14,f2,f3,f9,f23,f37,f20"
@@ -697,7 +746,7 @@ async def get_industry_comparison(code: str):
             )
             try:
                 comp_data = await _fetch_async(comp_url)
-                comp_list = comp_(data.get("data") or {}).get("diff", [])
+                comp_list = (comp_data.get("data") or {}).get("diff", [])
 
                 for item in comp_list:
                     s_code = item.get("f12", "")
@@ -815,32 +864,40 @@ _INDEX_MAP = [
 
 @router.get("/market/indices")
 async def market_indices():
-    """主要指数实时行情（并发请求）"""
-    def _fetch_one(name: str, secid: str) -> dict:
-        try:
-            url = (
-                f"https://push2.eastmoney.com/api/qt/stock/get"
-                f"?secid={secid}&fields=f43,f44,f45,f46,f60,f169,f170"
-                f"&_={int(time.time() * 1000)}"
-            )
-            d = _fetch(url).get("data", {})
-            price = d.get("f43", 0) / 100
-            pre_close = d.get("f60", 0) / 100
-            change_pct = d.get("f170", 0) / 100
-            return {
+    """主要指数实时行情（批量请求 ulist.np/get）"""
+    try:
+        secids = ",".join(sid for _, sid in _INDEX_MAP)
+        url = (
+            f"https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+            f"?fields=f2,f3,f4,f12,f14,f15,f16,f17,f18"
+            f"&secids={secids}"
+            f"&_={int(time.time() * 1000)}"
+        )
+        data = _fetch(url)
+        diff = (data.get("data") or {}).get("diff", [])
+
+        # 建立 secid -> name 映射
+        name_map = {sid.split(".")[-1]: name for name, sid in _INDEX_MAP}
+        result_map = {}
+        for item in diff:
+            code = item.get("f12", "")
+            name = name_map.get(code, item.get("f14", ""))
+            price = (item.get("f2") or 0) / 100
+            pre_close = (item.get("f18") or 0) / 100
+            change_pct = (item.get("f3") or 0) / 100
+            result_map[code] = {
                 "name": name,
                 "price": round(price, 2),
                 "change_pct": round(change_pct, 2),
                 "change": round(price - pre_close, 2),
             }
-        except Exception as e:
-            logger.warning(f"获取指数 {name} 失败: {e}")
-            return {"name": name, "price": 0, "change_pct": 0, "change": 0}
 
-    results = await asyncio.gather(
-        *[asyncio.to_thread(_fetch_one, name, sid) for name, sid in _INDEX_MAP]
-    )
-    return list(results)
+        # 按原始顺序返回
+        return [result_map.get(sid.split(".")[-1], {"name": name, "price": 0, "change_pct": 0, "change": 0})
+                for name, sid in _INDEX_MAP]
+    except Exception as e:
+        logger.warning(f"获取指数失败: {e}")
+        return [{"name": name, "price": 0, "change_pct": 0, "change": 0} for name, _ in _INDEX_MAP]
 
 
 @router.get("/market/hot-sectors")
@@ -850,23 +907,20 @@ async def market_hot_sectors():
 
     def _fetch_sectors(fs: str, top: int = 10):
         url = (
-            f"https://push2.eastmoney.com/api/qt/clist/get"
+            f"https://push2delay.eastmoney.com/api/qt/clist/get"
             f"?pn=1&pz={top}&po=1&np=1&fltt=2&invt=2&fid=f3"
-            f"&fs={fs}&fields=f3,f12,f14,f104,f105,f136,f140"
+            f"&fs={fs}&fields=f3,f12,f14,f104,f105"
             f"&_={ts}"
         )
         data = _fetch(url)
         items = (data.get("data") or {}).get("diff", [])
         result = []
         for item in items:
-            leader_code = str(item.get("f140", ""))
             result.append({
                 "name": item.get("f14", ""),
                 "change_pct": round(item.get("f3", 0), 2),
                 "rise_count": item.get("f104", 0),
                 "fall_count": item.get("f105", 0),
-                "leader_code": leader_code,
-                "leader_pct": round(item.get("f136", 0), 2),
             })
         return result
 
@@ -888,23 +942,53 @@ async def market_hot_sectors():
 async def market_stats():
     """市场涨跌家数统计"""
     try:
-        url = (
-            "https://push2.eastmoney.com/api/qt/ulist.np/get"
-            "?fltt=2&fields=f104,f105,f106,f107"
+        ts = int(time.time() * 1000)
+        base = "https://push2delay.eastmoney.com/api/qt"
+        fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+
+        # 涨跌家数
+        url_stats = (
+            f"{base}/ulist.np/get"
+            "?fltt=2&fields=f104,f105,f106"
             "&secids=1.000001,0.399001,0.399006"
-            f"&_={int(time.time() * 1000)}"
+            f"&_={ts}"
         )
-        data = await _fetch_async(url)
-        items = (data.get("data") or {}).get("diff", [])
-        if not items:
-            return {"up_count": 0, "down_count": 0, "flat_count": 0, "limit_up": 0, "limit_down": 0}
-        item = items[0]
+        # 涨停：涨幅榜前100，统计 >= 9.9%
+        url_up = (
+            f"{base}/clist/get"
+            f"?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs={fs}"
+            "&fields=f3"
+            f"&_={ts}"
+        )
+        # 跌停：跌幅榜前100，统计 <= -9.9%
+        url_down = (
+            f"{base}/clist/get"
+            f"?pn=1&pz=100&po=0&np=1&fltt=2&invt=2&fid=f3&fs={fs}"
+            "&fields=f3"
+            f"&_={ts}"
+        )
+
+        stats_data, up_data, down_data = await asyncio.gather(
+            _fetch_async(url_stats),
+            _fetch_async(url_up),
+            _fetch_async(url_down),
+        )
+
+        items = (stats_data.get("data") or {}).get("diff", [])
+        item = items[0] if items else {}
+
+        up_stocks = (up_data.get("data") or {}).get("diff", [])
+        limit_up = sum(1 for s in up_stocks if s.get("f3", 0) >= 9.9)
+
+        down_stocks = (down_data.get("data") or {}).get("diff", [])
+        limit_down = sum(1 for s in down_stocks if s.get("f3", 0) <= -9.9)
+
         return {
             "up_count": item.get("f104", 0),
             "down_count": item.get("f105", 0),
             "flat_count": item.get("f106", 0),
-            "limit_up": item.get("f107", 0),
-            "limit_down": 0,
+            "limit_up": limit_up,
+            "limit_down": limit_down,
         }
     except Exception as e:
         logger.warning(f"获取市场统计失败: {e}")
@@ -913,7 +997,8 @@ async def market_stats():
 
 @router.get("/market/benchmark")
 async def market_benchmark(count: int = 60):
-    """获取沪深300基准收益曲线"""
+    """获取沪深300基准收益曲线（push2his 优先，腾讯回退）"""
+    parsed = []
     try:
         url = (
             "https://push2his.eastmoney.com/api/qt/stock/kline/get"
@@ -924,24 +1009,34 @@ async def market_benchmark(count: int = 60):
             f"&_={int(time.time() * 1000)}"
         )
         data = await _fetch_async(url)
-        klines = (data.get("data") or {}).get("klines", [])
-        if not klines:
-            return []
-
-        parsed = []
-        for k in klines:
+        for k in (data.get("data") or {}).get("klines", []):
             parts = k.split(",")
             if len(parts) >= 3:
                 parsed.append({"date": parts[0], "close": float(parts[2])})
-
-        if not parsed:
-            return []
-
-        base = parsed[0]["close"]
-        return [
-            {"date": p["date"], "return_pct": round((p["close"] - base) / base * 100, 4)}
-            for p in parsed
-        ]
     except Exception as e:
-        logger.warning(f"获取基准数据失败: {e}")
+        logger.warning(f"push2his 基准数据失败，尝试腾讯回退: {e}")
+
+    # 腾讯回退：沪深300 = sh000300
+    if not parsed:
+        try:
+            turl = (
+                f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                f"?param=sh000300,day,,,{count},qfq"
+            )
+            tdata = await _fetch_async(turl)
+            stock = (tdata.get("data") or {}).get("sh000300", {})
+            klines = stock.get("qfqday") or stock.get("day") or []
+            for k in klines:
+                if len(k) >= 3:
+                    parsed.append({"date": k[0], "close": float(k[2])})
+        except Exception as e:
+            logger.warning(f"腾讯基准回退也失败: {e}")
+
+    if not parsed:
         return []
+
+    base = parsed[0]["close"]
+    return [
+        {"date": p["date"], "return_pct": round((p["close"] - base) / base * 100, 4)}
+        for p in parsed
+    ]

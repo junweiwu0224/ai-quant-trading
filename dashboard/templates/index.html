@@ -30,10 +30,6 @@
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span class="nav-text">总览</span>
             </a></li>
-            <li><a href="#stock" class="nav-link" data-tab="stock" role="tab" id="nav-stock" aria-selected="false" aria-controls="tab-stock">
-                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
-                <span class="nav-text">行情</span>
-            </a></li>
             <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
                 <span class="nav-text">回测</span>
@@ -67,10 +63,6 @@
             <li><a href="#overview" class="nav-link active" data-tab="overview" role="tab" id="m-nav-overview" aria-selected="true" aria-controls="tab-overview">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span>
                 <span>总览</span>
-            </a></li>
-            <li><a href="#stock" class="nav-link" data-tab="stock" role="tab" id="m-nav-stock" aria-selected="false" aria-controls="tab-stock">
-                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
-                <span>行情</span>
             </a></li>
             <li><a href="#backtest" class="nav-link" data-tab="backtest" role="tab" id="m-nav-backtest" aria-selected="false" aria-controls="tab-backtest">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7v-7zm4-3h2v10h-2V7zm4 6h2v4h-2v-4z"/></svg></span>
@@ -132,7 +124,15 @@
                 </div>
             </div>
 
-            <!-- Row 2: 市场大盘 -->
+            <!-- Row 2: 市场情绪 -->
+            <div class="card">
+                <h2>市场情绪</h2>
+                <div id="ov-market-stats" class="market-stats-panel">
+                    <div class="loading"><span class="spinner"></span>加载中...</div>
+                </div>
+            </div>
+
+            <!-- Row 3: 市场大盘 -->
             <div class="card market-card">
                 <h2>市场大盘</h2>
                 <div class="market-indices" id="ov-market-indices">
@@ -150,83 +150,7 @@
                 </div>
             </div>
 
-            <!-- Row 3: 资产走势图表 -->
-            <div class="card">
-                <div class="chart-toggle-header">
-                    <h2 id="ov-chart-title">资产走势</h2>
-                    <div class="chart-toggle-btns">
-                        <button class="chart-toggle-btn active" data-mode="equity" onclick="App._switchOverviewChart('equity')" aria-pressed="true">资产走势</button>
-                        <button class="chart-toggle-btn" data-mode="daily" onclick="App._switchOverviewChart('daily')" aria-pressed="false">每日收益</button>
-                        <button class="chart-toggle-btn" data-mode="benchmark" onclick="App._switchOverviewChart('benchmark')" aria-pressed="false">收益对比</button>
-                    </div>
-                </div>
-                <div class="chart-container chart-h-md"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
-            </div>
-
-            <!-- Row 4: 持仓明细 -->
-            <div class="card">
-                <h2>持仓明细</h2>
-                <div class="table-wrap">
-                    <table id="ov-positions-table" class="sortable">
-                        <thead><tr><th data-sort="code">代码</th><th>名称</th><th data-sort="volume">持仓</th><th data-sort="cost">成本价</th><th data-sort="price">现价</th><th data-sort="pnl">浮盈亏</th><th data-sort="pnl-pct">盈亏率</th><th data-sort="weight">仓位占比</th></tr></thead>
-                        <tbody><tr><td colspan="8" class="text-muted">暂无持仓</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Row 5: 双列布局 - 最近交易 + 系统状态 -->
-            <div class="overview-dual-row">
-                <div class="card">
-                    <h2>最近交易</h2>
-                    <div class="table-wrap">
-                        <table id="ov-trades-table">
-                            <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
-                            <tbody><tr><td colspan="5" class="text-muted">暂无交易数据</td></tr></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="card">
-                    <h2>系统状态</h2>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label">数据同步</div>
-                            <div class="stat-value" id="ov-sync-status">--</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">模拟盘</div>
-                            <div class="stat-value" id="ov-paper-status">--</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">AI 模型</div>
-                            <div class="stat-value" id="ov-ai-status">--</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">实时行情</div>
-                            <div class="stat-value" id="ov-quote-status">--</div>
-                        </div>
-                    </div>
-                    <div class="stats-grid mt-sm">
-                        <div class="stat-card">
-                            <div class="stat-label">数据库股票数</div>
-                            <div class="stat-value" id="ov-stock-count">--</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">最新数据日期</div>
-                            <div class="stat-value" id="ov-latest-date">--</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Row 6: 市场情绪 -->
-            <div class="card">
-                <h2>市场情绪</h2>
-                <div id="ov-market-stats" class="market-stats-panel">
-                    <div class="loading"><span class="spinner"></span>加载中...</div>
-                </div>
-            </div>
-
-            <!-- Row 7: 自选股管理 -->
+            <!-- Row 4: 自选股管理 -->
             <div class="card">
                 <h2>自选股管理 <span class="text-muted" id="ov-stock-hint"></span></h2>
                 <div class="watchlist-add mb-md">
@@ -244,10 +168,74 @@
                 </div>
             </div>
 
+            <!-- Row 5: 资产走势 -->
+            <div class="card">
+                <div class="chart-toggle-header">
+                    <h2 id="ov-chart-title">资产走势</h2>
+                    <div class="chart-toggle-btns">
+                        <button class="chart-toggle-btn active" data-mode="equity" onclick="App._switchOverviewChart('equity')" aria-pressed="true">资产走势</button>
+                        <button class="chart-toggle-btn" data-mode="daily" onclick="App._switchOverviewChart('daily')" aria-pressed="false">每日收益</button>
+                        <button class="chart-toggle-btn" data-mode="benchmark" onclick="App._switchOverviewChart('benchmark')" aria-pressed="false">收益对比</button>
+                    </div>
+                </div>
+                <div class="chart-container chart-h-md"><canvas id="ov-overview-chart" aria-label="总览图表"></canvas></div>
+            </div>
+
+            <!-- Row 6: 持仓明细 -->
+            <div class="card">
+                <h2>持仓明细</h2>
+                <div class="table-wrap">
+                    <table id="ov-positions-table" class="sortable">
+                        <thead><tr><th data-sort="code">代码</th><th>名称</th><th data-sort="volume">持仓</th><th data-sort="cost">成本价</th><th data-sort="price">现价</th><th data-sort="pnl">浮盈亏</th><th data-sort="pnl-pct">盈亏率</th><th data-sort="weight">仓位占比</th></tr></thead>
+                        <tbody><tr><td colspan="8" class="text-muted">暂无持仓</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Row 7: 最近交易 -->
+            <div class="card">
+                <h2>最近交易</h2>
+                <div class="table-wrap">
+                    <table id="ov-trades-table">
+                        <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th></tr></thead>
+                        <tbody><tr><td colspan="5" class="text-muted">暂无交易数据</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Row 8: 系统状态 -->
+            <div class="card">
+                <h2>系统状态</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">模拟盘</div>
+                        <div class="stat-value" id="ov-paper-status">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">AI 模型</div>
+                        <div class="stat-value" id="ov-ai-status">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">实时行情</div>
+                        <div class="stat-value" id="ov-quote-status">--</div>
+                    </div>
+                </div>
+                <div class="stats-grid mt-sm">
+                    <div class="stat-card">
+                        <div class="stat-label">数据库股票数</div>
+                        <div class="stat-value" id="ov-stock-count">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">最新数据日期</div>
+                        <div class="stat-value" id="ov-latest-date">--</div>
+                    </div>
+                </div>
+            </div>
+
         </section>
 
         <!-- Tab: 行情详情 -->
-        <section class="tab-panel" id="tab-stock" role="tabpanel" aria-labelledby="nav-stock">
+        <section class="tab-panel" id="tab-stock" role="tabpanel">
             <div class="page-header"><h1>行情详情</h1></div>
 
             <!-- 股票选择器 -->

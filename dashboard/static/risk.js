@@ -48,6 +48,7 @@ Object.assign(App, {
             this._rk.systemRules = systemRules || [];
 
             this._rkRenderAll();
+            this._hideRiskSkeletons();
         } catch (e) {
             this.toast('风控数据加载失败: ' + e.message, 'error');
         } finally {
@@ -57,16 +58,15 @@ Object.assign(App, {
     },
 
     _showRiskSkeletons() {
-        // 统计卡片
-        const statsEl = document.querySelector('#tab-risk .stats-grid');
-        if (statsEl) statsEl.innerHTML = Utils.skeletonCards(6);
-        // 图表区域
-        document.querySelectorAll('#tab-risk .chart-container').forEach(el => {
-            el.innerHTML = Utils.skeletonChart(15);
+        document.querySelectorAll('#tab-risk .stat-value').forEach(el => {
+            el.classList.add('skeleton-text');
         });
-        // 事件时间线
-        const timeline = document.getElementById('rk-events-timeline');
-        if (timeline) timeline.innerHTML = Utils.skeletonRows(4, 1);
+    },
+
+    _hideRiskSkeletons() {
+        document.querySelectorAll('#tab-risk .stat-value.skeleton-text').forEach(el => {
+            el.classList.remove('skeleton-text');
+        });
     },
 
     _rkRenderAll() {

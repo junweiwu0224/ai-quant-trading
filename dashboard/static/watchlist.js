@@ -6,21 +6,31 @@ const Watchlist = {
     _sortKey: null,
     _sortDir: 'desc',
     _lastData: [],
+    _stockListCache: null,
+    _stockListCacheTime: 0,
+    _STOCK_CACHE_TTL: 5 * 60 * 1000, // 5 分钟
 
     init() {
         this._multiSearch = new MultiSearchBox('watchlist-input', 'watchlist-search-results', 'watchlist-tags', {
-            maxResults: 50,
+            maxResults: 200,
             formatItem: (s) => `${s.code} ${s.name || ''}`,
         });
 
-        // 数据源：服务器端搜索
+        // 数据源：全量股票缓存 5 分钟，搜索关键词实时请求
         this._multiSearch.setDataSource(async (q) => {
-            if (!q) {
-                // 无查询时返回自选股
-                return App.watchlistCache || [];
-            }
-            // 服务器端搜索
             try {
+                if (!q) {
+                    // 无关键词：使用缓存
+                    const now = Date.now();
+                    if (this._stockListCache && (now - this._stockListCacheTime) < this._STOCK_CACHE_TTL) {
+                        return this._stockListCache;
+                    }
+                    const results = await App.fetchJSON('/api/stock/search?q=&limit=6000');
+                    this._stockListCache = results || [];
+                    this._stockListCacheTime = now;
+                    return this._stockListCache;
+                }
+                // 有关键词：实时搜索
                 const results = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`);
                 return results || [];
             } catch (e) {
@@ -29,16 +39,34 @@ const Watchlist = {
             }
         });
 
-        // 监听选择变化：同步到后端
-        this._multiSearch.onToggle = (item, selected) => this._onToggle(item, selected);
+        // 监听选择变化：同步到后端（300ms 防抖）
+        this._multiSearch.onToggle = (item, selected) => this._debouncedToggle(item, selected);
     },
 
-    /** 设置已选中的自选股（从后端加载后调用） */
+    /** 请求去重：同一股票 300ms 内不重复操作 */
+    _debouncedToggle(item, selected) {
+        const key = `${item.code}_${selected}`;
+        if (this._pendingToggle === key) return;
+        this._pendingToggle = key;
+        setTimeout(() => { this._pendingToggle = null; }, 300);
+        this._onToggle(item, selected);
+    },
+
+    /** 设置已选中的自选股（从后端加载后调用，需要 stockCache） */
     setSelected(codes) {
         this._watchlistCodes = new Set(codes);
         if (!this._multiSearch || !App.stockCache) return;
         const items = App.stockCache.filter(s => this._watchlistCodes.has(s.code));
         this._multiSearch.setSelected(items);
+    },
+
+    /** 直接用完整股票数据设置已选中项（不依赖 stockCache） */
+    setSelectedItems(items) {
+        if (!Array.isArray(items)) return;
+        this._watchlistCodes = new Set(items.map(s => s.code));
+        if (this._multiSearch) {
+            this._multiSearch.setSelected(items);
+        }
     },
 
     /** 单个股票切换选中状态 */
@@ -61,12 +89,29 @@ const Watchlist = {
             if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             this._watchlistCodes.add(code);
             RealtimeQuotes.subscribe([code]);
+
+            // 局部更新：追加到本地数据和表格
+            const existing = this._lastData.find(s => s.code === code);
+            if (!existing) {
+                const item = { code, name: data.name || code, industry: '', sector: '', concepts: [], price: null, change_pct: null };
+                this._lastData.push(item);
+                App.watchlistCache = [...this._lastData];
+            }
+            const stockBody = document.querySelector('#ov-stocks-table tbody');
+            const hintEl = document.getElementById('ov-stock-hint');
+            this._renderRows(this._lastData, stockBody, hintEl);
+
+            // 更新 tags
+            if (this._multiSearch) {
+                const items = this._lastData.filter(s => this._watchlistCodes.has(s.code));
+                this._multiSearch.setSelected(items);
+            }
+
             App.toast(`已添加 ${code}`, 'success');
-            // 立即刷新表格
-            App.loadOverview();
-            // 延迟再刷一次，等行情服务拿到行业/板块/概念数据
+
+            // 延迟刷新自选股表格，等行业/板块/概念 enrichment 完成
             clearTimeout(this._refreshTimer);
-            this._refreshTimer = setTimeout(() => App.loadOverview(), 2500);
+            this._refreshTimer = setTimeout(() => this._refreshWatchlistTable(), 2500);
         } catch (e) {
             App.toast('添加失败: ' + e.message, 'error');
         }
@@ -77,11 +122,46 @@ const Watchlist = {
             const res = await fetch(`/api/watchlist/${code}`, { method: 'DELETE' });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             this._watchlistCodes.delete(code);
+
+            // 局部更新：从本地数据移除
+            this._lastData = this._lastData.filter(s => s.code !== code);
+            App.watchlistCache = [...this._lastData];
+
+            // 同步清除 MultiSearchBox 内部选中状态
+            if (this._multiSearch) {
+                this._multiSearch._selected = this._multiSearch._selected.filter(s => s.code !== code);
+                this._multiSearch._renderTags();
+            }
+
             RealtimeQuotes.unsubscribe([code]);
+
+            // 重新渲染表格
+            const stockBody = document.querySelector('#ov-stocks-table tbody');
+            const hintEl = document.getElementById('ov-stock-hint');
+            this._renderRows(this._lastData, stockBody, hintEl);
+
             App.toast(`已移除 ${code}`, 'success');
-            App.loadOverview();
         } catch (e) {
             App.toast('移除失败: ' + e.message, 'error');
+        }
+    },
+
+    /** 仅刷新自选股表格（增删后延迟调用，获取 enrichment 数据） */
+    async _refreshWatchlistTable() {
+        try {
+            const fresh = await App.fetchJSON('/api/watchlist', { silent: true }).catch(() => null);
+            if (!Array.isArray(fresh)) return;
+            this._lastData = fresh;
+            App.watchlistCache = fresh;
+            this._watchlistCodes = new Set(fresh.map(s => s.code));
+            const stockBody = document.querySelector('#ov-stocks-table tbody');
+            const hintEl = document.getElementById('ov-stock-hint');
+            this._renderRows(fresh, stockBody, hintEl);
+            if (this._multiSearch) {
+                this._multiSearch.setSelected(fresh);
+            }
+        } catch (e) {
+            console.warn('自选股表格刷新失败:', e);
         }
     },
 

@@ -256,7 +256,11 @@ def _calc_metrics(history: list[dict]) -> tuple[float, float, float, float]:
     return cum_return, daily_pnl, max_dd, sharpe
 
 
-def _calc_risk_indicators(history: list[dict], lookback_days: int = 60) -> RiskIndicators:
+def _calc_risk_indicators(
+    history: list[dict],
+    lookback_days: int = 60,
+    benchmark_returns: list[float] | None = None,
+) -> RiskIndicators:
     """计算高级风险指标"""
     if len(history) < 10:
         return RiskIndicators()
@@ -297,6 +301,20 @@ def _calc_risk_indicators(history: list[dict], lookback_days: int = 60) -> RiskI
     var_95 = abs(sorted_returns[idx_95]) if sorted_returns else 0
     var_99 = abs(sorted_returns[idx_99]) if sorted_returns else 0
 
+    # Alpha / Beta / Information Ratio (需要基准收益率)
+    alpha = beta = info_ratio = 0.0
+    if benchmark_returns and len(benchmark_returns) >= 5:
+        min_len = min(len(returns), len(benchmark_returns))
+        port = returns[:min_len]
+        bm = benchmark_returns[:min_len]
+        excess = [p - b for p, b in zip(port, bm)]
+        alpha = sum(excess) / len(excess) * 252
+        cov_pb = sum((p - statistics.mean(port)) * (b - statistics.mean(bm)) for b, p in zip(bm, port)) / len(port)
+        var_bm = sum((b - statistics.mean(bm)) ** 2 for b in bm) / len(bm)
+        beta = cov_pb / var_bm if var_bm > 0 else 0
+        te = statistics.stdev(excess) if len(excess) >= 2 else 0
+        info_ratio = (statistics.mean(excess) / te * sqrt(252)) if te > 0 else 0
+
     return RiskIndicators(
         var_95=round(var_95, 4),
         var_99=round(var_99, 4),
@@ -305,16 +323,14 @@ def _calc_risk_indicators(history: list[dict], lookback_days: int = 60) -> RiskI
         sharpe_ratio=round(sharpe, 2),
         sortino_ratio=round(sortino, 2),
         calmar_ratio=round(calmar, 2),
+        beta=round(beta, 2),
+        alpha=round(alpha, 4),
+        information_ratio=round(info_ratio, 2),
     )
 
 
-async def _calc_benchmark_comparison(history: list[dict]) -> BenchmarkComparison:
-    """基准对比（沪深300）"""
-    if len(history) < 2:
-        return BenchmarkComparison()
-
-    portfolio_return = (history[-1]["equity"] - history[0]["equity"]) / history[0]["equity"]
-
+async def _fetch_benchmark_closes(count: int) -> list[float]:
+    """获取沪深300收盘价序列"""
     try:
         import time as _time
         from urllib.request import Request, urlopen
@@ -324,7 +340,7 @@ async def _calc_benchmark_comparison(history: list[dict]) -> BenchmarkComparison
             "?secid=1.000300"
             "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
             "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-            f"&klt=101&fqt=1&end=20500101&lmt={len(history) + 10}"
+            f"&klt=101&fqt=1&end=20500101&lmt={count + 10}"
             f"&_={int(_time.time() * 1000)}"
         )
         req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"})
@@ -336,31 +352,43 @@ async def _calc_benchmark_comparison(history: list[dict]) -> BenchmarkComparison
         data = await asyncio.to_thread(_do)
         klines = data.get("data", {}).get("klines", [])
         if klines and len(klines) >= 2:
-            bm_closes = [float(k.split(",")[2]) for k in klines]
-            benchmark_return = (bm_closes[-1] - bm_closes[0]) / bm_closes[0]
-            excess_return = portfolio_return - benchmark_return
-
-            bm_returns = [(bm_closes[i] - bm_closes[i - 1]) / bm_closes[i - 1]
-                          for i in range(1, len(bm_closes))]
-            eqs = [r["equity"] for r in history]
-            port_returns = [(eqs[i] - eqs[i - 1]) / eqs[i - 1]
-                           for i in range(1, len(eqs)) if eqs[i - 1] > 0]
-            min_len = min(len(port_returns), len(bm_returns))
-            if min_len > 1:
-                excess = [p - b for p, b in zip(port_returns[:min_len], bm_returns[:min_len])]
-                avg_excess = sum(excess) / len(excess)
-                tracking_error = (sum((e - avg_excess) ** 2 for e in excess) / len(excess)) ** 0.5 * (252 ** 0.5)
-            else:
-                tracking_error = 0
-
-            return BenchmarkComparison(
-                benchmark_return=round(benchmark_return, 4),
-                portfolio_return=round(portfolio_return, 4),
-                excess_return=round(excess_return, 4),
-                tracking_error=round(tracking_error, 4),
-            )
+            return [float(k.split(",")[2]) for k in klines]
     except Exception:
         pass
+    return []
+
+
+async def _calc_benchmark_comparison(history: list[dict]) -> BenchmarkComparison:
+    """基准对比（沪深300）"""
+    if len(history) < 2:
+        return BenchmarkComparison()
+
+    portfolio_return = (history[-1]["equity"] - history[0]["equity"]) / history[0]["equity"]
+
+    bm_closes = await _fetch_benchmark_closes(len(history))
+    if bm_closes and len(bm_closes) >= 2:
+        benchmark_return = (bm_closes[-1] - bm_closes[0]) / bm_closes[0]
+        excess_return = portfolio_return - benchmark_return
+
+        bm_returns = [(bm_closes[i] - bm_closes[i - 1]) / bm_closes[i - 1]
+                      for i in range(1, len(bm_closes))]
+        eqs = [r["equity"] for r in history]
+        port_returns = [(eqs[i] - eqs[i - 1]) / eqs[i - 1]
+                       for i in range(1, len(eqs)) if eqs[i - 1] > 0]
+        min_len = min(len(port_returns), len(bm_returns))
+        if min_len > 1:
+            excess = [p - b for p, b in zip(port_returns[:min_len], bm_returns[:min_len])]
+            avg_excess = sum(excess) / len(excess)
+            tracking_error = (sum((e - avg_excess) ** 2 for e in excess) / len(excess)) ** 0.5 * (252 ** 0.5)
+        else:
+            tracking_error = 0
+
+        return BenchmarkComparison(
+            benchmark_return=round(benchmark_return, 4),
+            portfolio_return=round(portfolio_return, 4),
+            excess_return=round(excess_return, 4),
+            tracking_error=round(tracking_error, 4),
+        )
 
     return BenchmarkComparison(portfolio_return=round(portfolio_return, 4))
 
@@ -557,11 +585,12 @@ async def get_portfolio():
         max_single_pct=round(max((p.position_pct for p in positions), default=0), 4),
     )
 
-    # RiskIndicators
+    # RiskIndicators + BenchmarkComparison
     history = await _load_equity_history()
-    risk = _calc_risk_indicators(history)
-
-    # BenchmarkComparison
+    bm_closes = await _fetch_benchmark_closes(len(history))
+    bm_returns = [(bm_closes[i] - bm_closes[i - 1]) / bm_closes[i - 1]
+                  for i in range(1, len(bm_closes))] if bm_closes and len(bm_closes) >= 2 else None
+    risk = _calc_risk_indicators(history, benchmark_returns=bm_returns)
     benchmark = await _calc_benchmark_comparison(history)
 
     # StopLossInfo alerts
@@ -725,7 +754,10 @@ async def get_risk():
 async def get_risk_advanced(lookback_days: int = 60):
     """高级风险指标"""
     history = await _load_equity_history()
-    return _calc_risk_indicators(history, lookback_days)
+    bm_closes = await _fetch_benchmark_closes(len(history))
+    bm_returns = [(bm_closes[i] - bm_closes[i - 1]) / bm_closes[i - 1]
+                  for i in range(1, len(bm_closes))] if bm_closes and len(bm_closes) >= 2 else None
+    return _calc_risk_indicators(history, lookback_days, benchmark_returns=bm_returns)
 
 
 @router.get("/drawdown-curve")

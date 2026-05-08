@@ -101,17 +101,21 @@ const StockDetail = {
     },
 
     _renderDetailHeader(data) {
-        document.getElementById('sd-name').textContent = data.name;
-        document.getElementById('sd-code').textContent = data.code;
+        document.getElementById('sd-name').textContent = data.name || '--';
+        document.getElementById('sd-code').textContent = data.code || '--';
 
         const priceEl = document.getElementById('sd-price');
-        priceEl.textContent = '¥' + data.price.toFixed(2);
-        priceEl.className = 'sd-price ' + (data.change_pct >= 0 ? 'text-up' : 'text-down');
+        priceEl.textContent = data.price != null ? '¥' + data.price.toFixed(2) : '--';
+        priceEl.className = 'sd-price ' + ((data.change_pct || 0) >= 0 ? 'text-up' : 'text-down');
 
         const changeEl = document.getElementById('sd-change');
-        const sign = data.change >= 0 ? '+' : '';
-        changeEl.textContent = `${sign}${data.change.toFixed(2)}  ${sign}${data.change_pct.toFixed(2)}%`;
-        changeEl.className = 'sd-change ' + (data.change_pct >= 0 ? 'text-up' : 'text-down');
+        if (data.change != null && data.change_pct != null) {
+            const sign = data.change >= 0 ? '+' : '';
+            changeEl.textContent = `${sign}${data.change.toFixed(2)}  ${sign}${data.change_pct.toFixed(2)}%`;
+        } else {
+            changeEl.textContent = '--';
+        }
+        changeEl.className = 'sd-change ' + ((data.change_pct || 0) >= 0 ? 'text-up' : 'text-down');
 
         document.getElementById('sd-industry').textContent = data.industry || '';
         document.getElementById('sd-sector').textContent = data.sector || '';
@@ -135,11 +139,11 @@ const StockDetail = {
         // 基础统计
         set('sd-mcap', data.market_cap);
         set('sd-ccap', data.circulating_cap);
-        set('sd-pe', data.pe_ratio);
-        set('sd-pb', data.pb_ratio);
+        set('sd-pe', data.pe_ratio != null ? data.pe_ratio : '--');
+        set('sd-pb', data.pb_ratio != null ? data.pb_ratio : '--');
         set('sd-turnover', data.turnover_rate ? data.turnover_rate + '%' : '--');
         set('sd-amp', data.amplitude ? data.amplitude + '%' : '--');
-        set('sd-vr', data.volume_ratio);
+        set('sd-vr', data.volume_ratio != null ? data.volume_ratio : '--');
 
         // 52周高低 & 均量
         set('sd-52w-high', data.high_52w ? '¥' + data.high_52w.toFixed(2) : '--');
@@ -162,8 +166,8 @@ const StockDetail = {
         // 股本 & 估值
         set('sd-total-shares', data.total_shares);
         set('sd-circulating-shares', data.circulating_shares);
-        set('sd-pe-ttm', data.pe_ttm);
-        set('sd-ps', data.ps_ratio);
+        set('sd-pe-ttm', data.pe_ttm != null ? data.pe_ttm : '--');
+        set('sd-ps', data.ps_ratio != null ? data.ps_ratio : '--');
         set('sd-dividend-yield', data.dividend_yield ? data.dividend_yield.toFixed(2) + '%' : '--');
 
         // 涨跌停 & 内外盘
@@ -184,6 +188,7 @@ const StockDetail = {
         try {
             // 加载日K数据（足够计算60日涨幅）
             const data = await App.fetchJSON(`/api/stock/kline/${code}?period=daily&count=250`);
+            if (!data) return;
             const klines = data.klines;
             if (!klines || klines.length < 2) return;
 
@@ -209,8 +214,8 @@ const StockDetail = {
             // 年初至今
             const elYtd = document.getElementById('sd-ret-ytd');
             if (elYtd) {
-                const yearStart = new Date(new Date().getFullYear(), 0, 1);
-                const ytdKline = klines.find(k => new Date(k.date) >= yearStart);
+                const yearStartStr = new Date().getFullYear() + '-01-01';
+                const ytdKline = klines.find(k => k.date >= yearStartStr);
                 if (ytdKline) {
                     const pct = ((latest / ytdKline.close - 1) * 100).toFixed(2);
                     elYtd.textContent = (pct >= 0 ? '+' : '') + pct + '%';
@@ -228,6 +233,7 @@ const StockDetail = {
     async _loadProfitTrend(code) {
         try {
             const data = await App.fetchJSON(`/api/stock/profit-trend/${code}`);
+            if (!data) return;
             const trends = data.trends;
             if (!trends || trends.length === 0) return;
 
@@ -384,6 +390,7 @@ const StockDetail = {
     async _loadAnnouncements(code) {
         try {
             const data = await App.fetchJSON(`/api/stock/announcements/${code}`);
+            if (!data) return;
             const announcements = data.announcements;
             const container = document.getElementById('sd-announcements');
             if (!container) return;
@@ -409,12 +416,13 @@ const StockDetail = {
     async _loadIndustryComparison(code) {
         try {
             const data = await App.fetchJSON(`/api/stock/industry-comparison/${code}`);
+            if (!data) return;
             const stocks = data.stocks || [];
             const industry = data.industry || '--';
 
             // 更新行业名称
             const nameEl = document.getElementById('sd-industry-name');
-            if (nameEl) nameEl.textContent = `行业: ${industry}`;
+            if (nameEl) nameEl.textContent = `行业: ${industry}${stocks.length <= 1 ? '（未找到同行业对比数据）' : ''}`;
 
             const tbody = document.getElementById('sd-industry-body');
             if (!tbody) return;
@@ -566,6 +574,7 @@ const StockDetail = {
         this._currentPeriod = period;
         try {
             const data = await App.fetchJSON(`/api/stock/kline/${code}?period=${period}&count=200`);
+            if (!data || !data.klines) return;
             this._renderKlineChart(data.klines);
             document.querySelectorAll('#tab-stock .sd-chart-tabs .sd-tab').forEach(t => {
                 const isActive = t.dataset.period === period;
@@ -888,6 +897,7 @@ const StockDetail = {
     async _loadTimeline(code) {
         try {
             const data = await App.fetchJSON(`/api/stock/timeline/${code}`);
+            if (!data) return;
             this._renderTimelineChart(data.trends, data.pre_close);
         } catch (e) {
             console.error('加载分时失败:', e);
@@ -1203,7 +1213,11 @@ const StockDetail = {
             }).join('');
     },
 
+    _chartTabsBound: false,
+
     _bindChartTabs() {
+        if (this._chartTabsBound) return;
+        this._chartTabsBound = true;
         document.addEventListener('click', (e) => {
             const tab = e.target.closest('#tab-stock .sd-chart-tabs .sd-tab');
             if (!tab || !this._currentCode) return;

@@ -16,21 +16,18 @@ Object.assign(App, {
 
         try {
             const so = { silent: true };
-            const [snapshot, trades, status, equityHistory, watchlist, indices, hotSectors, marketStats, benchmark] = await Promise.all([
+
+            // 阶段 1：核心数据（snapshot + watchlist + status + trades）
+            const [snapshot, trades, status, watchlist] = await Promise.all([
                 this.fetchJSON('/api/portfolio/snapshot', so).catch(() => ({ total_equity: 0, cash: 0, market_value: 0, positions: [] })),
                 this.fetchJSON('/api/portfolio/trades/recent?limit=20', so).catch(() => []),
                 this.fetchJSON('/api/system/status', so).catch(() => ({ db_stats: {}, paper_running: false, ai_model: '--' })),
-                this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
                 this.fetchJSON('/api/watchlist', so).catch(() => []),
-                this.fetchJSON('/api/stock/market/indices', so).catch(() => []),
-                this.fetchJSON('/api/stock/market/hot-sectors', so).catch(() => ({ industries: [], concepts: [] })),
-                this.fetchJSON('/api/stock/market/stats', so).catch(() => null),
-                this.fetchJSON('/api/stock/market/benchmark?count=60', so).catch(() => []),
             ]);
 
             const dbStats = status.db_stats || {};
 
-            // Row 1: 核心指标卡片
+            // 核心指标卡片
             document.getElementById('ov-equity').textContent = this.fmt(snapshot.total_equity);
             this._renderMetric('ov-daily-pnl', snapshot.daily_pnl, snapshot.daily_pnl_pct, true);
             this._renderPctMetric('ov-cum-return', snapshot.cumulative_return);
@@ -38,7 +35,6 @@ Object.assign(App, {
             document.getElementById('ov-sharpe').textContent = snapshot.sharpe_ratio?.toFixed(2) ?? '--';
             document.getElementById('ov-position-count').textContent = snapshot.positions?.length ?? 0;
 
-            // 移除骨架屏样式
             ['ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe', 'ov-position-count'].forEach(id => {
                 document.getElementById(id)?.classList.remove('skeleton-text');
             });
@@ -49,17 +45,6 @@ Object.assign(App, {
             ['ov-stock-count', 'ov-latest-date', 'ov-paper-status', 'ov-ai-status'].forEach(id => {
                 document.getElementById(id)?.classList.remove('skeleton-text');
             });
-
-            const syncEl = document.getElementById('ov-sync-status');
-            if (syncEl) {
-                if (dbStats.latest_date) {
-                    const now = new Date();
-                    const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-                    syncEl.innerHTML = `${dbStats.latest_date} <small class="text-muted">${time}</small>`;
-                } else {
-                    syncEl.textContent = '无数据';
-                }
-            }
             const paperEl = document.getElementById('ov-paper-status');
             if (paperEl) paperEl.textContent = status.paper_running ? '运行中' : '已停止';
             const aiEl = document.getElementById('ov-ai-status');
@@ -70,7 +55,10 @@ Object.assign(App, {
                 this._quoteStatusTimer = setInterval(() => this._updateQuoteStatus(), 1000);
             }
 
+            // 自选股
+            this.watchlistCache = watchlist || [];
             Watchlist.render(watchlist);
+            Watchlist.setSelectedItems(watchlist || []);
             this._buildWatchlistIndex();
 
             // 持仓明细
@@ -80,28 +68,12 @@ Object.assign(App, {
             const tradesBody = document.querySelector('#ov-trades-table tbody');
             if (tradesBody && trades.length > 0) {
                 tradesBody.innerHTML = trades.map(t => `
-                    <tr><td>${this.escapeHTML(t.time) || '--'}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)}</a></td><td class="${t.direction === 'long' ? 'text-success' : 'text-danger'}">${t.direction === 'long' ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
+                    <tr><td>${this.escapeHTML(t.time) || '--'}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)}</a></td><td class="${(t.direction === 'long' || t.direction === 'buy') ? 'text-up' : 'text-down'}">${(t.direction === 'long' || t.direction === 'buy') ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
                 `).join('');
             }
 
-            // 图表
-            this._overviewChartData = equityHistory;
-            this._overviewBenchmarkData = benchmark;
-            this._overviewChartMode = 'equity';
-            // 清除图表骨架屏
-            const chartContainer = document.querySelector('#tab-overview .chart-container');
-            if (chartContainer) {
-                const skel = chartContainer.querySelector('.skeleton-chart');
-                if (skel) skel.remove();
-                const canvas = chartContainer.querySelector('canvas');
-                if (canvas) canvas.style.display = '';
-            }
-            try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
-            try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
-            try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
-
-            // 市场情绪
-            if (marketStats) this._renderMarketStats(marketStats);
+            // 阶段 2：次要数据（图表 + 市场，不阻塞首屏）
+            this._loadOverviewSecondary(so);
         } catch (e) {
             ['ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe', 'ov-position-count'].forEach(id => {
                 const el = document.getElementById(id);
@@ -113,6 +85,33 @@ Object.assign(App, {
             this._overviewLoaded = true;
             if (refreshBtn) refreshBtn.disabled = false;
         }
+    },
+
+    /** 阶段 2：图表 + 市场数据（异步加载，不阻塞首屏） */
+    async _loadOverviewSecondary(so) {
+        const [equityHistory, indices, hotSectors, marketStats, benchmark] = await Promise.all([
+            this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
+            this.fetchJSON('/api/stock/market/indices', so).catch(() => []),
+            this.fetchJSON('/api/stock/market/hot-sectors', so).catch(() => ({ industries: [], concepts: [] })),
+            this.fetchJSON('/api/stock/market/stats', so).catch(() => null),
+            this.fetchJSON('/api/stock/market/benchmark?count=60', so).catch(() => []),
+        ]);
+
+        this._overviewChartData = equityHistory;
+        this._overviewBenchmarkData = benchmark;
+        this._overviewChartMode = 'equity';
+
+        const chartContainer = document.querySelector('#tab-overview .chart-container');
+        if (chartContainer) {
+            const skel = chartContainer.querySelector('.skeleton-chart');
+            if (skel) skel.remove();
+            const canvas = chartContainer.querySelector('canvas');
+            if (canvas) canvas.style.display = '';
+        }
+        try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
+        try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
+        try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
+        if (marketStats) this._renderMarketStats(marketStats);
     },
 
     _showOverviewSkeletons() {

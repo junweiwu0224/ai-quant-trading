@@ -75,33 +75,6 @@ const Utils = {
         return `<table class="skeleton-table skeleton-fade-in">${headerRow}${bodyRows}</table>`;
     },
 
-    /** 骨架屏：替换容器内容，返回恢复函数 */
-    showSkeleton(container, type = 'rows', options = {}) {
-        if (!container) return () => {};
-        const original = container.innerHTML;
-        switch (type) {
-            case 'cards':
-                container.innerHTML = `<div class="stats-grid skeleton-fade-in">${this.skeletonCards(options.count || 6)}</div>`;
-                break;
-            case 'chart':
-                container.innerHTML = this.skeletonChart(options.bars || 12);
-                break;
-            case 'table':
-                container.innerHTML = this.skeletonTable(options.rows || 5, options.cols || 5);
-                break;
-            case 'rows':
-            default:
-                container.innerHTML = `<div class="skeleton-wrap skeleton-fade-in">${this.skeletonRows(options.rows || 5, options.cols || 4)}</div>`;
-                break;
-        }
-        return () => { container.innerHTML = original; };
-    },
-
-    hideSkeleton(container) {
-        const skel = container?.querySelector('.skeleton-wrap, .skeleton-table, .skeleton-chart');
-        if (skel) skel.remove();
-    },
-
     /** 防抖 */
     debounce(fn, delay = 300) {
         let timer;
@@ -109,12 +82,6 @@ const Utils = {
             clearTimeout(timer);
             timer = setTimeout(() => fn(...args), delay);
         };
-    },
-
-    /** 格式化数字（带千分位） */
-    formatNumber(n, decimals = 2) {
-        if (n == null) return '--';
-        return Number(n).toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     },
 
     /** 复制文本到剪贴板 */

@@ -1,7 +1,13 @@
-"""后台实时行情服务
+"""后台实时行情服务 — 混合数据源架构
 
-用东方财富个股 API 替代 AKShare 全市场拉取，只采集订阅的股票。
-后台线程持续轮询，内存缓存，支持回调通知。
+数据源分工：
+  - 雪球 API：实时行情（快、稳定、批量）
+  - 东方财富 push2 ulist.np：指数行情
+  - 东方财富 push2 clist：板块/涨跌家数
+  - 东方财富 datacenter：行业分类、财务指标
+  - 东方财富 push2his：K线历史
+
+后台线程持续轮询，内存缓存，支持回调通知（WebSocket 推送）。
 """
 import json
 import threading
@@ -102,16 +108,11 @@ def _calculate_limit_prices(code: str, pre_close: float) -> tuple[float, float]:
 
 
 def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
-    """获取内外盘数据
-
-    东方财富API字段:
-    - f164: 外盘(手)
-    - f165: 内盘(手)
-    """
+    """获取内外盘数据（push2 stock/get，当前 502，优雅降级返回 0）"""
     try:
         secid = _code_to_secid(code)
         url = (
-            f"https://push2.eastmoney.com/api/qt/stock/get"
+            f"https://push2delay.eastmoney.com/api/qt/stock/get"
             f"?secid={secid}"
             f"&fields=f164,f165"
             f"&_={int(time.time() * 1000)}"
@@ -130,16 +131,15 @@ def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
         outer = float(d.get("f164", 0) or 0)
         inner = float(d.get("f165", 0) or 0)
         return outer, inner
-    except Exception as e:
-        logger.debug(f"获取 {code} 内外盘失败: {e}")
+    except Exception:
         return 0.0, 0.0
 
 
-def _fetch_single_quote(code: str) -> Optional[QuoteData]:
-    """从东方财富 API 获取单只股票行情"""
+def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
+    """从东方财富 push2 API 获取单只股票行情（备用，当前 stock/get 502）"""
     secid = _code_to_secid(code)
     url = (
-        f"https://push2.eastmoney.com/api/qt/stock/get"
+        f"https://push2delay.eastmoney.com/api/qt/stock/get"
         f"?secid={secid}"
         f"&fields=f43,f44,f45,f46,f47,f48,f50,f57,f58,f60,f116,f117,f127,f128,f129,f162,f167,f169,f170"
         f"&_={int(time.time() * 1000)}"
@@ -231,12 +231,12 @@ def _fetch_single_quote(code: str) -> Optional[QuoteData]:
         return None
 
 
-def _fetch_financial_data(code: str) -> dict:
-    """获取股票财务数据（52周高低、财务指标等）"""
-    result = {}
+def _fetch_kline_for_financial(code: str) -> dict | None:
+    """获取 K 线数据用于计算 52 周高低和平均成交量（push2his + 腾讯回退）"""
+    volumes, highs, lows = [], [], []
 
+    # 尝试 push2his
     try:
-        # 1. 获取K线数据计算52周高低和平均成交量
         secid = _code_to_secid(code)
         url = (
             f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
@@ -252,29 +252,57 @@ def _fetch_financial_data(code: str) -> dict:
         })
         with urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
-
-        klines = data.get("data", {}).get("klines", [])
-        if klines:
-            # 解析K线数据
-            volumes = []
-            highs = []
-            lows = []
-            for k in klines[-250:]:  # 最近250个交易日（约1年）
-                parts = k.split(",")
-                if len(parts) >= 6:
-                    volumes.append(float(parts[5]))
-                    highs.append(float(parts[3]))
-                    lows.append(float(parts[4]))
-
-            # 计算52周高低
-            result["high_52w"] = max(highs) if highs else 0.0
-            result["low_52w"] = min(lows) if lows else 0.0
-
-            # 计算平均成交量
-            result["avg_volume_5d"] = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else 0.0
-            result["avg_volume_10d"] = sum(volumes[-10:]) / 10 if len(volumes) >= 10 else 0.0
+        for k in (data.get("data") or {}).get("klines", []):
+            parts = k.split(",")
+            if len(parts) >= 6:
+                highs.append(float(parts[3]))
+                lows.append(float(parts[4]))
+                volumes.append(float(parts[5]))
     except Exception as e:
-        logger.debug(f"获取 {code} K线数据失败: {e}")
+        logger.debug(f"push2his K线失败，尝试腾讯回退: {e}")
+
+    # push2his 失败时回退腾讯 API
+    if not highs:
+        try:
+            prefix = "sz" if not code.startswith("6") else "sh"
+            turl = (
+                f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                f"?param={prefix}{code},day,,,250,qfq"
+            )
+            req = Request(turl, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=8) as resp:
+                tdata = json.loads(resp.read())
+            # 腾讯返回 [date, open, close, high, low, volume]
+            qfq = (tdata.get("data") or {}).get(f"{prefix}{code}", {})
+            klines = qfq.get("qfqday") or qfq.get("day") or []
+            for k in klines:
+                if len(k) >= 6:
+                    highs.append(float(k[3]))
+                    lows.append(float(k[4]))
+                    volumes.append(float(k[5]))
+        except Exception as e:
+            logger.debug(f"腾讯K线回退也失败: {e}")
+
+    if not highs:
+        return None
+
+    return {
+        "high_52w": max(highs),
+        "low_52w": min(lows),
+        "avg_volume_5d": sum(volumes[-5:]) / 5 if len(volumes) >= 5 else 0.0,
+        "avg_volume_10d": sum(volumes[-10:]) / 10 if len(volumes) >= 10 else 0.0,
+    }
+
+
+def _fetch_financial_data(code: str) -> dict:
+    """获取股票财务数据（52周高低、财务指标等）"""
+    result = {}
+
+    # 1. 获取K线数据计算52周高低和平均成交量
+    # 优先 push2his，Docker 内不可用时回退腾讯 API
+    kline_data = _fetch_kline_for_financial(code)
+    if kline_data:
+        result.update(kline_data)
 
     try:
         # 2. 获取财务指标数据
@@ -383,14 +411,157 @@ def _fetch_financial_data(code: str) -> dict:
     return result
 
 
+def _code_to_xueqiu_symbol(code: str) -> str:
+    """股票代码转雪球 symbol 格式"""
+    if code.startswith("6"):
+        return f"SH{code}"
+    return f"SZ{code}"
+
+
+def _fetch_batch_quotes_xueqiu(codes: list[str]) -> dict[str, QuoteData]:
+    """通过雪球 API 批量获取行情"""
+    if not codes:
+        return {}
+    try:
+        import requests as req_lib
+        symbols = ",".join(_code_to_xueqiu_symbol(c) for c in codes)
+        url = f"https://stock.xueqiu.com/v5/stock/realtime/quotec.json?symbol={symbols}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        resp = req_lib.get(url, headers=headers, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+
+        result = {}
+        for item in data.get("data", []):
+            symbol = item.get("symbol", "")
+            # 从 symbol 提取纯代码 (SZ000582 -> 000582)
+            code = symbol[2:] if len(symbol) > 2 else ""
+            if not code:
+                continue
+
+            current = float(item.get("current", 0) or 0)
+            if current <= 0:
+                continue
+
+            pre_close = float(item.get("last_close", 0) or 0)
+            limit_up, limit_down = _calculate_limit_prices(code, pre_close)
+
+            result[code] = QuoteData(
+                code=code,
+                name="",
+                price=current,
+                open=float(item.get("open", 0) or 0),
+                high=float(item.get("high", 0) or 0),
+                low=float(item.get("low", 0) or 0),
+                pre_close=pre_close,
+                volume=float(item.get("volume", 0) or 0),
+                amount=float(item.get("amount", 0) or 0),
+                change_pct=float(item.get("percent", 0) or 0),
+                timestamp=time.time(),
+                market_cap=float(item.get("market_capital", 0) or 0),
+                circulating_cap=float(item.get("float_market_capital", 0) or 0),
+                turnover_rate=float(item.get("turnover_rate", 0) or 0),
+                amplitude=float(item.get("amplitude", 0) or 0),
+                limit_up=limit_up,
+                limit_down=limit_down,
+            )
+        return result
+    except Exception as e:
+        logger.warning(f"雪球行情获取失败: {e}")
+        return {}
+
+
 def _fetch_batch_quotes(codes: list[str]) -> dict[str, QuoteData]:
-    """批量获取行情（逐个请求，但复用连接）"""
-    result = {}
-    for code in codes:
-        quote = _fetch_single_quote(code)
-        if quote and quote.price > 0:
-            result[code] = quote
+    """批量获取行情：雪球为主，push2delay 补充行业/板块/概念"""
+    if not codes:
+        return {}
+
+    # 主数据源：雪球 API（快、稳定）
+    result = _fetch_batch_quotes_xueqiu(codes)
+
+    # 从 push2delay 补充行业/板块/概念（雪球不返回这些字段）
+    need_enrich = [c for c in codes if c in result and not result[c].industry]
+    if need_enrich:
+        for code in need_enrich:
+            push2 = _fetch_single_quote_push2(code)
+            if push2 and push2.industry:
+                xq = result[code]
+                result[code] = QuoteData(
+                    **{**xq.__dict__,
+                       "industry": push2.industry,
+                       "sector": push2.sector,
+                       "concepts": push2.concepts,
+                       "market_cap": push2.market_cap or xq.market_cap,
+                       "pe_ratio": push2.pe_ratio if push2.pe_ratio else xq.pe_ratio,
+                       "pb_ratio": push2.pb_ratio if push2.pb_ratio else xq.pb_ratio,
+                       "turnover_rate": push2.turnover_rate or xq.turnover_rate,
+                    }
+                )
+
+    if not result:
+        # 回退：push2delay stock/get
+        for code in codes:
+            quote = _fetch_single_quote_push2(code)
+            if quote and quote.price > 0:
+                result[code] = quote
     return result
+
+
+def _fetch_single_quote_xueqiu(code: str) -> Optional[QuoteData]:
+    """通过雪球 API 获取单只股票行情"""
+    result = _fetch_batch_quotes_xueqiu([code])
+    return result.get(code)
+
+
+def _fetch_single_quote(code: str) -> Optional[QuoteData]:
+    """获取单只股票行情：雪球优先，push2 回退，合并行业/板块/概念 + 财务指标"""
+    quote = _fetch_single_quote_xueqiu(code)
+    if quote:
+        # 雪球不返回行业/板块/概念，从 push2delay 补充
+        if not quote.industry:
+            push2 = _fetch_single_quote_push2(code)
+            if push2:
+                quote = QuoteData(
+                    **{**quote.__dict__,
+                       "industry": push2.industry or quote.industry,
+                       "sector": push2.sector or quote.sector,
+                       "concepts": push2.concepts or quote.concepts,
+                       "market_cap": push2.market_cap or quote.market_cap,
+                       "pe_ratio": push2.pe_ratio if push2.pe_ratio else quote.pe_ratio,
+                       "pb_ratio": push2.pb_ratio if push2.pb_ratio else quote.pb_ratio,
+                       "turnover_rate": push2.turnover_rate or quote.turnover_rate,
+                    }
+                )
+        # 雪球不含财务指标，始终补充
+        fin = _fetch_financial_data(code)
+        if fin:
+            quote = QuoteData(
+                **{**quote.__dict__,
+                   "high_52w": fin.get("high_52w", quote.high_52w),
+                   "low_52w": fin.get("low_52w", quote.low_52w),
+                   "avg_volume_5d": fin.get("avg_volume_5d", quote.avg_volume_5d),
+                   "avg_volume_10d": fin.get("avg_volume_10d", quote.avg_volume_10d),
+                   "eps": fin.get("eps", quote.eps),
+                   "bps": fin.get("bps", quote.bps),
+                   "revenue": fin.get("revenue", quote.revenue),
+                   "revenue_growth": fin.get("revenue_growth", quote.revenue_growth),
+                   "net_profit": fin.get("net_profit", quote.net_profit),
+                   "net_profit_growth": fin.get("net_profit_growth", quote.net_profit_growth),
+                   "gross_margin": fin.get("gross_margin", quote.gross_margin),
+                   "net_margin": fin.get("net_margin", quote.net_margin),
+                   "roe": fin.get("roe", quote.roe),
+                   "debt_ratio": fin.get("debt_ratio", quote.debt_ratio),
+                   "total_shares": fin.get("total_shares", quote.total_shares),
+                   "circulating_shares": fin.get("circulating_shares", quote.circulating_shares),
+                   "pe_ttm": fin.get("pe_ttm", quote.pe_ttm),
+                   "ps_ratio": fin.get("ps_ratio", quote.ps_ratio),
+                   "dividend_yield": fin.get("dividend_yield", quote.dividend_yield),
+                }
+            )
+        return quote
+    return _fetch_single_quote_push2(code)
 
 
 class QuoteService:

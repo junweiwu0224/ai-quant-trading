@@ -22,8 +22,6 @@ const ChartFactory = {
         return this._colorCache;
     },
 
-    invalidateColors() { this._colorCache = null; },
-
     palette() {
         const c = this.getColors();
         return [c.primary, c.success, c.warning, c.danger, c.muted, c.tertiary, c.quaternary];

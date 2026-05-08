@@ -70,13 +70,13 @@ const App = {
      */
     async fetchJSON(url, opts = {}) {
         if (typeof opts === 'number') opts = { timeout: opts };
-        const { timeout = 15000, silent = false, retries = 0, label = '' } = opts;
+        const { timeout = 15000, silent = false, retries = 0, label = '', ...fetchOpts } = opts;
 
         for (let attempt = 0; attempt <= retries; attempt++) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeout);
             try {
-                const res = await fetch(url, { signal: controller.signal });
+                const res = await fetch(url, { ...fetchOpts, signal: controller.signal });
                 if (!res.ok) {
                     const statusText = { 400: '请求参数错误', 401: '未授权', 403: '无权限', 404: '接口不存在', 500: '服务器内部错误', 502: '服务不可用', 503: '服务维护中' }[res.status] || `HTTP ${res.status}`;
                     throw new Error(label ? `${label}: ${statusText}` : statusText);
@@ -127,6 +127,7 @@ const App = {
     },
 
     init() {
+        this._initTheme();
         this.bindTabs();
         this.bindBacktest();
         this.bindOptimize();
@@ -171,6 +172,23 @@ const App = {
 
         const hash = location.hash.slice(1);
         if (hash) this.switchTab(hash);
+    },
+
+    _initTheme() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved || (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+
+        const btn = document.getElementById('theme-toggle');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+            });
+        }
     },
 
     _initTableSorting() {
@@ -323,14 +341,6 @@ const App = {
         else if (tab === 'alpha') { this.initAlpha(); }
         else if (tab === 'paper') { if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
         else if (tab === 'stock') { StockDetail.refresh(); }
-    },
-
-    /** 强制刷新当前Tab（绕过缓存） */
-    refreshCurrentTab() {
-        delete this._tabCache[this.currentTab];
-        const tab = this.currentTab;
-        this.currentTab = '';
-        this.switchTab(tab);
     },
 
     async setDefaultDate() {

@@ -368,28 +368,6 @@ async def get_daily_performance(
         raise HTTPException(500, "获取每日绩效历史失败，请稍后重试")
 
 
-@router.get("/performance/benchmark")
-async def get_benchmark_comparison(
-    benchmark: str = Query("000300", description="基准指数代码"),
-    days: int = Query(30, ge=1, le=365),
-):
-    """获取基准对比数据"""
-    try:
-        # 这里需要实现基准指数数据获取
-        # 暂时返回空数据
-        return {
-            "success": True,
-            "data": {
-                "benchmark": benchmark,
-                "returns": [],
-                "dates": [],
-            },
-        }
-    except Exception as e:
-        logger.error(f"获取基准对比数据失败: {e}")
-        raise HTTPException(500, "获取基准对比数据失败，请稍后重试")
-
-
 # ────────────── 资金曲线 API ──────────────
 
 @router.get("/equity-curve-v2")

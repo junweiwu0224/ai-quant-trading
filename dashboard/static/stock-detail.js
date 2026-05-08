@@ -16,6 +16,7 @@ const StockDetail = {
     _currentTimelineTrends: null,
     _currentTimelinePreClose: null,
     _searchBox: null,
+    _openGeneration: 0,
 
     init() {
         // 搜索框 — 只搜索自选股
@@ -54,6 +55,7 @@ const StockDetail = {
 
     /** 打开某只股票的详情 */
     async open(code) {
+        const gen = ++this._openGeneration;
         this._currentCode = code;
         const content = document.getElementById('sd-content');
         const placeholder = document.getElementById('sd-placeholder');
@@ -69,21 +71,23 @@ const StockDetail = {
         this._setLoading(true);
 
         // 每个加载独立 try/catch，一个失败不影响其他
+        const stale = () => gen !== this._openGeneration;
         const loads = [
-            this._loadDetail(code),
-            this._loadTimeline(code),
-            this._loadCapitalFlow(code),
-            this._loadOrderBook(code),
-            this._loadPeriodReturns(code),
-            this._loadProfitTrend(code),
-            this._loadShareholders(code),
-            this._loadDividends(code),
-            this._loadAnnouncements(code),
-            this._loadIndustryComparison(code),
-            this._loadNorthbound(code),
+            this._loadDetail(code, stale),
+            this._loadTimeline(code, stale),
+            this._loadCapitalFlow(code, stale),
+            this._loadOrderBook(code, stale),
+            this._loadPeriodReturns(code, stale),
+            this._loadProfitTrend(code, stale),
+            this._loadShareholders(code, stale),
+            this._loadDividends(code, stale),
+            this._loadAnnouncements(code, stale),
+            this._loadIndustryComparison(code, stale),
+            this._loadNorthbound(code, stale),
         ];
         await Promise.allSettled(loads);
 
+        if (stale()) return;
         this._setLoading(false);
     },
 
@@ -102,9 +106,10 @@ const StockDetail = {
         }
     },
 
-    async _loadDetail(code) {
+    async _loadDetail(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/detail/${code}`);
+            if (!data || stale()) return;
             this._renderDetailHeader(data);
             this._renderDetailStats(data);
         } catch (e) {
@@ -197,11 +202,11 @@ const StockDetail = {
     },
 
     /** 计算阶段涨幅 */
-    async _loadPeriodReturns(code) {
+    async _loadPeriodReturns(code, stale) {
         try {
             // 加载日K数据（足够计算60日涨幅）
             const data = await App.fetchJSON(`/api/stock/kline/${code}?period=daily&count=250`);
-            if (!data) return;
+            if (!data || stale()) return;
             const klines = data.klines;
             if (!klines || klines.length < 2) return;
 
@@ -243,10 +248,10 @@ const StockDetail = {
     },
 
     /** 加载利润趋势图 */
-    async _loadProfitTrend(code) {
+    async _loadProfitTrend(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/profit-trend/${code}`);
-            if (!data) return;
+            if (!data || stale()) return;
             const trends = data.trends;
             if (!trends || trends.length === 0) return;
 
@@ -342,9 +347,10 @@ const StockDetail = {
     },
 
     /** 加载十大流通股东 */
-    async _loadShareholders(code) {
+    async _loadShareholders(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/shareholders/${code}`);
+            if (!data || stale()) return;
             const shareholders = data.shareholders;
             const tbody = document.getElementById('sd-shareholders-body');
             if (!tbody) return;
@@ -374,9 +380,10 @@ const StockDetail = {
     },
 
     /** 加载分红历史 */
-    async _loadDividends(code) {
+    async _loadDividends(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/dividends/${code}`);
+            if (!data || stale()) return;
             const dividends = data.dividends;
             const tbody = document.getElementById('sd-dividends-body');
             if (!tbody) return;
@@ -400,10 +407,10 @@ const StockDetail = {
     },
 
     /** 加载公告信息 */
-    async _loadAnnouncements(code) {
+    async _loadAnnouncements(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/announcements/${code}`);
-            if (!data) return;
+            if (!data || stale()) return;
             const announcements = data.announcements;
             const container = document.getElementById('sd-announcements');
             if (!container) return;
@@ -426,10 +433,10 @@ const StockDetail = {
     },
 
     /** 加载行业对比（估值对比） */
-    async _loadIndustryComparison(code) {
+    async _loadIndustryComparison(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/industry-comparison/${code}`);
-            if (!data) return;
+            if (!data || stale()) return;
             const stocks = data.stocks || [];
             const industry = data.industry || '--';
 
@@ -472,9 +479,10 @@ const StockDetail = {
     },
 
     /** 加载北向资金持仓数据 */
-    async _loadNorthbound(code) {
+    async _loadNorthbound(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/northbound/${code}`);
+            if (!data || stale()) return;
             const records = data.records || [];
             const latest = data.latest || {};
 
@@ -792,11 +800,11 @@ const StockDetail = {
         });
     },
 
-    async _loadTimeline(code) {
+    async _loadTimeline(code, stale) {
         this._currentPeriod = 'timeline';
         try {
             const data = await App.fetchJSON(`/api/stock/timeline/${code}`);
-            if (!data) return;
+            if (!data || stale()) return;
             this._renderTimelineChart(data.trends, data.pre_close);
         } catch (e) {
             console.error('加载分时失败:', e);
@@ -856,6 +864,7 @@ const StockDetail = {
                 if (!range) return false;
                 const { displayFrom, displayTo } = range;
                 const step = (displayTo - displayFrom) / 6;
+                if (step === 0) return true;
                 ctx.save();
                 ctx.font = '10px sans-serif';
                 ctx.textAlign = 'right';
@@ -1197,9 +1206,10 @@ const StockDetail = {
         });
     },
 
-    async _loadCapitalFlow(code) {
+    async _loadCapitalFlow(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/capital-flow/${code}?days=20`);
+            if (!data || stale()) return;
             this._renderCapitalChart(data.flow);
         } catch (e) {
             console.error('加载资金流向失败:', e);
@@ -1338,9 +1348,10 @@ const StockDetail = {
         });
     },
 
-    async _loadOrderBook(code) {
+    async _loadOrderBook(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/order-book/${code}`);
+            if (!data || stale()) return;
             this._renderOrderBook(data.asks, data.bids);
         } catch (e) {
             console.error('加载盘口失败:', e);

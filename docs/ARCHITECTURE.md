@@ -73,24 +73,37 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 
 **行情服务架构（quote_service.py）：**
 
-采用 Xueqiu + push2delay 混合行情架构：
+采用 Xueqiu + push2delay + 腾讯混合行情架构：
 - **Xueqiu**：快速行情（价格/涨跌幅/成交量），无行业/板块/概念
 - **push2delay.eastmoney.com**：延迟行情 CDN，包含行业/板块/概念/市值/PE/PB
-- **混合策略**：Xueqiu 优先，push2delay 补充行业/板块/概念数据
-- **批量接口**：`_fetch_batch_quotes()` 一次请求获取多只股票行情
-- **单只接口**：`_fetch_single_quote()` 自动 enrich Xueqiu 数据
+- **腾讯 fqkline API**：K 线历史数据回退（push2his 在 Docker 内不可用）
+- **push2his.eastmoney.com**：K 线历史数据首选（Docker 外可用）
+- **混合策略**：Xueqiu 优先，push2delay 补充行业/板块/概念，腾讯回退 K 线
 
 ```
 _fetch_single_quote(code)
   ├── Xueqiu → 价格/涨跌幅/成交量
-  └── push2delay → 行业/板块/概念/市值/PE/PB
-      └── 合并为完整 QuoteData
+  ├── push2delay → 行业/板块/概念/市值/PE/PB
+  └── _fetch_financial_data(code) → 财务指标
+      ├── K 线数据（52 周高低/均量）
+      │   ├── push2his 首选
+      │   └── 腾讯 fqkline 回退
+      ├── datacenter → EPS/BPS/ROE/毛利率/净利率/负债率
+      ├── datacenter → 总股本/流通股本
+      └── datacenter → PE_TTM/PS_TTM/股息率
 
 _fetch_batch_quotes(codes)
   ├── Xueqiu 批量 → 基础行情
   └── push2delay 批量 → 补充行业/板块/概念
-      └── 合并返回
 ```
+
+**行情详情 API（stock_detail.py）：**
+
+K 线和分时数据采用双源回退策略：
+- `/api/stock/kline/{code}` — push2his 首选，腾讯 fqkline 回退（日/周/月）
+- `/api/stock/timeline/{code}` — push2delay（Docker 内可用）
+- `/api/stock/detail/{code}` — 聚合接口，始终调用 `_fetch_financial_data` 补充财务指标
+- `/api/stock/market/benchmark` — 沪深300 基准，push2his + 腾讯回退
 
 **数据表：**
 - `stock_info` — A股基本信息（代码、名称、行业），5500+ 只
@@ -188,7 +201,7 @@ _fetch_batch_quotes(codes)
 | Tab | 功能 |
 |-----|------|
 | 总览 | 核心指标、市场情绪、市场大盘、自选股管理、资产走势、持仓明细、最近交易、系统状态 |
-| 行情详情 | 股票搜索、K线图、分时图、资金流向、技术指标、板块/概念 |
+| 行情详情 | 自选股搜索、K线图（北京时间）、分时图、五档盘口、阶段涨幅、专业指标、财务指标、资金流向、技术指标（MACD/KDJ/RSI/BOLL/WR/OBV）、板块/概念、行业对比 |
 | 回测 | 策略选择、股票搜索（自选股下拉）、运行回测、收益曲线/月度热力图/回撤曲线/交易明细 |
 | 持仓 | 持仓监控、盈亏图表、行业分布、券商账户配置 |
 | 风控 | 仓位分布、风控规则状态 |
@@ -204,7 +217,7 @@ _fetch_batch_quotes(codes)
 | `watchlist.js` | 自选股管理（局部更新、股票缓存、tags、排序） |
 | `charts.js` | ChartFactory 图表工厂（line/bar/doughnut/pie/horizontalBar/showEmpty） |
 | `search.js` | SearchBox 单选搜索下拉 + MultiSearchBox 多选搜索下拉 |
-| `stock-detail.js` | 行情详情（K线/分时/资金流向/技术指标/板块概念） |
+| `stock-detail.js` | 行情详情（自选股搜索/K线/分时/五档盘口/阶段涨幅/专业指标/财务指标/资金流向/技术指标/板块概念/行业对比） |
 | `paper.js` | 模拟盘控制（启动/停止/重置/状态轮询） |
 | `paper-trading.js` | 模拟盘交易面板（买卖/持仓/交易记录） |
 | `portfolio.js` | 持仓模块（持仓监控/盈亏图表/行业分布） |
@@ -365,4 +378,4 @@ class BrokerGateway(ABC):
 
 ---
 
-*文档版本: v3.0 | 日期: 2026-05-08*
+*文档版本: v3.1 | 日期: 2026-05-08*

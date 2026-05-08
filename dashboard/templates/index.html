@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="AI 量化交易系统 - 回测、持仓、风控一体化面板">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=7">
+    <link rel="stylesheet" href="/static/style.css?v=9">
     <link rel="stylesheet" href="/static/paper-trading.css?v=1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
@@ -281,16 +281,45 @@
                         <div class="sd-stat"><label>外盘</label><span id="sd-outer-vol">--</span></div>
                         <div class="sd-stat"><label>内盘</label><span id="sd-inner-vol">--</span></div>
                     </div>
-                </div>
-
-                <!-- 阶段涨幅卡片 -->
-                <div class="card">
-                    <h3>阶段涨幅</h3>
                     <div class="sd-period-returns" id="sd-period-returns">
                         <div class="sd-period-item"><label>5日</label><span id="sd-ret-5d">--</span></div>
                         <div class="sd-period-item"><label>20日</label><span id="sd-ret-20d">--</span></div>
                         <div class="sd-period-item"><label>60日</label><span id="sd-ret-60d">--</span></div>
                         <div class="sd-period-item"><label>年初至今</label><span id="sd-ret-ytd">--</span></div>
+                    </div>
+                </div>
+
+                <!-- K线图 + 五档盘口 并排 -->
+                <div class="sd-main-grid">
+                    <div class="card sd-chart-card">
+                        <div class="sd-chart-tabs" role="tablist" aria-label="K线周期">
+                            <button class="sd-tab active" data-period="timeline" role="tab" aria-selected="true">分时</button>
+                            <button class="sd-tab" data-period="daily" role="tab" aria-selected="false">日K</button>
+                            <button class="sd-tab" data-period="weekly" role="tab" aria-selected="false">周K</button>
+                            <button class="sd-tab" data-period="monthly" role="tab" aria-selected="false">月K</button>
+                            <button class="sd-tab" data-period="60m" role="tab" aria-selected="false">60分</button>
+                            <button class="sd-tab" data-period="15m" role="tab" aria-selected="false">15分</button>
+                            <button class="sd-tab" data-period="5m" role="tab" aria-selected="false">5分</button>
+                            <div class="sd-indicator-selector">
+                                <select id="sd-indicator-select" aria-label="技术指标选择">
+                                    <option value="">指标</option>
+                                    <option value="MACD">MACD</option>
+                                    <option value="KDJ">KDJ</option>
+                                    <option value="RSI">RSI</option>
+                                    <option value="BOLL">BOLL</option>
+                                    <option value="WR">WR</option>
+                                    <option value="OBV">OBV</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="sd-kline-chart" class="chart-container chart-h-kline"></div>
+                    </div>
+                    <div class="card sd-orderbook-card">
+                        <h3>五档盘口</h3>
+                        <div class="sd-ob-grid">
+                            <div id="sd-asks" class="sd-ob-side"></div>
+                            <div id="sd-bids" class="sd-ob-side"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -365,40 +394,6 @@
                                 <div class="sd-stat"><label>ROE</label><span id="sd-roe">--</span></div>
                                 <div class="sd-stat"><label>负债率</label><span id="sd-debt-ratio">--</span></div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- K线图 + 五档盘口 并排 -->
-                <div class="sd-main-grid">
-                    <div class="card sd-chart-card">
-                        <div class="sd-chart-tabs" role="tablist" aria-label="K线周期">
-                            <button class="sd-tab active" data-period="timeline" role="tab" aria-selected="true">分时</button>
-                            <button class="sd-tab" data-period="daily" role="tab" aria-selected="false">日K</button>
-                            <button class="sd-tab" data-period="weekly" role="tab" aria-selected="false">周K</button>
-                            <button class="sd-tab" data-period="monthly" role="tab" aria-selected="false">月K</button>
-                            <button class="sd-tab" data-period="60m" role="tab" aria-selected="false">60分</button>
-                            <button class="sd-tab" data-period="15m" role="tab" aria-selected="false">15分</button>
-                            <button class="sd-tab" data-period="5m" role="tab" aria-selected="false">5分</button>
-                            <div class="sd-indicator-selector">
-                                <select id="sd-indicator-select" aria-label="技术指标选择">
-                                    <option value="">指标</option>
-                                    <option value="MACD">MACD</option>
-                                    <option value="KDJ">KDJ</option>
-                                    <option value="RSI">RSI</option>
-                                    <option value="BOLL">BOLL</option>
-                                    <option value="WR">WR</option>
-                                    <option value="OBV">OBV</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div id="sd-kline-chart" class="chart-container chart-h-kline"></div>
-                    </div>
-                    <div class="card sd-orderbook-card">
-                        <h3>五档盘口</h3>
-                        <div class="sd-ob-grid">
-                            <div id="sd-asks" class="sd-ob-side"></div>
-                            <div id="sd-bids" class="sd-ob-side"></div>
                         </div>
                     </div>
                 </div>
@@ -1568,7 +1563,7 @@
     <script src="/static/paper-trading.js?v=1"></script>
     <script src="/static/strategy.js?v=4"></script>
     <script src="/static/realtime.js?v=2"></script>
-    <script src="/static/stock-detail.js?v=2"></script>
+    <script src="/static/stock-detail.js?v=3"></script>
     <script src="/static/app.js?v=10"></script>
     <script src="/static/overview.js?v=2"></script>
     <script src="/static/backtest.js?v=2"></script>

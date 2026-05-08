@@ -1232,6 +1232,8 @@ input:focus, select:focus, textarea:focus {
     flex-wrap: wrap;
     gap: 1rem 2rem;
     padding: 0.75rem 0;
+    border-top: 1px solid var(--border-color);
+    margin-top: 0.5rem;
 }
 .sd-period-item {
     display: flex;
@@ -1873,9 +1875,9 @@ th[data-sort].sort-desc::after {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── 暗色模式支持 ── */
+/* ── 暗色模式：仅在未手动设置 data-theme 时跟随系统 ── */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme]) {
         --bg-primary: #1a1916;
         --bg-secondary: #222119;
         --bg-tertiary: #2a2920;
@@ -1894,7 +1896,7 @@ th[data-sort].sort-desc::after {
         --up-color: #ef5350;
         --down-color: #10b981;
     }
-    .skeleton-pulse {
+    :root:not([data-theme]) .skeleton-pulse {
         background: linear-gradient(90deg,
             var(--bg-tertiary) 25%,
             var(--bg-secondary) 50%,

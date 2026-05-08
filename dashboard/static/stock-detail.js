@@ -17,24 +17,19 @@ const StockDetail = {
     _searchBox: null,
 
     init() {
-        // 搜索框
+        // 搜索框 — 只搜索自选股
         this._searchBox = new SearchBox('stock-detail-code', 'stock-detail-dropdown', {
-            maxResults: 50,
+            maxResults: 200,
             formatItem: (s) => `${s.code} ${s.name || ''}`,
         });
         this._searchBox.setDataSource(async (q) => {
-            if (!q) {
-                // 无查询时返回自选股
-                return App.watchlistCache || [];
-            }
-            // 服务器端搜索
-            try {
-                const results = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`);
-                return results || [];
-            } catch (e) {
-                console.error('搜索失败:', e);
-                return [];
-            }
+            const list = App.watchlistCache || [];
+            if (!q) return list;
+            const kw = q.toLowerCase();
+            return list.filter(s =>
+                (s.code && s.code.includes(kw)) ||
+                (s.name && s.name.toLowerCase().includes(kw))
+            );
         });
         this._searchBox.onSelect((item) => this.open(item.code));
         this._bindChartTabs();
@@ -49,8 +44,10 @@ const StockDetail = {
         if (content) content.style.display = 'block';
         if (placeholder) placeholder.style.display = 'none';
 
-        // 更新搜索框显示
-        if (this._searchBox) this._searchBox.setValue(code);
+        // 更新搜索框显示：代码 + 名称
+        const wl = (App.watchlistCache || []).find(s => s.code === code);
+        const label = wl ? `${wl.code} ${wl.name || ''}` : code;
+        if (this._searchBox) this._searchBox.setValue(label);
 
         // 显示全局 loading
         this._setLoading(true);
@@ -581,6 +578,9 @@ const StockDetail = {
                 t.classList.toggle('active', isActive);
                 t.setAttribute('aria-selected', isActive);
             });
+            // 同步指标选择器状态
+            const select = document.getElementById('sd-indicator-select');
+            if (select) select.value = this._currentIndicator || '';
         } catch (e) {
             console.error('加载K线失败:', e);
         }
@@ -626,7 +626,7 @@ const StockDetail = {
             },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
             rightPriceScale: { borderColor: '#3a3a4e' },
-            timeScale: { borderColor: '#3a3a4e', timeVisible: true },
+            timeScale: { borderColor: '#3a3a4e', timeVisible: true, timeZone: 'Asia/Shanghai' },
             watermark: { visible: false },
         });
         this._klineChart = chart;
@@ -888,13 +888,19 @@ const StockDetail = {
         if (!select) return;
         select.addEventListener('change', () => {
             this._currentIndicator = select.value;
-            if (this._currentKlines && this._currentPeriod !== 'timeline') {
+            if (this._currentPeriod === 'timeline') {
+                // 分时模式下选指标 → 自动切到日K
+                if (select.value && this._currentCode) {
+                    this._loadKline(this._currentCode, 'daily');
+                }
+            } else if (this._currentKlines) {
                 this._renderKlineChart(this._currentKlines);
             }
         });
     },
 
     async _loadTimeline(code) {
+        this._currentPeriod = 'timeline';
         try {
             const data = await App.fetchJSON(`/api/stock/timeline/${code}`);
             if (!data) return;
@@ -917,6 +923,7 @@ const StockDetail = {
             this._klineResizeObs.disconnect();
             this._klineResizeObs = null;
         }
+        this._indicatorSeries = {};
 
         container.innerHTML = '';
 
@@ -939,7 +946,7 @@ const StockDetail = {
             },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
             rightPriceScale: { borderColor: '#3a3a4e' },
-            timeScale: { borderColor: '#3a3a4e', timeVisible: true },
+            timeScale: { borderColor: '#3a3a4e', timeVisible: true, timeZone: 'Asia/Shanghai' },
             watermark: { visible: false },
         });
         // 移除 TradingView logo

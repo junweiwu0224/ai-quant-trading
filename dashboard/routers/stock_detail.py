@@ -392,7 +392,7 @@ async def get_order_book(code: str):
 async def get_stock_detail(code: str):
     """获取股票完整详情（聚合接口）"""
     code = _validate_code(code)
-    from data.collector.quote_service import get_quote_service
+    from data.collector.quote_service import get_quote_service, _fetch_financial_data
 
     service = get_quote_service()
     quote = service.get_quote(code)
@@ -402,6 +402,35 @@ async def get_stock_detail(code: str):
         quote = await asyncio.to_thread(_fetch_single_quote, code)
         if not quote:
             raise HTTPException(404, f"股票 {code} 数据获取失败")
+
+    # QuoteService 缓存不含财务指标，始终补充
+    if not quote.eps and not quote.high_52w:
+        fin = await asyncio.to_thread(_fetch_financial_data, code)
+        if fin:
+            from data.collector.quote_service import QuoteData
+            quote = QuoteData(
+                **{**quote.__dict__,
+                   "high_52w": fin.get("high_52w", quote.high_52w),
+                   "low_52w": fin.get("low_52w", quote.low_52w),
+                   "avg_volume_5d": fin.get("avg_volume_5d", quote.avg_volume_5d),
+                   "avg_volume_10d": fin.get("avg_volume_10d", quote.avg_volume_10d),
+                   "eps": fin.get("eps", quote.eps),
+                   "bps": fin.get("bps", quote.bps),
+                   "revenue": fin.get("revenue", quote.revenue),
+                   "revenue_growth": fin.get("revenue_growth", quote.revenue_growth),
+                   "net_profit": fin.get("net_profit", quote.net_profit),
+                   "net_profit_growth": fin.get("net_profit_growth", quote.net_profit_growth),
+                   "gross_margin": fin.get("gross_margin", quote.gross_margin),
+                   "net_margin": fin.get("net_margin", quote.net_margin),
+                   "roe": fin.get("roe", quote.roe),
+                   "debt_ratio": fin.get("debt_ratio", quote.debt_ratio),
+                   "total_shares": fin.get("total_shares", quote.total_shares),
+                   "circulating_shares": fin.get("circulating_shares", quote.circulating_shares),
+                   "pe_ttm": fin.get("pe_ttm", quote.pe_ttm),
+                   "ps_ratio": fin.get("ps_ratio", quote.ps_ratio),
+                   "dividend_yield": fin.get("dividend_yield", quote.dividend_yield),
+                }
+            )
 
     # 雪球 API 不返回名称，从数据库补充
     name = quote.name

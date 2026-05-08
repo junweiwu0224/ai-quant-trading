@@ -9,13 +9,13 @@
 | 模块 | 功能 |
 |------|------|
 | 数据层 | AKShare 日K采集、SQLite 存储、自选股管理、每日 16:30 自动同步 |
-| 行情服务 | Xueqiu + push2delay 混合行情架构，自动合并行业/板块/概念数据 |
+| 行情服务 | Xueqiu + push2delay + 腾讯 fqkline 混合行情架构，自动合并行业/板块/概念/财务指标 |
 | 策略层 | 双均线/布林带/动量 3 个内置策略 + 自定义策略 CRUD + 参数覆盖 |
 | 回测引擎 | 策略回测、收益曲线、月度热力图、回撤曲线、交易明细、多策略对比 |
 | AI Alpha | 技术因子库（MA/MACD/RSI/ATR）、LightGBM 模型训练、Optuna 超参优化 |
 | 风控模块 | 单票仓位上限、行业集中度、最大回撤止损、日亏损限额 |
 | 模拟盘 | PaperEngine 模拟盘、实时行情接入、Dashboard 控制面板 |
-| Web 面板 | FastAPI + Jinja2 SPA，8 个 Tab（总览/行情详情/回测/持仓/风控/AI Alpha/模拟盘/策略管理） |
+| Web 面板 | FastAPI + Jinja2 SPA，8 个 Tab（总览/行情详情/回测/持仓/风控/AI Alpha/模拟盘/策略管理），行情详情含 K 线（北京时间）、分时、五档盘口、阶段涨幅、专业/财务指标 |
 | 自选股管理 | 全量 5000+ 股票搜索、tags 常驻显示、局部更新、行业/板块/概念 enrichment |
 | 市场行情 | 实时指数、行业/概念板块 TOP10、涨跌分布、涨跌停统计 |
 | 深色模式 | 亮色/深色双主题，localStorage 持久化，支持系统 prefers-color-scheme |
@@ -38,7 +38,7 @@
 | 语言 | Python 3.11 |
 | 引擎 | vnpy 4.3 |
 | 数据采集 | AKShare |
-| 实时行情 | Xueqiu + push2delay.eastmoney.com |
+| 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
 | 数据库 | SQLite |
 | AI/ML | LightGBM, Optuna |
 | Web 框架 | FastAPI + Jinja2 |

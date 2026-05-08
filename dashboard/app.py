@@ -3,26 +3,29 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# ── API 认证 ──
+# ── API 认证中间件（仅对 HTTP 请求生效，不影响 WebSocket）──
 _QUANT_API_KEY = os.environ.get("QUANT_SYSTEM_API_KEY", "")
-_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def _verify_api_key(key: str = Depends(_api_key_header)):
-    """校验 API Key（未配置密钥时跳过校验，方便开发）"""
-    if not _QUANT_API_KEY:
-        return  # 未配置密钥，允许访问（开发模式）
-    if key != _QUANT_API_KEY:
-        raise HTTPException(status_code=401, detail="无效的 API Key")
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """HTTP-only API Key 校验，WebSocket 请求自动跳过"""
+
+    async def dispatch(self, request: Request, call_next):
+        if _QUANT_API_KEY:
+            key = request.headers.get("X-API-Key", "")
+            if key != _QUANT_API_KEY:
+                return Response(content='{"detail":"无效的 API Key"}', status_code=401,
+                                media_type="application/json")
+        return await call_next(request)
 
 
 # ── 生命周期：启动/停止后台调度器 ──
@@ -66,8 +69,11 @@ app = FastAPI(
     title="AI 量化交易系统",
     version="0.1.0",
     lifespan=lifespan,
-    dependencies=[Depends(_verify_api_key)],
 )
+
+# API 认证（HTTP-only 中间件，不影响 WebSocket）
+if _QUANT_API_KEY:
+    app.add_middleware(APIKeyMiddleware)
 
 # CORS — 生产环境只允许 HTTPS，开发环境允许 localhost
 _ENV = os.environ.get("APP_ENV", "development")

@@ -281,6 +281,8 @@ async def get_capital_flow(code: str, days: int = 20):
     )
     try:
         data = await _fetch_async(url)
+        if not data:
+            return {"code": code, "flow": []}
         klines = data.get("data", {}).get("klines", [])
 
         parsed = []
@@ -303,7 +305,7 @@ async def get_capital_flow(code: str, days: int = 20):
         raise
     except Exception as e:
         logger.error(f"资金流向获取失败: {e}")
-        raise HTTPException(502, f"资金流向获取失败: {e}")
+        raise HTTPException(502, "资金流向服务不可用")
 
 
 @router.get("/order-book/{code}")

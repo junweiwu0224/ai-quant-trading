@@ -54,6 +54,45 @@ async def list_strategies():
     return StrategyManager().list_all()
 
 
+@router.get("/strategies/export")
+async def export_strategies(name: str = ""):
+    """导出策略为 JSON（全部或单个）"""
+    from strategy.manager import StrategyManager
+    mgr = StrategyManager()
+    if name:
+        data = mgr.export_strategy(name)
+        if not data:
+            return {"success": False, "error": f"策略 {name} 不存在"}
+        return {"success": True, "data": data}
+    return {"success": True, "data": mgr.export_all()}
+
+
+@router.post("/strategies/import")
+async def import_strategies(data: dict):
+    """导入策略 JSON"""
+    from strategy.manager import StrategyManager
+    try:
+        mgr = StrategyManager()
+        overwrite = data.get("overwrite", False)
+        result = mgr.import_strategies(data, overwrite=overwrite)
+        return {"success": True, **result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/strategies/compare")
+async def compare_strategy(data: dict):
+    """比较策略版本差异"""
+    from strategy.manager import StrategyManager
+    name = data.get("name", "")
+    other = data.get("strategy", {})
+    if not name or not other:
+        return {"success": False, "error": "缺少策略名称或策略数据"}
+    mgr = StrategyManager()
+    result = mgr.compare_versions(name, other)
+    return {"success": True, **result}
+
+
 @router.get("/risk/rules")
 async def get_risk_rules():
     """返回风控规则及当前状态"""

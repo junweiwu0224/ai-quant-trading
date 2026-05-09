@@ -154,3 +154,104 @@ class StrategyManager:
                 logger.info(f"删除策略: {name}")
                 return True
         return False
+
+    def export_all(self) -> dict:
+        """导出所有策略（内置+自定义）为 JSON"""
+        return {
+            "version": "1.0",
+            "exported_at": __import__("datetime").datetime.now().isoformat(),
+            "builtin": [self._merge_builtin(s) for s in BUILTIN_STRATEGIES],
+            "custom": list(self._custom),
+            "overrides": dict(self._overrides),
+        }
+
+    def export_strategy(self, name: str) -> dict | None:
+        """导出单个策略"""
+        s = self.get(name)
+        if not s:
+            return None
+        return {
+            "version": "1.0",
+            "exported_at": __import__("datetime").datetime.now().isoformat(),
+            "strategy": s,
+        }
+
+    def import_strategies(self, data: dict, overwrite: bool = False) -> dict:
+        """导入策略
+
+        Args:
+            data: 导入的 JSON 数据
+            overwrite: 是否覆盖同名策略
+
+        Returns:
+            {"imported": int, "skipped": int, "errors": list[str]}
+        """
+        imported = 0
+        skipped = 0
+        errors: list[str] = []
+
+        strategies = data.get("custom", [])
+        if not strategies and data.get("strategy"):
+            strategies = [data["strategy"]]
+
+        for s in strategies:
+            name = s.get("name", "").strip()
+            if not name:
+                errors.append("跳过无名称策略")
+                continue
+
+            existing = self.get(name)
+            if existing:
+                if overwrite:
+                    # 更新自定义策略
+                    if not existing.get("builtin"):
+                        try:
+                            self.update(name, s)
+                            imported += 1
+                        except Exception as e:
+                            errors.append(f"更新 {name} 失败: {e}")
+                    else:
+                        # 内置策略只更新参数
+                        if "params" in s:
+                            self._overrides[name] = s["params"]
+                            self._save()
+                            imported += 1
+                else:
+                    skipped += 1
+            else:
+                try:
+                    self.add(s)
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"导入 {name} 失败: {e}")
+
+        # 导入参数覆盖
+        if data.get("overrides") and overwrite:
+            self._overrides.update(data["overrides"])
+            self._save()
+
+        return {"imported": imported, "skipped": skipped, "errors": errors}
+
+    def compare_versions(self, name: str, other: dict) -> dict:
+        """比较策略版本差异"""
+        current = self.get(name)
+        if not current:
+            return {"exists": False, "diff": "策略不存在"}
+
+        diffs = []
+        for key in ["label", "type", "description", "params", "code"]:
+            cur_val = current.get(key)
+            new_val = other.get(key)
+            if cur_val != new_val:
+                diffs.append({
+                    "field": key,
+                    "current": cur_val,
+                    "new": new_val,
+                })
+
+        return {
+            "exists": True,
+            "name": name,
+            "has_changes": len(diffs) > 0,
+            "diffs": diffs,
+        }

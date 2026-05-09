@@ -159,6 +159,7 @@
                     <button class="radar-tab" data-tab="turnover">换手率</button>
                     <button class="radar-tab" data-tab="volume_ratio">量比</button>
                     <button class="radar-tab" data-tab="sectors">板块轮动</button>
+                    <button class="radar-tab" data-tab="heatmap">热力图</button>
                     <button class="radar-tab" data-tab="northbound">北向资金</button>
                 </div>
                 <div id="radar-content"></div>
@@ -411,6 +412,7 @@
                             <span class="sd-ti-item"><label>涨幅</label><span id="sd-ti-pct">--</span></span>
                             <span class="sd-ti-item"><label>量</label><span id="sd-ti-vol">--</span></span>
                             <span class="sd-ti-item"><label>额</label><span id="sd-ti-amount">--</span></span>
+                            <span class="sd-ti-item"><label>量比</label><span id="sd-ti-vr">--</span></span>
                         </div>
                         <div class="sd-chart-tabs" role="tablist" aria-label="K线周期">
                             <button class="sd-tab active" data-period="timeline" role="tab" aria-selected="true">分时</button>
@@ -448,6 +450,10 @@
                             <button class="sd-draw-btn sd-draw-clear" id="sd-draw-clear" title="清空所有画线" aria-label="清空画线">
                                 <svg viewBox="0 0 20 20" width="16" height="16"><path d="M6 4l8 0M4 4l12 0M8 4V3h4v1M5 4v11a1 1 0 001 1h8a1 1 0 001-1V4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
                             </button>
+                            <span class="sd-drawing-label" style="margin-left:8px">叠加:</span>
+                            <button class="sd-draw-btn" id="sd-multiday-btn" title="多日分时叠加（5日）" aria-label="多日叠加">
+                                <svg viewBox="0 0 20 20" width="16" height="16"><polyline points="2,14 6,8 10,11 14,5 18,9" stroke="currentColor" stroke-width="1.5" fill="none"/><polyline points="2,16 6,12 10,14 14,9 18,12" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5"/></svg>
+                            </button>
                         </div>
                         <div id="sd-kline-chart" class="chart-container chart-h-kline"></div>
                     </div>
@@ -479,6 +485,30 @@
                     </div>
                     <div class="sd-chips-chart-wrap">
                         <canvas id="sd-chips-chart" aria-label="筹码分布图"></canvas>
+                    </div>
+                </div>
+
+                <!-- 多周期共振分析 -->
+                <div class="card">
+                    <h3>多周期共振分析</h3>
+                    <div id="sd-multitimeframe">
+                        <div class="text-muted text-center" style="padding:20px">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 龙虎榜深度分析 -->
+                <div class="card">
+                    <h3>龙虎榜分析 <span class="text-muted" id="sd-dt-hint"></span></h3>
+                    <div id="sd-dragon-tiger">
+                        <div class="text-muted text-center" style="padding:20px">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 研报整合 -->
+                <div class="card">
+                    <h3>研究报告 <span class="text-muted" id="sd-reports-hint"></span></h3>
+                    <div id="sd-reports">
+                        <div class="text-muted text-center" style="padding:20px">加载中...</div>
                     </div>
                 </div>
 
@@ -1842,6 +1872,11 @@
             <div class="page-header">
                 <h1>策略管理</h1>
                 <div style="display:flex;gap:0.5rem">
+                    <button class="btn btn-sm" onclick="Strategy.exportAll()" title="导出所有策略为JSON文件">导出策略</button>
+                    <label class="btn btn-sm" title="从JSON文件导入策略" style="cursor:pointer">
+                        导入策略
+                        <input type="file" accept=".json" onchange="Strategy.importFromFile(event)" style="display:none">
+                    </label>
                     <button class="btn btn-primary btn-sm" onclick="Strategy.showCreateModal()">新增策略</button>
                     <button class="btn btn-sm" onclick="Strategy.showCodeEditor()">代码编辑器</button>
                 </div>

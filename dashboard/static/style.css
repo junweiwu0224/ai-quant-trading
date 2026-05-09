@@ -2869,6 +2869,148 @@ th[data-sort].sort-desc::after {
     position: relative;
 }
 
+/* ── 多周期共振分析 ── */
+.mtf-resonance-header {
+    text-align: center;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    background: var(--bg-secondary);
+}
+.mtf-resonance-label {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+}
+.mtf-resonance-strength {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.mtf-strength-bar {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+}
+.mtf-strength-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+.mtf-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.mtf-card {
+    padding: 10px;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+}
+.mtf-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.mtf-card-title {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+}
+.mtf-card-score {
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+.mtf-signals {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.mtf-signal {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+}
+@media (max-width: 768px) {
+    .mtf-grid { grid-template-columns: 1fr; }
+}
+
+/* ── 龙虎榜分析 ── */
+.dt-summary-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.dt-summary-item {
+    flex: 1;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+}
+.dt-summary-label {
+    display: block;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.dt-summary-value {
+    display: block;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+}
+.dt-section-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    margin: 16px 0 8px;
+    color: var(--text-secondary);
+}
+.dt-trader-name {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 768px) {
+    .dt-summary-row { flex-direction: column; gap: 8px; }
+    .dt-trader-name { max-width: 120px; }
+}
+
+/* ── 研报 ── */
+.report-title {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.report-analysis {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    border-left: 3px solid var(--primary-color);
+}
+.report-analysis-header {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    margin-bottom: 8px;
+    color: var(--primary-color);
+}
+.report-analysis-content {
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+@media (max-width: 768px) {
+    .report-title { max-width: 150px; }
+}
+
 /* ── 市场雷达 ── */
 .radar-tabs {
     display: flex;
@@ -2925,4 +3067,59 @@ th[data-sort].sort-desc::after {
 .radar-nb-dot {
     font-size: 10px;
     cursor: default;
+}
+
+/* ── 板块热力图 ── */
+.heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    justify-content: center;
+}
+.heatmap-gradient {
+    width: 120px;
+    height: 12px;
+    border-radius: 3px;
+    background: linear-gradient(to right, #3a9d5c, #5cb87a, #8b8680, #c65746, #a03030);
+}
+.heatmap-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    min-height: 100px;
+}
+.heatmap-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+    overflow: hidden;
+    text-align: center;
+    line-height: 1.2;
+}
+.heatmap-cell:hover {
+    opacity: 0.85;
+    transform: scale(1.03);
+    z-index: 2;
+}
+.heatmap-cell-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.heatmap-cell-pct {
+    font-weight: 700;
+    margin-top: 1px;
+}
+.heatmap-cell-detail {
+    font-size: 9px;
+    opacity: 0.8;
+    margin-top: 1px;
 }

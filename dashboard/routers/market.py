@@ -3,6 +3,7 @@
 端点：
 - GET /api/market/radar       — 综合雷达（涨跌幅/振幅/换手率/量比 TOP 10）
 - GET /api/market/sectors     — 板块轮动排名
+- GET /api/market/heatmap     — 板块热力图数据（行业+概念，含涨跌幅/市值/涨跌家数）
 - GET /api/market/northbound  — 北向资金净流入
 """
 from __future__ import annotations
@@ -121,6 +122,53 @@ async def get_sector_ranking(type: str = "industry"):
         return result
     except Exception as e:
         logger.error(f"板块排名失败: {e}")
+        return {"success": False, "error": str(e), "sectors": []}
+
+
+# ── 板块热力图 ──
+
+def _fetch_sector_heatmap() -> list[dict]:
+    """获取板块热力图数据（行业板块，含涨跌幅/涨跌家数/总市值）"""
+    url = (
+        "https://push2delay.eastmoney.com/api/qt/clist/get"
+        "?pn=1&pz=100&po=1&np=1&fltt=2&invt=2"
+        "&fid=f3&fs=m:90+t:2&fields=f2,f3,f12,f14,f104,f105,f109,f110,f111,f128,f136,f140,f20"
+    )
+    data = fetch_json(url, timeout=10)
+    items = ((data.get("data") or {}).get("diff") or [])
+
+    sectors = []
+    for item in items:
+        total_mv = float(item.get("f20", 0) or 0)
+        sectors.append({
+            "code": item.get("f12", ""),
+            "name": item.get("f14", ""),
+            "change_pct": round(float(item.get("f3", 0) or 0) / 100, 2),
+            "up_count": int(item.get("f104", 0) or 0),
+            "down_count": int(item.get("f105", 0) or 0),
+            "leader": item.get("f140", ""),
+            "leader_change": round(float(item.get("f136", 0) or 0) / 100, 2) if item.get("f136") else 0,
+            "total_mv": round(total_mv / 1e8, 0) if total_mv else 0,  # 亿
+            "main_net_inflow": round(float(item.get("f109", 0) or 0) / 1e4, 2),  # 万→亿
+        })
+    return sectors
+
+
+@router.get("/heatmap")
+async def get_sector_heatmap():
+    """板块热力图（行业板块涨跌幅色块矩阵）"""
+    cache_key = "sector_heatmap"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        sectors = await asyncio.to_thread(_fetch_sector_heatmap)
+        result = {"success": True, "sectors": sectors, "total": len(sectors)}
+        _cache.set(cache_key, result, _TTL_SECTOR)
+        return result
+    except Exception as e:
+        logger.error(f"板块热力图失败: {e}")
         return {"success": False, "error": str(e), "sectors": []}
 
 

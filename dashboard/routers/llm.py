@@ -99,3 +99,82 @@ async def llm_interpret(req: InterpretRequest):
     except Exception as e:
         logger.error(f"AI 解读异常: {e}")
         return {"success": False, "error": "AI 解读失败，请稍后重试"}
+
+
+# ── 研报整合 + LLM 解读 ──
+
+class ReportAnalyzeRequest(BaseModel):
+    title: str
+    content: str
+    stock_code: str = ""
+    stock_name: str = ""
+
+
+@router.get("/reports/{code}")
+async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
+    """获取个股研报列表（东方财富）"""
+    import time
+    import asyncio
+    from data.collector.http_client import fetch_json
+
+    try:
+        url = (
+            f"https://reportapi.eastmoney.com/report/list"
+            f"?industryCode=*&pageSize={page_size}&industry=*&rating=*&ratingChange=*&beginTime=2024-01-01"
+            f"&endTime=&pageNo={page}&fields=&qType=0&orgCode=&code={code}"
+            f"&rcode=&p={page}&pageNum={page}&pageSize={page_size}"
+            f"&_={int(time.time() * 1000)}"
+        )
+        data = await asyncio.to_thread(fetch_json, url, None, 10.0, {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://data.eastmoney.com",
+        })
+
+        reports = []
+        for item in (data.get("data") or [])[:page_size]:
+            reports.append({
+                "title": item.get("title", ""),
+                "org": item.get("orgSName", ""),
+                "author": item.get("researcher", ""),
+                "date": (item.get("publishDate", ""))[:10],
+                "rating": item.get("emRatingName", ""),
+                "target_price": item.get("predictThisYearPe", ""),
+                "summary": item.get("content", "")[:200] if item.get("content") else "",
+                "url": f"https://data.eastmoney.com/report/zw/stock.jshtml?encodeUrl={item.get('encodeUrl', '')}",
+            })
+
+        return {
+            "success": True,
+            "code": code,
+            "reports": reports,
+            "total": data.get("totalHits", 0),
+            "page": page,
+        }
+    except Exception as e:
+        logger.error(f"获取研报失败 {code}: {e}")
+        return {"success": False, "error": str(e), "reports": []}
+
+
+@router.post("/reports/analyze")
+async def analyze_report(req: ReportAnalyzeRequest):
+    """用 LLM 解读研报内容"""
+    try:
+        stock_info = f"（{req.stock_code} {req.stock_name}）" if req.stock_code else ""
+        prompt = f"""请用简洁中文解读以下研报{stock_info}，输出格式：
+1. 核心观点（2-3句话）
+2. 评级与目标价
+3. 关键风险点
+4. 投资建议
+
+研报标题：{req.title}
+研报内容：
+{req.content[:3000]}"""
+
+        result = await nl_strategy.chat(prompt)
+        text = ""
+        async for token in result:
+            text += token
+        return {"success": True, "analysis": text}
+    except Exception as e:
+        logger.error(f"研报解读异常: {e}")
+        return {"success": False, "error": "AI 解读失败，请稍后重试"}

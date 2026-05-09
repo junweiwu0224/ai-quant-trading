@@ -180,6 +180,91 @@ async def get_timeline(code: str):
         raise HTTPException(502, f"分时数据获取失败: {e}")
 
 
+@router.get("/timeline-multi/{code}")
+async def get_timeline_multi(code: str, days: int = 5):
+    """获取多日分时叠加数据（今日分时 + 前几日K线）"""
+    code = _validate_code(code)
+    cache_key = f"timeline-multi:{code}:{days}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        # 获取今日分时数据
+        secid = code_to_secid(code)
+        timeline_url = (
+            f"https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
+            f"?secid={secid}"
+            f"&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
+            f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
+            f"&_={int(time.time()*1000)}"
+        )
+
+        # 获取日K线（前几日）
+        raw = await asyncio.to_thread(_fetch_kline_shared, code, days + 1, "daily")
+
+        today_data = None
+        pre_closes: dict[str, float] = {}
+
+        # 解析今日分时
+        try:
+            tdata = await _fetch_async(timeline_url)
+            td = (tdata.get("data") or {})
+            trends = td.get("trends", [])
+            today_pre_close = td.get("preClose", 0)
+            if trends:
+                today_bars = []
+                for t in trends:
+                    parts = t.split(",")
+                    if len(parts) >= 6:
+                        today_bars.append({
+                            "time": parts[0],
+                            "open": float(parts[1]),
+                            "close": float(parts[2]),
+                            "high": float(parts[3]),
+                            "low": float(parts[4]),
+                            "volume": float(parts[5]),
+                            "amount": float(parts[6]) if len(parts) > 6 else 0,
+                            "avg_price": float(parts[7]) if len(parts) > 7 else 0,
+                        })
+                today_date = today_bars[0]["time"].split(" ")[0] if today_bars else ""
+                today_data = {"date": today_date, "bars": today_bars, "pre_close": today_pre_close}
+        except Exception as e:
+            logger.warning(f"今日分时获取失败: {e}")
+
+        # 解析日K线（前几日）
+        prev_days = []
+        if raw and raw.get("klines_raw"):
+            klines = raw["klines_raw"]
+            # 排除今天（如果日K线包含今天）
+            if today_data:
+                klines = [k for k in klines if k[0] != today_data["date"]]
+            # 取最近 days-1 天
+            for k in klines[-(days - 1):]:
+                if len(k) >= 6:
+                    prev_days.append({
+                        "date": k[0],
+                        "open": float(k[1]),
+                        "close": float(k[2]),
+                        "high": float(k[3]),
+                        "low": float(k[4]),
+                        "volume": float(k[5]),
+                    })
+
+        # 构建 pre_closes（前一天收盘价）
+        all_days_data = prev_days + ([today_data] if today_data else [])
+        for i, d in enumerate(all_days_data):
+            if i > 0:
+                pre_closes[d["date"]] = all_days_data[i - 1]["close"]
+
+        result = {"code": code, "days": all_days_data, "pre_closes": pre_closes}
+        _cache.set(cache_key, result, _TTL_QUOTE)
+        return result
+    except Exception as e:
+        logger.error(f"多日分时数据获取失败: {e}")
+        raise HTTPException(502, f"多日分时数据获取失败: {e}")
+
+
 @router.get("/capital-flow/{code}")
 async def get_capital_flow(code: str, days: int = 20):
     """获取资金流向（日级别）"""
@@ -1235,4 +1320,413 @@ async def get_chips_distribution(code: str, days: int = 120):
     except Exception as e:
         logger.error(f"筹码分布计算失败: {e}")
         return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": 0, "concentration_90": [0, 0]}
-        return {"success": False, "error": "清空失败"}
+
+
+# ── 多周期共振分析 ──
+
+def _compute_ma(closes: list[float], period: int) -> float | None:
+    """计算简单移动平均"""
+    if len(closes) < period:
+        return None
+    return sum(closes[-period:]) / period
+
+
+def _compute_rsi(closes: list[float], period: int = 14) -> float | None:
+    """计算 RSI"""
+    if len(closes) < period + 1:
+        return None
+    gains, losses = [], []
+    for i in range(-period, 0):
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def _compute_macd(closes: list[float]) -> dict | None:
+    """计算 MACD (DIF, DEA, MACD柱)"""
+    if len(closes) < 35:
+        return None
+    ema12 = closes[0]
+    ema26 = closes[0]
+    dif_list = []
+    for c in closes:
+        ema12 = ema12 * 11/13 + c * 2/13
+        ema26 = ema26 * 25/27 + c * 2/27
+        dif_list.append(ema12 - ema26)
+    dea = dif_list[0]
+    for d in dif_list:
+        dea = dea * 8/10 + d * 2/10
+    dif = dif_list[-1]
+    macd = (dif - dea) * 2
+    return {"dif": round(dif, 4), "dea": round(dea, 4), "macd": round(macd, 4)}
+
+
+def _analyze_timeframe(closes: list[float]) -> dict:
+    """分析单个时间框架的技术指标状态"""
+    if len(closes) < 30:
+        return {"trend": "neutral", "signals": [], "strength": 50}
+
+    ma5 = _compute_ma(closes, 5)
+    ma10 = _compute_ma(closes, 10)
+    ma20 = _compute_ma(closes, 20)
+    rsi = _compute_rsi(closes, 14)
+    macd = _compute_macd(closes)
+    current = closes[-1]
+
+    signals = []
+    bullish = 0
+    bearish = 0
+
+    # MA 趋势
+    if ma5 and ma10 and ma20:
+        if ma5 > ma10 > ma20:
+            signals.append({"name": "均线多头排列", "direction": "bullish"})
+            bullish += 2
+        elif ma5 < ma10 < ma20:
+            signals.append({"name": "均线空头排列", "direction": "bearish"})
+            bearish += 2
+        elif current > ma20:
+            signals.append({"name": "站上20日均线", "direction": "bullish"})
+            bullish += 1
+        else:
+            signals.append({"name": "跌破20日均线", "direction": "bearish"})
+            bearish += 1
+
+    # MA 金叉/死叉
+    if ma5 and ma10:
+        prev_ma5 = _compute_ma(closes[:-1], 5)
+        prev_ma10 = _compute_ma(closes[:-1], 10)
+        if prev_ma5 and prev_ma10:
+            if prev_ma5 <= prev_ma10 and ma5 > ma10:
+                signals.append({"name": "MA5/10金叉", "direction": "bullish"})
+                bullish += 1
+            elif prev_ma5 >= prev_ma10 and ma5 < ma10:
+                signals.append({"name": "MA5/10死叉", "direction": "bearish"})
+                bearish += 1
+
+    # RSI
+    if rsi is not None:
+        if rsi > 70:
+            signals.append({"name": f"RSI超买({rsi:.0f})", "direction": "bearish"})
+            bearish += 1
+        elif rsi < 30:
+            signals.append({"name": f"RSI超卖({rsi:.0f})", "direction": "bullish"})
+            bullish += 1
+
+    # MACD
+    if macd:
+        if macd["dif"] > macd["dea"] and macd["macd"] > 0:
+            signals.append({"name": "MACD金叉+红柱", "direction": "bullish"})
+            bullish += 2
+        elif macd["dif"] < macd["dea"] and macd["macd"] < 0:
+            signals.append({"name": "MACD死叉+绿柱", "direction": "bearish"})
+            bearish += 2
+        elif macd["dif"] > macd["dea"]:
+            signals.append({"name": "MACD金叉", "direction": "bullish"})
+            bullish += 1
+        else:
+            signals.append({"name": "MACD死叉", "direction": "bearish"})
+            bearish += 1
+
+    total = bullish + bearish
+    if total == 0:
+        trend = "neutral"
+        strength = 50
+    elif bullish > bearish:
+        trend = "bullish"
+        strength = 50 + int(50 * bullish / total)
+    else:
+        trend = "bearish"
+        strength = 50 - int(50 * bearish / total)
+
+    return {"trend": trend, "signals": signals, "strength": strength}
+
+
+def _resample_to_weekly(daily_klines: list[dict]) -> list[dict]:
+    """日K线聚合为周K线"""
+    if not daily_klines:
+        return []
+    from datetime import datetime as dt
+    weeks = []
+    current_week = None
+    week_data = None
+    for k in daily_klines:
+        d = k["date"][:10]
+        try:
+            dt_obj = dt.strptime(d, "%Y-%m-%d")
+            week_key = f"{dt_obj.isocalendar()[0]}-{dt_obj.isocalendar()[1]:02d}"
+        except Exception:
+            week_key = d[:7]
+        if week_key != current_week:
+            if week_data is not None:
+                weeks.append(week_data)
+            current_week = week_key
+            week_data = {"date": d, "open": k["open"], "high": k["high"], "low": k["low"],
+                         "close": k["close"], "volume": k.get("volume", 0)}
+        else:
+            week_data["high"] = max(week_data["high"], k["high"])
+            week_data["low"] = min(week_data["low"], k["low"])
+            week_data["close"] = k["close"]
+            week_data["volume"] = week_data.get("volume", 0) + k.get("volume", 0)
+    if week_data is not None:
+        weeks.append(week_data)
+    return weeks
+
+
+def _resample_to_monthly(daily_klines: list[dict]) -> list[dict]:
+    """日K线聚合为月K线"""
+    if not daily_klines:
+        return []
+    months = []
+    current_month = None
+    month_data = None
+    for k in daily_klines:
+        month_key = k["date"][:7]
+        if month_key != current_month:
+            if month_data is not None:
+                months.append(month_data)
+            current_month = month_key
+            month_data = {"date": k["date"], "open": k["open"], "high": k["high"], "low": k["low"],
+                          "close": k["close"], "volume": k.get("volume", 0)}
+        else:
+            month_data["high"] = max(month_data["high"], k["high"])
+            month_data["low"] = min(month_data["low"], k["low"])
+            month_data["close"] = k["close"]
+            month_data["volume"] = month_data.get("volume", 0) + k.get("volume", 0)
+    if month_data is not None:
+        months.append(month_data)
+    return months
+
+
+@router.get("/multi-timeframe/{code}")
+async def get_multi_timeframe(code: str):
+    """多周期共振分析（日/周/月技术指标状态）"""
+    cache_key = f"multi_tf:{code}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        klines = await asyncio.to_thread(_fetch_kline_shared, code, "daily", 250)
+        if not klines or len(klines) < 30:
+            return {"success": False, "error": "K线数据不足"}
+
+        daily_closes = [k["close"] for k in klines]
+        weekly_klines = _resample_to_weekly(klines)
+        monthly_klines = _resample_to_monthly(klines)
+        weekly_closes = [k["close"] for k in weekly_klines]
+        monthly_closes = [k["close"] for k in monthly_klines]
+
+        daily = _analyze_timeframe(daily_closes)
+        weekly = _analyze_timeframe(weekly_closes)
+        monthly = _analyze_timeframe(monthly_closes)
+
+        directions = [daily["trend"], weekly["trend"], monthly["trend"]]
+        bullish_count = directions.count("bullish")
+        bearish_count = directions.count("bearish")
+
+        if bullish_count == 3:
+            resonance = "strong_bullish"
+            resonance_label = "三周期共振看多"
+        elif bullish_count == 2:
+            resonance = "bullish"
+            resonance_label = "偏多共振"
+        elif bearish_count == 3:
+            resonance = "strong_bearish"
+            resonance_label = "三周期共振看空"
+        elif bearish_count == 2:
+            resonance = "bearish"
+            resonance_label = "偏空共振"
+        else:
+            resonance = "neutral"
+            resonance_label = "多空分歧"
+
+        result = {
+            "success": True,
+            "code": code,
+            "daily": daily,
+            "weekly": weekly,
+            "monthly": monthly,
+            "resonance": resonance,
+            "resonance_label": resonance_label,
+            "strength": round((daily["strength"] + weekly["strength"] + monthly["strength"]) / 3),
+        }
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+    except Exception as e:
+        logger.error(f"多周期分析失败 {code}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ── 龙虎榜深度分析 ──
+
+@router.get("/dragon-tiger/{code}")
+async def get_dragon_tiger(code: str, days: int = 90):
+    """龙虎榜深度分析：上榜记录 + 游资画像 + 收益统计"""
+    code = _validate_code(code)
+    cache_key = f"dragon-tiger:{code}:{days}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        # 获取龙虎榜营业部明细（买入方）
+        buy_url = (
+            f"https://datacenter-web.eastmoney.com/api/data/v1/get"
+            f"?reportName=RPT_BILLBOARD_DAILYDETAILSBUY&columns=ALL"
+            f"&filter=(SECURITY_CODE=%22{code}%22)"
+            f"&pageNumber=1&pageSize={days * 10}"
+            f"&sortTypes=-1&sortColumns=TRADE_DATE"
+        )
+        buy_data = await _fetch_async(buy_url)
+
+        records = []
+        api_result = buy_data.get("result", {})
+        if api_result and api_result.get("data"):
+            for row in api_result["data"]:
+                trade_date = str(row.get("TRADE_DATE", ""))[:10]
+                buy_amount = float(row.get("BUY", 0) or 0)
+                sell_amount = float(row.get("SELL", 0) or 0)
+                net_amount = float(row.get("NET", 0) or 0)
+                reason = row.get("EXPLANATION", "") or ""
+                trader_name = row.get("OPERATEDEPT_NAME", "") or ""
+                rise_prob = float(row.get("RISE_PROBABILITY_3DAY", 0) or 0)
+
+                records.append({
+                    "date": trade_date,
+                    "buy_amount": round(buy_amount / 1e4, 2),  # 万元
+                    "sell_amount": round(sell_amount / 1e4, 2),
+                    "net_amount": round(net_amount / 1e4, 2),
+                    "reason": reason,
+                    "trader_name": trader_name,
+                    "change_rate": float(row.get("CHANGE_RATE", 0) or 0),
+                    "rise_prob_3d": round(rise_prob, 1),
+                })
+
+        # 按日期分组
+        date_groups: dict[str, list] = {}
+        for r in records:
+            date_groups.setdefault(r["date"], []).append(r)
+
+        # 汇总上榜记录
+        listing_records = []
+        for date, items in sorted(date_groups.items(), reverse=True)[:20]:
+            total_buy = sum(i["buy_amount"] for i in items)
+            total_sell = sum(i["sell_amount"] for i in items)
+            total_net = sum(i["net_amount"] for i in items)
+            reasons = list(set(i["reason"] for i in items if i["reason"]))
+            change_rate = items[0]["change_rate"] if items else 0
+            listing_records.append({
+                "date": date,
+                "buy_amount": round(total_buy, 2),
+                "sell_amount": round(total_sell, 2),
+                "net_amount": round(total_net, 2),
+                "reasons": reasons[:3],
+                "trader_count": len(items),
+                "change_rate": change_rate,
+            })
+
+        # 游资画像（按营业部聚合）
+        trader_map: dict[str, dict] = {}
+        for r in records:
+            name = r["trader_name"]
+            if not name:
+                continue
+            if name not in trader_map:
+                trader_map[name] = {
+                    "name": name,
+                    "total_buy": 0,
+                    "total_sell": 0,
+                    "total_net": 0,
+                    "count": 0,
+                    "dates": set(),
+                    "rise_probs": [],
+                }
+            t = trader_map[name]
+            t["total_buy"] += r["buy_amount"]
+            t["total_sell"] += r["sell_amount"]
+            t["total_net"] += r["net_amount"]
+            t["count"] += 1
+            t["dates"].add(r["date"])
+            if r["rise_prob_3d"] > 0:
+                t["rise_probs"].append(r["rise_prob_3d"])
+
+        # 排序：按净买入额排序
+        traders = sorted(trader_map.values(), key=lambda x: x["total_net"], reverse=True)
+        trader_list = []
+        for t in traders[:15]:
+            avg_rise = round(sum(t["rise_probs"]) / len(t["rise_probs"]), 1) if t["rise_probs"] else 0
+            trader_list.append({
+                "name": t["name"],
+                "total_buy": round(t["total_buy"], 2),
+                "total_sell": round(t["total_sell"], 2),
+                "total_net": round(t["total_net"], 2),
+                "count": t["count"],
+                "listing_days": len(t["dates"]),
+                "avg_rise_prob": avg_rise,
+            })
+
+        # 收益统计（上榜后N日收益）
+        # 需要获取足够长的日K线来覆盖龙虎榜日期
+        kline_days = max(days, 365)  # 至少获取1年K线
+        kline_raw = await asyncio.to_thread(_fetch_kline_shared, code, kline_days, "daily")
+        kline_map: dict[str, dict] = {}
+        if kline_raw and kline_raw.get("klines_raw"):
+            for k in kline_raw["klines_raw"]:
+                if len(k) >= 6:
+                    kline_map[k[0]] = {
+                        "close": float(k[2]),
+                        "open": float(k[1]),
+                    }
+
+        return_stats = []
+        for rec in listing_records[:10]:
+            date = rec["date"]
+            entry_close = kline_map.get(date, {}).get("close")
+            if not entry_close:
+                continue
+            ret = {"date": date, "entry_price": entry_close}
+            for offset, label in [(1, "1d"), (3, "3d"), (5, "5d"), (10, "10d")]:
+                # 找到上榜后第 offset 个交易日
+                sorted_dates = sorted(kline_map.keys())
+                try:
+                    idx = sorted_dates.index(date)
+                    if idx + offset < len(sorted_dates):
+                        future_close = kline_map[sorted_dates[idx + offset]]["close"]
+                        ret[label] = round((future_close - entry_close) / entry_close * 100, 2)
+                except ValueError:
+                    pass
+            return_stats.append(ret)
+
+        # 统计汇总
+        total_listings = len(date_groups)
+        total_net_all = sum(r["net_amount"] for r in records)
+        avg_return_5d = 0
+        valid_returns = [r.get("5d") for r in return_stats if r.get("5d") is not None]
+        if valid_returns:
+            avg_return_5d = round(sum(valid_returns) / len(valid_returns), 2)
+
+        result = {
+            "success": True,
+            "code": code,
+            "summary": {
+                "total_listings": total_listings,
+                "total_net_amount": round(total_net_all, 2),
+                "avg_return_5d": avg_return_5d,
+                "period_days": days,
+            },
+            "records": listing_records,
+            "traders": trader_list,
+            "return_stats": return_stats,
+        }
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+    except Exception as e:
+        logger.error(f"龙虎榜分析失败 {code}: {e}")
+        return {"success": False, "error": str(e)}

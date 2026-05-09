@@ -86,6 +86,9 @@ const StockDetail = {
             this._loadIndustryComparison(code, stale),
             this._loadNorthbound(code, stale),
             this._loadChips(code, stale),
+            this._loadMultiTimeframe(code, stale),
+            this._loadDragonTiger(code, stale),
+            this._loadReports(code, stale),
         ];
         await Promise.allSettled(loads);
 
@@ -112,6 +115,7 @@ const StockDetail = {
         try {
             const data = await App.fetchJSON(`/api/stock/detail/${code}`);
             if (!data || stale()) return;
+            this._detailData = data;
             this._renderDetailHeader(data);
             this._renderDetailStats(data);
         } catch (e) {
@@ -1142,6 +1146,9 @@ const StockDetail = {
             this._klineResizeObs = null;
         }
         this._indicatorPaneId = null;
+        this._multiDayOverlays = [];
+        const multiBtn = document.getElementById('sd-multiday-btn');
+        if (multiBtn) multiBtn.classList.remove('active');
         container.innerHTML = '';
 
         if (!trends || trends.length === 0) {
@@ -1339,6 +1346,16 @@ const StockDetail = {
                 : amount.toFixed(0);
             set('sd-ti-amount', amtStr);
         }
+
+        // 量比 = 当前累计成交量 / 5日平均成交量
+        const detail = this._detailData;
+        if (vol != null && detail && detail.avg_volume_5d > 0) {
+            const vr = vol / detail.avg_volume_5d;
+            const vrClass = vr >= 1.5 ? 'text-up' : vr <= 0.5 ? 'text-down' : '';
+            set('sd-ti-vr', vr.toFixed(2), vrClass);
+        } else if (detail && detail.volume_ratio != null) {
+            set('sd-ti-vr', detail.volume_ratio.toFixed(2));
+        }
     },
 
     /** 均价线 overlay（逐段 segment 连线） */
@@ -1370,6 +1387,98 @@ const StockDetail = {
             styles: { line: { style: 'dashed', color: 'rgba(128,128,128,0.5)', size: 1 } },
             lock: true,
         });
+    },
+
+    /** 切换多日分时叠加 */
+    async _toggleMultiDayOverlay(btn) {
+        const chart = this._klineChart;
+        if (!chart) return;
+
+        if (this._multiDayOverlays && this._multiDayOverlays.length > 0) {
+            // 移除多日叠加
+            this._multiDayOverlays.forEach(id => chart.removeOverlay(id));
+            this._multiDayOverlays = [];
+            btn.classList.remove('active');
+            return;
+        }
+
+        if (!this._currentCode) return;
+        btn.classList.add('active');
+
+        try {
+            const data = await App.fetchJSON(`/api/stock/timeline-multi/${this._currentCode}?days=5`);
+            if (!data || !data.days || data.days.length < 2) {
+                App.toast('多日数据不足', 'warning');
+                btn.classList.remove('active');
+                return;
+            }
+
+            const colors = ['#4fc3f7', '#e6a817', '#ab47bc', '#66bb6a', '#ef5350'];
+            const overlays = [];
+
+            // 今天是最后一天（有完整分时数据），前几日只有日K
+            const todayIdx = data.days.length - 1;
+            const todayDay = data.days[todayIdx];
+            const todayBars = todayDay.bars || [];
+            if (todayBars.length < 2) return;
+
+            // 今天的时间轴范围（用于映射前几日）
+            const todayPreClose = this._currentTimelinePreClose || todayBars[0]?.close || 1;
+            const parseTime = (timeStr) => {
+                const parts = timeStr.split(' ');
+                if (parts.length > 1) {
+                    const [date, time] = parts;
+                    const [year, month, day] = date.split('-');
+                    const [hour, minute] = time.split(':');
+                    return new Date(year, month - 1, day, hour, minute).getTime();
+                }
+                return new Date(timeStr).getTime();
+            };
+
+            const firstTs = parseTime(todayBars[0].time);
+            const lastTs = parseTime(todayBars[todayBars.length - 1].time);
+            const tsRange = lastTs - firstTs || 1;
+
+            // 遍历前几日
+            for (let di = 0; di < todayIdx; di++) {
+                const day = data.days[di];
+                const bars = day.bars;
+                if (!bars || bars.length === 0) continue;
+
+                // 日K数据只有 OHLC，构造归一化收益率序列
+                const preClose = data.pre_closes[day.date] || bars[0].open || 1;
+                const ohlc = [bars[0].open, bars[0].high, bars[0].low, bars[0].close];
+                const returns = ohlc.map(p => (p - preClose) / preClose);
+
+                // 映射到今天的时间轴（4个等间距点）
+                const timePoints = [0, 0.33, 0.66, 1].map(t => firstTs + t * tsRange);
+
+                // 映射到今天的价格坐标
+                const points = timePoints.map((ts, i) => ({
+                    timestamp: ts,
+                    value: todayPreClose * (1 + returns[i]),
+                }));
+
+                const color = colors[di % colors.length];
+
+                // 画 3 段线段（open→high, high→low, low→close）
+                for (let i = 1; i < points.length; i++) {
+                    const segId = chart.createOverlay({
+                        name: 'segment',
+                        points: [points[i - 1], points[i]],
+                        styles: { line: { style: 'solid', color, size: 1 } },
+                        lock: true,
+                    });
+                    overlays.push(segId);
+                }
+            }
+
+            this._multiDayOverlays = overlays;
+        } catch (e) {
+            console.error('多日叠加加载失败:', e);
+            App.toast('多日叠加加载失败', 'error');
+            btn.classList.remove('active');
+        }
     },
 
     async _loadCapitalFlow(code, stale) {
@@ -1615,6 +1724,12 @@ const StockDetail = {
                 return;
             }
 
+            // 多日叠加按钮
+            if (btn.id === 'sd-multiday-btn') {
+                this._toggleMultiDayOverlay(btn);
+                return;
+            }
+
             const overlayName = btn.dataset.overlay;
             if (!overlayName) return;
 
@@ -1835,5 +1950,287 @@ const StockDetail = {
                 },
             },
         });
+    },
+
+    // ── 多周期共振分析 ──
+
+    async _loadMultiTimeframe(code, stale) {
+        try {
+            const data = await App.fetchJSON(`/api/stock/multi-timeframe/${code}`);
+            if (stale()) return;
+            this._renderMultiTimeframe(data);
+        } catch (e) {
+            console.error('加载多周期分析失败:', e);
+        }
+    },
+
+    _renderMultiTimeframe(data) {
+        const container = document.getElementById('sd-multitimeframe');
+        if (!container || !data.success) return;
+
+        const { daily, weekly, monthly, resonance, resonance_label, strength } = data;
+
+        function trendIcon(trend) {
+            if (trend === 'bullish') return '<span class="text-up">&#9650;</span>';
+            if (trend === 'bearish') return '<span class="text-down">&#9660;</span>';
+            return '<span class="text-muted">&#9654;</span>';
+        }
+
+        function trendLabel(trend) {
+            if (trend === 'bullish') return '<span class="text-up">看多</span>';
+            if (trend === 'bearish') return '<span class="text-down">看空</span>';
+            return '<span class="text-muted">中性</span>';
+        }
+
+        function strengthBar(s) {
+            const color = s >= 60 ? 'var(--up-color)' : s <= 40 ? 'var(--down-color)' : 'var(--text-muted)';
+            return `<div class="mtf-strength-bar"><div class="mtf-strength-fill" style="width:${s}%;background:${color}"></div></div>`;
+        }
+
+        function signalList(signals) {
+            if (!signals || signals.length === 0) return '<span class="text-muted">无信号</span>';
+            return signals.map(s => {
+                const cls = s.direction === 'bullish' ? 'text-up' : s.direction === 'bearish' ? 'text-down' : 'text-muted';
+                return `<span class="mtf-signal ${cls}">${App.escapeHTML(s.name)}</span>`;
+            }).join(' ');
+        }
+
+        // 共振颜色
+        let resonanceClass = 'text-muted';
+        if (resonance === 'strong_bullish') resonanceClass = 'text-up';
+        else if (resonance === 'bullish') resonanceClass = 'text-up';
+        else if (resonance === 'strong_bearish') resonanceClass = 'text-down';
+        else if (resonance === 'bearish') resonanceClass = 'text-down';
+
+        container.innerHTML = `
+            <div class="mtf-resonance-header ${resonanceClass}">
+                <div class="mtf-resonance-label">${App.escapeHTML(resonance_label)}</div>
+                <div class="mtf-resonance-strength">综合强度 ${strength}/100</div>
+                ${strengthBar(strength)}
+            </div>
+            <div class="mtf-grid">
+                ${['日线', '周线', '月线'].map((label, i) => {
+                    const tf = [daily, weekly, monthly][i];
+                    return `<div class="mtf-card">
+                        <div class="mtf-card-header">
+                            <span class="mtf-card-title">${label}</span>
+                            ${trendIcon(tf.trend)} ${trendLabel(tf.trend)}
+                            <span class="mtf-card-score">${tf.strength}/100</span>
+                        </div>
+                        ${strengthBar(tf.strength)}
+                        <div class="mtf-signals">${signalList(tf.signals)}</div>
+                    </div>`;
+                }).join('')}
+            </div>
+        `;
+    },
+
+    async _loadDragonTiger(code, stale) {
+        try {
+            const data = await App.fetchJSON(`/api/stock/dragon-tiger/${code}?days=90`);
+            if (stale()) return;
+            this._renderDragonTiger(data);
+        } catch (e) {
+            console.error('加载龙虎榜分析失败:', e);
+        }
+    },
+
+    _renderDragonTiger(data) {
+        const container = document.getElementById('sd-dragon-tiger');
+        if (!container) return;
+
+        const hint = document.getElementById('sd-dt-hint');
+        if (hint && data.summary) {
+            hint.textContent = `近${data.summary.period_days}日上榜${data.summary.total_listings}次`;
+        }
+
+        if (!data.success || (!data.records?.length && !data.traders?.length)) {
+            container.innerHTML = '<div class="text-muted text-center" style="padding:20px">暂无龙虎榜数据</div>';
+            return;
+        }
+
+        const { summary, records, traders, return_stats } = data;
+
+        // 汇总卡片
+        const netCls = summary.total_net_amount >= 0 ? 'text-up' : 'text-down';
+        const retCls = summary.avg_return_5d >= 0 ? 'text-up' : 'text-down';
+        const summaryHtml = `
+            <div class="dt-summary-row">
+                <div class="dt-summary-item">
+                    <span class="dt-summary-label">上榜次数</span>
+                    <span class="dt-summary-value">${summary.total_listings}</span>
+                </div>
+                <div class="dt-summary-item">
+                    <span class="dt-summary-label">净买入合计</span>
+                    <span class="dt-summary-value ${netCls}">${summary.total_net_amount >= 0 ? '+' : ''}${(summary.total_net_amount / 10000).toFixed(2)}亿</span>
+                </div>
+                <div class="dt-summary-item">
+                    <span class="dt-summary-label">上榜后5日均收益</span>
+                    <span class="dt-summary-value ${retCls}">${summary.avg_return_5d >= 0 ? '+' : ''}${summary.avg_return_5d}%</span>
+                </div>
+            </div>
+        `;
+
+        // 收益统计表
+        let returnsHtml = '';
+        if (return_stats && return_stats.length > 0) {
+            returnsHtml = `
+                <h4 class="dt-section-title">上榜后收益统计</h4>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>上榜日</th><th>入场价</th><th>1日</th><th>3日</th><th>5日</th><th>10日</th></tr></thead>
+                        <tbody>${return_stats.map(r => {
+                            const fmt = (v) => v != null ? (v >= 0 ? `<span class="text-up">+${v}%</span>` : `<span class="text-down">${v}%</span>`) : '--';
+                            return `<tr>
+                                <td>${r.date}</td>
+                                <td>${r.entry_price?.toFixed(2) || '--'}</td>
+                                <td>${fmt(r['1d'])}</td>
+                                <td>${fmt(r['3d'])}</td>
+                                <td>${fmt(r['5d'])}</td>
+                                <td>${fmt(r['10d'])}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // 游资画像
+        let tradersHtml = '';
+        if (traders && traders.length > 0) {
+            tradersHtml = `
+                <h4 class="dt-section-title">活跃营业部 TOP 15</h4>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>营业部</th><th>买入</th><th>卖出</th><th>净买入</th><th>上榜</th><th>3日上涨率</th></tr></thead>
+                        <tbody>${traders.map(t => {
+                            const netCls = t.total_net >= 0 ? 'text-up' : 'text-down';
+                            const probCls = t.avg_rise_prob >= 50 ? 'text-up' : t.avg_rise_prob > 0 ? 'text-down' : '';
+                            return `<tr>
+                                <td class="dt-trader-name" title="${App.escapeHTML(t.name)}">${App.escapeHTML(t.name)}</td>
+                                <td>${(t.total_buy / 10000).toFixed(2)}亿</td>
+                                <td>${(t.total_sell / 10000).toFixed(2)}亿</td>
+                                <td class="${netCls}">${t.total_net >= 0 ? '+' : ''}${(t.total_net / 10000).toFixed(2)}亿</td>
+                                <td>${t.count}次/${t.listing_days}日</td>
+                                <td class="${probCls}">${t.avg_rise_prob > 0 ? t.avg_rise_prob + '%' : '--'}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // 最近上榜记录
+        let recordsHtml = '';
+        if (records && records.length > 0) {
+            recordsHtml = `
+                <h4 class="dt-section-title">最近上榜记录</h4>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>日期</th><th>涨跌幅</th><th>买入</th><th>卖出</th><th>净买入</th><th>上榜原因</th></tr></thead>
+                        <tbody>${records.slice(0, 10).map(r => {
+                            const netCls = r.net_amount >= 0 ? 'text-up' : 'text-down';
+                            const chgCls = r.change_rate >= 0 ? 'text-up' : 'text-down';
+                            return `<tr>
+                                <td>${r.date}</td>
+                                <td class="${chgCls}">${r.change_rate >= 0 ? '+' : ''}${r.change_rate.toFixed(2)}%</td>
+                                <td>${(r.buy_amount / 10000).toFixed(2)}亿</td>
+                                <td>${(r.sell_amount / 10000).toFixed(2)}亿</td>
+                                <td class="${netCls}">${r.net_amount >= 0 ? '+' : ''}${(r.net_amount / 10000).toFixed(2)}亿</td>
+                                <td>${r.reasons.map(App.escapeHTML).join('、') || '--'}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        container.innerHTML = summaryHtml + returnsHtml + tradersHtml + recordsHtml;
+    },
+
+    async _loadReports(code, stale) {
+        try {
+            const data = await App.fetchJSON(`/api/llm/reports/${code}?page_size=10`);
+            if (stale()) return;
+            this._renderReports(data);
+        } catch (e) {
+            console.error('加载研报失败:', e);
+        }
+    },
+
+    _renderReports(data) {
+        const container = document.getElementById('sd-reports');
+        if (!container) return;
+
+        const hint = document.getElementById('sd-reports-hint');
+        if (hint && data.total) {
+            hint.textContent = `共 ${data.total} 篇`;
+        }
+
+        if (!data.success || !data.reports?.length) {
+            container.innerHTML = '<div class="text-muted text-center" style="padding:20px">暂无研报数据</div>';
+            return;
+        }
+
+        const ratingMap = {
+            '买入': 'text-up', '增持': 'text-up', '推荐': 'text-up',
+            '中性': 'text-muted', '持有': 'text-muted',
+            '减持': 'text-down', '卖出': 'text-down',
+        };
+
+        container.innerHTML = `
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>日期</th><th>标题</th><th>机构</th><th>评级</th><th>操作</th></tr></thead>
+                    <tbody>${data.reports.map(r => {
+                        const ratingCls = ratingMap[r.rating] || '';
+                        return `<tr>
+                            <td>${r.date}</td>
+                            <td class="report-title" title="${App.escapeHTML(r.title)}">${App.escapeHTML(r.title)}</td>
+                            <td>${App.escapeHTML(r.org)}</td>
+                            <td class="${ratingCls}">${App.escapeHTML(r.rating || '--')}</td>
+                            <td><button class="btn btn-sm" onclick="App.StockDetail._analyzeReport('${App.escapeHTML(r.title)}', '${App.escapeHTML(r.summary)}')">AI解读</button></td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    async _analyzeReport(title, summary) {
+        if (!title) return;
+        const container = document.getElementById('sd-reports');
+        if (!container) return;
+
+        // 显示加载状态
+        const analysisDiv = document.getElementById('sd-report-analysis') || document.createElement('div');
+        analysisDiv.id = 'sd-report-analysis';
+        analysisDiv.className = 'report-analysis';
+        analysisDiv.innerHTML = '<div class="loading"><span class="spinner"></span>AI 解读中...</div>';
+        container.appendChild(analysisDiv);
+
+        try {
+            const data = await fetch('/api/llm/reports/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: title,
+                    content: summary,
+                    stock_code: this._currentCode || '',
+                    stock_name: document.getElementById('sd-name')?.textContent || '',
+                }),
+            }).then(r => r.json());
+
+            if (data.success) {
+                analysisDiv.innerHTML = `
+                    <div class="report-analysis-header">AI 解读</div>
+                    <div class="report-analysis-content">${App.escapeHTML(data.analysis).replace(/\n/g, '<br>')}</div>
+                `;
+            } else {
+                analysisDiv.innerHTML = `<div class="text-muted">${App.escapeHTML(data.error || '解读失败')}</div>`;
+            }
+        } catch (e) {
+            analysisDiv.innerHTML = '<div class="text-muted">AI 解读失败</div>';
+        }
     },
 };

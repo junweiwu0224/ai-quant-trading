@@ -418,4 +418,64 @@ const Strategy = {
             App.toast('删除失败: ' + e.message, 'error');
         }
     },
+
+    /** 导出所有策略为 JSON 文件 */
+    async exportAll() {
+        try {
+            const data = await App.fetchJSON('/api/system/strategies/export');
+            if (!data.success) {
+                App.toast(data.error || '导出失败', 'error');
+                return;
+            }
+            const json = JSON.stringify(data.data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `strategies_${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            App.toast('策略已导出', 'success');
+        } catch (e) {
+            App.toast('导出失败: ' + e.message, 'error');
+        }
+    },
+
+    /** 从文件导入策略 */
+    async importFromFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        event.target.value = ''; // 清空 input 允许重复选择同一文件
+
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+
+            // 显示导入预览
+            const strategies = data.custom || (data.strategy ? [data.strategy] : []);
+            const names = strategies.map(s => s.name || '未命名').join('、');
+            const overwrite = confirm(
+                `发现 ${strategies.length} 个策略：${names}\n\n` +
+                `点击"确定"覆盖同名策略，点击"取消"跳过同名策略`
+            );
+
+            const result = await fetch('/api/system/strategies/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...data, overwrite }),
+            }).then(r => r.json());
+
+            if (result.success) {
+                let msg = `导入完成：${result.imported} 个成功`;
+                if (result.skipped > 0) msg += `，${result.skipped} 个跳过`;
+                if (result.errors?.length > 0) msg += `，${result.errors.length} 个错误`;
+                App.toast(msg, result.errors?.length > 0 ? 'warning' : 'success');
+                this.load();
+            } else {
+                App.toast(result.error || '导入失败', 'error');
+            }
+        } catch (e) {
+            App.toast('导入失败：文件格式无效', 'error');
+        }
+    },
 };

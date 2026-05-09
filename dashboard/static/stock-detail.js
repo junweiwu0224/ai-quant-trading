@@ -789,37 +789,55 @@ const StockDetail = {
         this._bindCrosshairPctLabel(chart, klines, container);
     },
 
-    /** 绑定十字线 Y 轴涨跌幅标签 */
+    /** 绑定十字线 Y 轴双侧标签（左侧涨跌幅 + 右侧价格） */
     _bindCrosshairPctLabel(chart, klines, container) {
-        let pctEl = container.querySelector('.sd-crosshair-pct');
-        if (!pctEl) {
-            pctEl = document.createElement('div');
-            pctEl.className = 'sd-crosshair-pct';
-            container.style.position = 'relative';
-            container.appendChild(pctEl);
+        container.style.position = 'relative';
+
+        let leftEl = container.querySelector('.sd-crosshair-label-left');
+        if (!leftEl) {
+            leftEl = document.createElement('div');
+            leftEl.className = 'sd-crosshair-label sd-crosshair-label-left';
+            container.appendChild(leftEl);
+        }
+        let rightEl = container.querySelector('.sd-crosshair-label-right');
+        if (!rightEl) {
+            rightEl = document.createElement('div');
+            rightEl.className = 'sd-crosshair-label sd-crosshair-label-right';
+            container.appendChild(rightEl);
         }
 
         chart.subscribeAction('onCrosshairChange', (crosshair) => {
             if (!crosshair || !crosshair.kLineData || crosshair.dataIndex == null) {
-                pctEl.style.display = 'none';
+                leftEl.style.display = 'none';
+                rightEl.style.display = 'none';
                 return;
             }
             const idx = crosshair.dataIndex;
             const price = crosshair.kLineData.close;
-            if (!price || idx <= 0) { pctEl.style.display = 'none'; return; }
+            if (!price || idx <= 0) { leftEl.style.display = 'none'; rightEl.style.display = 'none'; return; }
 
             const prevClose = klines[idx - 1]?.close;
-            if (!prevClose || prevClose <= 0) { pctEl.style.display = 'none'; return; }
+            if (!prevClose || prevClose <= 0) { leftEl.style.display = 'none'; rightEl.style.display = 'none'; return; }
 
             const pct = (price - prevClose) / prevClose * 100;
-            const sign = pct >= 0 ? '+' : '';
-            pctEl.textContent = `${sign}${pct.toFixed(2)}%`;
-            pctEl.style.display = 'block';
-            pctEl.style.color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
+            const color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
 
-            // 用 crosshair.y 像素位置定位
+            // 左侧：涨跌幅百分比
+            const sign = pct >= 0 ? '+' : '';
+            leftEl.textContent = `${sign}${pct.toFixed(2)}%`;
+            leftEl.style.display = 'block';
+            leftEl.style.color = color;
+            leftEl.style.borderColor = color;
+
+            // 右侧：价格
+            rightEl.textContent = price.toFixed(2);
+            rightEl.style.display = 'block';
+            rightEl.style.color = color;
+            rightEl.style.borderColor = color;
+
             if (crosshair.y != null) {
-                pctEl.style.top = `${crosshair.y}px`;
+                leftEl.style.top = `${crosshair.y}px`;
+                rightEl.style.top = `${crosshair.y}px`;
             }
         });
     },
@@ -1158,35 +1176,55 @@ const StockDetail = {
         const lastTrend = trends[trends.length - 1];
         this._updateTimelineInfo(lastTrend, preClose, trends);
 
-        // Y轴涨跌幅浮层标签
-        let tlPctEl = container.querySelector('.sd-crosshair-pct');
-        if (!tlPctEl) {
-            tlPctEl = document.createElement('div');
-            tlPctEl.className = 'sd-crosshair-pct';
-            container.appendChild(tlPctEl);
+        // Y轴双侧标签（左侧涨跌幅 + 右侧价格）
+        let tlLeftEl = container.querySelector('.sd-crosshair-label-left');
+        if (!tlLeftEl) {
+            tlLeftEl = document.createElement('div');
+            tlLeftEl.className = 'sd-crosshair-label sd-crosshair-label-left';
+            container.appendChild(tlLeftEl);
+        }
+        let tlRightEl = container.querySelector('.sd-crosshair-label-right');
+        if (!tlRightEl) {
+            tlRightEl = document.createElement('div');
+            tlRightEl.className = 'sd-crosshair-label sd-crosshair-label-right';
+            container.appendChild(tlRightEl);
         }
 
         chart.subscribeAction('onCrosshairChange', (crosshair) => {
             if (!crosshair || !crosshair.kLineData) {
                 this._updateTimelineInfo(lastTrend, preClose, trends);
-                tlPctEl.style.display = 'none';
+                tlLeftEl.style.display = 'none';
+                tlRightEl.style.display = 'none';
                 return;
             }
             const idx = crosshair.dataIndex;
             const t = trends[idx];
             if (t) this._updateTimelineInfo(t, preClose, trends);
 
-            // 更新 Y 轴涨跌幅浮层
+            // 更新双侧标签
             const price = crosshair.kLineData.close;
             if (preClose && preClose > 0 && price && crosshair.y != null) {
                 const pct = (price - preClose) / preClose * 100;
+                const color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
                 const sign = pct >= 0 ? '+' : '';
-                tlPctEl.textContent = `${sign}${pct.toFixed(2)}%`;
-                tlPctEl.style.display = 'block';
-                tlPctEl.style.color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
-                tlPctEl.style.top = `${crosshair.y}px`;
+
+                // 左侧：涨跌幅
+                tlLeftEl.textContent = `${sign}${pct.toFixed(2)}%`;
+                tlLeftEl.style.display = 'block';
+                tlLeftEl.style.color = color;
+                tlLeftEl.style.borderColor = color;
+
+                // 右侧：价格
+                tlRightEl.textContent = price.toFixed(2);
+                tlRightEl.style.display = 'block';
+                tlRightEl.style.color = color;
+                tlRightEl.style.borderColor = color;
+
+                tlLeftEl.style.top = `${crosshair.y}px`;
+                tlRightEl.style.top = `${crosshair.y}px`;
             } else {
-                tlPctEl.style.display = 'none';
+                tlLeftEl.style.display = 'none';
+                tlRightEl.style.display = 'none';
             }
         });
 

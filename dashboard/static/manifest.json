@@ -1,0 +1,43 @@
+{
+    "name": "AI 量化交易系统",
+    "short_name": "AI Quant",
+    "description": "AI驱动的A股量化交易系统 — 回测、模拟盘、风控一体化",
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#1a1916",
+    "theme_color": "#e6a817",
+    "categories": ["finance", "business"],
+    "icons": [
+        {
+            "src": "/static/icons/icon-192.svg",
+            "sizes": "192x192",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "/static/icons/icon-512.svg",
+            "sizes": "512x512",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ],
+    "screenshots": [],
+    "shortcuts": [
+        {
+            "name": "总览",
+            "url": "/#overview",
+            "icons": []
+        },
+        {
+            "name": "模拟盘",
+            "url": "/#paper",
+            "icons": []
+        },
+        {
+            "name": "回测",
+            "url": "/#backtest",
+            "icons": []
+        }
+    ]
+}

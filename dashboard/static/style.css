@@ -1415,6 +1415,15 @@ input:focus, select:focus, textarea:focus {
 .sd-ob-price { width: 4rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
 .sd-ob-vol { width: 5rem; text-align: center; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .sd-ob-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; font-size: 0.85rem; }
+.sd-ob-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.sd-ob-header h3 { margin: 0; font-size: 0.95rem; color: var(--text-secondary); }
+.sd-ob-toggle { display: flex; align-items: center; gap: 4px; }
+.sd-ob-btn { padding: 2px 8px; font-size: 0.7rem; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; border-radius: 3px; transition: all 0.15s; }
+.sd-ob-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sd-ob-btn:hover:not(.active) { background: var(--hover-bg); }
+.sd-ob-spread { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); padding: 2px 8px; margin-bottom: 4px; }
+.sd-ob-orders { width: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; }
+.badge-sm { font-size: 0.65rem; padding: 1px 4px; }
 .sd-flow-source { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; }
 /* 隐藏 LightweightCharts 的 TradingView logo 链接 */
 #tv-attr-logo { display: none !important; }

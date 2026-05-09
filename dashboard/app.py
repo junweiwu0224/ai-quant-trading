@@ -94,10 +94,21 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+@app.get("/sw.js")
+async def service_worker():
+    """Service Worker 必须从根路径提供以获得完整 scope"""
+    from fastapi.responses import FileResponse
+    sw_path = BASE_DIR / "static" / "sw.js"
+    if sw_path.exists():
+        return FileResponse(sw_path, media_type="application/javascript",
+                            headers={"Cache-Control": "no-cache"})
+    return ""
+
+
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402
-    alerts, alpha, backtest, broker_config, llm, market, optimization, paper_control, paper_trading,
+    alerts, alpha, backtest, broker_config, llm, market, market_rules, optimization, paper_control, paper_trading,
     portfolio, realtime_quotes, screener, stock_detail, strategy, strategy_version, system, watchlist,
 )
 
@@ -118,6 +129,7 @@ app.include_router(llm.router, prefix="/api/llm", tags=["AI 助手"])
 app.include_router(screener.router, prefix="/api/screener", tags=["条件选股"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["预警管理"])
 app.include_router(market.router, prefix="/api/market", tags=["市场雷达"])
+app.include_router(market_rules.router, prefix="/api/market-rules", tags=["市场规则"])
 
 
 # ── 页面路由 ──

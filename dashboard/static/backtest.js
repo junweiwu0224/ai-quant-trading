@@ -48,6 +48,7 @@ Object.assign(App, {
                 slippage: parseFloat(document.getElementById('bt-slippage').value) || 0.002,
                 benchmark: document.getElementById('bt-benchmark').value || '',
                 enable_risk: document.getElementById('bt-risk').value === 'true',
+                period: document.getElementById('bt-period').value || 'daily',
             };
 
             try {
@@ -151,9 +152,14 @@ Object.assign(App, {
         // 显示预热期信息
         const warmupDays = data.warmup_days || 0;
         const warmupInfo = document.getElementById('bt-warmup-info');
+        const period = data.period || reqBody?.period || 'daily';
+        const periodLabels = {'daily':'日线','1m':'1分钟','5m':'5分钟','15m':'15分钟','30m':'30分钟','60m':'60分钟'};
         if (warmupInfo) {
-            if (warmupDays > 0) {
-                warmupInfo.textContent = `预热期: ${warmupDays} 个交易日`;
+            const parts = [];
+            if (warmupDays > 0) parts.push(`预热期: ${warmupDays} 个周期`);
+            if (period !== 'daily') parts.push(`K线周期: ${periodLabels[period] || period}`);
+            if (parts.length > 0) {
+                warmupInfo.textContent = parts.join(' | ');
                 warmupInfo.style.display = '';
             } else {
                 warmupInfo.style.display = 'none';
@@ -181,6 +187,8 @@ Object.assign(App, {
         const curve = data.equity_curve || [];
         const benchmarkCurve = data.benchmark_curve || [];
         if (curve.length > 0) {
+            // 使用 datetime（如果有）或 date 作为标签
+            const labels = curve.map(p => p.datetime || p.date);
             const datasets = [{ data: curve.map(p => p.equity), fill: true, label: '策略收益' }];
             if (benchmarkCurve.length > 0) {
                 const bmMap = {};
@@ -197,7 +205,7 @@ Object.assign(App, {
                 });
             }
             ChartFactory.line('bt-equity-chart', {
-                labels: curve.map(p => p.date),
+                labels,
                 datasets,
             }, 'equity');
         }

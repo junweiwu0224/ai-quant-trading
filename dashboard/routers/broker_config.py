@@ -39,8 +39,8 @@ def _save_config(data: dict):
 
 BROKER_TYPES = [
     {"value": "simulated", "label": "模拟盘", "description": "使用内置模拟撮合引擎"},
-    {"value": "ctp", "label": "CTP (期货)", "description": "综合交易平台，支持期货/期权"},
-    {"value": "xtp", "label": "XTP (股票)", "description": "中泰证券极速交易接口"},
+    {"value": "ctp", "label": "CTP (期货)", "description": "综合交易平台，支持期货/期权", "status": "桩代码"},
+    {"value": "xtp", "label": "XTP (股票)", "description": "中泰证券极速交易接口", "status": "桩代码"},
 ]
 
 
@@ -74,9 +74,104 @@ async def update_config(req: BrokerConfig):
 
 @router.post("/test")
 async def test_connection():
-    """测试券商连接（模拟盘直接返回成功）"""
+    """测试券商连接"""
     config = _load_config()
-    if config["broker_type"] == "simulated":
-        return {"success": True, "message": "模拟盘连接正常"}
-    # 真实券商连接测试需要具体 Gateway 实现
-    return {"success": False, "message": f"券商 {config['broker_type']} 的 Gateway 尚未实现"}
+    broker_type = config.get("broker_type", "simulated")
+
+    if broker_type == "simulated":
+        return {"success": True, "message": "模拟盘连接正常", "type": "simulated"}
+
+    if broker_type == "ctp":
+        try:
+            from engine.brokers.ctp_gateway import CTPConfig, CTPGateway
+            ctp_config = CTPConfig(
+                front_addr=config.get("gateway_addr", ""),
+                investor_id=config.get("account_id", ""),
+                auth_code=config.get("auth_code", ""),
+                app_id=config.get("app_id", ""),
+            )
+            gateway = CTPGateway(ctp_config)
+            success = gateway.connect()
+            return {
+                "success": success,
+                "message": "CTP 连接成功（桩实现）" if success else "CTP 连接失败",
+                "type": "ctp",
+                "stub": True,
+            }
+        except Exception as e:
+            return {"success": False, "message": f"CTP 连接异常: {e}", "type": "ctp"}
+
+    if broker_type == "xtp":
+        try:
+            from engine.brokers.xtp_gateway import XTPConfig, XTPGateway
+            xtp_config = XTPConfig(
+                trade_server_ip=config.get("gateway_addr", ""),
+                account_id=config.get("account_id", ""),
+                auth_code=config.get("auth_code", ""),
+            )
+            gateway = XTPGateway(xtp_config)
+            success = gateway.connect()
+            return {
+                "success": success,
+                "message": "XTP 连接成功（桩实现）" if success else "XTP 连接失败",
+                "type": "xtp",
+                "stub": True,
+            }
+        except Exception as e:
+            return {"success": False, "message": f"XTP 连接异常: {e}", "type": "xtp"}
+
+    return {"success": False, "message": f"未知券商类型: {broker_type}"}
+
+
+@router.get("/gateway-info")
+async def get_gateway_info():
+    """获取各券商网关的接口信息（桩代码说明）"""
+    return {
+        "gateways": {
+            "ctp": {
+                "name": "CTP 综合交易平台",
+                "vendor": "上期技术",
+                "asset_types": ["期货", "期权"],
+                "protocol": "CTP API (.so/.dll)",
+                "connection_flow": [
+                    "1. 加载 libthosttraderapi_se.so",
+                    "2. 创建 TraderApi 实例",
+                    "3. 注册 Spi 回调",
+                    "4. RegisterFront + Init",
+                    "5. ReqUserLogin 登录",
+                    "6. ReqSettlementInfoConfirm 确认结算",
+                    "7. 查询账户/持仓",
+                ],
+                "status": "桩代码已就绪，需链接 CTP 动态库",
+                "config_fields": [
+                    {"name": "broker_id", "label": "期货公司代码", "required": True},
+                    {"name": "investor_id", "label": "投资者账号", "required": True},
+                    {"name": "front_addr", "label": "前置地址", "required": True, "placeholder": "tcp://180.168.146.187:10130"},
+                    {"name": "auth_code", "label": "认证码", "required": True, "secret": True},
+                    {"name": "app_id", "label": "AppID", "required": True},
+                ],
+            },
+            "xtp": {
+                "name": "XTP 极速交易平台",
+                "vendor": "中泰证券",
+                "asset_types": ["股票", "ETF", "可转债"],
+                "protocol": "XTP API (.so/.dll)",
+                "connection_flow": [
+                    "1. 加载 libxtptraderapi.so",
+                    "2. 创建 TraderApi 实例",
+                    "3. 注册 Spi 回调",
+                    "4. subscribePublicTopic / subscribePrivateTopic",
+                    "5. login 登录",
+                    "6. 查询账户/持仓",
+                ],
+                "status": "桩代码已就绪，需链接 XTP 动态库",
+                "config_fields": [
+                    {"name": "account_id", "label": "资金账号", "required": True},
+                    {"name": "trade_server_ip", "label": "交易服务器IP", "required": True},
+                    {"name": "trade_server_port", "label": "交易端口", "required": True},
+                    {"name": "auth_code", "label": "认证码", "required": True, "secret": True},
+                    {"name": "app_id", "label": "AppID", "required": True},
+                ],
+            },
+        },
+    }

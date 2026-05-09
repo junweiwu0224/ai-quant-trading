@@ -170,6 +170,7 @@ const App = {
 
         this._initTableSorting();
         this._initGlobalShortcuts();
+        this._initPWA();
 
         const hash = location.hash.slice(1);
         if (hash) this.switchTab(hash);
@@ -191,6 +192,56 @@ const App = {
                 if (typeof ChartFactory !== 'undefined') ChartFactory._colorCache = null;
             });
         }
+    },
+
+    _initPWA() {
+        // Service Worker 注册
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+                // 检查更新
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'activated') {
+                            this.toast('应用已更新，刷新页面生效', 'info');
+                        }
+                    });
+                });
+            }).catch(() => {});
+        }
+
+        // 安装提示
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            this._pwaInstallEvent = e;
+            this._showInstallBanner();
+        });
+    },
+
+    _showInstallBanner() {
+        if (localStorage.getItem('pwa_install_dismissed')) return;
+        const banner = document.createElement('div');
+        banner.id = 'pwa-install-banner';
+        banner.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:12px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);display:flex;align-items:center;gap:12px;font-size:13px;max-width:90vw';
+        banner.innerHTML = `
+            <span>安装到桌面，获得更好体验</span>
+            <button class="btn btn-sm btn-primary" id="pwa-install-btn">安装</button>
+            <button class="btn btn-sm" id="pwa-dismiss-btn" style="opacity:0.6">×</button>
+        `;
+        document.body.appendChild(banner);
+        document.getElementById('pwa-install-btn').onclick = async () => {
+            if (this._pwaInstallEvent) {
+                this._pwaInstallEvent.prompt();
+                const result = await this._pwaInstallEvent.userChoice;
+                if (result.outcome === 'accepted') this.toast('已安装到桌面', 'success');
+                this._pwaInstallEvent = null;
+            }
+            banner.remove();
+        };
+        document.getElementById('pwa-dismiss-btn').onclick = () => {
+            localStorage.setItem('pwa_install_dismissed', '1');
+            banner.remove();
+        };
     },
 
     _initTableSorting() {
@@ -665,10 +716,23 @@ const App = {
     async testBrokerConn() {
         try {
             const data = await App.fetchJSON('/api/broker/test', { method: 'POST', label: '连接测试' });
-            this.toast(data.message, data.success ? 'success' : 'warning');
+            const extra = data.stub ? '（桩实现，需部署 Gateway）' : '';
+            this.toast(`${data.message}${extra}`, data.success ? 'success' : 'warning');
         } catch (e) {
             this.toast('连接测试失败: ' + e.message, 'error');
         }
+    },
+
+    onBrokerTypeChange(type) {
+        const addr = document.getElementById('br-addr');
+        const account = document.getElementById('br-account');
+        const hint = {
+            simulated: { addr: '', account: '' },
+            ctp: { addr: 'tcp://180.168.146.187:10130', account: '期货账号' },
+            xtp: { addr: '交易服务器IP:端口', account: '资金账号' },
+        }[type] || {};
+        if (addr) addr.placeholder = hint.addr || '网关地址';
+        if (account) account.placeholder = hint.account || '券商账户编号';
     },
 
     /* loadRisk 已移至 risk.js */

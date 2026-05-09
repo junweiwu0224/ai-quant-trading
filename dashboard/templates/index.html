@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="AI 量化交易系统 - 回测、持仓、风控一体化面板">
+    <meta name="theme-color" content="#e6a817">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AI Quant">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
     <link rel="stylesheet" href="/static/style.css?v=10">
     <link rel="stylesheet" href="/static/paper-trading.css?v=1">
@@ -469,7 +475,15 @@
                         <div id="sd-kline-chart" class="chart-container chart-h-kline"></div>
                     </div>
                     <div class="card sd-orderbook-card">
-                        <h3>五档盘口</h3>
+                        <div class="sd-ob-header">
+                            <h3>盘口行情</h3>
+                            <div class="sd-ob-toggle">
+                                <button class="btn btn-xs sd-ob-btn active" data-levels="5" onclick="App.StockDetail.setOrderBookLevels(5)">五档</button>
+                                <button class="btn btn-xs sd-ob-btn" data-levels="10" onclick="App.StockDetail.setOrderBookLevels(10)">十档</button>
+                                <span class="badge badge-sm" id="sd-ob-source" title="数据来源">L1</span>
+                            </div>
+                        </div>
+                        <div class="sd-ob-spread" id="sd-ob-spread"></div>
                         <div class="sd-ob-grid">
                             <div id="sd-asks" class="sd-ob-side"></div>
                             <div id="sd-bids" class="sd-ob-side"></div>
@@ -758,6 +772,17 @@
                         </select>
                     </div>
                     <div class="form-group">
+                        <label for="bt-period">K线周期</label>
+                        <select id="bt-period">
+                            <option value="daily" selected>日线</option>
+                            <option value="1m">1分钟</option>
+                            <option value="5m">5分钟</option>
+                            <option value="15m">15分钟</option>
+                            <option value="30m">30分钟</option>
+                            <option value="60m">60分钟</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label for="bt-risk">启用风控</label>
                         <select id="bt-risk">
                             <option value="false">否</option>
@@ -1013,10 +1038,10 @@
                 <form id="broker-form" class="form-row">
                     <div class="form-group">
                         <label for="br-type">券商类型</label>
-                        <select id="br-type">
+                        <select id="br-type" onchange="App.onBrokerTypeChange(this.value)">
                             <option value="simulated">模拟盘（内置撮合）</option>
-                            <option value="ctp">CTP（期货）</option>
-                            <option value="xtp">XTP（股票）</option>
+                            <option value="ctp">CTP（期货）— 桩代码</option>
+                            <option value="xtp">XTP（股票）— 桩代码</option>
                         </select>
                     </div>
                     <div class="form-group">

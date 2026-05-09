@@ -246,3 +246,83 @@ async def unsubscribe_quotes(codes: list[str]):
     service = get_quote_service()
     service.unsubscribe(codes)
     return {"message": f"已取消 {len(codes)} 只", "total": service.subscription_count}
+
+
+# ── L2 十档行情 WebSocket ──
+
+@router.websocket("/ws/l2")
+async def websocket_l2(ws: WebSocket):
+    """L2 十档行情 WebSocket 端点
+
+    客户端发送：
+    - {"action": "subscribe", "code": "000001"}   订阅 L2 行情
+    - {"action": "unsubscribe", "code": "000001"} 取消订阅
+    - {"action": "ping"}
+
+    服务端推送：
+    - {"type": "l2", "data": {OrderBook.to_dict()}}
+    - {"type": "pong"}
+    """
+    await ws.accept()
+    from engine.order_book import get_l2_simulator
+    simulator = get_l2_simulator()
+
+    subscribed_code = {"code": None}
+
+    def on_book(book):
+        """L2 数据回调 → 推送到 WebSocket"""
+        if book.code == subscribed_code.get("code"):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(ws.send_text(json.dumps({
+                        "type": "l2",
+                        "data": book.to_dict(),
+                    })))
+            except Exception:
+                pass
+
+    simulator.on_update(on_book)
+
+    try:
+        while True:
+            data = await ws.receive_text()
+            try:
+                msg = json.loads(data)
+                action = msg.get("action")
+
+                if action == "subscribe":
+                    code = msg.get("code", "")
+                    if code:
+                        # 取消旧订阅
+                        if subscribed_code["code"]:
+                            simulator.unsubscribe(subscribed_code["code"])
+                        subscribed_code["code"] = code
+                        simulator.subscribe(code)
+                        await ws.send_text(json.dumps({
+                            "type": "subscribed",
+                            "code": code,
+                        }))
+
+                elif action == "unsubscribe":
+                    code = msg.get("code", "")
+                    if code:
+                        simulator.unsubscribe(code)
+                        if subscribed_code["code"] == code:
+                            subscribed_code["code"] = None
+                        await ws.send_text(json.dumps({
+                            "type": "unsubscribed",
+                            "code": code,
+                        }))
+
+                elif action == "ping":
+                    await ws.send_text(json.dumps({"type": "pong"}))
+
+            except json.JSONDecodeError:
+                pass
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if subscribed_code["code"]:
+            simulator.unsubscribe(subscribed_code["code"])

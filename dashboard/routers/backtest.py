@@ -32,6 +32,7 @@ class BacktestRequest(BaseModel):
     slippage: float = 0.002
     benchmark: str = ""
     enable_risk: bool = False
+    period: str = "daily"  # daily / 1m / 5m / 15m / 30m / 60m
 
 
 def _get_cached_backtest_result(req: BacktestRequest) -> dict:
@@ -56,6 +57,7 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
         "stamp_tax_rate": req.stamp_tax_rate,
         "slippage": req.slippage,
         "enable_risk": req.enable_risk,
+        "period": req.period,
     }
 
     def run_backtest():
@@ -71,16 +73,26 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
             enable_risk=req.enable_risk,
         )
         strategy = STRATEGIES[req.strategy]()
-        engine = BacktestEngine(config=config)
 
-        # 确保基准数据可用
-        if req.benchmark:
-            _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+        # 根据 period 选择引擎
+        from engine.tick_engine import BarPeriod, TickBacktestEngine
+        period = BarPeriod(req.period) if req.period != "daily" else BarPeriod.DAILY
 
-        result = engine.run(
-            strategy, req.codes, req.start_date, req.end_date,
-            benchmark_code=req.benchmark,
-        )
+        if period != BarPeriod.DAILY:
+            engine = TickBacktestEngine(config=config)
+            result = engine.run(
+                strategy, req.codes, req.start_date, req.end_date,
+                period=period, benchmark_code=req.benchmark,
+            )
+        else:
+            engine = BacktestEngine(config=config)
+            # 确保基准数据可用
+            if req.benchmark:
+                _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+            result = engine.run(
+                strategy, req.codes, req.start_date, req.end_date,
+                benchmark_code=req.benchmark,
+            )
 
         return {
             "start_date": str(result.start_date) if result.start_date else None,
@@ -101,8 +113,10 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
             "max_consecutive_wins": result.max_consecutive_wins,
             "max_consecutive_losses": result.max_consecutive_losses,
             "total_trades": result.total_trades,
+            "period": req.period,
             "equity_curve": [
-                {"date": str(p["date"]), "equity": round(p["equity"], 2)}
+                {**{"date": str(p["date"]), "equity": round(p["equity"], 2)},
+                 **({"datetime": p["datetime"]} if "datetime" in p else {})}
                 for p in result.equity_curve
             ],
             "benchmark_curve": [
@@ -181,6 +195,7 @@ class BacktestResponse(BaseModel):
     max_consecutive_wins: int = 0
     max_consecutive_losses: int = 0
     total_trades: int = 0
+    period: str = "daily"
     equity_curve: list[dict] = []
     benchmark_curve: list[dict] = []
     trades: list[dict] = []
@@ -203,16 +218,25 @@ async def run_backtest(req: BacktestRequest):
         enable_risk=req.enable_risk,
     )
     strategy = STRATEGIES[req.strategy]()
-    engine = BacktestEngine(config=config)
 
-    # 确保基准数据可用
-    if req.benchmark:
-        _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+    # 根据 period 选择引擎
+    from engine.tick_engine import BarPeriod, TickBacktestEngine
+    period = BarPeriod(req.period) if req.period != "daily" else BarPeriod.DAILY
 
-    result = engine.run(
-        strategy, req.codes, req.start_date, req.end_date,
-        benchmark_code=req.benchmark,
-    )
+    if period != BarPeriod.DAILY:
+        engine = TickBacktestEngine(config=config)
+        result = engine.run(
+            strategy, req.codes, req.start_date, req.end_date,
+            period=period, benchmark_code=req.benchmark,
+        )
+    else:
+        engine = BacktestEngine(config=config)
+        if req.benchmark:
+            _ensure_benchmark_data(req.benchmark, req.start_date, req.end_date)
+        result = engine.run(
+            strategy, req.codes, req.start_date, req.end_date,
+            benchmark_code=req.benchmark,
+        )
 
     return BacktestResponse(
         start_date=str(result.start_date) if result.start_date else None,
@@ -234,7 +258,8 @@ async def run_backtest(req: BacktestRequest):
         max_consecutive_losses=result.max_consecutive_losses,
         total_trades=result.total_trades,
         equity_curve=[
-            {"date": str(p["date"]), "equity": round(p["equity"], 2)}
+            {**{"date": str(p["date"]), "equity": round(p["equity"], 2)},
+             **({"datetime": p["datetime"]} if "datetime" in p else {})}
             for p in result.equity_curve
         ],
         benchmark_curve=[
@@ -263,6 +288,7 @@ async def run_backtest(req: BacktestRequest):
         ],
         warmup_days=result.warmup_days,
         error=result.error,
+        period=req.period,
     )
 
 
@@ -920,6 +946,46 @@ async def analysis_attribution(req: BacktestRequest):
     }
 
 
+@router.get("/periods")
+async def get_periods():
+    """获取支持的回测周期列表"""
+    return {
+        "periods": [
+            {"value": "daily", "label": "日线", "description": "传统日K线回测"},
+            {"value": "1m", "label": "1分钟", "description": "分钟级高频回测（需要分钟线数据）"},
+            {"value": "5m", "label": "5分钟", "description": "5分钟K线回测"},
+            {"value": "15m", "label": "15分钟", "description": "15分钟K线回测"},
+            {"value": "30m", "label": "30分钟", "description": "30分钟K线回测"},
+            {"value": "60m", "label": "60分钟", "description": "60分钟K线回测"},
+        ]
+    }
+
+
+@router.get("/tick-info")
+async def get_tick_info(code: str = Query(..., description="股票代码")):
+    """获取某股票的 Tick/分钟线数据可用性"""
+    try:
+        from data.storage.tick_storage import TickStorage
+        tick_storage = TickStorage()
+        info = tick_storage.get_data_range(code)
+        return {
+            "code": code,
+            "tick_data": info.get("tick", {}),
+            "minute_data": info.get("minute", {}),
+            "has_tick_data": (info.get("tick", {}).get("count", 0)) > 0,
+            "has_minute_data": (info.get("minute", {}).get("count", 0)) > 0,
+        }
+    except Exception as e:
+        return {
+            "code": code,
+            "tick_data": {"start": None, "end": None, "count": 0},
+            "minute_data": {"start": None, "end": None, "count": 0},
+            "has_tick_data": False,
+            "has_minute_data": False,
+            "error": str(e),
+        }
+
+
 @router.websocket("/ws/run")
 async def ws_backtest(ws: WebSocket):
     """WebSocket 回测（带实时进度推送）"""
@@ -942,7 +1008,16 @@ async def ws_backtest(ws: WebSocket):
             enable_risk=req.get("enable_risk", False),
         )
         strategy = STRATEGIES[strategy_name]()
-        engine = BacktestEngine(config=config)
+
+        # 根据 period 选择引擎
+        from engine.tick_engine import BarPeriod, TickBacktestEngine
+        period_str = req.get("period", "daily")
+        period = BarPeriod(period_str) if period_str != "daily" else BarPeriod.DAILY
+
+        if period != BarPeriod.DAILY:
+            engine = TickBacktestEngine(config=config)
+        else:
+            engine = BacktestEngine(config=config)
 
         benchmark = req.get("benchmark", "")
         if benchmark:
@@ -994,12 +1069,23 @@ async def ws_backtest(ws: WebSocket):
         # 在线程中运行回测
         loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(None, lambda: engine.run(
-                strategy, req.get("codes", ["000001"]),
-                req["start_date"], req["end_date"],
-                benchmark_code=benchmark,
-                progress_callback=on_progress_cancellable,
-            ))
+            def _run():
+                if period != BarPeriod.DAILY:
+                    return engine.run(
+                        strategy, req.get("codes", ["000001"]),
+                        req["start_date"], req["end_date"],
+                        period=period, benchmark_code=benchmark,
+                        progress_callback=on_progress_cancellable,
+                    )
+                else:
+                    return engine.run(
+                        strategy, req.get("codes", ["000001"]),
+                        req["start_date"], req["end_date"],
+                        benchmark_code=benchmark,
+                        progress_callback=on_progress_cancellable,
+                    )
+
+            result = await loop.run_in_executor(None, _run)
         except (InterruptedError, Exception) as e:
             cancel_task.cancel()
             if cancelled["flag"]:
@@ -1032,8 +1118,10 @@ async def ws_backtest(ws: WebSocket):
                 "max_consecutive_wins": result.max_consecutive_wins,
                 "max_consecutive_losses": result.max_consecutive_losses,
                 "total_trades": result.total_trades,
+                "period": req.get("period", "daily"),
                 "equity_curve": [
-                    {"date": str(p["date"]), "equity": round(p["equity"], 2)}
+                    {**{"date": str(p["date"]), "equity": round(p["equity"], 2)},
+                     **({"datetime": p["datetime"]} if "datetime" in p else {})}
                     for p in result.equity_curve
                 ],
                 "benchmark_curve": [

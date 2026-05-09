@@ -4,7 +4,7 @@ from typing import Optional
 
 import pandas as pd
 from loguru import logger
-from sqlalchemy import Column, Date, Float, Integer, String, UniqueConstraint, create_engine, text
+from sqlalchemy import Column, Date, Float, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from config.settings import DB_DIR, DB_PATH, DB_URL
@@ -87,6 +87,33 @@ class BacktestRecord(Base):
     total_trades = Column(Integer)
     params = Column(String(2000))  # JSON string
     result_json = Column(String(50000))  # 完整结果JSON
+    created_at = Column(String(30))
+
+
+class ChartDrawing(Base):
+    """K线图画线数据表"""
+    __tablename__ = "chart_drawings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, index=True)
+    overlay_name = Column(String(50), nullable=False)  # straightLine/horizontalStraightLine/fibonacciLine
+    points_json = Column(Text, nullable=False)  # JSON: [{timestamp, value}, ...]
+    styles_json = Column(Text)  # JSON: {line: {color, size, style}}
+    created_at = Column(String(30))
+    updated_at = Column(String(30))
+
+
+class AlertRule(Base):
+    """预警规则表"""
+    __tablename__ = "alert_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, index=True)
+    condition = Column(String(30), nullable=False)  # price_above, change_below, etc.
+    threshold = Column(Float, nullable=False)
+    enabled = Column(Integer, default=1)  # 1=启用, 0=禁用
+    name = Column(String(100), default="")
+    cooldown = Column(Integer, default=300)  # 冷却秒数
     created_at = Column(String(30))
 
 
@@ -375,5 +402,153 @@ class DataStorage:
                 "latest_price": latest_prices.get(r.code, {}).get("price"),
                 "latest_date": latest_prices.get(r.code, {}).get("date"),
             } for r in rows]
+        finally:
+            session.close()
+
+    # ── 画线工具 CRUD ──
+
+    def get_drawings(self, code: str) -> list[dict]:
+        """获取指定股票的所有画线"""
+        session = self._get_session()
+        try:
+            rows = session.query(ChartDrawing).filter(ChartDrawing.code == code).all()
+            return [{
+                "id": r.id,
+                "code": r.code,
+                "overlay_name": r.overlay_name,
+                "points": r.points_json,
+                "styles": r.styles_json,
+                "created_at": r.created_at,
+            } for r in rows]
+        finally:
+            session.close()
+
+    def save_drawing(self, code: str, overlay_name: str, points_json: str,
+                     styles_json: str = "", created_at: str = "") -> int:
+        """保存一条画线"""
+        session = self._get_session()
+        try:
+            drawing = ChartDrawing(
+                code=code,
+                overlay_name=overlay_name,
+                points_json=points_json,
+                styles_json=styles_json,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+            session.add(drawing)
+            session.commit()
+            return drawing.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"保存画线失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def delete_drawing(self, drawing_id: int) -> bool:
+        """删除一条画线"""
+        session = self._get_session()
+        try:
+            row = session.get(ChartDrawing, drawing_id)
+            if not row:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"删除画线失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def delete_all_drawings(self, code: str) -> int:
+        """删除指定股票的所有画线"""
+        session = self._get_session()
+        try:
+            count = session.query(ChartDrawing).filter(ChartDrawing.code == code).delete()
+            session.commit()
+            return count
+        except Exception as e:
+            session.rollback()
+            logger.error(f"清空画线失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    # ── 预警规则 CRUD ──
+
+    def get_alert_rules(self, enabled_only: bool = False) -> list[dict]:
+        """获取所有预警规则"""
+        session = self._get_session()
+        try:
+            query = session.query(AlertRule)
+            if enabled_only:
+                query = query.filter(AlertRule.enabled == 1)
+            rows = query.order_by(AlertRule.id.desc()).all()
+            return [
+                {
+                    "id": r.id, "code": r.code, "condition": r.condition,
+                    "threshold": r.threshold, "enabled": bool(r.enabled),
+                    "name": r.name or "", "cooldown": r.cooldown,
+                    "created_at": r.created_at or "",
+                }
+                for r in rows
+            ]
+        finally:
+            session.close()
+
+    def add_alert_rule(self, code: str, condition: str, threshold: float,
+                       name: str = "", cooldown: int = 300) -> int:
+        """添加预警规则，返回 ID"""
+        from config.datetime_utils import now_beijing_iso
+        session = self._get_session()
+        try:
+            rule = AlertRule(
+                code=code, condition=condition, threshold=threshold,
+                enabled=1, name=name, cooldown=cooldown,
+                created_at=now_beijing_iso(),
+            )
+            session.add(rule)
+            session.commit()
+            return rule.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"添加预警规则失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def update_alert_rule(self, rule_id: int, **kwargs) -> bool:
+        """更新预警规则"""
+        session = self._get_session()
+        try:
+            rule = session.query(AlertRule).filter(AlertRule.id == rule_id).first()
+            if not rule:
+                return False
+            for key, val in kwargs.items():
+                if hasattr(rule, key):
+                    setattr(rule, key, val)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"更新预警规则失败: {e}")
+            return False
+        finally:
+            session.close()
+
+    def delete_alert_rule(self, rule_id: int) -> bool:
+        """删除预警规则"""
+        session = self._get_session()
+        try:
+            count = session.query(AlertRule).filter(AlertRule.id == rule_id).delete()
+            session.commit()
+            return count > 0
+        except Exception as e:
+            session.rollback()
+            logger.error(f"删除预警规则失败: {e}")
+            return False
         finally:
             session.close()

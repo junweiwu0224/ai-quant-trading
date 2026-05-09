@@ -258,7 +258,9 @@ def _fetch_financial_data(code: str) -> dict:
 
 
 def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
-    """用 DB 数据 + datacenter 批量 API 补充行业/板块/概念"""
+    """用 DB 数据 + datacenter 批量 API + push2delay 补充行业/板块/概念"""
+    from data.collector.http_client import fetch_concepts_batch
+
     # 从缓存查找
     missing = []
     for code in codes:
@@ -274,13 +276,23 @@ def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
     if not missing:
         return
 
-    # 批量获取（1 次 HTTP）
+    # datacenter 批量获取行业/板块（1 次 HTTP）
     batch = fetch_industry_batch(missing)
-    for code, info in batch.items():
-        if code in result:
-            q = result[code]
-            result[code] = QuoteData(**{**q.__dict__, **info})
-            _industry_cache.set(f"ind:{code}", info, ttl=86400)
+
+    # push2delay 并发获取概念（每只 1 次，但概念丰富）
+    need_concepts = [c for c in missing if c in result]
+    concepts_map = fetch_concepts_batch(need_concepts)
+
+    # 合并结果
+    for code in missing:
+        if code not in result:
+            continue
+        info = batch.get(code, {})
+        concepts = concepts_map.get(code, "")
+        merged = {**info, "concepts": concepts or info.get("concepts", "")}
+        q = result[code]
+        result[code] = QuoteData(**{**q.__dict__, **merged})
+        _industry_cache.set(f"ind:{code}", merged, ttl=86400)
 
 
 def _fetch_batch_quotes_xueqiu(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:

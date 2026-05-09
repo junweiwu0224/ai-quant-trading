@@ -41,10 +41,20 @@ class PerformanceAnalyzer:
         # 计算每日收益率
         daily_returns = self._calculate_daily_returns(equity_curve)
 
+        # 当日收益：今日第一个点 → 最新点
+        today_str = date.today().isoformat()
+        today_points = [p for p in equity_curve if p.timestamp.strftime("%Y-%m-%d") == today_str]
+        if today_points and today_points[0].equity > 0:
+            daily_return = (equity_curve[-1].equity - today_points[0].equity) / today_points[0].equity
+        elif daily_returns:
+            daily_return = daily_returns[-1]
+        else:
+            daily_return = 0
+
         # 计算各项指标
         metrics = PerformanceMetrics(
             total_equity=equity_curve[-1].equity if equity_curve else initial_cash,
-            daily_return=daily_returns[-1] if daily_returns else 0,
+            daily_return=daily_return,
             cumulative_return=self._calc_cumulative_return(equity_curve, initial_cash),
             max_drawdown=self._calc_max_drawdown(equity_curve),
             sharpe_ratio=self._calc_sharpe_ratio(daily_returns),

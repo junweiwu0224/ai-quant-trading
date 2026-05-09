@@ -834,3 +834,134 @@ async def optimize_params(req: OptimizeRequest):
     except Exception as e:
         logger.error(f"超参优化失败: {e}")
         return {"best_params": {}, "error": "超参优化失败，请查看服务端日志"}
+
+
+# ── 跨截面 AI 选股端点 ──
+
+from alpha.cross_sectional import CrossSectionalPipeline
+
+_cs_pipeline = CrossSectionalPipeline()
+
+
+class TrainGlobalRequest(BaseModel):
+    model_type: str = "lightgbm"
+    use_history: bool = False
+    codes: list[str] = []
+    start_date: str = "2023-01-01"
+    end_date: str = "2024-12-31"
+    forward_days: int = 5
+
+
+@router.post("/train-global")
+async def train_global(req: TrainGlobalRequest):
+    """训练全市场截面选股模型"""
+    try:
+        if req.use_history and req.codes:
+            result = _cs_pipeline.train_from_history(
+                codes=req.codes,
+                start_date=req.start_date,
+                end_date=req.end_date,
+                forward_days=req.forward_days,
+                model_type=req.model_type,
+            )
+        else:
+            result = _cs_pipeline.train_from_snapshot(
+                model_type=req.model_type,
+            )
+        return result
+    except Exception as e:
+        logger.error(f"全市场训练失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/screen-ai")
+async def screen_ai(
+    top_n: int = Query(20, ge=1, le=100),
+):
+    """AI 截面选股：返回 TOP N 推荐股票"""
+    try:
+        results = _cs_pipeline.predict(top_n=top_n)
+        return {
+            "success": True,
+            "stocks": [r.to_dict() for r in results],
+            "total": len(results),
+        }
+    except RuntimeError:
+        return {"success": False, "error": "模型未训练，请先执行训练", "stocks": []}
+    except Exception as e:
+        logger.error(f"AI 选股失败: {e}")
+        return {"success": False, "error": str(e), "stocks": []}
+
+
+@router.get("/model-status")
+async def model_status():
+    """检查截面模型状态"""
+    from pathlib import Path
+    model_dir = Path("models/cross_sectional")
+    meta_path = model_dir / "meta.json"
+    model_path = model_dir / "model"
+    exists = meta_path.exists() and any(model_dir.glob("model*"))
+    meta = {}
+    if meta_path.exists():
+        import json
+        meta = json.loads(meta_path.read_text())
+    return {
+        "trained": exists,
+        "feature_count": len(meta.get("feature_names", [])),
+        "features": meta.get("feature_names", []),
+    }
+
+
+class BacktestPortfolioRequest(BaseModel):
+    top_n: int = 20
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    rebalance_days: int = 5
+    allocation: str = "equal"
+    initial_cash: float = 1_000_000
+
+
+@router.post("/backtest-portfolio")
+async def backtest_portfolio(req: BacktestPortfolioRequest):
+    """组合回测：基于 AI 选股结果模拟组合交易"""
+    try:
+        from alpha.backtest import PortfolioBacktester, BacktestConfig
+
+        config = BacktestConfig(
+            initial_cash=req.initial_cash,
+            rebalance_days=req.rebalance_days,
+            allocation=req.allocation,
+        )
+        backtester = PortfolioBacktester(config)
+
+        # 获取预测结果（当前模型）
+        predictions = _cs_pipeline.predict(top_n=req.top_n)
+        pred_list = [p.to_dict() for p in predictions]
+
+        # 获取价格数据
+        codes = [p["code"] for p in pred_list]
+        price_data = {}
+        start = pd.Timestamp(req.start_date).date()
+        end = pd.Timestamp(req.end_date).date()
+        for code in codes:
+            df = storage.get_stock_daily(code, start, end)
+            if not df.empty:
+                price_data[code] = df
+
+        if not price_data:
+            return {"success": False, "error": "无可用价格数据"}
+
+        # 用同一天的预测模拟（简化：每天用相同预测）
+        # 实际应按日期重新预测，此处为快速验证
+        first_date = min(
+            df["date"].iloc[0]
+            for df in price_data.values()
+            if len(df) > 0
+        )
+        predictions_by_date = {str(first_date): pred_list}
+
+        result = backtester.run(predictions_by_date, price_data)
+        return {"success": True, **result.to_dict()}
+    except Exception as e:
+        logger.error(f"组合回测失败: {e}")
+        return {"success": False, "error": str(e)}

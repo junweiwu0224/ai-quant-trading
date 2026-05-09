@@ -15,6 +15,38 @@ router = APIRouter()
 _active_connections: list[WebSocket] = []
 _ws_lock = asyncio.Lock()
 
+# 预警引擎（全局单例）
+_alert_engine = None
+
+
+def _get_alert_engine():
+    global _alert_engine
+    if _alert_engine is None:
+        from engine.alert_engine import AlertEngine
+        _alert_engine = AlertEngine()
+        _load_alert_rules()
+    return _alert_engine
+
+
+def _load_alert_rules():
+    """从数据库加载预警规则"""
+    try:
+        from data.storage import DataStorage
+        from engine.alert_engine import AlertRule as EngineAlertRule
+        storage = DataStorage()
+        rules_data = storage.get_alert_rules(enabled_only=True)
+        rules = [
+            EngineAlertRule(
+                id=r["id"], code=r["code"], condition=r["condition"],
+                threshold=r["threshold"], enabled=r["enabled"],
+                name=r["name"], cooldown=r["cooldown"],
+            )
+            for r in rules_data
+        ]
+        _alert_engine.set_rules(rules)
+    except Exception as e:
+        logger.warning(f"加载预警规则失败: {e}")
+
 
 def _quote_to_dict(q: QuoteData) -> dict:
     """QuoteData -> 可序列化字典"""
@@ -62,11 +94,46 @@ async def _broadcast_quotes(quotes: dict[str, QuoteData]):
                     _active_connections.remove(ws)
 
 
+async def _broadcast_alerts(alerts):
+    """广播预警到所有 WebSocket 连接"""
+    async with _ws_lock:
+        connections = list(_active_connections)
+    if not connections:
+        return
+
+    payload = json.dumps({
+        "type": "alerts",
+        "data": [a.to_dict() for a in alerts],
+        "time": now_beijing_iso(),
+    })
+
+    disconnected = []
+    for ws in connections:
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            disconnected.append(ws)
+
+    if disconnected:
+        async with _ws_lock:
+            for ws in disconnected:
+                if ws in _active_connections:
+                    _active_connections.remove(ws)
+
+
 def _sync_broadcast(quotes: dict[str, QuoteData]):
-    """同步回调 -> 异步广播"""
+    """同步回调 -> 异步广播（行情 + 预警检查）"""
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_broadcast_quotes(quotes))
+        # 检查预警
+        try:
+            engine = _get_alert_engine()
+            alerts = engine.check(quotes)
+            if alerts:
+                loop.create_task(_broadcast_alerts(alerts))
+        except Exception as e:
+            logger.debug(f"预警检查异常: {e}")
     except RuntimeError:
         pass
 

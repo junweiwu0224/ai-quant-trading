@@ -15,7 +15,7 @@ class StartRequest(BaseModel):
     strategy: str = "dual_ma"
     codes: list[str]
     interval: int = 30
-    cash: float = 1_000_000
+    cash: float = 50_000
     enable_risk: bool = True
     params: Optional[dict] = None
     custom_code: Optional[str] = None

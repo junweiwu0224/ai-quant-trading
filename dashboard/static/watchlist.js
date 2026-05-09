@@ -111,8 +111,13 @@ const Watchlist = {
             App.toast(`已添加 ${code}`, 'success');
 
             // 延迟刷新自选股表格，等行业/板块/概念 enrichment 完成
-            clearTimeout(this._refreshTimer);
-            this._refreshTimer = setTimeout(() => this._refreshWatchlistTable(), 2500);
+            // 不清除已有定时器，避免快速连续添加时互相取消
+            if (!this._refreshTimer) {
+                this._refreshTimer = setTimeout(() => {
+                    this._refreshTimer = null;
+                    this._refreshWatchlistTable();
+                }, 3000);
+            }
         } catch (e) {
             App.toast('添加失败: ' + e.message, 'error');
         }

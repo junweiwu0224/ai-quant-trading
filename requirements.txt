@@ -34,3 +34,6 @@ click>=8.0.0
 
 # PDF Report
 reportlab>=4.0.0
+
+# LLM
+openai>=1.30.0

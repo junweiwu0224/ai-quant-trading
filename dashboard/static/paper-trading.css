@@ -281,3 +281,45 @@
         grid-template-columns: repeat(6, 1fr);
     }
 }
+
+/* 止损止盈合并单元格 */
+.sl-tp-cell {
+    min-width: 200px;
+    vertical-align: middle;
+}
+
+.sl-tp-inputs {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.sl-tp-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--color-text-muted, #9ca3af);
+    white-space: nowrap;
+}
+
+.sl-tp-label input[type="number"] {
+    width: 72px;
+    padding: 2px 4px;
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.sl-tp-dist {
+    font-size: 0.7rem;
+    font-weight: 600;
+    min-width: 40px;
+}
+
+/* 股票代码样式 */
+.pos-code {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.8rem;
+    color: var(--color-text-muted, #9ca3af);
+    margin-right: 4px;
+}

@@ -2,7 +2,7 @@
 
 ## 1. 系统定位
 
-基于 vnpy 引擎深度定制的个人量化交易系统，覆盖 **数据采集 → 因子研究 → 策略回测 → 模拟交易 → 实盘交易 → AI 自学习优化** 全流程。
+基于 vnpy 引擎深度定制的个人量化交易系统，覆盖 **数据采集 → 因子研究 → 策略回测 → 模拟交易 → AI 自学习优化** 全流程。
 
 **核心原则：**
 - vnpy 做引擎底座，不重复造轮子
@@ -17,32 +17,42 @@
 ```
 quant-trading-system/
 ├── data/                    # 数据层
-│   ├── collector/           # 数据采集（AKShare）
-│   ├── storage/             # 数据存储与管理（SQLite）
+│   ├── collector/           # 数据采集（AKShare）+ HTTP 客户端
+│   ├── storage/             # 数据存储与管理（SQLite + SQLAlchemy）
 │   └── scheduler/           # 定时任务调度（APScheduler）
 ├── strategy/                # 策略层
 │   ├── manager.py           # 策略持久化管理（内置+自定义）
+│   ├── version.py           # 策略版本管理（保存/回滚/Diff）
 │   ├── dual_ma.py           # 双均线策略
 │   ├── bollinger.py         # 布林带策略
 │   └── momentum.py          # 动量策略
 ├── alpha/                   # AI Alpha 层
-│   ├── factors/             # 因子库
-│   ├── models/              # 模型训练（LightGBM）
-│   └── optimizer/           # 超参优化（Optuna）
+│   ├── factors/             # 因子库（技术/基本面/资金流/情绪/宏观）
+│   ├── models/              # 模型（LightGBM/XGBoost/Ensemble）
+│   ├── feature_pipeline.py  # 特征工程管道
+│   ├── cross_sectional.py   # 跨截面选股模型
+│   ├── backtest.py          # 组合回测引擎（含成本/约束/分配）
+│   ├── screener.py          # 条件选股引擎
+│   ├── llm_client.py        # LLM 客户端（mimo-v2.5）
+│   ├── nl_strategy.py       # 自然语言策略生成 + AI 解读
+│   └── factor_scheduler.py  # 因子动态更新调度器
 ├── risk/                    # 风控层
 │   ├── position/            # 仓位管理
-│   ├── stoploss/            # 止损规则
+│   ├── stoploss/            # 止损规则（固定/跟踪/ATR/回撤）
 │   └── monitor/             # 风险监控
 ├── dashboard/               # 可视化层（FastAPI + Jinja2 SPA）
 │   ├── app.py               # FastAPI 入口（含 lifespan 调度器）
-│   ├── routers/             # API 路由
+│   ├── routers/             # API 路由（17 组，120+ 端点）
 │   ├── templates/           # HTML 模板
-│   └── static/              # 前端资源（JS/CSS）
-├── engine/                  # vnpy 引擎集成层
+│   └── static/              # 前端资源（35 个 JS/CSS 模块）
+├── engine/                  # 引擎集成层
 │   ├── backtest_engine.py   # 回测引擎
 │   ├── paper_engine.py      # 模拟盘引擎
 │   ├── live_engine.py       # 实盘引擎
-│   └── broker.py            # BrokerGateway 抽象接口
+│   ├── alert_engine.py      # 预警引擎
+│   ├── broker.py            # BrokerGateway 抽象接口
+│   ├── report_generator.py  # PDF 报告生成
+│   └── performance_analyzer.py  # 绩效分析（Brinson归因/Monte Carlo）
 ├── config/                  # 配置
 ├── scripts/                 # 运维脚本
 └── docs/                    # 文档
@@ -59,8 +69,9 @@ quant-trading-system/
 | 组件 | 功能 | 技术 |
 |------|------|------|
 | collector | 拉取日K数据 | AKShare |
-| storage | 数据清洗、入库、查询、自选股管理 | SQLite |
-| scheduler | 后台定时同步自选股数据 | APScheduler BackgroundScheduler |
+| http_client | 共享 httpx 连接池、fetch_json/code_to_secid/fetch_kline | httpx |
+| storage | 数据清洗、入库、查询、自选股管理、预警规则、画线保存 | SQLAlchemy + SQLite |
+| scheduler | 后台定时同步自选股数据 | APScheduler |
 | quote_service | 实时行情服务（混合架构） | Xueqiu + push2delay |
 
 **数据流：**
@@ -80,35 +91,16 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 - **push2his.eastmoney.com**：K 线历史数据首选（Docker 外可用）
 - **混合策略**：Xueqiu 优先，push2delay 补充行业/板块/概念，腾讯回退 K 线
 
-```
-_fetch_single_quote(code)
-  ├── Xueqiu → 价格/涨跌幅/成交量
-  ├── push2delay → 行业/板块/概念/市值/PE/PB
-  └── _fetch_financial_data(code) → 财务指标
-      ├── K 线数据（52 周高低/均量）
-      │   ├── push2his 首选
-      │   └── 腾讯 fqkline 回退
-      ├── datacenter → EPS/BPS/ROE/毛利率/净利率/负债率
-      ├── datacenter → 总股本/流通股本
-      └── datacenter → PE_TTM/PS_TTM/股息率
-
-_fetch_batch_quotes(codes)
-  ├── Xueqiu 批量 → 基础行情
-  └── push2delay 批量 → 补充行业/板块/概念
-```
-
-**行情详情 API（stock_detail.py）：**
-
-K 线和分时数据采用双源回退策略：
-- `/api/stock/kline/{code}` — push2his 首选，腾讯 fqkline 回退（日/周/月）
-- `/api/stock/timeline/{code}` — push2delay（Docker 内可用）
-- `/api/stock/detail/{code}` — 聚合接口，始终调用 `_fetch_financial_data` 补充财务指标
-- `/api/stock/market/benchmark` — 沪深300 基准，push2his + 腾讯回退
-
 **数据表：**
-- `stock_info` — A股基本信息（代码、名称、行业），5500+ 只
-- `stock_daily` — 日K线（code, date, open, high, low, close, volume, amount）
-- `user_watchlist` — 用户自选股列表
+| 表 | 说明 |
+|----|------|
+| `stock_info` | A股基本信息（代码、名称、行业），5500+ 只 |
+| `stock_daily` | 日K线（code, date, open, high, low, close, volume, amount） |
+| `user_watchlist` | 用户自选股列表 |
+| `strategy_version` | 策略版本历史 |
+| `backtest_record` | 回测记录持久化 |
+| `alert_rules` | 预警规则 |
+| `chart_drawings` | K 线画线标注 |
 
 ### 3.2 策略层 (strategy/)
 
@@ -117,8 +109,9 @@ K 线和分时数据采用双源回退策略：
 **策略管理：**
 - `StrategyManager` 持久化管理（`data/strategies.json`）
 - 内置策略（dual_ma / bollinger / momentum）支持参数覆盖
-- 自定义策略 CRUD（新增/编辑/删除）
-- 前端结构化参数编辑表单
+- 自定义策略 CRUD + AST 安全验证（白名单 import、禁止危险内置函数）
+- 策略版本管理（保存/回滚/Diff）
+- 回测记录持久化（保存/加载/对比）
 
 **内置策略：**
 | 策略 | 类型 | 参数 |
@@ -129,15 +122,47 @@ K 线和分时数据采用双源回退策略：
 
 ### 3.3 AI Alpha 层 (alpha/)
 
-**职责：** 因子挖掘、模型训练、信号生成。
+**职责：** 因子挖掘、模型训练、信号生成、跨截面选股。
 
-| 组件 | 功能 | 技术 |
+#### 因子库 (alpha/factors/)
+
+| 模块 | 因子 | 来源 |
 |------|------|------|
-| factors | 技术因子（MA/MACD/RSI/ATR等） | pandas |
-| models | LightGBM 模型训练与预测 | LightGBM |
-| optimizer | 超参优化 | Optuna |
+| technical.py | MA/EMA/RSI/MACD/Bollinger/ATR/KDJ/多期收益/波动率 | K 线数据 |
+| fundamental.py | 代理因子（换手率/动量/VPT/MFI/MA偏离/成交量Z-score）+ 真实财务（PE/ROE/EPS/BPS/毛利率/净利率/营收增长/净利润增长/负债率/股息率） | 价量数据 + 东方财富 datacenter |
+| flow.py | 北向持股比例/变化/连续净买入/累计净买入 + 龙虎榜上榜次数/机构净买入/热度 | 东方财富北向/龙虎榜 API |
+| sentiment.py | 情绪分/3日均/5日均/变化率 | 东方财富公告 API + SnowNLP |
+| macro.py | SHIBOR 1W/1M、国债收益率 10Y/1Y、M2 增速、社融 | 东方财富宏观数据 API |
 
-**前端展示：** 因子重要性 Top20、训练曲线（AUC/Loss）、预测 vs 实际、K线交易信号。
+#### 模型 (alpha/models/)
+
+| 模型 | 说明 |
+|------|------|
+| LightGBM | 二分类器，AUC 指标，200 estimators，early stopping |
+| XGBoost | 二分类器，AUC 指标，200 estimators，early stopping |
+| Ensemble | 加权平均或多数投票集成 LGB+XGB |
+
+#### 核心模块
+
+| 模块 | 功能 |
+|------|------|
+| feature_pipeline.py | 特征管道：技术+基本面+可选API因子 → 去极值 → 标准化 → 标签 |
+| cross_sectional.py | 跨截面选股：全市场因子矩阵 → 截面标签 → 集成训练 → TOP N 预测 |
+| backtest.py | 组合回测：等权/风险平价/因子加权分配，含成本模型和行业约束 |
+| screener.py | 条件选股：字段+运算符+值过滤，6 预设策略，批量获取行情 |
+| factor_scheduler.py | 因子调度：交易时段高频（北向15min/板块30min/情绪1h/宏观日更），盘后降频 |
+| llm_client.py | mimo-v2.5 LLM 客户端（OpenAI 兼容接口，异步调用） |
+| nl_strategy.py | 自然语言→选股条件 JSON + AI 预测结果解读 + 量化对话 |
+
+#### 可解释性
+
+- **SHAP 全局重要性**：Top 20 因子柱状图
+- **SHAP 依赖图**：因子值 vs SHAP 值散点
+- **SHAP 蜂群图**：全部因子贡献分布
+- **因子 IC/IR**：因子与未来收益的信息系数/信息比率
+- **因子衰减**：IC vs 持有期
+- **因子相关性**：热力图矩阵
+- **自动因子挖掘**：diff/ratio/product 组合，按 IC 排序
 
 ### 3.4 风控层 (risk/)
 
@@ -147,100 +172,114 @@ K 线和分时数据采用双源回退策略：
 |------|------|
 | 单票仓位上限 | 不超过总资金 20% |
 | 行业集中度 | 同行业不超过 40% |
+| 最大持仓数 | 不超过 10 只 |
 | 最大回撤止损 | 回撤超 15% 全部平仓 |
 | 日亏损限额 | 单日亏损超 3% 停止交易 |
+| 固定止损 | 5% |
+| 跟踪止损 | 8% |
+| ATR 止损 | 2x ATR |
 
-### 3.5 可视化层 (dashboard/)
+### 3.5 预警引擎 (engine/alert_engine.py)
 
-**职责：** Web 界面，SPA 架构，7 个功能 Tab。
+**职责：** 实时监控行情，触发条件预警。
 
-**技术栈：** FastAPI + Jinja2 + Vanilla JS + Chart.js v4
+| 条件 | 说明 |
+|------|------|
+| price_above | 价格突破上限 |
+| price_below | 价格跌破下限 |
+| change_above | 涨幅超阈值 |
+| change_below | 跌幅超阈值 |
+| volume_ratio_above | 量比超阈值 |
+| turnover_above | 换手率超阈值 |
+| amplitude_above | 振幅超阈值 |
 
-**设计系统：** 对标 cli-proxy-api 暖灰色系设计
+- 防重复触发：cooldown 机制（默认 5 分钟）
+- WebSocket 广播：触发后推送到所有客户端
+- 持久化：SQLite alert_rules 表
+
+### 3.6 可视化层 (dashboard/)
+
+**职责：** Web 界面，SPA 架构，8 个功能 Tab + 多个子页面。
+
+**技术栈：** FastAPI + Jinja2 + Vanilla JS + Chart.js v4 + KlineCharts v9
+
+**设计系统：** 暖灰色系设计
 - 主色 `#8b8680`，CSS 变量驱动，支持亮色/深色双主题
 - 侧边栏 240px / 折叠 68px，响应式断点 768px/1024px/480px
 - 玻璃态模态框、骨架屏加载
 
-**总览页布局（从上到下）：**
-```
-┌──────────────────────────────────────────────┐
-│ 核心指标卡片（总资产/当日盈亏/累计收益/最大回撤/夏普/持仓数）│
-├──────────────────────────────────────────────┤
-│ 市场情绪（涨跌分布/涨停/跌停）                   │
-├──────────────────────────────────────────────┤
-│ 市场大盘（指数/行业板块TOP10/概念板块TOP10）       │
-├──────────────────────────────────────────────┤
-│ 自选股管理（搜索选择+tags+表格）                  │
-├──────────────────────────────────────────────┤
-│ 资产走势（折线图/柱状图/基准对比）                │
-├──────────────────────────────────────────────┤
-│ 持仓明细                                       │
-├──────────────────────────────────────────────┤
-│ 最近交易                                       │
-├──────────────────────────────────────────────┤
-│ 系统状态（模拟盘/AI模型/行情/数据库/最新日期）     │
-└──────────────────────────────────────────────┘
-```
-
-**性能优化（P0-P3）：**
-| 优化 | 策略 | 效果 |
-|------|------|------|
-| P0 增删局部更新 | 增删自选股不调 loadOverview，局部 DOM 更新 | 增删 <200ms |
-| P1 分阶段渲染 | loadOverview 拆为阶段1(核心) + 阶段2(图表市场) | 首屏 <500ms |
-| P2 股票列表缓存 | 全量 6000 只缓存 5 分钟 | 下拉框 <100ms |
-| P3 请求去重 | 同一股票 300ms 内不重复操作 | 防止堆积 |
-
-**自选股管理功能：**
-- 已选股票以 tags 常驻搜索框下方，点击 × 可删除
-- 下拉框显示全量 5000+ 只股票，已选股票不出现在下拉框
-- 删除后立即可搜索重新添加（MultiSearchBox._selected 同步清除）
-- 添加后 2.5s 延迟刷新表格（等待行业/板块/概念 enrichment）
-- 深色模式：localStorage 持久化偏好，支持系统 prefers-color-scheme
-
 **Tab 页面：**
-| Tab | 功能 |
-|-----|------|
-| 总览 | 核心指标、市场情绪、市场大盘、自选股管理、资产走势、持仓明细、最近交易、系统状态 |
-| 行情详情 | 自选股搜索、K线图（北京时间）、分时图、五档盘口、阶段涨幅、专业指标、财务指标、资金流向、技术指标（MACD/KDJ/RSI/BOLL/WR/OBV）、板块/概念、行业对比 |
-| 回测 | 策略选择、股票搜索（自选股下拉）、运行回测、收益曲线/月度热力图/回撤曲线/交易明细 |
-| 持仓 | 持仓监控、盈亏图表、行业分布、券商账户配置 |
-| 风控 | 仓位分布、风控规则状态 |
-| AI Alpha | 因子重要性、训练曲线、预测对比、交易信号 |
-| 模拟盘 | 启动/停止/重置、配置（策略/股票多选/资金/风控）、状态轮询 |
-| 策略管理 | 策略卡片列表、新增/编辑参数/删除、内置策略只读+参数覆盖 |
 
-**前端组件：**
+| Tab | 子页面 | 功能 |
+|-----|--------|------|
+| 总览 | — | 核心指标、市场情绪、指数、热力板块、市场雷达、条件选股、AI选股、预警中心、自选股、资产走势、持仓明细 |
+| 行情详情 | — | K线图（画线工具/多周期）、分时图、五档盘口、筹码分布、资金流向、财务数据、行业对比、北向资金、多股对比 |
+| 回测 | — | 策略选择、股票搜索、回测运行、收益曲线、月度热力图、回撤曲线、交易明细、Monte Carlo、Walk-Forward、Brinson归因、PDF报告 |
+| 持仓 | — | 持仓监控、风险指标（VaR/Sharpe/Sortino/Calmar）、行业分布、相关性矩阵、止损止盈、导出 |
+| 风控 | — | 仓位分布、风控规则状态、风险事件日志 |
+| AI Alpha | 模型分析 | 训练曲线（AUC/Loss）、因子重要性 Top20 |
+| | 因子研究 | IC/IR、量化收益、相关性矩阵、衰减分析 |
+| | 交易信号 | K线+买卖信号叠加、策略绩效模拟 |
+| | 模型对比 | LightGBM vs XGBoost vs Ensemble |
+| | Walk-Forward | 滚动窗口验证、稳定性分析 |
+| | 因子挖掘 | 自动组合因子、IC 排序 |
+| 模拟盘 | — | 启动/停止/重置、订单管理（市价/限价/止损/止盈）、持仓管理、绩效指标、权益曲线、交易统计、月度热力图 |
+| 策略管理 | — | 策略列表、代码编辑器、AST安全验证、版本管理 |
+| AI 助手 | — | LLM 流式对话、自然语言→选股条件、AI 结果解读 |
+
+**前端模块（35 个）：**
+
 | 文件 | 职责 |
 |------|------|
-| `app.js` | 主入口（Tab 路由、主题切换、侧边栏、总览/回测/持仓/风控/AI Alpha） |
-| `overview.js` | 总览模块（分阶段渲染、图表切换、市场指数/板块） |
-| `watchlist.js` | 自选股管理（局部更新、股票缓存、tags、排序） |
-| `charts.js` | ChartFactory 图表工厂（line/bar/doughnut/pie/horizontalBar/showEmpty） |
-| `search.js` | SearchBox 单选搜索下拉 + MultiSearchBox 多选搜索下拉 |
-| `stock-detail.js` | 行情详情（自选股搜索/K线/分时/五档盘口/阶段涨幅/专业指标/财务指标/资金流向/技术指标/板块概念/行业对比） |
-| `paper.js` | 模拟盘控制（启动/停止/重置/状态轮询） |
-| `paper-trading.js` | 模拟盘交易面板（买卖/持仓/交易记录） |
-| `portfolio.js` | 持仓模块（持仓监控/盈亏图表/行业分布） |
-| `portfolio-table.js` | 持仓表格增强（排序/分页） |
-| `risk.js` | 风控模块（仓位分布/风控规则） |
-| `alpha.js` | AI Alpha 模块（因子/训练/预测/信号） |
-| `utils.js` | 工具函数（enhanceTable/skeletonRows） |
-| `realtime-quotes.js` | WebSocket 实时行情（连接/订阅/推送） |
+| `app.js` | 主入口（Tab 路由、主题切换、侧边栏） |
+| `overview.js` | 总览模块（分阶段渲染、图表切换） |
+| `watchlist.js` | 自选股管理（局部更新、tags） |
+| `stock-detail.js` | 行情详情（K线/分时/五档/筹码/财务/行业对比） |
+| `compare.js` | 多股对比（归一化收益率、缩放/滚动） |
+| `screener.js` | 条件选股 + AI 选股 |
+| `alerts.js` | 预警管理（规则 CRUD、触发历史、Toast 通知） |
+| `overview-radar.js` | 市场雷达（TOP10、板块轮动、北向资金） |
+| `backtest.js` | 回测（Monte Carlo、Walk-Forward、归因） |
+| `portfolio.js` | 持仓管理（风险指标、相关性矩阵） |
+| `risk.js` | 风控模块 |
+| `alpha.js` | AI Alpha（SHAP、因子评估、模型对比） |
+| `paper.js` | 模拟盘控制 |
+| `paper-trading.js` | 模拟盘交易面板 |
+| `strategy.js` | 策略管理（代码编辑器、版本管理） |
+| `llm.js` | AI 助手（SSE 流式对话、条件预览） |
+| `charts.js` | ChartFactory 图表工厂 |
+| `search.js` | 搜索下拉组件（单选/多选） |
+| `realtime.js` | WebSocket 实时行情 |
+| `utils.js` | 工具函数 |
 
-**API 路由：**
-| 路由 | 说明 |
+**API 路由（17 组）：**
+
+| 路由 | 端点数 | 说明 |
+|------|--------|------|
+| `/api/backtest/*` | 17+ | 回测运行、策略列表、Monte Carlo、Walk-Forward、Brinson归因、PDF报告 |
+| `/api/portfolio/*` | 18+ | 持仓快照、交易记录、风险指标、行业分布、相关性、导出 |
+| `/api/stock/*` | 20+ | 股票搜索、K线、分时、五档、筹码、画线、多股对比、市场指数/板块 |
+| `/api/alpha/*` | 15+ | 因子评估、SHAP、模型对比、因子挖掘、跨截面训练/预测、组合回测 |
+| `/api/screener/*` | 4 | 条件选股、预设策略、字段列表 |
+| `/api/alerts/*` | 6 | 预警规则 CRUD、触发历史、条件类型 |
+| `/api/market/*` | 3 | 市场雷达、板块轮动、北向资金 |
+| `/api/paper/*` | 25+ | 模拟盘控制、订单/持仓管理、绩效/统计、风控 |
+| `/api/strategy/*` | 6 | 策略 CRUD、代码验证 |
+| `/api/strategy-version/*` | 9 | 策略版本管理、回测记录 |
+| `/api/watchlist/*` | 4 | 自选股 CRUD + enrichment |
+| `/api/llm/*` | 3 | LLM 对话、策略生成、结果解读 |
+| `/api/broker/*` | 4 | 券商配置 |
+| `/api/system/*` | 3 | 系统状态 |
+
+**WebSocket 端点：**
+| 端点 | 说明 |
 |------|------|
-| `/api/backtest/*` | 回测运行、策略列表、股票搜索、月度收益、回撤曲线、多策略对比 |
-| `/api/portfolio/*` | 持仓快照、交易记录、风控状态、权益历史、行业分布、基准对比 |
-| `/api/stock/*` | 股票搜索、K线、分时、资金流向、技术指标、市场指数、热门板块、市场统计 |
-| `/api/system/*` | 系统状态、DB 统计 |
-| `/api/alpha/*` | AI Alpha 分析（因子重要性、训练曲线、预测、信号） |
-| `/api/watchlist/*` | 自选股 CRUD + F10 行业/板块/概念 enrichment |
-| `/api/paper/*` | 模拟盘控制（start/stop/reset/status） |
-| `/api/strategy/*` | 策略 CRUD（内置策略参数覆盖） |
-| `/api/broker/*` | 券商账户配置 |
+| `/ws/quotes` | 实时行情推送（订阅/退订/预警广播） |
+| `/api/backtest/ws/run` | 回测实时进度 |
+| `/api/backtest/ws/walk-forward` | Walk-Forward 实时进度 |
+| `/api/optimization/ws/run` | 参数优化实时进度 |
 
-### 3.6 引擎集成层 (engine/)
+### 3.7 引擎集成层 (engine/)
 
 **职责：** 封装 vnpy 引擎，提供统一接口。
 
@@ -249,15 +288,6 @@ K 线和分时数据采用双源回退策略：
 | backtest | 回测模式，读取历史数据，批量验证策略 | 已实现 |
 | paper | 模拟盘，接实时行情，虚拟下单 | 已实现 |
 | live | 实盘，接 CTP/XTP 网关真实交易 | 接口已定义，Gateway 未实现 |
-
-**BrokerGateway 抽象接口：**
-```python
-class BrokerGateway(ABC):
-    connect() / disconnect()
-    get_account() / get_positions()
-    place_order() / cancel_order() / get_order_status()
-```
-当前仅有 `SimulatedBroker` 实现（内存撮合）。
 
 ---
 
@@ -268,10 +298,12 @@ class BrokerGateway(ABC):
 | 语言 | Python 3.11 |
 | 引擎 | vnpy 4.3 |
 | 数据采集 | AKShare |
-| 数据库 | SQLite |
-| AI/ML | LightGBM, Optuna |
+| 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
+| 数据库 | SQLite + SQLAlchemy |
+| AI/ML | LightGBM, XGBoost, Optuna, SHAP |
+| NLP | SnowNLP, mimo-v2.5 (LLM) |
 | Web 框架 | FastAPI + Jinja2 |
-| 前端 | Vanilla JS + Chart.js v4 |
+| 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
 | 任务调度 | APScheduler |
 | 容器化 | Docker + docker-compose |
 | 反向代理 | Nginx + Cloudflare CDN |
@@ -280,79 +312,118 @@ class BrokerGateway(ABC):
 
 ## 5. 开发进度
 
-### Phase 1: 基础搭建 — 已完成
+### Phase 1: K线技术分析增强 — 已完成
+- [x] 画线工具（趋势线/水平线/斐波那契，保存/加载/删除）
+- [x] 多周期切换（1m/5m/15m/30m/60m/日/周/月）
+- [x] 多股对比（归一化收益率，缩放/滚动/区间标注）
+
+### Phase 2: 条件选股系统 — 已完成
+- [x] StockScreener 核心（字段+运算符+值过滤）
+- [x] 6 预设策略模板
+- [x] 选股 API + 前端（条件构建器、结果表格、CSV 导出）
+
+### Phase 3: AI 跨截面选股模型 — 已完成
+- [x] CrossSectionalPipeline（全市场因子矩阵 + 截面标签 + 集成训练 + 预测）
+- [x] LightGBM + XGBoost 软投票集成
+- [x] 训练 API + Walk-Forward 验证
+- [x] 组合回测引擎（等权/风险平价/因子加权，含成本模型和行业约束）
+- [x] AI 选股前端（推荐列表、SHAP 贡献、策略收益曲线）
+
+### Phase 4: 预警系统 — 已完成
+- [x] AlertEngine（7 种条件、防重复触发）
+- [x] WebSocket 推送（实时预警广播）
+- [x] 预警管理 API + 前端（CRUD、触发历史）
+
+### Phase 5: 筹码分布 + 市场雷达 — 已完成
+- [x] 筹码分布图（获利比例/平均成本/集中度）
+- [x] 市场雷达（涨幅/跌幅/振幅/换手率/量比 TOP10）
+- [x] 板块轮动排名 + 北向资金净流入
+
+### Phase 6: 因子增强 + 数据源扩展 — 已完成
+- [x] 真实财务因子（PE/ROE/EPS/毛利率/净利率/营收增长/净利润增长/负债率/股息率）
+- [x] 北向资金因子（持股比例/变化/连续净买入/累计净买入）
+- [x] 龙虎榜因子（上榜次数/机构净买入/热度评分）
+- [x] 新闻情绪因子（SnowNLP + 关键词降级，3/5日均值，变化率）
+- [x] 宏观因子（SHIBOR/国债/M2/社融）
+- [x] 因子动态更新调度器（交易时段高频，盘后降频）
+- [x] 特征管道集成（enable_api_factors 开关）
+
+### Phase 7: LLM 集成 — 已完成
+- [x] mimo-v2.5 LLM 客户端（OpenAI 兼容，异步调用）
+- [x] 自然语言→选股条件 JSON
+- [x] AI 预测结果解读（理由/因子/风险/建议）
+- [x] 流式对话 SSE
+- [x] AI 助手前端（对话界面、条件预览卡片）
+
+### 基础设施 — 已完成
 - [x] AKShare 数据采集 → SQLite 存储
-- [x] 数据定时同步（DataScheduler 后台线程，每日 16:30 同步自选股）
-- [x] 自选股管理（UserWatchlist 表 + API）
-- [x] 股票列表 5500+ 只
-
-### Phase 2: 回测引擎 — 已完成
-- [x] BacktestEngine 回测引擎
-- [x] 3 个内置策略（双均线/布林带/动量）
-- [x] 策略参数持久化 + 内置策略参数覆盖
-- [x] 回测报告（收益曲线/月度热力图/回撤曲线/交易明细/风控告警）
-- [x] 多策略收益对比
-
-### Phase 3: AI Alpha — 已完成
-- [x] 技术因子库（MA/MACD/RSI/ATR 等）
-- [x] LightGBM 模型训练
-- [x] Optuna 超参优化
-- [x] 前端展示（因子重要性/训练曲线/预测对比/交易信号）
-
-### Phase 4: 风控模块 — 已完成
-- [x] 仓位管理规则
-- [x] 止损止盈规则
-- [x] 风险监控告警
-- [x] 风控面板可视化
-
-### Phase 5: 模拟盘 — 已完成
-- [x] PaperEngine 模拟盘引擎
-- [x] 实时行情接入
-- [x] Dashboard 控制面板（启动/停止/重置/状态轮询）
-- [x] 多选股票配置
-
-### Phase 6: 可视化面板 — 已完成
-- [x] FastAPI 后端 API（7 组路由）
-- [x] SPA 前端（7 个 Tab）
-- [x] 响应式布局（桌面/平板/手机）
-- [x] 暖灰色设计系统
-- [x] 搜索下拉组件（单选/多选，搜索内置在下拉中）
-- [x] 自选股管理 + 数据同步
-- [x] 策略 CRUD + 结构化参数编辑
-- [x] 券商账户配置入口
-
-### Phase 7: 实盘对接 — 接口就绪，Gateway 未实现
-- [x] BrokerGateway 抽象接口定义
-- [x] SimulatedBroker 实现（内存撮合）
-- [x] LiveTradingEngine 框架
-- [ ] CTP Gateway 实现（期货）
-- [ ] XTP Gateway 实现（股票）
-- [ ] 券商配置 UI（已预留入口）
+- [x] 数据定时同步（每日 16:30）
+- [x] 自选股管理 + F10 enrichment
+- [x] 模拟盘引擎（市价/限价/止损/止盈单）
+- [x] 风控模块（仓位/止损/监控）
+- [x] 策略版本管理 + 回测记录持久化
+- [x] PDF 报告生成
+- [x] 响应式布局 + 深色模式
 
 ---
 
-## 6. 未来规划
+## 6. 待开发（竞品对标）
 
-### 短期
-- [ ] 实现 CTP/XTP BrokerGateway，对接真实券商
-- [ ] 自选股同步优化（增量更新、断点续传）
-- [ ] 回测参数优化（网格搜索 / 遗传算法）
+对标通达信、QMT、PTrade、AI涨乐、同花顺 iQuant 等竞品分析后的改进计划。
 
-### 中期
-- [ ] 分钟K线 / Tick 数据采集
-- [ ] 多因子组合策略
-- [ ] 策略绩效归因分析
-- [ ] 实盘交易日志 + 对账
+### 第一优先级 — 高 ROI
 
-### 长期
-- [ ] 多账户管理
-- [ ] 策略组合管理（FOF）
-- [ ] 实时风控推送（WebSocket）
-- [ ] 移动端适配
+| # | 功能 | 对标竞品 | 说明 | 难度 |
+|---|------|---------|------|------|
+| 1 | 公式系统 | 通达信 | 类通达信语法公式引擎，支持自定义指标/选股公式（`CROSS(MA5,MA20)`），降低策略编写门槛 | ★★★ |
+| 2 | 条件单 | QMT/PTrade | 预警触发后自动下单（止盈止损单、拐点单、回落卖出单） | ★★ |
+| 3 | 篮子交易 | QMT/PTrade | AI 选股 TOP20 一键组合买入，等权/风险平价分配 | ★★ |
+| 4 | 板块热力图 | 同花顺 | 行业 x 涨跌幅色块可视化，一眼看出资金流向 | ★★ |
+| 5 | 多周期共振 | 通达信 | 一屏 4 窗口（日/60 分钟/周/月），自动标注共振信号 | ★★ |
+
+### 第二优先级 — 体验提升
+
+| # | 功能 | 对标竞品 | 说明 | 难度 |
+|---|------|---------|------|------|
+| 6 | 分时图增强 | 通达信 | 分时均价线、量比实时曲线、多日分时叠加 | ★★ |
+| 7 | 龙虎榜深度分析 | 东方财富 Choice | 机构 vs 游资趋势图、游资席位画像、上榜后收益统计 | ★★ |
+| 8 | 研报整合 | 东方财富 Choice | 接入研报数据，LLM 自动解读研报观点 | ★★ |
+| 9 | 移动端 PWA | 涨乐财富通 | PWA + 离线缓存 + 推送通知 | ★★★ |
+| 10 | 策略导入导出 | 通达信公式社区 | JSON 策略分享、社区评分排行 | ★★ |
+
+### 第三优先级 — 长线投入
+
+| # | 功能 | 对标竞品 | 说明 | 难度 |
+|---|------|---------|------|------|
+| 11 | Tick 级回测 | QMT | 分钟级/Tick 级回测引擎，支持日内策略 | ★★★★ |
+| 12 | L2 十档行情 | QMT/PTrade | 十档买卖盘、逐笔成交、委托队列 | ★★★ |
+| 13 | 可转债/期权 | QMT | 扩展交易品种，可转债套利策略 | ★★★ |
+| 14 | 实盘交易 | QMT/PTrade | CTP/XTP BrokerGateway 对接真实券商 | ★★★★★ |
 
 ---
 
-## 7. 部署架构
+## 7. 竞品对比总结
+
+| 维度 | 通达信 | QMT | PTrade | AI涨乐 | **本系统** |
+|------|--------|-----|--------|--------|-----------|
+| 公式系统 | ✅ 成熟 | ❌ | ❌ | ❌ | ❌ 待开发 |
+| 条件单 | ✅ | ✅ | ✅ | ✅ | ❌ 待开发 |
+| 篮子交易 | ❌ | ✅ | ✅ | ❌ | ❌ 待开发 |
+| AI 选股 | ❌ | ❌ | ❌ | ✅ 黑盒 | ✅ 白盒+SHAP |
+| 因子研究 | ❌ | 基础 | 基础 | ❌ | ✅ IC/IR/衰减/挖掘 |
+| 回测深度 | 基础 | ✅ tick级 | ✅ | ❌ | ✅ Monte Carlo/WF/Brinson |
+| 可解释性 | ❌ | ❌ | ❌ | ❌ | ✅ SHAP 全套 |
+| LLM 集成 | ❌ | ❌ | ❌ | 基础 | ✅ NL策略+解读+对话 |
+| 策略版本 | ❌ | ❌ | ❌ | ❌ | ✅ 保存/回滚/Diff |
+| 模拟盘 | ❌ | ✅ | ✅ | ❌ | ✅ 完整订单管理 |
+| 实盘交易 | ✅ | ✅ | ✅ | ✅ | ❌ 待对接 |
+
+**核心优势：** AI 可解释性（SHAP）、因子研究深度、LLM 集成、回测分析深度、策略版本管理
+**核心短板：** 公式系统、条件单、篮子交易、实盘对接
+
+---
+
+## 8. 部署架构
 
 ```
 ┌─────────────────────────────────────────┐
@@ -369,6 +440,11 @@ class BrokerGateway(ABC):
 │  │  (data/db/)  │  │  (后台线程)      │  │
 │  └──────────────┘  └─────────────────┘  │
 │                                         │
+│  ┌──────────────┐  ┌─────────────────┐  │
+│  │  Alert Engine│  │  Factor Sched.  │  │
+│  │  (预警引擎)   │  │  (因子调度)     │  │
+│  └──────────────┘  └─────────────────┘  │
+│                                         │
 │  ┌──────────────────────────────────┐   │
 │  │  Nginx → Cloudflare CDN          │   │
 │  │  biga.junwei.fun → :8001         │   │
@@ -378,4 +454,4 @@ class BrokerGateway(ABC):
 
 ---
 
-*文档版本: v3.1 | 日期: 2026-05-08*
+*文档版本: v4.0 | 日期: 2026-05-09*

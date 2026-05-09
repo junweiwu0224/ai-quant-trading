@@ -16,11 +16,11 @@ const PaperTrading = {
     // ────────────── 图表实例 ──────────────
     charts: {
         equityCurve: null,
-        drawdown: null,
         monthlyHeatmap: null,
         returnDist: null,
         weekdayEffect: null,
         positionPie: null,
+        dailyReturns: null,
     },
 
     // ────────────── 股票名称缓存 ──────────────
@@ -47,6 +47,9 @@ const PaperTrading = {
         this.loadOrders();
         this.loadPerformance();
         this.loadEquityCurve();
+        this.loadTrades();
+        this.loadRiskEvents();
+        this.loadDailyReturns();
         this.startPolling();
     },
 
@@ -68,13 +71,18 @@ const PaperTrading = {
         document.querySelectorAll('#paper-sub-panels .paper-sub-panel').forEach(panel => {
             panel.classList.toggle('hidden', panel.id !== `paper-panel-${tabName}`);
         });
-        // 切换到绩效 Tab 时加载图表数据
+        // 切换到对应 Tab 时加载数据
         if (tabName === 'perf') {
+            this.loadDailyReturns();
             this.loadMonthlyHeatmap();
             this.loadReturnDistribution();
             this.loadWeekdayEffect();
             this.loadPerformanceTrend();
             this.loadTradeFrequency();
+        } else if (tabName === 'trade') {
+            this.loadTrades();
+        } else if (tabName === 'risk') {
+            this.loadRiskEvents();
         }
     },
 
@@ -129,6 +137,30 @@ const PaperTrading = {
         });
     },
 
+    _showChartEmpty(canvas, message = '暂无数据') {
+        if (!canvas) return;
+        const wrap = canvas.parentElement;
+        if (!wrap) return;
+        let overlay = wrap.querySelector('.chart-empty-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'chart-empty-overlay';
+            overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted,#9ca3af);font-size:0.875rem;pointer-events:none;z-index:1;';
+            wrap.style.position = 'relative';
+            wrap.appendChild(overlay);
+        }
+        overlay.textContent = message;
+        overlay.style.display = 'flex';
+    },
+
+    _hideChartEmpty(canvas) {
+        if (!canvas) return;
+        const wrap = canvas.parentElement;
+        if (!wrap) return;
+        const overlay = wrap.querySelector('.chart-empty-overlay');
+        if (overlay) overlay.style.display = 'none';
+    },
+
     bindEvents() {
         // 订单表单提交
         const orderForm = document.getElementById('pt-order-form');
@@ -160,14 +192,60 @@ const PaperTrading = {
             this.refreshAll();
         });
 
-        // 股票代码输入 - 实时行情预览
+        // 股票代码输入 - 搜索下拉 + 实时行情预览
         const codeInput = document.getElementById('pt-code');
-        if (codeInput) {
+        const codeDropdown = document.getElementById('pt-code-dropdown');
+        if (codeInput && codeDropdown) {
+            this._codeSearch = new SearchBox('pt-code', 'pt-code-dropdown', {
+                placeholder: '搜索股票代码或名称...',
+                formatItem: (s) => `${s.code} ${s.name}`,
+                maxResults: 15,
+            });
+            // 数据源：自选股列表
+            const watchlistSource = (query) => {
+                const list = App.watchlistCache || [];
+                if (!query) return list.map(s => ({ code: s.code, name: s.name || s.code }));
+                const q = query.toLowerCase();
+                return list.filter(s =>
+                    (s.code && s.code.includes(q)) || (s.name && s.name.toLowerCase().includes(q))
+                ).map(s => ({ code: s.code, name: s.name || s.code }));
+            };
+            this._codeSearch.setDataSource(watchlistSource);
+            this._codeSearch.onSelect((item) => {
+                codeInput.value = item.code;
+                this._loadQuotePreview(item.code);
+                this._updateEstimatedCost();
+            });
+            // 保留手动输入时的行情预览
             let debounceTimer = null;
             codeInput.addEventListener('input', () => {
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => this._loadQuotePreview(codeInput.value.trim()), 300);
             });
+        }
+
+        // P1 #4: 数量/价格变化时更新预估花费
+        const volumeInput = document.getElementById('pt-volume');
+        const priceInput = document.getElementById('pt-price');
+        const updateEstCost = () => this._updateEstimatedCost();
+        if (volumeInput) volumeInput.addEventListener('input', updateEstCost);
+        if (priceInput) priceInput.addEventListener('input', updateEstCost);
+    },
+
+    _updateEstimatedCost() {
+        const estEl = document.getElementById('pt-est-cost');
+        if (!estEl) return;
+        const volume = parseInt(document.getElementById('pt-volume')?.value) || 0;
+        const priceInput = document.getElementById('pt-price')?.value;
+        const orderType = document.getElementById('pt-order-type')?.value;
+        // 市价单用行情价，限价单用输入价
+        const price = (orderType !== 'market' && priceInput) ? parseFloat(priceInput) : (this._currentQuote?.price || 0);
+        if (volume > 0 && price > 0) {
+            const cost = volume * price;
+            estEl.style.display = '';
+            estEl.querySelector('span').textContent = App.fmt(cost);
+        } else {
+            estEl.style.display = 'none';
         }
     },
 
@@ -193,6 +271,9 @@ const PaperTrading = {
             const change = quote.change_pct || 0;
             const changeClass = change >= 0 ? 'text-up' : 'text-down';
             const changeSign = change >= 0 ? '+' : '';
+
+            // 保存当前行情供下单校验
+            this._currentQuote = { price, name: quote.name, code };
 
             document.getElementById('pt-quote-name').textContent = quote.name || '--';
             document.getElementById('pt-quote-code').textContent = code;
@@ -240,6 +321,22 @@ const PaperTrading = {
             return;
         }
 
+        // P1 #6: 止损止盈价格校验
+        if (orderType === 'stop_loss' && price) {
+            const quote = this._currentQuote;
+            if (quote && parseFloat(price) >= quote.price) {
+                App.toast(`止损价应低于当前价 ${quote.price}`, 'error');
+                return;
+            }
+        }
+        if (orderType === 'take_profit' && price) {
+            const quote = this._currentQuote;
+            if (quote && parseFloat(price) <= quote.price) {
+                App.toast(`止盈价应高于当前价 ${quote.price}`, 'error');
+                return;
+            }
+        }
+
         const body = {
             code,
             direction,
@@ -249,6 +346,14 @@ const PaperTrading = {
 
         if (orderType !== 'market' && price) {
             body.price = parseFloat(price);
+        }
+
+        // P0 #3: 按钮加载状态
+        const submitBtn = document.querySelector('#pt-order-form button[type="submit"]');
+        const origText = submitBtn ? submitBtn.textContent : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '提交中...';
         }
 
         try {
@@ -269,6 +374,11 @@ const PaperTrading = {
             this.loadPositions();
         } catch (e) {
             App.toast(`创建订单失败: ${e.message}`, 'error');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = origText;
+            }
         }
     },
 
@@ -434,7 +544,7 @@ const PaperTrading = {
         if (!tbody) return;
 
         if (this.state.positions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-muted" style="text-align:center">暂无持仓</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center">暂无持仓</td></tr>';
             if (emptyHint) emptyHint.style.display = 'block';
             return;
         }
@@ -444,27 +554,39 @@ const PaperTrading = {
             const pnlClass = pos.unrealized_pnl >= 0 ? 'text-up' : 'text-down';
             const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
             const name = this._stockNameCache[pos.code] || pos.code;
+            const price = pos.current_price;
+            const avg = pos.avg_price;
+
+            // 止损止盈距离
+            const slDist = pos.stop_loss_price ? ((price - pos.stop_loss_price) / price * 100) : null;
+            const tpDist = pos.take_profit_price ? ((pos.take_profit_price - price) / price * 100) : null;
 
             return `<tr>
-                <td><span class="pos-name">${App.escapeHTML(name)}</span><br><span class="text-muted" style="font-size:0.75rem">${App.escapeHTML(pos.code)}</span></td>
+                <td><span class="pos-code">${App.escapeHTML(pos.code)}</span> ${App.escapeHTML(name)}</td>
                 <td>${pos.volume}</td>
-                <td>¥${pos.avg_price.toFixed(2)}</td>
-                <td>¥${pos.current_price.toFixed(2)}</td>
+                <td>¥${avg.toFixed(2)}</td>
+                <td>¥${price.toFixed(2)}</td>
                 <td>¥${pos.market_value.toLocaleString()}</td>
                 <td class="${pnlClass}">${pnlSign}¥${pos.unrealized_pnl.toFixed(2)}</td>
                 <td class="${pnlClass}">${pnlSign}${pos.unrealized_pnl_pct.toFixed(2)}%</td>
-                <td>${this._renderStopLossBar(pos)}</td>
-                <td>
-                    <input type="number" class="form-control form-control-sm"
-                           value="${pos.stop_loss_price || ''}"
-                           placeholder="止损"
-                           onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'stop_loss')">
-                </td>
-                <td>
-                    <input type="number" class="form-control form-control-sm"
-                           value="${pos.take_profit_price || ''}"
-                           placeholder="止盈"
-                           onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'take_profit')">
+                <td class="sl-tp-cell">
+                    ${this._renderStopLossBar(pos)}
+                    <div class="sl-tp-inputs">
+                        <label class="sl-tp-label">止损
+                            <input type="number" class="form-control form-control-sm" step="0.01"
+                                   value="${pos.stop_loss_price || ''}"
+                                   placeholder="${(avg * 0.95).toFixed(2)}"
+                                   onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'stop_loss')">
+                            ${slDist !== null ? `<span class="sl-tp-dist text-down">-${slDist.toFixed(1)}%</span>` : ''}
+                        </label>
+                        <label class="sl-tp-label">止盈
+                            <input type="number" class="form-control form-control-sm" step="0.01"
+                                   value="${pos.take_profit_price || ''}"
+                                   placeholder="${(avg * 1.10).toFixed(2)}"
+                                   onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'take_profit')">
+                            ${tpDist !== null ? `<span class="sl-tp-dist text-up">+${tpDist.toFixed(1)}%</span>` : ''}
+                        </label>
+                    </div>
                 </td>
             </tr>`;
         }).join('');
@@ -589,6 +711,7 @@ const PaperTrading = {
             'pt-sortino-ratio': perf.sortino_ratio ? perf.sortino_ratio.toFixed(4) : '--',
             'pt-calmar-ratio': perf.calmar_ratio ? perf.calmar_ratio.toFixed(4) : '--',
             'pt-win-rate': perf.win_rate ? (perf.win_rate * 100).toFixed(2) + '%' : '--',
+            'pt-win-rate-perf': perf.win_rate ? (perf.win_rate * 100).toFixed(2) + '%' : '--',
             'pt-profit-loss-ratio': perf.profit_loss_ratio ? perf.profit_loss_ratio.toFixed(4) : '--',
             'pt-total-trades': perf.total_trades || '--',
             'pt-winning-trades': perf.winning_trades || '--',
@@ -643,13 +766,112 @@ const PaperTrading = {
     },
 
     getHeatmapColor(value) {
+        // 从 CSS 变量读取颜色，支持深色模式
+        const cs = getComputedStyle(document.documentElement);
+        const upRgb = this._hexToRgb(cs.getPropertyValue('--up-color').trim() || '#c65746');
+        const downRgb = this._hexToRgb(cs.getPropertyValue('--down-color').trim() || '#10b981');
         // A股惯例：红涨绿跌
-        if (value > 0.1) return 'rgba(198, 87, 70, 0.8)';   // var(--up-color)
-        if (value > 0.05) return 'rgba(198, 87, 70, 0.6)';
-        if (value > 0) return 'rgba(198, 87, 70, 0.4)';
-        if (value > -0.05) return 'rgba(16, 185, 129, 0.4)'; // var(--down-color)
-        if (value > -0.1) return 'rgba(16, 185, 129, 0.6)';
-        return 'rgba(16, 185, 129, 0.8)';
+        if (value > 0.1) return `rgba(${upRgb}, 0.8)`;
+        if (value > 0.05) return `rgba(${upRgb}, 0.6)`;
+        if (value > 0) return `rgba(${upRgb}, 0.4)`;
+        if (value > -0.05) return `rgba(${downRgb}, 0.4)`;
+        if (value > -0.1) return `rgba(${downRgb}, 0.6)`;
+        return `rgba(${downRgb}, 0.8)`;
+    },
+
+    _hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `${r}, ${g}, ${b}`;
+    },
+
+    // ────────────── 每日收益 ──────────────
+
+    async loadDailyReturns() {
+        try {
+            const data = await App.fetchJSON('/api/paper/equity-curve-v2');
+            this.renderDailyReturns(data.data || []);
+        } catch (e) {
+            console.error('加载每日收益失败:', e);
+        }
+    },
+
+    renderDailyReturns(points) {
+        const canvas = document.getElementById('pt-daily-returns-chart');
+        if (!canvas) return;
+
+        // 按日分组，取每日最后一个点
+        const dayMap = {};
+        points.forEach(p => {
+            const day = (p.timestamp || '').slice(0, 10);
+            if (day) dayMap[day] = p.equity;
+        });
+        const days = Object.keys(dayMap).sort();
+        if (days.length < 2) {
+            this._showChartEmpty(canvas, '至少需要2天数据');
+            return;
+        }
+        this._hideChartEmpty(canvas);
+
+        const returns = [];
+        const labels = [];
+        for (let i = 1; i < days.length; i++) {
+            const prev = dayMap[days[i - 1]];
+            const curr = dayMap[days[i]];
+            if (prev > 0) {
+                returns.push(((curr - prev) / prev * 100));
+                labels.push(days[i].slice(5)); // MM-DD
+            }
+        }
+
+        const cs = getComputedStyle(document.documentElement);
+        const upColor = cs.getPropertyValue('--up-color').trim() || '#c65746';
+        const downColor = cs.getPropertyValue('--down-color').trim() || '#10b981';
+        const colors = returns.map(r => r >= 0 ? upColor : downColor);
+
+        if (this.charts.dailyReturns) {
+            this.charts.dailyReturns.data.labels = labels;
+            this.charts.dailyReturns.data.datasets[0].data = returns;
+            this.charts.dailyReturns.data.datasets[0].backgroundColor = colors;
+            this.charts.dailyReturns.update('none');
+            return;
+        }
+
+        this.charts.dailyReturns = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    data: returns,
+                    backgroundColor: colors,
+                    borderRadius: 3,
+                    borderSkipped: false,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%`,
+                        },
+                    },
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: {
+                        ticks: { callback: v => v.toFixed(1) + '%' },
+                        grid: { color: 'rgba(128,128,128,0.1)' },
+                    },
+                },
+            },
+        });
     },
 
     // ────────────── 收益分布 ──────────────
@@ -667,11 +889,16 @@ const PaperTrading = {
         const canvas = document.getElementById('pt-return-dist-chart');
         if (!canvas) return;
 
-        const { bins = [], counts = [] } = distribution;
-        if (bins.length === 0) return;
+        const { edges = [], bins: binsRaw = [], counts = [] } = distribution;
+        const binEdges = edges.length > 0 ? edges : binsRaw;
+        if (binEdges.length === 0 || counts.length === 0) {
+            this._showChartEmpty(canvas, '暂无收益分布数据');
+            return;
+        }
+        this._hideChartEmpty(canvas);
 
-        const labels = bins.map(b => (b * 100).toFixed(1) + '%');
-        const colors = bins.map(b => b >= 0 ? 'rgba(198, 87, 70, 0.7)' : 'rgba(16, 185, 129, 0.7)');
+        const labels = binEdges.map(b => (b * 100).toFixed(1) + '%');
+        const colors = binEdges.map(b => b >= 0 ? 'rgba(198, 87, 70, 0.7)' : 'rgba(16, 185, 129, 0.7)');
 
         if (this.charts.returnDist) {
             this.charts.returnDist.data.labels = labels;
@@ -739,6 +966,12 @@ const PaperTrading = {
 
         const weekdays = ['周一', '周二', '周三', '周四', '周五'];
         const values = weekdays.map((_, i) => effect[i + 1] || 0);
+
+        if (!effect || Object.keys(effect).length === 0) {
+            this._showChartEmpty(canvas, '暂无星期效应数据');
+            return;
+        }
+        this._hideChartEmpty(canvas);
         const colors = values.map(v => v >= 0 ? 'rgba(198, 87, 70, 0.7)' : 'rgba(16, 185, 129, 0.7)');
 
         if (this.charts.weekdayEffect) {
@@ -887,70 +1120,6 @@ const PaperTrading = {
                     tooltip: {
                         callbacks: {
                             label: ctx => `${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}`,
-                        },
-                    },
-                },
-            },
-        });
-    },
-
-    async loadDrawdownCurve() {
-        try {
-            const data = await App.fetchJSON('/api/paper/drawdown');
-            this.renderDrawdownCurve(data.data || []);
-        } catch (e) {
-            console.error('加载回撤曲线失败:', e);
-        }
-    },
-
-    renderDrawdownCurve(drawdownData) {
-        const canvas = document.getElementById('pt-drawdown-chart');
-        if (!canvas) return;
-
-        if (drawdownData.length < 2) return;
-
-        const labels = drawdownData.map((p, i) => i + 1);
-        const values = drawdownData.map(p => p.drawdown * 100);
-
-        if (this.charts.drawdown) {
-            this.charts.drawdown.data.labels = labels;
-            this.charts.drawdown.data.datasets[0].data = values;
-            this.charts.drawdown.update('none');
-            return;
-        }
-
-        this.charts.drawdown = new Chart(canvas, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [{
-                    label: '回撤',
-                    data: values,
-                    borderColor: '#ef4444',
-                    backgroundColor: 'rgba(239,68,68,0.1)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 0,
-                    borderWidth: 2,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                scales: {
-                    x: { display: false },
-                    y: {
-                        ticks: {
-                            callback: v => v.toFixed(1) + '%',
-                        },
-                    },
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => ctx.parsed.y.toFixed(2) + '%',
                         },
                     },
                 },
@@ -1126,7 +1295,12 @@ const PaperTrading = {
 
     renderPerformanceTrend(daily) {
         const canvas = document.getElementById('pt-perf-trend-chart');
-        if (!canvas || daily.length < 2) return;
+        if (!canvas) return;
+        if (daily.length < 2) {
+            this._showChartEmpty(canvas, '运行模拟盘后生成绩效趋势');
+            return;
+        }
+        this._hideChartEmpty(canvas);
 
         const labels = daily.map(d => d.date);
         const sharpe = daily.map(d => d.sharpe_ratio || 0);
@@ -1206,9 +1380,12 @@ const PaperTrading = {
 
     async loadTradeFrequency() {
         try {
-            // 从已有交易数据计算频率
-            const data = await App.fetchJSON('/api/paper/trades-v2?page=1&page_size=500');
-            const trades = data.data?.items || [];
+            // 优先复用已加载的交易数据，避免重复请求
+            let trades = this.state.trades;
+            if (!trades || trades.length === 0) {
+                const data = await App.fetchJSON('/api/paper/trades-v2?page=1&page_size=500');
+                trades = data.data?.items || [];
+            }
             this.renderTradeFrequency(trades);
         } catch (e) {
             console.error('加载交易频率失败:', e);
@@ -1218,6 +1395,12 @@ const PaperTrading = {
     renderTradeFrequency(trades) {
         const canvas = document.getElementById('pt-frequency-chart');
         if (!canvas) return;
+
+        if (!trades || trades.length === 0) {
+            this._showChartEmpty(canvas, '暂无交易记录');
+            return;
+        }
+        this._hideChartEmpty(canvas);
 
         // 按星期统计
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -1285,10 +1468,15 @@ const PaperTrading = {
         const positions = this.state.positions;
         if (positions.length === 0) {
             if (this.charts.positionPie) { this.charts.positionPie.destroy(); this.charts.positionPie = null; }
+            this._showChartEmpty(canvas, '暂无持仓');
             return;
         }
+        this._hideChartEmpty(canvas);
 
-        const labels = positions.map(p => this._stockNameCache[p.code] || p.code);
+        const labels = positions.map(p => {
+            const name = this._stockNameCache[p.code];
+            return name ? `${p.code} ${name}` : p.code;
+        });
         const values = positions.map(p => p.market_value);
         const total = values.reduce((a, b) => a + b, 0);
         const colors = [
@@ -1344,6 +1532,9 @@ const PaperTrading = {
             const data = await App.fetchJSON('/api/paper/status');
             this.state.isRunning = data.running;
             this.state.config = data.config || {};
+            // 保存现金和权益供下单面板显示
+            if (data.cash != null) this.state.config.cash = data.cash;
+            if (data.equity != null) this.state.config.equity = data.equity;
             this.renderStatus();
         } catch (e) {
             console.error('加载状态失败:', e);
@@ -1368,6 +1559,13 @@ const PaperTrading = {
         if (posCountEl) posCountEl.textContent = this.state.positions.length;
 
         if (tradeCountEl) tradeCountEl.textContent = this.state.performance.total_trades || 0;
+
+        // P1 #4: 更新可用资金
+        const cashEl = document.getElementById('pt-available-cash');
+        if (cashEl) {
+            const cash = this.state.config.cash ?? this.state.performance.cash;
+            cashEl.textContent = cash != null ? App.fmt(cash) : '--';
+        }
     },
 
     // ────────────── 轮询管理 ──────────────

@@ -78,6 +78,16 @@ const RealtimeQuotes = {
                     App._rkHandleAlert(msg);
                 }
                 break;
+            case 'alerts':
+                // 预警触发消息
+                if (msg.data && Array.isArray(msg.data)) {
+                    for (const alert of msg.data) {
+                        if (typeof App !== 'undefined' && App.Alerts && App.Alerts.handleAlert) {
+                            App.Alerts.handleAlert(alert);
+                        }
+                    }
+                }
+                break;
             case 'pong':
                 break;
             case 'subscribed':

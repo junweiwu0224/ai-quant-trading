@@ -21,7 +21,7 @@ def _is_trading_hours() -> bool:
     return (570 <= t <= 690) or (780 <= t <= 900)  # 9:30-11:30, 13:00-15:00
 from data.collector.quote_service import QuoteData, get_quote_service
 from engine.backtest_engine import BacktestConfig
-from engine.models import PaperConfig as NewPaperConfig
+from engine.models import EquityCurvePoint, PaperConfig as NewPaperConfig
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
@@ -33,7 +33,7 @@ from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 @dataclass
 class PaperConfig:
     """模拟盘配置"""
-    initial_cash: float = 1_000_000  # 初始资金
+    initial_cash: float = 50_000  # 初始资金
     interval_seconds: int = 30        # 行情轮询间隔
     commission_rate: float = 0.0003   # 万三佣金
     stamp_tax_rate: float = 0.001     # 千一印花税
@@ -163,6 +163,7 @@ class PaperEngine:
         self._today_bought: dict[str, int] = {}
         self._today_date: str = ""
         self.strategy_name: str = ""  # 由外部设置，用于 portfolio.strategies 记录
+        self._peak_equity: float = 0.0  # 历史最高权益，用于计算回撤
 
     def _init_portfolio(self) -> Portfolio:
         """初始化或恢复投资组合"""
@@ -269,6 +270,25 @@ class PaperEngine:
         self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
 
         equity = self._portfolio.get_total_equity(prices)
+
+        # 10. 记录资金曲线
+        try:
+            market_value = sum(
+                vol * prices.get(code, 0)
+                for code, vol in self._portfolio.positions.items()
+            )
+            self._peak_equity = max(self._peak_equity, equity)
+            drawdown = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else 0
+            self._performance_analyzer.save_equity_point(EquityCurvePoint(
+                timestamp=now_beijing(),
+                equity=equity,
+                cash=self._portfolio.cash,
+                market_value=market_value,
+                drawdown=drawdown,
+            ))
+        except Exception as e:
+            logger.debug(f"保存资金曲线点失败: {e}")
+
         return {
             "time": now_beijing_iso(),
             "equity": round(equity, 2),

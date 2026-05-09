@@ -247,7 +247,7 @@ class RiskEvent:
 class PaperConfig:
     """模拟盘配置"""
     # 基础配置
-    initial_cash: float = 1_000_000
+    initial_cash: float = 50_000
     interval_seconds: int = 30
     enable_risk: bool = True
 

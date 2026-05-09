@@ -6,7 +6,6 @@ const StockDetail = {
     _indicatorPaneId: null,
     _avgOverlays: null,
     _timelineIndicatorsRegistered: false,
-    _changeInfoRegistered: false,
     _profitChart: null,
     _northChart: null,
     _capitalChart: null,
@@ -37,6 +36,7 @@ const StockDetail = {
         this._searchBox.onSelect((item) => this.open(item.code));
         this._bindChartTabs();
         this._bindIndicatorSelector();
+        this._bindDrawingToolbar();
 
         // 默认分时模式，隐藏指标选择器
         const indicatorEl = document.querySelector('.sd-indicator-selector');
@@ -85,6 +85,7 @@ const StockDetail = {
             this._loadAnnouncements(code, stale),
             this._loadIndustryComparison(code, stale),
             this._loadNorthbound(code, stale),
+            this._loadChips(code, stale),
         ];
         await Promise.allSettled(loads);
 
@@ -587,6 +588,7 @@ const StockDetail = {
             const data = await App.fetchJSON(`/api/stock/kline/${code}?period=${period}&count=200`);
             if (!data || !data.klines) return;
             this._renderKlineChart(data.klines);
+            this._loadDrawings();
             document.querySelectorAll('#tab-stock .sd-chart-tabs .sd-tab').forEach(t => {
                 const isActive = t.dataset.period === period;
                 t.classList.toggle('active', isActive);
@@ -646,7 +648,7 @@ const StockDetail = {
                     },
                 },
                 tooltip: {
-                    showRule: 'always',
+                    showRule: 'none',
                     showType: 'standard',
                     text: { size: 12, color: textSecondary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
                     rect: {
@@ -681,7 +683,7 @@ const StockDetail = {
                     { color: '#00bcd4', size: 1 },
                 ],
                 tooltip: {
-                    showRule: 'always',
+                    showRule: 'none',
                     showType: 'standard',
                     showName: false, showParams: false,
                     text: { size: 12, color: textSecondary, marginLeft: 8, marginTop: 2, marginRight: 8, marginBottom: 0 },
@@ -732,7 +734,7 @@ const StockDetail = {
         };
     },
 
-    /** 使用 KLineChart 渲染 K 线图 */
+    /** 使用 KLineChart 渲染 K 线图（同花顺风格） */
     _renderKlineChart(klines) {
         const container = document.getElementById('sd-kline-chart');
         if (!container) return;
@@ -758,52 +760,124 @@ const StockDetail = {
 
         this._currentKlines = klines;
 
+        // ── 自定义 tooltip overlay（同花顺风格固定左上角） ──
+        const tooltipEl = document.createElement('div');
+        tooltipEl.className = 'sd-kline-tooltip';
+        tooltipEl.innerHTML = [
+            '<div class="kl-row"><span class="kl-date"></span></div>',
+            '<div class="kl-row"><label>开</label><span class="kl-open"></span></div>',
+            '<div class="kl-row"><label>高</label><span class="kl-high"></span></div>',
+            '<div class="kl-row"><label>低</label><span class="kl-low"></span></div>',
+            '<div class="kl-row"><label>收</label><span class="kl-close"></span></div>',
+            '<div class="kl-row"><label>量</label><span class="kl-vol"></span></div>',
+            '<div class="kl-row"><label>涨跌额</label><span class="kl-change"></span></div>',
+            '<div class="kl-row"><label>涨跌幅</label><span class="kl-pct"></span></div>',
+            '<div class="kl-ma-row"></div>',
+        ].join('');
+        container.appendChild(tooltipEl);
+
+        // 缓存 tooltip span 引用
+        const spans = {
+            date: tooltipEl.querySelector('.kl-date'),
+            open: tooltipEl.querySelector('.kl-open'),
+            high: tooltipEl.querySelector('.kl-high'),
+            low: tooltipEl.querySelector('.kl-low'),
+            close: tooltipEl.querySelector('.kl-close'),
+            vol: tooltipEl.querySelector('.kl-vol'),
+            change: tooltipEl.querySelector('.kl-change'),
+            pct: tooltipEl.querySelector('.kl-pct'),
+            maRow: tooltipEl.querySelector('.kl-ma-row'),
+        };
+
+        // MA 颜色映射
+        const maColors = ['#e6a817', '#2196f3', '#ff7043', '#66bb6a'];
+        const maPeriods = [5, 10, 20, 60];
+
+        // 格式化成交量
+        const fmtVol = (v) => {
+            if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿';
+            if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
+            return String(v);
+        };
+
+        // 格式化日期
+        const fmtDate = (ts) => {
+            const d = new Date(ts);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+        };
+
+        // 设置 span 值并带颜色
+        const setSpan = (el, val, colorClass) => {
+            el.textContent = val;
+            el.className = el.className.replace(/\s*kl-(up|down|flat)\s*/g, '').trim() + ' ' + colorClass;
+        };
+
+        // 计算 MA 值
+        const calcMA = (dataList, idx, period) => {
+            if (idx < period - 1) return null;
+            let sum = 0;
+            for (let i = idx - period + 1; i <= idx; i++) {
+                sum += dataList[i].close;
+            }
+            return sum / period;
+        };
+
+        // 更新 tooltip 内容
+        const updateTooltip = (kLineData, dataList, idx) => {
+            if (!kLineData) return;
+            const k = kLineData;
+            const prevClose = idx > 0 ? dataList[idx - 1].close : k.open;
+            const change = k.close - prevClose;
+            const pct = prevClose ? (change / prevClose) * 100 : 0;
+            const colorClass = change > 0.001 ? 'kl-up' : change < -0.001 ? 'kl-down' : 'kl-flat';
+
+            spans.date.textContent = fmtDate(k.timestamp);
+            setSpan(spans.open, k.open.toFixed(2), colorClass);
+            setSpan(spans.high, k.high.toFixed(2), colorClass);
+            setSpan(spans.low, k.low.toFixed(2), colorClass);
+            setSpan(spans.close, k.close.toFixed(2), colorClass);
+            spans.vol.textContent = fmtVol(k.volume);
+
+            const sign = change >= 0 ? '+' : '';
+            setSpan(spans.change, `${sign}${change.toFixed(2)}`, colorClass);
+            setSpan(spans.pct, `${sign}${pct.toFixed(2)}%`, colorClass);
+
+            // 更新 MA 值
+            let maHtml = '';
+            for (let i = 0; i < maPeriods.length; i++) {
+                const maVal = calcMA(dataList, idx, maPeriods[i]);
+                if (maVal != null) {
+                    maHtml += `<span style="color:${maColors[i]}">MA${maPeriods[i]}: ${maVal.toFixed(2)}</span> `;
+                }
+            }
+            spans.maRow.innerHTML = maHtml;
+        };
+
         // 初始化 KLineChart（中文 + 跟随页面主题）
         const chart = klinecharts.init(container, { locale: 'zh-CN', styles: this._klineStyles() });
         this._klineChart = chart;
 
         // 加载 K 线数据（timestamp 转毫秒）
-        chart.applyNewData(klines.map(k => ({
+        const chartData = klines.map(k => ({
             timestamp: new Date(k.date + 'T00:00:00+08:00').getTime(),
             open: k.open,
             high: k.high,
             low: k.low,
             close: k.close,
             volume: k.volume,
-        })));
+        }));
+        chart.applyNewData(chartData);
+
+        // 默认显示最后一根 K 线
+        if (chartData.length > 0) {
+            updateTooltip(chartData[chartData.length - 1], chartData, chartData.length - 1);
+        }
 
         // MA 均线（叠加主图）
         chart.createIndicator('MA', false, { id: 'candle_pane' });
-
-        // 涨跌幅/涨跌额（隐藏指标，仅在 tooltip 中显示）
-        if (!this._changeInfoRegistered) {
-            this._changeInfoRegistered = true;
-            klinecharts.registerIndicator({
-                name: 'CHANGE_INFO',
-                shortName: '',
-                series: 'price',
-                figures: [
-                    { key: 'change', title: '涨跌额: ', type: 'line' },
-                    { key: 'pct', title: '涨跌幅: ', type: 'line' },
-                ],
-                calc: (dataList) => {
-                    return dataList.map((k, i) => {
-                        if (i === 0 || !dataList[i - 1]?.close || !k.close) return { change: 0, pct: 0 };
-                        const prev = dataList[i - 1].close;
-                        return {
-                            change: k.close - prev,
-                            pct: (k.close - prev) / prev * 100,
-                        };
-                    });
-                },
-                styles: ({ defaultStyles }) => {
-                    const s = defaultStyles;
-                    if (s.lines) s.lines = s.lines.map(l => ({ ...l, style: 'none', size: 0 }));
-                    return s;
-                },
-            });
-        }
-        chart.createIndicator('CHANGE_INFO', false, { id: 'candle_pane' });
 
         // 成交量（独立 pane）
         chart.createIndicator('VOL', false);
@@ -819,6 +893,19 @@ const StockDetail = {
             const result = chart.createIndicator(this._currentIndicator, false);
             this._indicatorPaneId = Array.isArray(result) ? result[0] : result;
         }
+
+        // 十字线事件 → 更新 tooltip
+        const dataListCache = chart.getDataList();
+        chart.subscribeAction('onCrosshairChange', (crosshair) => {
+            if (!crosshair || !crosshair.kLineData) {
+                // 十字线离开，显示最后一根 K 线
+                if (dataListCache.length > 0) {
+                    updateTooltip(dataListCache[dataListCache.length - 1], dataListCache, dataListCache.length - 1);
+                }
+                return;
+            }
+            updateTooltip(crosshair.kLineData, dataListCache, crosshair.dataIndex);
+        });
 
         // 自适应宽度
         this._klineResizeObs = new ResizeObserver(() => chart.resize());
@@ -1505,6 +1592,248 @@ const StockDetail = {
             } else {
                 this._loadKline(this._currentCode, period);
             }
+        });
+    },
+
+    // ── 画线工具 ──
+
+    _drawingBound: false,
+    _activeDrawing: null,  // 当前正在画的 overlay 类型
+    _drawingOverlays: [],  // 已保存的 overlay ID 列表
+
+    _bindDrawingToolbar() {
+        if (this._drawingBound) return;
+        this._drawingBound = true;
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.sd-draw-btn');
+            if (!btn) return;
+
+            // 清空按钮
+            if (btn.id === 'sd-draw-clear') {
+                this._clearAllDrawings();
+                return;
+            }
+
+            const overlayName = btn.dataset.overlay;
+            if (!overlayName) return;
+
+            // 切换 active 状态
+            const wasActive = btn.classList.contains('active');
+            document.querySelectorAll('.sd-draw-btn[data-overlay]').forEach(b => b.classList.remove('active'));
+
+            if (wasActive) {
+                this._activeDrawing = null;
+                return;
+            }
+
+            btn.classList.add('active');
+            this._activeDrawing = overlayName;
+            this._startDrawing(overlayName);
+        });
+    },
+
+    _startDrawing(overlayName) {
+        const chart = this._klineChart;
+        if (!chart) return;
+
+        // 配置不同画线类型的样式
+        const styleMap = {
+            horizontalStraightLine: { line: { color: '#e6a817', size: 1, style: 'dashed' } },
+            straightLine: { line: { color: '#4fc3f7', size: 1, style: 'solid' } },
+            fibonacciLine: { line: { color: '#ab47bc', size: 1, style: 'dashed' } },
+        };
+
+        const overlayId = chart.createOverlay({
+            name: overlayName,
+            styles: styleMap[overlayName] || {},
+            lock: false,
+            onDrawEnd: (event) => {
+                this._onDrawingComplete(overlayName, event);
+                // 取消 active 状态
+                document.querySelectorAll('.sd-draw-btn[data-overlay]').forEach(b => b.classList.remove('active'));
+                this._activeDrawing = null;
+            },
+            onRemoved: (event) => {
+                this._onDrawingRemoved(event);
+            },
+        });
+    },
+
+    _onDrawingComplete(overlayName, event) {
+        const overlay = event.overlay || event;
+        const points = overlay.points || [];
+        if (points.length < 1) return;
+
+        // 保存到后端
+        this._saveDrawingToBackend(overlayName, points, overlay.styles || {});
+    },
+
+    _onDrawingRemoved(event) {
+        const overlay = event.overlay || event;
+        const drawingId = overlay?.extendData?.drawingId;
+        if (drawingId) {
+            fetch(`/api/stock/drawings/${drawingId}`, { method: 'DELETE' }).catch(() => {});
+        }
+    },
+
+    async _saveDrawingToBackend(overlayName, points, styles) {
+        if (!this._currentCode) return;
+        try {
+            const resp = await fetch(`/api/stock/drawings/${this._currentCode}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    overlay_name: overlayName,
+                    points: points,
+                    styles: styles,
+                }),
+            });
+            const data = await resp.json();
+            if (data?.success && data.id) {
+                this._drawingOverlays.push(data.id);
+            }
+        } catch (e) {
+            console.error('保存画线失败:', e);
+        }
+    },
+
+    async _loadDrawings() {
+        if (!this._currentCode || !this._klineChart) return;
+        try {
+            const data = await App.fetchJSON(`/api/stock/drawings/${this._currentCode}`);
+            if (!data?.drawings) return;
+
+            this._drawingOverlays = [];
+            const chart = this._klineChart;
+
+            for (const d of data.drawings) {
+                const points = typeof d.points === 'string' ? JSON.parse(d.points) : d.points;
+                const styles = typeof d.styles === 'string' ? JSON.parse(d.styles) : (d.styles || {});
+                if (!points || points.length < 1) continue;
+
+                chart.createOverlay({
+                    name: d.overlay_name,
+                    points: points,
+                    styles: styles,
+                    lock: false,
+                    extendData: { drawingId: d.id },
+                    onRemoved: (event) => {
+                        this._onDrawingRemoved(event);
+                    },
+                });
+                this._drawingOverlays.push(d.id);
+            }
+        } catch (e) {
+            console.error('加载画线失败:', e);
+        }
+    },
+
+    async _clearAllDrawings() {
+        if (!this._currentCode) return;
+        if (!confirm('确定清空所有画线？')) return;
+
+        const chart = this._klineChart;
+        if (chart) {
+            chart.removeOverlay();  // 不传参数 = 移除所有 overlay
+        }
+
+        try {
+            await fetch(`/api/stock/drawings/${this._currentCode}/all`, { method: 'DELETE' });
+            this._drawingOverlays = [];
+            App.toast('画线已清空', 'success');
+        } catch (e) {
+            console.error('清空画线失败:', e);
+        }
+    },
+
+    // ── 筹码分布 ──
+
+    _chipsChart: null,
+
+    async _loadChips(code, stale) {
+        try {
+            const data = await App.fetchJSON(`/api/stock/chips/${code}?days=120`);
+            if (stale()) return;
+            this._renderChips(data);
+        } catch (e) {
+            console.error('加载筹码分布失败:', e);
+        }
+    },
+
+    _renderChips(data) {
+        // 更新统计
+        const profitEl = document.getElementById('sd-chips-profit');
+        const avgCostEl = document.getElementById('sd-chips-avg-cost');
+        const concEl = document.getElementById('sd-chips-concentration');
+        const hintEl = document.getElementById('sd-chips-hint');
+
+        if (profitEl) profitEl.textContent = data.profit_ratio != null ? data.profit_ratio + '%' : '--';
+        if (avgCostEl) avgCostEl.textContent = data.avg_cost != null ? data.avg_cost.toFixed(2) : '--';
+        if (concEl && data.concentration_90) {
+            concEl.textContent = data.concentration_90[0] + ' ~ ' + data.concentration_90[1];
+        }
+        if (hintEl) hintEl.textContent = data.current_price ? `当前 ${data.current_price}` : '';
+
+        // 绘制筹码分布图
+        const canvas = document.getElementById('sd-chips-chart');
+        if (!canvas || !data.chips || data.chips.length === 0) return;
+
+        if (this._chipsChart) {
+            this._chipsChart.destroy();
+            this._chipsChart = null;
+        }
+
+        const chips = data.chips;
+        const labels = chips.map(c => c.price.toFixed(2));
+        const values = chips.map(c => c.pct);
+        const currentPrice = data.current_price || 0;
+
+        const colors = chips.map(c =>
+            c.price <= currentPrice ? 'rgba(102, 187, 106, 0.7)' : 'rgba(239, 83, 80, 0.7)'
+        );
+
+        this._chipsChart = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderWidth: 0,
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0,
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `筹码: ${ctx.raw.toFixed(2)}%`,
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        grid: { display: false },
+                        ticks: { display: false },
+                        title: { display: false },
+                    },
+                    y: {
+                        display: true,
+                        grid: { display: false },
+                        ticks: {
+                            maxTicksLimit: 10,
+                            font: { size: 10 },
+                        },
+                    },
+                },
+            },
         });
     },
 };

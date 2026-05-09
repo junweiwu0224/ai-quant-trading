@@ -2,6 +2,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()  # 加载 .env 文件
+
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -26,3 +30,8 @@ SYNC_MINUTE = 30
 
 # 数据采集配置
 DEFAULT_START_DATE = "20200101"  # 默认数据起始日期
+
+# LLM 配置（mimo-v2.5，OpenAI 兼容接口）
+MIMO_API_KEY = os.getenv("MIMO_API_KEY", "")
+MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
+MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5")

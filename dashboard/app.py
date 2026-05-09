@@ -97,8 +97,8 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402
-    alpha, backtest, broker_config, optimization, paper_control, paper_trading, portfolio,
-    realtime_quotes, stock_detail, strategy, strategy_version, system, watchlist,
+    alerts, alpha, backtest, broker_config, llm, market, optimization, paper_control, paper_trading,
+    portfolio, realtime_quotes, screener, stock_detail, strategy, strategy_version, system, watchlist,
 )
 
 app.include_router(backtest.router, prefix="/api/backtest", tags=["回测"])
@@ -114,6 +114,10 @@ app.include_router(realtime_quotes.router, tags=["实时行情"])
 app.include_router(stock_detail.router, prefix="/api/stock", tags=["股票详情"])
 app.include_router(optimization.router, prefix="/api/optimization", tags=["参数优化"])
 app.include_router(strategy_version.router, prefix="/api/strategy-version", tags=["策略版本管理"])
+app.include_router(llm.router, prefix="/api/llm", tags=["AI 助手"])
+app.include_router(screener.router, prefix="/api/screener", tags=["条件选股"])
+app.include_router(alerts.router, prefix="/api/alerts", tags=["预警管理"])
+app.include_router(market.router, prefix="/api/market", tags=["市场雷达"])
 
 
 # ── 页面路由 ──

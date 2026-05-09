@@ -1,6 +1,8 @@
 """股票详情 API — K 线、资金流向、分时"""
 import asyncio
+import json
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
@@ -316,7 +318,7 @@ async def get_stock_detail(code: str):
 
     return {
         "code": quote.code,
-        "name": name,
+        "name": quote.name,
         "price": quote.price,
         "open": quote.open,
         "high": quote.high,
@@ -764,12 +766,15 @@ _INDEX_MAP = [
 
 @router.get("/market/indices")
 async def market_indices():
-    """主要指数实时行情（批量请求 ulist.np/get）"""
+    """主要指数实时行情（批量请求 ulist.np/get，15 秒缓存）"""
+    hit, cached = _cache.get("market:indices")
+    if hit:
+        return cached
     try:
         secids = ",".join(sid for _, sid in _INDEX_MAP)
         url = (
             f"https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-            f"?fields=f2,f3,f4,f12,f14,f15,f16,f17,f18"
+            f"?fltt=2&fields=f2,f3,f4,f12,f14,f15,f16,f17,f18"
             f"&secids={secids}"
             f"&_={int(time.time() * 1000)}"
         )
@@ -782,19 +787,23 @@ async def market_indices():
         for item in diff:
             code = item.get("f12", "")
             name = name_map.get(code, item.get("f14", ""))
-            price = (item.get("f2") or 0) / 100
-            pre_close = (item.get("f18") or 0) / 100
-            change_pct = (item.get("f3") or 0) / 100
+            price = float(item.get("f2") or 0)
+            pre_close = float(item.get("f18") or 0)
+            # f3 可能因微小变化被 API 四舍五入为 0，从 price/pre_close 自行计算
+            change = round(price - pre_close, 2)
+            change_pct = round(change / pre_close * 100, 3) if pre_close else 0
             result_map[code] = {
                 "name": name,
                 "price": round(price, 2),
-                "change_pct": round(change_pct, 2),
-                "change": round(price - pre_close, 2),
+                "change_pct": change_pct,
+                "change": change,
             }
 
         # 按原始顺序返回
-        return [result_map.get(sid.split(".")[-1], {"name": name, "price": 0, "change_pct": 0, "change": 0})
-                for name, sid in _INDEX_MAP]
+        result = [result_map.get(sid.split(".")[-1], {"name": name, "price": 0, "change_pct": 0, "change": 0})
+                  for name, sid in _INDEX_MAP]
+        _cache.set("market:indices", result, 15)
+        return result
     except Exception as e:
         logger.warning(f"获取指数失败: {e}")
         return [{"name": name, "price": 0, "change_pct": 0, "change": 0} for name, _ in _INDEX_MAP]
@@ -802,7 +811,10 @@ async def market_indices():
 
 @router.get("/market/hot-sectors")
 async def market_hot_sectors():
-    """热门行业板块 + 概念板块 TOP10（并发请求）"""
+    """热门行业板块 + 概念板块 TOP10（并发请求，30 秒缓存）"""
+    hit, cached = _cache.get("market:hot_sectors")
+    if hit:
+        return cached
     ts = int(time.time() * 1000)
 
     def _fetch_sectors(fs: str, top: int = 10):
@@ -835,12 +847,17 @@ async def market_hot_sectors():
     if isinstance(concepts, Exception):
         logger.warning(f"获取概念板块失败: {concepts}")
         concepts = []
-    return {"industries": industries, "concepts": concepts}
+    result = {"industries": industries, "concepts": concepts}
+    _cache.set("market:hot_sectors", result, 30)
+    return result
 
 
 @router.get("/market/stats")
 async def market_stats():
-    """市场涨跌家数统计"""
+    """市场涨跌家数统计（15 秒缓存）"""
+    hit, cached = _cache.get("market:stats")
+    if hit:
+        return cached
     try:
         ts = int(time.time() * 1000)
         base = "https://push2delay.eastmoney.com/api/qt"
@@ -886,13 +903,15 @@ async def market_stats():
         down_stocks = (down_data.get("data") or {}).get("diff", [])
         limit_down = sum(1 for s in down_stocks if s.get("f3", 0) <= -9.9)
 
-        return {
+        result = {
             "up_count": up_total,
             "down_count": down_total,
             "flat_count": flat_total,
             "limit_up": limit_up,
             "limit_down": limit_down,
         }
+        _cache.set("market:stats", result, 15)
+        return result
     except Exception as e:
         logger.warning(f"获取市场统计失败: {e}")
         return {"up_count": 0, "down_count": 0, "flat_count": 0, "limit_up": 0, "limit_down": 0}
@@ -900,7 +919,11 @@ async def market_stats():
 
 @router.get("/market/benchmark")
 async def market_benchmark(count: int = 60):
-    """获取沪深300基准收益曲线（push2his 优先，腾讯回退）"""
+    """获取沪深300基准收益曲线（5 分钟缓存）"""
+    cache_key = f"market:benchmark:{count}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
     parsed = []
     try:
         url = (
@@ -939,7 +962,277 @@ async def market_benchmark(count: int = 60):
         return []
 
     base = parsed[0]["close"]
-    return [
+    result = [
         {"date": p["date"], "return_pct": round((p["close"] - base) / base * 100, 4)}
         for p in parsed
     ]
+    _cache.set(cache_key, result, 300)
+    return result
+
+
+# ── 多股对比 ──
+
+@router.get("/compare")
+async def compare_stocks(
+    codes: str = Query(..., description="逗号分隔的股票代码，最多5只"),
+    period: str = Query("daily", description="K线周期"),
+    count: int = Query(60, ge=10, le=500, description="K线数量"),
+):
+    """多股归一化收益率对比（基准日=100）"""
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        return {"error": "请提供至少一个股票代码"}
+    if len(code_list) > 5:
+        return {"error": "最多支持5只股票对比"}
+
+    results = {}
+    for code in code_list:
+        code = _validate_code(code)
+        cache_key = f"compare:{code}:{period}:{count}"
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            results[code] = cached
+            continue
+
+        try:
+            raw = await asyncio.to_thread(_fetch_kline_shared, code, count, period)
+            if not raw or not raw.get("klines_raw"):
+                continue
+
+            klines = []
+            for parts in raw["klines_raw"]:
+                if len(parts) >= 6:
+                    klines.append({
+                        "date": parts[0],
+                        "close": float(parts[2]),
+                        "name": raw.get("name", ""),
+                    })
+
+            if not klines:
+                continue
+
+            # 归一化：基准日 = 100
+            base = klines[0]["close"]
+            if base <= 0:
+                continue
+
+            normalized = [
+                {"date": k["date"], "value": round(k["close"] / base * 100, 2)}
+                for k in klines
+            ]
+            entry = {"name": klines[0].get("name", code), "data": normalized}
+            _cache.set(cache_key, entry, _TTL_KLINE)
+            results[code] = entry
+        except Exception as e:
+            logger.warning(f"对比数据获取失败 {code}: {e}")
+
+    return {"codes": list(results.keys()), "data": results}
+
+
+# ── 画线工具 CRUD ──
+
+from pydantic import BaseModel as _BaseModel
+from data.storage import DataStorage as _DataStorage
+
+_drawing_storage = _DataStorage()
+
+
+class DrawingCreate(_BaseModel):
+    overlay_name: str
+    points: list[dict]
+    styles: dict = {}
+
+
+@router.get("/drawings/{code}")
+async def get_drawings(code: str):
+    """获取指定股票的所有画线"""
+    code = _validate_code(code)
+    try:
+        drawings = _drawing_storage.get_drawings(code)
+        for d in drawings:
+            d["points"] = json.loads(d["points"])
+            d["styles"] = json.loads(d["styles"]) if d["styles"] else {}
+        return {"code": code, "drawings": drawings}
+    except Exception as e:
+        logger.error(f"获取画线失败: {e}")
+        return {"code": code, "drawings": []}
+
+
+@router.post("/drawings/{code}")
+async def save_drawing(code: str, body: DrawingCreate):
+    """保存一条画线"""
+    code = _validate_code(code)
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        drawing_id = _drawing_storage.save_drawing(
+            code=code,
+            overlay_name=body.overlay_name,
+            points_json=json.dumps(body.points),
+            styles_json=json.dumps(body.styles),
+            created_at=now,
+        )
+        return {"success": True, "id": drawing_id}
+    except Exception as e:
+        logger.error(f"保存画线失败: {e}")
+        return {"success": False, "error": "保存失败"}
+
+
+@router.delete("/drawings/{drawing_id}")
+async def delete_drawing(drawing_id: int):
+    """删除一条画线"""
+    try:
+        ok = _drawing_storage.delete_drawing(drawing_id)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"删除画线失败: {e}")
+        return {"success": False, "error": "删除失败"}
+
+
+@router.delete("/drawings/{code}/all")
+async def delete_all_drawings(code: str):
+    """清空指定股票的所有画线"""
+    code = _validate_code(code)
+    try:
+        count = _drawing_storage.delete_all_drawings(code)
+        return {"success": True, "deleted": count}
+    except Exception as e:
+        logger.error(f"清空画线失败: {e}")
+        return {"success": False, "error": "清空失败"}
+
+
+# ── 筹码分布 ──
+
+@router.get("/chips/{code}")
+async def get_chips_distribution(code: str, days: int = 120):
+    """筹码分布计算
+
+    基于历史 K 线成交量 + 换手率估算筹码在各价格区间的分布。
+    返回：各价格区间的筹码占比、获利比例、平均成本、90% 集中度。
+    """
+    code = _validate_code(code)
+    cache_key = f"chips:{code}:{days}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        raw = await asyncio.to_thread(_fetch_kline_shared, code, days, "daily")
+        if not raw or not raw.get("klines_raw"):
+            return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": 0, "concentration_90": [0, 0]}
+
+        klines = []
+        for parts in raw["klines_raw"]:
+            if len(parts) >= 7:
+                klines.append({
+                    "date": parts[0],
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "high": float(parts[3]),
+                    "low": float(parts[4]),
+                    "volume": float(parts[5]),
+                    "turnover_rate": float(parts[7]) if len(parts) > 7 and parts[7] != '-' else 0,
+                })
+
+        if not klines:
+            return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": 0, "concentration_90": [0, 0]}
+
+        # 价格区间精度
+        all_highs = [k["high"] for k in klines]
+        all_lows = [k["low"] for k in klines]
+        price_min = min(all_lows)
+        price_max = max(all_highs)
+        if price_max <= price_min:
+            return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": price_min, "concentration_90": [price_min, price_max]}
+
+        # 将价格区间分为 100 个档位
+        n_bins = 100
+        bin_width = (price_max - price_min) / n_bins
+        chips = [0.0] * n_bins  # 各档位筹码量
+
+        for k in klines:
+            day_high = k["high"]
+            day_low = k["low"]
+            day_close = k["close"]
+            day_vol = k["volume"]
+            turnover = k["turnover_rate"] / 100.0 if k["turnover_rate"] > 0 else 0.01
+
+            # 衰减旧筹码（换手率决定当日换手比例）
+            decay = 1.0 - min(turnover, 1.0)
+            for j in range(n_bins):
+                chips[j] *= decay
+
+            # 将当日成交量分配到价格区间
+            # 用三角分布：以收盘价为中心，向高低扩散
+            if day_high <= day_low:
+                continue
+
+            for j in range(n_bins):
+                bin_price = price_min + (j + 0.5) * bin_width
+                if bin_price < day_low or bin_price > day_high:
+                    continue
+                # 三角权重：离收盘价越近权重越高
+                dist = abs(bin_price - day_close) / (day_high - day_low + 0.001)
+                weight = max(0.01, 1.0 - dist)
+                chips[j] += day_vol * weight
+
+        # 归一化
+        total_chips = sum(chips)
+        if total_chips == 0:
+            return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": 0, "concentration_90": [0, 0]}
+
+        chips_pct = [c / total_chips * 100 for c in chips]
+
+        # 当前价格（最后一根K线收盘价）
+        current_price = klines[-1]["close"]
+
+        # 获利比例
+        profit_count = 0.0
+        for j in range(n_bins):
+            bin_price = price_min + (j + 0.5) * bin_width
+            if bin_price <= current_price:
+                profit_count += chips[j]
+        profit_ratio = profit_count / total_chips
+
+        # 平均成本
+        avg_cost = 0.0
+        for j in range(n_bins):
+            bin_price = price_min + (j + 0.5) * bin_width
+            avg_cost += bin_price * chips[j]
+        avg_cost /= total_chips
+
+        # 90% 筹码集中度区间
+        cumulative = 0.0
+        low_90 = price_min
+        high_90 = price_max
+        for j in range(n_bins):
+            cumulative += chips[j] / total_chips
+            if cumulative >= 0.05 and low_90 == price_min:
+                low_90 = price_min + (j + 0.5) * bin_width
+            if cumulative >= 0.95:
+                high_90 = price_min + (j + 0.5) * bin_width
+                break
+
+        # 构建返回数据（只返回有筹码的区间）
+        chips_data = []
+        for j in range(n_bins):
+            if chips_pct[j] > 0.01:
+                chips_data.append({
+                    "price": round(price_min + (j + 0.5) * bin_width, 2),
+                    "pct": round(chips_pct[j], 2),
+                })
+
+        result = {
+            "code": code,
+            "name": raw.get("name", ""),
+            "current_price": current_price,
+            "chips": chips_data,
+            "profit_ratio": round(profit_ratio * 100, 1),
+            "avg_cost": round(avg_cost, 2),
+            "concentration_90": [round(low_90, 2), round(high_90, 2)],
+        }
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+    except Exception as e:
+        logger.error(f"筹码分布计算失败: {e}")
+        return {"code": code, "chips": [], "profit_ratio": 0, "avg_cost": 0, "concentration_90": [0, 0]}
+        return {"success": False, "error": "清空失败"}

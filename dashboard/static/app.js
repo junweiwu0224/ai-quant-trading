@@ -575,7 +575,45 @@ const App = {
     _startMarketRefresh() {
         PollManager.cancel('marketRefresh');
         this._refreshMarket();
-        PollManager.register('marketRefresh', () => this._refreshMarket(), 10000);
+        this._updateMarketStatus();
+        // 交易时段 10 秒刷新，非交易时段 60 秒
+        const interval = this._isMarketOpen() ? 10000 : 60000;
+        PollManager.register('marketRefresh', () => {
+            this._refreshMarket();
+            this._updateMarketStatus();
+        }, interval);
+    },
+
+    /** 判断 A 股是否在交易时段（9:15-11:30, 13:00-15:00, 周一至周五） */
+    _isMarketOpen() {
+        const now = new Date();
+        const day = now.getDay();
+        if (day === 0 || day === 6) return false;
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+        return (hhmm >= 915 && hhmm <= 1130) || (hhmm >= 1300 && hhmm <= 1500);
+    },
+
+    /** 更新市场状态指示器 */
+    _updateMarketStatus() {
+        const el = document.getElementById('ov-market-status');
+        if (!el) return;
+        const now = new Date();
+        const day = now.getDay();
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+        let status, cls;
+        if (day === 0 || day === 6) {
+            status = '休市'; cls = 'closed';
+        } else if (hhmm >= 915 && hhmm < 930) {
+            status = '集合竞价'; cls = 'pre';
+        } else if ((hhmm >= 930 && hhmm <= 1130) || (hhmm >= 1300 && hhmm <= 1500)) {
+            status = '交易中'; cls = 'open';
+        } else if (hhmm > 1130 && hhmm < 1300) {
+            status = '午间休市'; cls = 'closed';
+        } else {
+            status = '已收盘'; cls = 'closed';
+        }
+        el.textContent = status;
+        el.className = `market-status-badge ${cls}`;
     },
 
     _stopMarketRefresh() {

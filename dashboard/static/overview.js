@@ -216,18 +216,31 @@ Object.assign(App, {
         const flatPct = (flat / total * 100).toFixed(0);
         const downPct = (down / total * 100).toFixed(0);
 
+        // 情绪指标：上涨占比 > 60% 偏多，< 40% 偏空
+        let sentimentText, sentimentCls;
+        const upRatio = up / total;
+        if (upRatio >= 0.6) { sentimentText = '偏多'; sentimentCls = 'text-up'; }
+        else if (upRatio <= 0.4) { sentimentText = '偏空'; sentimentCls = 'text-down'; }
+        else { sentimentText = '震荡'; sentimentCls = 'text-muted'; }
+
+        const upEnd = parseFloat(upPct);
+        const flatEnd = upEnd + parseFloat(flatPct);
         el.innerHTML = `
             <div class="market-stat-row">
                 <span class="market-stat-label">涨跌分布</span>
-                <div class="market-stat-bar">
-                    <div class="bar-up" style="width:${upPct}%">${up}</div>
-                    <div class="bar-flat" style="width:${flatPct}%">${flat}</div>
-                    <div class="bar-down" style="width:${downPct}%">${down}</div>
+                <span class="market-stat-sentiment ${sentimentCls}">${sentimentText}</span>
+            </div>
+            <div class="market-stat-bar-wrap">
+                <div class="market-stat-bar" style="background:linear-gradient(to right,#c65746 0%,#c65746 ${upEnd}%,#a29c95 ${upEnd}%,#a29c95 ${flatEnd}%,#10b981 ${flatEnd}%,#10b981 100%)"></div>
+                <div class="market-stat-bar-labels">
+                    <span class="text-up">${up} (${upPct}%)</span>
+                    <span class="text-muted">${flat}</span>
+                    <span class="text-down">${down} (${downPct}%)</span>
                 </div>
             </div>
             <div class="market-stat-extra">
-                <span>涨停 <strong class="text-danger">${stats.limit_up || 0}</strong></span>
-                <span>跌停 <strong class="text-success">${stats.limit_down || 0}</strong></span>
+                <span>涨停 <strong class="text-up">${stats.limit_up || 0}</strong></span>
+                <span>跌停 <strong class="text-down">${stats.limit_down || 0}</strong></span>
             </div>`;
     },
 
@@ -361,6 +374,12 @@ Object.assign(App, {
 
     _switchOverviewChart(mode) {
         if (this._overviewChartMode === mode) return;
+        // 防抖：200ms 内不重复切换
+        clearTimeout(this._chartSwitchTimer);
+        this._chartSwitchTimer = setTimeout(() => this._doSwitchChart(mode), 150);
+    },
+
+    _doSwitchChart(mode) {
         this._overviewChartMode = mode;
         document.querySelectorAll('.chart-toggle-btn').forEach(b =>
             b.classList.toggle('active', b.dataset.mode === mode));
@@ -381,7 +400,7 @@ Object.assign(App, {
                 <div class="market-index">
                     <div class="idx-name">${this.escapeHTML(idx.name)}</div>
                     <div class="idx-price ${cls}">${idx.price.toFixed(2)}</div>
-                    <div class="idx-change ${cls}">${sign}${idx.change.toFixed(2)}  ${sign}${idx.change_pct.toFixed(2)}%</div>
+                    <div class="idx-change ${cls}">${sign}${idx.change.toFixed(2)}  ${sign}${idx.change_pct.toFixed(3)}%</div>
                 </div>`;
         }).join('');
     },
@@ -393,15 +412,20 @@ Object.assign(App, {
         const renderList = (el, items) => {
             if (!el || !Array.isArray(items) || items.length === 0) {
                 if (el) el.innerHTML = '<div class="text-muted">暂无数据</div>';
+                if (el) console.warn('热门板块渲染: 无数据', { el: el?.id, items });
                 return;
             }
+            const maxPct = Math.max(...items.map(s => Math.abs(s.change_pct)), 0.01);
             el.innerHTML = items.map((s, i) => {
                 const cls = s.change_pct >= 0 ? 'text-up' : 'text-down';
                 const sign = s.change_pct >= 0 ? '+' : '';
+                const barW = Math.min(Math.abs(s.change_pct) / maxPct * 100, 100);
+                const barCls = s.change_pct >= 0 ? 'sr-bar-up' : 'sr-bar-down';
                 return `
                     <div class="sector-row">
                         <span class="sr-rank">${i + 1}</span>
                         <span class="sr-name">${this.escapeHTML(s.name)}</span>
+                        <div class="sr-bar-wrap"><div class="${barCls}" style="width:${barW}%"></div></div>
                         <span class="sr-count">涨${s.rise_count}/跌${s.fall_count}</span>
                         <span class="sr-pct ${cls}">${sign}${s.change_pct.toFixed(2)}%</span>
                     </div>`;

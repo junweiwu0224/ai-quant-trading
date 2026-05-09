@@ -20,8 +20,12 @@ from pydantic import BaseModel, Field
 from config.settings import LOG_DIR
 from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
 from data.storage.storage import DataStorage
+from data.collector.cache import TTLCache
 
 router = APIRouter()
+
+# ── TTL 缓存 ──
+_portfolio_cache = TTLCache(max_size=200)
 
 
 def _atomic_write(path: Path, content: str):
@@ -208,6 +212,9 @@ class BulkCloseRequest(BaseModel):
 # ══════════════════════════════════════════
 
 async def _load_equity_history() -> list[dict]:
+    hit, cached = _portfolio_cache.get("equity_history")
+    if hit:
+        return cached
     history_file = LOG_DIR / "paper" / "equity_history.jsonl"
     if not history_file.exists():
         return []
@@ -222,6 +229,7 @@ async def _load_equity_history() -> list[dict]:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
+    _portfolio_cache.set("equity_history", records, 300)  # 5 分钟
     return records
 
 
@@ -331,7 +339,11 @@ def _calc_risk_indicators(
 
 
 async def _fetch_benchmark_closes(count: int) -> list[float]:
-    """获取沪深300收盘价序列"""
+    """获取沪深300收盘价序列（5 分钟缓存）"""
+    cache_key = f"bm_closes:{count}"
+    hit, cached = _portfolio_cache.get(cache_key)
+    if hit:
+        return cached
     try:
         import time as _time
         from urllib.request import Request, urlopen
@@ -353,20 +365,27 @@ async def _fetch_benchmark_closes(count: int) -> list[float]:
         data = await asyncio.to_thread(_do)
         klines = data.get("data", {}).get("klines", [])
         if klines and len(klines) >= 2:
-            return [float(k.split(",")[2]) for k in klines]
+            result = [float(k.split(",")[2]) for k in klines]
+            _portfolio_cache.set(cache_key, result, 300)
+            return result
     except Exception:
         pass
     return []
 
 
 async def _calc_benchmark_comparison(history: list[dict]) -> BenchmarkComparison:
-    """基准对比（沪深300）"""
+    """基准对比（沪深300），自行获取基准数据"""
+    bm_closes = await _fetch_benchmark_closes(len(history))
+    return _calc_benchmark_comparison_from_closes_sync(history, bm_closes)
+
+
+def _calc_benchmark_comparison_from_closes_sync(history: list[dict], bm_closes: list[float]) -> BenchmarkComparison:
+    """基准对比（使用已获取的基准收盘价序列）"""
     if len(history) < 2:
         return BenchmarkComparison()
 
     portfolio_return = (history[-1]["equity"] - history[0]["equity"]) / history[0]["equity"]
 
-    bm_closes = await _fetch_benchmark_closes(len(history))
     if bm_closes and len(bm_closes) >= 2:
         benchmark_return = (bm_closes[-1] - bm_closes[0]) / bm_closes[0]
         excess_return = portfolio_return - benchmark_return
@@ -437,22 +456,32 @@ def _get_current_price(code: str) -> float:
 
 
 def _get_stock_names() -> dict[str, str]:
-    """获取代码→名称映射"""
+    """获取代码→名称映射（10 分钟缓存）"""
+    hit, cached = _portfolio_cache.get("stock_names")
+    if hit:
+        return cached
     try:
         df = _get_storage().get_stock_list()
         if not df.empty:
-            return dict(zip(df["code"], df["name"]))
+            result = dict(zip(df["code"], df["name"]))
+            _portfolio_cache.set("stock_names", result, 600)
+            return result
     except Exception as e:
         logger.warning(f"获取股票名称映射失败: {e}")
     return {}
 
 
 def _get_industry_map() -> dict[str, str]:
-    """获取代码→行业映射"""
+    """获取代码→行业映射（10 分钟缓存）"""
+    hit, cached = _portfolio_cache.get("industry_map")
+    if hit:
+        return cached
     try:
         df = _get_storage().get_stock_list()
         if not df.empty:
-            return dict(zip(df["code"], df["industry"]))
+            result = dict(zip(df["code"], df["industry"]))
+            _portfolio_cache.set("industry_map", result, 600)
+            return result
     except Exception:
         pass
     return {}
@@ -586,13 +615,13 @@ async def get_portfolio():
         max_single_pct=round(max((p.position_pct for p in positions), default=0), 4),
     )
 
-    # RiskIndicators + BenchmarkComparison
+    # RiskIndicators + BenchmarkComparison（共用基准数据，避免双重请求）
     history = await _load_equity_history()
     bm_closes = await _fetch_benchmark_closes(len(history))
     bm_returns = [(bm_closes[i] - bm_closes[i - 1]) / bm_closes[i - 1]
                   for i in range(1, len(bm_closes))] if bm_closes and len(bm_closes) >= 2 else None
     risk = _calc_risk_indicators(history, benchmark_returns=bm_returns)
-    benchmark = await _calc_benchmark_comparison(history)
+    benchmark = _calc_benchmark_comparison_from_closes_sync(history, bm_closes)
 
     # StopLossInfo alerts
     stop_loss_alerts = [
@@ -797,8 +826,8 @@ async def get_drawdown_curve():
 # ══════════════════════════════════════════
 
 @router.get("/equity-history")
-async def get_equity_history():
-    """获取权益历史数据"""
+async def get_equity_history(days: int = 0):
+    """获取权益历史数据（days>0 时只返回最近 N 天）"""
     history_file = LOG_DIR / "paper" / "equity_history.jsonl"
     if not history_file.exists():
         return []
@@ -810,6 +839,8 @@ async def get_equity_history():
                 records.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
+    if days > 0 and len(records) > days:
+        records = records[-days:]
     return records
 
 

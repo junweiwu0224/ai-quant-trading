@@ -25,7 +25,7 @@ const Paper = {
             strategy: document.getElementById('pp-strategy').value,
             codes,
             interval: parseInt(document.getElementById('pp-interval').value, 10) || 30,
-            cash: parseFloat(document.getElementById('pp-cash').value) || 1000000,
+            cash: parseFloat(document.getElementById('pp-cash').value) || 50000,
             enable_risk: document.getElementById('pp-risk').value === 'true',
             params: Object.keys(params).length > 0 ? params : null,
         };

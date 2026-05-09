@@ -180,3 +180,43 @@ def fetch_industry_batch(codes: list[str]) -> dict[str, dict[str, str]]:
     except Exception as e:
         logger.warning(f"批量获取行业数据失败: {e}")
         return {}
+
+
+# ── 概念数据（push2delay，单只但并发）──
+
+_PUSH2_FIELDS = "f57,f129"
+
+
+def _fetch_concepts_single(code: str) -> str:
+    """从 push2delay 获取单只股票概念（逗号分隔）"""
+    try:
+        secid = code_to_secid(code)
+        url = (
+            f"https://push2delay.eastmoney.com/api/qt/stock/get"
+            f"?secid={secid}&fields={_PUSH2_FIELDS}"
+            f"&ut=fa5fd1943c7b386f172d6893dbbd1d0c"
+            f"&_={int(time.time() * 1000)}"
+        )
+        data = fetch_json(url, timeout=5)
+        return str((data.get("data") or {}).get("f129") or "")
+    except Exception:
+        return ""
+
+
+def fetch_concepts_batch(codes: list[str]) -> dict[str, str]:
+    """并发获取多只股票概念，返回 {code: "概念1,概念2,..."}"""
+    if not codes:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    result = {}
+    with ThreadPoolExecutor(max_workers=min(len(codes), 10)) as pool:
+        futures = {pool.submit(_fetch_concepts_single, c): c for c in codes}
+        for fut in as_completed(futures):
+            code = futures[fut]
+            try:
+                concepts = fut.result()
+                if concepts:
+                    result[code] = concepts
+            except Exception:
+                pass
+    return result

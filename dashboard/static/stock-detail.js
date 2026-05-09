@@ -784,62 +784,6 @@ const StockDetail = {
         // 自适应宽度
         this._klineResizeObs = new ResizeObserver(() => chart.resize());
         this._klineResizeObs.observe(container);
-
-        // Y轴涨跌幅标签（十字线悬停时显示在Y轴位置）
-        this._bindCrosshairPctLabel(chart, klines, container);
-    },
-
-    /** 绑定十字线 Y 轴双侧标签（左侧涨跌幅 + 右侧价格） */
-    _bindCrosshairPctLabel(chart, klines, container) {
-        container.style.position = 'relative';
-
-        let leftEl = container.querySelector('.sd-crosshair-label-left');
-        if (!leftEl) {
-            leftEl = document.createElement('div');
-            leftEl.className = 'sd-crosshair-label sd-crosshair-label-left';
-            container.appendChild(leftEl);
-        }
-        let rightEl = container.querySelector('.sd-crosshair-label-right');
-        if (!rightEl) {
-            rightEl = document.createElement('div');
-            rightEl.className = 'sd-crosshair-label sd-crosshair-label-right';
-            container.appendChild(rightEl);
-        }
-
-        chart.subscribeAction('onCrosshairChange', (crosshair) => {
-            if (!crosshair || !crosshair.kLineData || crosshair.dataIndex == null) {
-                leftEl.style.display = 'none';
-                rightEl.style.display = 'none';
-                return;
-            }
-            const idx = crosshair.dataIndex;
-            const price = crosshair.kLineData.close;
-            if (!price || idx <= 0) { leftEl.style.display = 'none'; rightEl.style.display = 'none'; return; }
-
-            const prevClose = klines[idx - 1]?.close;
-            if (!prevClose || prevClose <= 0) { leftEl.style.display = 'none'; rightEl.style.display = 'none'; return; }
-
-            const pct = (price - prevClose) / prevClose * 100;
-            const color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
-
-            // 左侧：涨跌幅百分比
-            const sign = pct >= 0 ? '+' : '';
-            leftEl.textContent = `${sign}${pct.toFixed(2)}%`;
-            leftEl.style.display = 'block';
-            leftEl.style.color = color;
-            leftEl.style.borderColor = color;
-
-            // 右侧：价格
-            rightEl.textContent = price.toFixed(2);
-            rightEl.style.display = 'block';
-            rightEl.style.color = color;
-            rightEl.style.borderColor = color;
-
-            if (crosshair.y != null) {
-                leftEl.style.top = `${crosshair.y}px`;
-                rightEl.style.top = `${crosshair.y}px`;
-            }
-        });
     },
 
     /** 绑定指标选择器事件（KLineChart 版） */
@@ -923,7 +867,7 @@ const StockDetail = {
             },
         });
 
-        // Y轴涨跌幅百分比标签（左侧显示）
+        // Y轴固定涨跌幅刻度（左侧显示：0.00%, ±0.50%, ±1.00%, ±2.00%, ±3.00%, ±5.00%）
         klinecharts.registerIndicator({
             name: 'TIMELINE_PCT',
             shortName: '涨跌幅',
@@ -936,20 +880,16 @@ const StockDetail = {
             draw: ({ ctx, indicator, yAxis, bounding }) => {
                 const pc = indicator.extendData;
                 if (!pc || pc <= 0) return false;
-                const range = yAxis.getRange?.();
-                if (!range) return false;
-                const { displayFrom, displayTo } = range;
-                const step = (displayTo - displayFrom) / 6;
-                if (step === 0) return true;
+                const levels = [0, 0.5, -0.5, 1, -1, 2, -2, 3, -3, 5, -5];
                 ctx.save();
                 ctx.font = '10px sans-serif';
                 ctx.textAlign = 'right';
-                for (let v = displayFrom; v <= displayTo; v += step) {
-                    const pct = ((v - pc) / pc * 100);
-                    const y = yAxis.convertToPixel(v);
+                for (const pct of levels) {
+                    const price = pc * (1 + pct / 100);
+                    const y = yAxis.convertToPixel(price);
                     if (y < 0 || y > bounding.height) continue;
                     const pctText = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-                    ctx.fillStyle = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
+                    ctx.fillStyle = pct > 0 ? '#c65746' : pct < 0 ? '#10b981' : '#6d6760';
                     ctx.fillText(pctText, -4, y + 3);
                 }
                 ctx.restore();
@@ -1176,55 +1116,37 @@ const StockDetail = {
         const lastTrend = trends[trends.length - 1];
         this._updateTimelineInfo(lastTrend, preClose, trends);
 
-        // Y轴双侧标签（左侧涨跌幅 + 右侧价格）
+        // Y轴左侧涨跌幅浮层标签（十字线跟随）
         let tlLeftEl = container.querySelector('.sd-crosshair-label-left');
         if (!tlLeftEl) {
             tlLeftEl = document.createElement('div');
             tlLeftEl.className = 'sd-crosshair-label sd-crosshair-label-left';
             container.appendChild(tlLeftEl);
         }
-        let tlRightEl = container.querySelector('.sd-crosshair-label-right');
-        if (!tlRightEl) {
-            tlRightEl = document.createElement('div');
-            tlRightEl.className = 'sd-crosshair-label sd-crosshair-label-right';
-            container.appendChild(tlRightEl);
-        }
 
         chart.subscribeAction('onCrosshairChange', (crosshair) => {
             if (!crosshair || !crosshair.kLineData) {
                 this._updateTimelineInfo(lastTrend, preClose, trends);
                 tlLeftEl.style.display = 'none';
-                tlRightEl.style.display = 'none';
                 return;
             }
             const idx = crosshair.dataIndex;
             const t = trends[idx];
             if (t) this._updateTimelineInfo(t, preClose, trends);
 
-            // 更新双侧标签
+            // 左侧跟随十字线显示涨跌幅
             const price = crosshair.kLineData.close;
             if (preClose && preClose > 0 && price && crosshair.y != null) {
                 const pct = (price - preClose) / preClose * 100;
                 const color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
                 const sign = pct >= 0 ? '+' : '';
-
-                // 左侧：涨跌幅
                 tlLeftEl.textContent = `${sign}${pct.toFixed(2)}%`;
                 tlLeftEl.style.display = 'block';
                 tlLeftEl.style.color = color;
                 tlLeftEl.style.borderColor = color;
-
-                // 右侧：价格
-                tlRightEl.textContent = price.toFixed(2);
-                tlRightEl.style.display = 'block';
-                tlRightEl.style.color = color;
-                tlRightEl.style.borderColor = color;
-
                 tlLeftEl.style.top = `${crosshair.y}px`;
-                tlRightEl.style.top = `${crosshair.y}px`;
             } else {
                 tlLeftEl.style.display = 'none';
-                tlRightEl.style.display = 'none';
             }
         });
 

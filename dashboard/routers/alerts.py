@@ -27,6 +27,7 @@ class AlertRuleCreate(BaseModel):
     threshold: float
     name: str = ""
     cooldown: int = 300
+    webhook_url: str = ""
 
 
 class AlertRuleUpdate(BaseModel):
@@ -35,6 +36,7 @@ class AlertRuleUpdate(BaseModel):
     enabled: bool | None = None
     name: str | None = None
     cooldown: int | None = None
+    webhook_url: str | None = None
 
 
 @router.get("/rules")
@@ -55,6 +57,7 @@ async def create_rule(req: AlertRuleCreate):
         rule_id = storage.add_alert_rule(
             code=req.code, condition=req.condition,
             threshold=req.threshold, name=req.name, cooldown=req.cooldown,
+            webhook_url=req.webhook_url,
         )
         _reload_engine()
         return {"success": True, "id": rule_id}

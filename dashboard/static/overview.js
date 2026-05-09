@@ -436,29 +436,6 @@ Object.assign(App, {
         renderList(conceptsEl, data.concepts);
     },
 
-    _startMarketRefresh() {
-        this._stopMarketRefresh();
-        this._refreshMarket();
-        this._marketTimer = setInterval(() => this._refreshMarket(), 10000);
-    },
-
-    _stopMarketRefresh() {
-        if (this._marketTimer) {
-            clearInterval(this._marketTimer);
-            this._marketTimer = null;
-        }
-    },
-
-    async _refreshMarket() {
-        try {
-            const [indices, hotSectors] = await Promise.all([
-                this.fetchJSON('/api/stock/market/indices').catch(() => []),
-                this.fetchJSON('/api/stock/market/hot-sectors').catch(() => ({ industries: [], concepts: [] })),
-            ]);
-            this.renderMarketIndices(indices);
-            this.renderHotSectors(hotSectors);
-        } catch (e) {
-            console.warn('市场数据刷新失败:', e);
-        }
-    },
+    // _startMarketRefresh / _stopMarketRefresh / _refreshMarket
+    // 已在 app.js 中通过 PollManager 统一管理，此处不再重复定义
 });

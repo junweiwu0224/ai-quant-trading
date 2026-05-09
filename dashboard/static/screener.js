@@ -62,13 +62,13 @@
 
     async function runPreset(name) {
         const resultDiv = document.getElementById('screener-result');
-        if (resultDiv) resultDiv.innerHTML = '<div class="loading"><span class="spinner"></span>筛选中...</div>';
+        if (resultDiv) resultDiv.innerHTML = Utils.skeletonTable(8, 6);
 
         try {
             const data = await App.fetchJSON('/api/screener/run-preset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ preset_name: name, page_size: 50 }),
+                body: JSON.stringify({ preset_name: name, page_size: 200 }),
             });
             if (!data.success) {
                 App.toast(data.error || '筛选失败', 'error');
@@ -80,6 +80,65 @@
         } catch (e) {
             App.toast('预设选股失败: ' + e.message, 'error');
         }
+    }
+
+    // ── 从外部加载条件（LLM 生成 / 条件单导入） ──
+
+    function loadFilters(filters) {
+        if (!Array.isArray(filters) || filters.length === 0) return;
+
+        // 切换到条件选股子 tab
+        const manualTab = document.querySelector('.screener-tab[data-tab="manual"]');
+        if (manualTab) manualTab.click();
+
+        // 清空现有条件行
+        const container = document.getElementById('screener-conditions');
+        if (container) container.innerHTML = '';
+
+        // 填入新条件
+        for (const f of filters) {
+            addConditionRow();
+            const rows = document.querySelectorAll('#screener-conditions .screener-cond-row');
+            const row = rows[rows.length - 1];
+            if (!row) continue;
+
+            const fieldSel = row.querySelector('.screener-field');
+            const opSel = row.querySelector('.screener-op');
+            const valInput = row.querySelector('.screener-value');
+            const valInput2 = row.querySelector('.screener-value2');
+
+            if (fieldSel && f.field) {
+                fieldSel.value = f.field;
+                // 如果字段不存在于选项中，添加一个临时选项
+                if (!fieldSel.value) {
+                    const opt = document.createElement('option');
+                    opt.value = f.field;
+                    opt.textContent = f.field;
+                    fieldSel.appendChild(opt);
+                    fieldSel.value = f.field;
+                }
+            }
+
+            if (opSel && f.op) {
+                opSel.value = f.op;
+                // 触发 between 时显示第二输入框
+                if (f.op === 'between' && valInput2) {
+                    valInput2.style.display = '';
+                    valInput.placeholder = '最小值';
+                }
+            }
+
+            if (valInput && f.value != null) {
+                if (Array.isArray(f.value)) {
+                    valInput.value = f.value[0] ?? '';
+                    if (valInput2 && f.value[1] != null) valInput2.value = f.value[1];
+                } else {
+                    valInput.value = f.value;
+                }
+            }
+        }
+
+        App.toast(`已载入 ${filters.length} 个筛选条件`, 'success');
     }
 
     // ── 自定义条件 ──
@@ -166,13 +225,13 @@
         }
 
         const resultDiv = document.getElementById('screener-result');
-        if (resultDiv) resultDiv.innerHTML = '<div class="loading"><span class="spinner"></span>筛选中...</div>';
+        if (resultDiv) resultDiv.innerHTML = Utils.skeletonTable(8, 6);
 
         try {
             const data = await App.fetchJSON('/api/screener/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filters, page_size: 50 }),
+                body: JSON.stringify({ filters, page_size: 200 }),
             });
             if (!data.success) {
                 App.toast(data.error || '筛选失败', 'error');
@@ -228,13 +287,14 @@
             <div class="table-wrap">
                 <table class="sortable" id="screener-table">
                     <thead><tr>
-                        <th>代码</th><th>名称</th><th>行业</th><th>最新价</th><th>涨跌幅</th>
-                        <th>PE</th><th>PB</th><th>市值(亿)</th><th>换手率</th><th>操作</th>
+                        <th data-sort="code">代码</th><th data-sort="name">名称</th><th data-sort="industry">行业</th><th data-sort="price">最新价</th><th data-sort="change">涨跌幅</th>
+                        <th data-sort="pe">PE</th><th data-sort="pb">PB</th><th data-sort="cap">市值(亿)</th><th data-sort="turnover">换手率</th><th>操作</th>
                     </tr></thead>
                     <tbody>${rows.join('')}</tbody>
                 </table>
             </div>
         `;
+        Utils.enhanceTable('#screener-table', { pageSize: 20, searchable: true });
     }
 
     // ── CSV 导出 ──
@@ -267,8 +327,10 @@
     async function addToWatchlist(code) {
         if (!code) return;
         try {
-            const resp = await fetch(`/api/watchlist/${code}`, { method: 'POST' });
-            const data = await resp.json();
+            const data = await App.fetchJSON('/api/watchlist', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code }), label: '加入自选股',
+            });
             if (data.success) {
                 App.toast(`${code} 已加入自选股`, 'success');
             } else {
@@ -285,8 +347,10 @@
         let ok = 0, fail = 0;
         for (const code of codes) {
             try {
-                const resp = await fetch(`/api/watchlist/${code}`, { method: 'POST' });
-                const data = await resp.json();
+                const data = await App.fetchJSON('/api/watchlist', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }), label: '加入自选股', silent: true,
+                });
                 if (data.success) ok++;
                 else fail++;
             } catch {
@@ -372,7 +436,7 @@
 
     async function runAIPredict() {
         const resultDiv = document.getElementById('ai-result');
-        if (resultDiv) resultDiv.innerHTML = '<div class="loading"><span class="spinner"></span>AI 分析中...</div>';
+        if (resultDiv) resultDiv.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
 
         try {
             const data = await App.fetchJSON('/api/alpha/screen-ai?top_n=20');
@@ -446,8 +510,10 @@
         let ok = 0, fail = 0;
         for (const code of codes) {
             try {
-                const resp = await fetch(`/api/watchlist/${code}`, { method: 'POST' });
-                const data = await resp.json();
+                const data = await App.fetchJSON('/api/watchlist', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }), label: '加入自选股', silent: true,
+                });
                 if (data.success) ok++; else fail++;
             } catch { fail++; }
         }
@@ -456,7 +522,7 @@
 
     // ── 公开接口 ──
 
-    App.Screener = { init, runCustom, runPreset, exportCSV, addToWatchlist, addAllToWatchlist, trainModel, runAIPredict, addAllAIToWatchlist };
+    App.Screener = { init, runCustom, runPreset, exportCSV, addToWatchlist, addAllToWatchlist, trainModel, runAIPredict, addAllAIToWatchlist, loadFilters };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

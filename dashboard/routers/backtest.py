@@ -968,14 +968,47 @@ async def ws_backtest(ws: WebSocket):
             except Exception:
                 pass
 
+        # 取消支持
+        cancelled = {"flag": False}
+
+        async def _listen_cancel():
+            """监听客户端取消消息"""
+            try:
+                while True:
+                    msg = await ws.receive_text()
+                    data = json.loads(msg)
+                    if data.get("type") == "cancel":
+                        cancelled["flag"] = True
+                        logger.info("回测取消请求已收到")
+                        break
+            except Exception:
+                pass
+
+        cancel_task = asyncio.create_task(_listen_cancel())
+
+        def on_progress_cancellable(progress, current_date, day_idx, total):
+            if cancelled["flag"]:
+                raise InterruptedError("用户取消回测")
+            on_progress(progress, current_date, day_idx, total)
+
         # 在线程中运行回测
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: engine.run(
-            strategy, req.get("codes", ["000001"]),
-            req["start_date"], req["end_date"],
-            benchmark_code=benchmark,
-            progress_callback=on_progress,
-        ))
+        try:
+            result = await loop.run_in_executor(None, lambda: engine.run(
+                strategy, req.get("codes", ["000001"]),
+                req["start_date"], req["end_date"],
+                benchmark_code=benchmark,
+                progress_callback=on_progress_cancellable,
+            ))
+        except (InterruptedError, Exception) as e:
+            cancel_task.cancel()
+            if cancelled["flag"]:
+                await ws.send_json({"type": "cancelled", "message": "回测已取消"})
+                await ws.close()
+                return
+            raise
+        finally:
+            cancel_task.cancel()
 
         # 发送最终结果
         await ws.send_json({

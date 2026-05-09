@@ -1,6 +1,16 @@
 /* ── 模拟盘控制 ── */
 
 const Paper = {
+    _inited: false,
+
+    init() {
+        if (this._inited) return;
+        this._inited = true;
+        if (typeof PaperTrading !== 'undefined' && PaperTrading.init) {
+            PaperTrading.init();
+        }
+    },
+
     async start() {
         // 优先从多选搜索框获取，兼容旧的文本输入
         let codes = [];
@@ -31,16 +41,15 @@ const Paper = {
         };
 
         const btn = document.getElementById('pp-start-btn');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>启动中...'; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="skeleton-pulse" style="display:inline-block;width:1em;height:1em;border-radius:50%;vertical-align:middle;margin-right:4px"></span>启动中...'; }
 
         try {
-            const res = await fetch('/api/paper/start', {
+            await App.fetchJSON('/api/paper/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
+                label: '启动模拟盘',
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
             App.toast('模拟盘已启动', 'success');
             this._startPolling();
             this.loadStatus();
@@ -53,8 +62,7 @@ const Paper = {
 
     async stop() {
         try {
-            const res = await fetch('/api/paper/stop', { method: 'POST' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await App.fetchJSON('/api/paper/stop', { method: 'POST', label: '停止模拟盘' });
             App.toast('模拟盘已停止', 'success');
             this._stopPolling();
             this.loadStatus();
@@ -66,8 +74,7 @@ const Paper = {
     async reset() {
         if (!confirm('确定重置模拟盘？将清空所有持仓和交易记录。')) return;
         try {
-            const res = await fetch('/api/paper/reset', { method: 'POST' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await App.fetchJSON('/api/paper/reset', { method: 'POST', label: '重置模拟盘' });
             App.toast('模拟盘已重置', 'success');
             this._stopPolling();
             this.loadStatus();

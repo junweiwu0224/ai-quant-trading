@@ -74,17 +74,26 @@ async def chat_json(
     raw = await chat_completion(messages, temperature=temperature, max_tokens=max_tokens)
     # 提取 JSON 块（兼容 markdown 代码块包裹）
     text = raw.strip()
-    if text.startswith("```"):
+    # 处理 markdown 代码块：```json ... ``` 或 ``` ... ```
+    if "```" in text:
         lines = text.split("\n")
         json_lines = []
         in_block = False
         for line in lines:
-            if line.startswith("```") and not in_block:
+            stripped = line.strip()
+            if stripped.startswith("```") and not in_block:
                 in_block = True
                 continue
-            if line.startswith("```") and in_block:
+            if stripped.startswith("```") and in_block:
                 break
             if in_block:
                 json_lines.append(line)
-        text = "\n".join(json_lines)
-    return json.loads(text)
+        if json_lines:
+            text = "\n".join(json_lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        preview = text[:200] if len(text) > 200 else text
+        raise ValueError(
+            f"LLM 返回内容不是有效 JSON: {e}\n内容预览: {preview}"
+        ) from e

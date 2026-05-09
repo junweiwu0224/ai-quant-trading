@@ -7,6 +7,8 @@
 
     const _history = []; // {role, content}
     let _streaming = false;
+    let _currentConvId = null; // 当前对话 ID
+    let _autoSaveTimer = null;
 
     // ── DOM 工具 ──
 
@@ -138,11 +140,15 @@
         const bubble = appendMessage('assistant', '', true);
 
         try {
+            const _chatCtrl = new AbortController();
+            const _chatTimer = setTimeout(() => _chatCtrl.abort(), 120000);
             const resp = await fetch('/api/llm/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text, history: _history.slice(-20) }),
+                signal: _chatCtrl.signal,
             });
+            clearTimeout(_chatTimer);
 
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
@@ -177,6 +183,9 @@
 
             bubble.classList.remove('llm-streaming');
             _history.push({ role: 'assistant', content: fullContent });
+
+            // 自动保存对话
+            _autoSave();
 
             // 如果是选股请求，尝试解析条件
             if (isScreenRequest) {
@@ -226,12 +235,12 @@
         const bubble = appendMessage('assistant', '正在生成选股条件...', true);
 
         try {
-            const resp = await fetch('/api/llm/generate-filters', {
+            const data = await App.fetchJSON('/api/llm/generate-filters', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ description }),
+                label: '生成选股条件',
             });
-            const data = await resp.json();
 
             if (data.success && data.filters) {
                 updateStreamBubble(bubble, '✅ 已生成以下选股条件：');
@@ -251,7 +260,7 @@
     async function interpretStock(stockCode, stockName, prediction, shapValues) {
         const bubble = appendMessage('assistant', '正在分析...', true);
         try {
-            const resp = await fetch('/api/llm/interpret', {
+            const data = await App.fetchJSON('/api/llm/interpret', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -260,8 +269,8 @@
                     prediction: prediction || {},
                     shap_values: shapValues || [],
                 }),
+                label: 'AI 解读',
             });
-            const data = await resp.json();
             if (data.success) {
                 updateStreamBubble(bubble, data.interpretation);
             } else {
@@ -272,13 +281,22 @@
         }
     }
 
-    // ── 应用筛选条件（跳转到条件选股，Phase 2 实现后可用） ──
+    // ── 应用筛选条件（跳转到条件选股并自动填入） ──
 
     function applyFilters() {
         if (!_lastFilters) return;
-        // 暂存到 localStorage，条件选股页面实现后可读取
-        localStorage.setItem('llm_filters', JSON.stringify(_lastFilters));
-        App.toast('条件已保存，条件选股功能上线后可直接应用', 'info');
+        // 切换到行情页（条件选股在行情页内）
+        App.switchTab('stock');
+        // 等待 tab 切换完成后填入条件
+        requestAnimationFrame(() => {
+            if (App.Screener?.loadFilters) {
+                App.Screener.loadFilters(_lastFilters);
+            } else {
+                // 降级：存 localStorage
+                localStorage.setItem('llm_filters', JSON.stringify(_lastFilters));
+                App.toast('条件已保存，请手动切换到条件选股页面', 'info');
+            }
+        });
     }
 
     function copyFilters() {
@@ -289,6 +307,116 @@
         }).catch(() => {
             App.toast('复制失败', 'error');
         });
+    }
+
+    // ── 对话持久化 ──
+
+    function _autoSave() {
+        if (_history.length === 0) return;
+        clearTimeout(_autoSaveTimer);
+        _autoSaveTimer = setTimeout(() => _saveCurrentConversation(), 2000);
+    }
+
+    async function _saveCurrentConversation() {
+        if (_history.length === 0) return;
+        // 生成或复用对话 ID
+        if (!_currentConvId) {
+            _currentConvId = 'conv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        }
+        // 标题取第一条用户消息的前30字
+        const firstUser = _history.find(m => m.role === 'user');
+        const title = firstUser ? firstUser.content.slice(0, 30) : '新对话';
+        try {
+            await App.fetchJSON('/api/llm/conversations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: _currentConvId, title, messages: _history }),
+                silent: true,
+            });
+        } catch (e) { /* 静默失败 */ }
+    }
+
+    async function loadConversationList() {
+        try {
+            const list = await App.fetchJSON('/api/llm/conversations', { silent: true });
+            return list || [];
+        } catch { return []; }
+    }
+
+    async function loadConversation(convId) {
+        try {
+            const resp = await App.fetchJSON(`/api/llm/conversations/${convId}`, { silent: true });
+            if (resp.success && resp.data) {
+                _currentConvId = convId;
+                _history.length = 0;
+                const area = chatArea();
+                if (area) area.innerHTML = '';
+                for (const msg of resp.data.messages) {
+                    _history.push(msg);
+                    appendMessage(msg.role, msg.content);
+                }
+                App.toast('已加载对话', 'success');
+            }
+        } catch (e) {
+            App.toast('加载对话失败', 'error');
+        }
+    }
+
+    function newConversation() {
+        _currentConvId = null;
+        _history.length = 0;
+        const area = chatArea();
+        if (area) {
+            area.innerHTML = `
+                <div class="llm-welcome">
+                    <div class="llm-welcome-icon">🤖</div>
+                    <h3>AI 量化助手</h3>
+                    <p>基于 mimo-v2.5 大模型，支持自然语言选股、策略解读、行情分析</p>
+                    <div class="llm-quick-actions">
+                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('帮我选出PE低于20、ROE大于15%的股票')">选股：低PE高ROE</button>
+                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('选出近5日涨幅超过10%的股票')">选股：近期强势</button>
+                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('分析一下当前市场情绪')">市场情绪分析</button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    async function deleteConversation(convId) {
+        try {
+            await App.fetchJSON(`/api/llm/conversations/${convId}`, { method: 'DELETE', silent: true });
+            if (_currentConvId === convId) {
+                newConversation();
+            }
+            App.toast('对话已删除', 'success');
+            _refreshConvList();
+        } catch {
+            App.toast('删除失败', 'error');
+        }
+    }
+
+    function _deleteSelected() {
+        const sel = $('llm-conv-select');
+        if (sel && sel.value) {
+            if (confirm('确定删除该对话？')) deleteConversation(sel.value);
+        } else {
+            App.toast('请先选择一个对话', 'info');
+        }
+    }
+
+    async function _refreshConvList() {
+        const sel = $('llm-conv-select');
+        if (!sel) return;
+        const list = await loadConversationList();
+        const current = sel.value;
+        sel.innerHTML = '<option value="">选择历史对话...</option>';
+        for (const c of list) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.title || '新对话';
+            sel.appendChild(opt);
+        }
+        if (current) sel.value = current;
     }
 
     // ── 初始化 ──
@@ -310,6 +438,9 @@
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
         });
+
+        // 加载对话列表
+        _refreshConvList();
     }
 
     // ── 公开接口 ──
@@ -325,10 +456,19 @@
             el.style.height = 'auto';
             sendMessage(text);
         },
+        sendQuick(text) {
+            const el = input();
+            if (el) { el.value = ''; el.style.height = 'auto'; }
+            sendMessage(text);
+        },
         generateFilters,
         interpretStock,
         applyFilters,
         copyFilters,
+        loadConversationList,
+        loadConversation,
+        newConversation,
+        deleteConversation,
     };
 
     // DOM 加载后初始化

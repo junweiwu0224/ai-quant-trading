@@ -51,16 +51,25 @@ async def sync_all_stocks():
         raise HTTPException(500, f"同步失败: {e}")
 
 
+_stock_list_cache: dict = {"df": None, "ts": 0}
+
 @router.get("/search")
 async def search_stocks(
     q: str = Query("", description="搜索关键词"),
     limit: int = Query(50, description="返回数量限制"),
 ):
-    """搜索股票（支持全量列表）"""
+    """搜索股票（支持全量列表，带内存缓存）"""
+    import time
     try:
-        from data.storage.storage import DataStorage
-        storage = DataStorage()
-        df = storage.get_stock_list()
+        now = time.time()
+        if _stock_list_cache["df"] is None or now - _stock_list_cache["ts"] > 300:
+            from data.storage.storage import DataStorage
+            storage = DataStorage()
+            df = storage.get_stock_list()
+            _stock_list_cache["df"] = df
+            _stock_list_cache["ts"] = now
+        else:
+            df = _stock_list_cache["df"]
         if df.empty:
             return []
         if q:
@@ -410,7 +419,7 @@ async def get_stock_detail(code: str):
         "low": quote.low,
         "pre_close": quote.pre_close,
         "change_pct": quote.change_pct,
-        "change": round(quote.price - quote.pre_close, 2) if quote.pre_close else 0,
+        "change": round(quote.price - quote.pre_close, 2) if quote.pre_close else None,
         "volume": quote.volume,
         "amount": quote.amount,
         "industry": quote.industry,

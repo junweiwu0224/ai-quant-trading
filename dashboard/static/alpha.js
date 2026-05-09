@@ -3,20 +3,14 @@
 Object.assign(App, {
 
     // ── 工具方法 ──
-    escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str == null ? '' : String(str);
-        return div.innerHTML;
-    },
+    // escapeHtml 已在 app.js 中定义为 escapeHTML，此处不再重复
 
     async postJSON(url, body) {
-        const res = await fetch(url, {
+        return App.fetchJSON(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`${url} 返回 ${res.status}`);
-        return res.json();
     },
 
     // ── 子 Tab 切换 ──
@@ -32,6 +26,8 @@ Object.assign(App, {
     },
 
     initAlpha() {
+        if (this._alphaInitDone) return;
+        this._alphaInitDone = true;
         // 子 Tab 事件绑定
         document.querySelectorAll('#alpha-sub-tabs .alpha-sub-tab').forEach(btn => {
             btn.addEventListener('click', () => this.switchAlphaTab(btn.dataset.tab));
@@ -47,7 +43,7 @@ Object.assign(App, {
         if (!code) { this.toast('请输入股票代码', 'error'); return; }
 
         const btn = document.querySelector('button[onclick="App.loadAlpha()"]');
-        if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.innerHTML = '<span class="spinner"></span>分析中...'; }
+        if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.innerHTML = '<span class="skeleton-pulse" style="display:inline-block;width:1em;height:1em;border-radius:50%;vertical-align:middle;margin-right:4px"></span>分析中...'; }
 
         try {
             if (!opts.silent) this.toast('正在分析，请稍候...', 'info');
@@ -184,7 +180,7 @@ Object.assign(App, {
             if (trades.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-muted">暂无交易</td></tr>';
             } else {
-                const esc = this.escapeHtml;
+                const esc = App.escapeHTML;
                 tbody.innerHTML = trades.map(t => `
                     <tr>
                         <td>${esc(t.date)}</td>
@@ -221,7 +217,7 @@ Object.assign(App, {
         // 因子评价表
         const tbody = document.querySelector('#alpha-factor-eval-table tbody');
         if (tbody) {
-            const esc = this.escapeHtml;
+            const esc = App.escapeHTML;
             tbody.innerHTML = data.slice(0, 30).map(f => `
                 <tr>
                     <td>${esc(f.factor)}</td>
@@ -367,7 +363,7 @@ Object.assign(App, {
         // 对比表格
         const tbody = document.querySelector('#alpha-compare-table tbody');
         if (tbody) {
-            const esc = this.escapeHtml;
+            const esc = App.escapeHTML;
             const models = ['lightgbm', 'xgboost', 'ensemble'];
             tbody.innerHTML = models.map(m => {
                 const d = data[m] || {};
@@ -416,7 +412,7 @@ Object.assign(App, {
             if (pairs.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-muted">无高相关因子对 (阈值 > 0.8)</td></tr>';
             } else {
-                const esc = this.escapeHtml;
+                const esc = App.escapeHTML;
                 tbody.innerHTML = pairs.map(p => `
                     <tr>
                         <td>${esc(p.factor_a)}</td>
@@ -539,7 +535,7 @@ Object.assign(App, {
             tbody.innerHTML = '<tr><td colspan="4" class="text-muted">未发现有效因子</td></tr>';
             return;
         }
-        const esc = this.escapeHtml;
+        const esc = App.escapeHTML;
         tbody.innerHTML = data.map((f, i) => `
             <tr>
                 <td>${i + 1}</td>

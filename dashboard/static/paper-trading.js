@@ -261,12 +261,12 @@ const PaperTrading = {
 
         try {
             const data = await App.fetchJSON(`/api/stock/detail/${code}`);
-            if (!data || !data.data) {
+            if (!data || !data.name) {
                 preview.classList.add('hidden');
                 return;
             }
 
-            const quote = data.data;
+            const quote = data;
             const price = quote.current_price || quote.price;
             const change = quote.change_pct || 0;
             const changeClass = change >= 0 ? 'text-up' : 'text-down';
@@ -357,17 +357,11 @@ const PaperTrading = {
         }
 
         try {
-            const res = await fetch('/api/paper/orders', {
+            const data = await App.fetchJSON('/api/paper/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-            }
 
             App.toast(`订单创建成功: ${data.data.order_id}`, 'success');
             this.loadOrders();
@@ -386,15 +380,9 @@ const PaperTrading = {
         if (!confirm('确定要撤销此订单吗？')) return;
 
         try {
-            const res = await fetch(`/api/paper/orders/${orderId}`, {
+            await App.fetchJSON(`/api/paper/orders/${orderId}`, {
                 method: 'DELETE',
             });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-            }
 
             App.toast('订单已撤销', 'success');
             this.loadOrders();
@@ -544,7 +532,7 @@ const PaperTrading = {
         if (!tbody) return;
 
         if (this.state.positions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center">暂无持仓</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-muted" style="text-align:center">暂无持仓</td></tr>';
             if (emptyHint) emptyHint.style.display = 'block';
             return;
         }
@@ -588,6 +576,15 @@ const PaperTrading = {
                         </label>
                     </div>
                 </td>
+                <td>
+                    <div style="display:flex;gap:4px;align-items:center">
+                        <input type="number" class="form-control form-control-sm" id="pt-partial-${pos.code}"
+                               min="100" step="100" max="${pos.volume}" placeholder="${pos.volume}"
+                               style="width:70px;font-size:12px">
+                        <button class="btn btn-sm btn-warning" onclick="PaperTrading.partialClose('${pos.code}')" title="部分平仓">部分</button>
+                        <button class="btn btn-sm btn-danger" onclick="PaperTrading.closePosition('${pos.code}')" title="全部平仓">平仓</button>
+                    </div>
+                </td>
             </tr>`;
         }).join('');
     },
@@ -601,17 +598,11 @@ const PaperTrading = {
         }
 
         try {
-            const res = await fetch(`/api/paper/positions/${code}/stop-loss`, {
+            await App.fetchJSON(`/api/paper/positions/${code}/stop-loss`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-            }
 
             App.toast('止损止盈价格已更新', 'success');
         } catch (e) {
@@ -628,12 +619,7 @@ const PaperTrading = {
                 ? `/api/paper/positions/${code}/close?volume=${volume}`
                 : `/api/paper/positions/${code}/close`;
 
-            const res = await fetch(url, { method: 'POST' });
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-            }
+            await App.fetchJSON(url, { method: 'POST' });
 
             App.toast('平仓订单已创建', 'success');
             this.loadOrders();
@@ -641,6 +627,17 @@ const PaperTrading = {
         } catch (e) {
             App.toast(`平仓失败: ${e.message}`, 'error');
         }
+    },
+
+    async partialClose(code) {
+        const input = document.getElementById(`pt-partial-${code}`);
+        const volume = input ? parseInt(input.value) : 0;
+        const pos = this.state.positions.find(p => p.code === code);
+        if (!pos) return;
+        if (!volume || volume <= 0) { App.toast('请输入平仓数量', 'error'); return; }
+        if (volume > pos.volume) { App.toast(`平仓数量不能超过持仓 ${pos.volume} 股`, 'error'); return; }
+        if (volume % 100 !== 0) { App.toast('平仓数量必须为100的整数倍', 'error'); return; }
+        await this.closePosition(code, volume);
     },
 
     async closeAllPositions() {
@@ -653,7 +650,7 @@ const PaperTrading = {
         if (!confirm(confirmMsg)) return;
 
         const btn = document.getElementById('pt-close-all-btn');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>平仓中...'; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="skeleton-pulse" style="display:inline-block;width:1em;height:1em;border-radius:50%;vertical-align:middle;margin-right:4px"></span>平仓中...'; }
 
         try {
             const results = await Promise.allSettled(
@@ -1597,7 +1594,5 @@ const PaperTrading = {
     },
 };
 
-// 页面加载时初始化
-document.addEventListener('DOMContentLoaded', () => {
-    PaperTrading.init();
-});
+// 初始化由 App.init() 统一调度，此处不再独立注册 DOMContentLoaded
+// PaperTrading.init() 通过 Paper 模块在 App.init() 中调用

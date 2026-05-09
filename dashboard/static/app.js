@@ -139,7 +139,7 @@ const App = {
         this.initSidebar();
         this.loadOverview();
         this._startMarketRefresh();
-        Paper.loadStatus();
+        Paper.init();
         Watchlist.init();
 
         RealtimeQuotes.connect();
@@ -169,6 +169,7 @@ const App = {
         });
 
         this._initTableSorting();
+        this._initGlobalShortcuts();
 
         const hash = location.hash.slice(1);
         if (hash) this.switchTab(hash);
@@ -187,12 +188,105 @@ const App = {
                 const next = current === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', next);
                 localStorage.setItem('theme', next);
+                if (typeof ChartFactory !== 'undefined') ChartFactory._colorCache = null;
             });
         }
     },
 
     _initTableSorting() {
         document.querySelectorAll('table.sortable').forEach(t => Utils.initTableSort(t));
+    },
+
+    _initGlobalShortcuts() {
+        const tabs = ['overview', 'backtest', 'portfolio', 'risk', 'alpha', 'paper', 'strategy', 'stock'];
+        document.addEventListener('keydown', (e) => {
+            const tag = e.target.tagName;
+            const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
+
+            // Escape: 关闭弹窗/overlay/帮助/LLM面板
+            if (e.key === 'Escape') {
+                const help = document.getElementById('shortcuts-help');
+                if (help && help.style.display !== 'none') { help.style.display = 'none'; e.preventDefault(); return; }
+                const overlay = document.querySelector('.overlay.active, .modal.active, .drawer.open');
+                if (overlay) { overlay.classList.remove('active', 'open'); e.preventDefault(); return; }
+                const llmPanel = document.getElementById('llm-panel');
+                if (llmPanel && llmPanel.classList.contains('open')) { llmPanel.classList.remove('open'); e.preventDefault(); return; }
+            }
+
+            // 以下快捷键在输入框中不生效
+            if (isInput) return;
+
+            // Ctrl+K / Cmd+K: 聚焦搜索框
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                const searchInput = document.getElementById('stock-detail-code') || document.querySelector('.search-input');
+                if (searchInput) { searchInput.focus(); searchInput.select(); }
+                return;
+            }
+
+            // /: 聚焦搜索框（无修饰键）
+            if (e.key === '/') {
+                e.preventDefault();
+                const searchInput = document.getElementById('stock-detail-code') || document.querySelector('.search-input');
+                if (searchInput) { searchInput.focus(); searchInput.select(); }
+                return;
+            }
+
+            // Ctrl+1 ~ Ctrl+8: 切换 tab
+            if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '8') {
+                e.preventDefault();
+                const idx = parseInt(e.key) - 1;
+                if (idx < tabs.length) this.switchTab(tabs[idx]);
+                return;
+            }
+
+            // Ctrl+0: 切换到总览
+            if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+                e.preventDefault();
+                this.switchTab('overview');
+                return;
+            }
+
+            // r: 刷新当前 tab 数据
+            if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                const activeTab = document.querySelector('.nav-link.active')?.dataset.tab;
+                if (activeTab === 'overview') this.loadOverview();
+                else if (activeTab === 'paper') PaperTrading?.refresh?.();
+                else if (activeTab === 'portfolio') App.Portfolio?.refresh?.();
+                return;
+            }
+
+            // ?: 显示快捷键帮助
+            if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+                e.preventDefault();
+                this._toggleShortcutsHelp();
+                return;
+            }
+        });
+    },
+
+    _toggleShortcutsHelp() {
+        let el = document.getElementById('shortcuts-help');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'shortcuts-help';
+            el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.3);max-width:400px;width:90%';
+            el.innerHTML = `
+                <h3 style="margin:0 0 16px;font-size:16px">键盘快捷键</h3>
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px">
+                    <kbd>/</kbd><span>聚焦搜索框</span>
+                    <kbd>Ctrl+K</kbd><span>聚焦搜索框</span>
+                    <kbd>Ctrl+0~8</kbd><span>切换页面</span>
+                    <kbd>r</kbd><span>刷新当前页</span>
+                    <kbd>?</kbd><span>显示/隐藏帮助</span>
+                    <kbd>Esc</kbd><span>关闭弹窗/帮助</span>
+                </div>
+            `;
+            document.body.appendChild(el);
+        } else {
+            el.style.display = el.style.display === 'none' ? '' : 'none';
+        }
     },
 
     _updateQuoteStatus() {
@@ -370,31 +464,39 @@ const App = {
 
     async loadStockList() {
         try {
-            const watchlist = await this.fetchJSON('/api/watchlist').catch(() => []);
+            // 并行加载自选股和全市场股票
+            const [watchlist, allStocks] = await Promise.all([
+                this.fetchJSON('/api/watchlist').catch(() => []),
+                this.fetchJSON('/api/stock/search?q=&limit=6000').catch(() => []),
+            ]);
             this.watchlistCache = watchlist || [];
+            this._allStocks = allStocks || [];
 
-            const watchlistFilter = (q) => {
-                if (!this.watchlistCache || this.watchlistCache.length === 0) return [];
-                if (!q) return this.watchlistCache;
-                return this.watchlistCache.filter(s =>
-                    s.code.includes(q) || (s.name && s.name.toLowerCase().includes(q))
-                );
+            // 全市场搜索数据源（本地过滤，响应快）
+            const fullMarketFilter = (q) => {
+                const list = this._allStocks;
+                if (!list || list.length === 0) return [];
+                if (!q) return list.slice(0, 50);
+                const ql = q.toLowerCase();
+                return list.filter(s =>
+                    s.code.includes(q) || (s.name && s.name.toLowerCase().includes(ql))
+                ).slice(0, 50);
             };
 
             this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', { maxResults: 30 });
-            this.btMultiSearch.setDataSource(watchlistFilter);
+            this.btMultiSearch.setDataSource(fullMarketFilter);
 
             const alphaSearch = new SearchBox('alpha-code', 'alpha-code-dropdown', {
                 maxResults: 30,
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
-            alphaSearch.setDataSource(watchlistFilter);
+            alphaSearch.setDataSource(fullMarketFilter);
             alphaSearch.onSelect((item) => {
                 document.getElementById('alpha-code').value = item.code;
             });
 
             this.paperMultiSearch = new MultiSearchBox('pp-codes', 'pp-codes-dropdown', 'pp-codes-tags', { maxResults: 30 });
-            this.paperMultiSearch.setDataSource(watchlistFilter);
+            this.paperMultiSearch.setDataSource(fullMarketFilter);
 
             Watchlist.setSelected(this.watchlistCache.map(s => s.code));
         } catch (e) {
@@ -548,12 +650,12 @@ const App = {
             auth_code: document.getElementById('br-auth').value.trim(),
         };
         try {
-            const res = await fetch('/api/broker', {
+            await App.fetchJSON('/api/broker', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
+                label: '保存券商配置',
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             this.toast('券商配置已保存', 'success');
         } catch (e) {
             this.toast('保存失败: ' + e.message, 'error');
@@ -562,8 +664,7 @@ const App = {
 
     async testBrokerConn() {
         try {
-            const res = await fetch('/api/broker/test', { method: 'POST' });
-            const data = await res.json();
+            const data = await App.fetchJSON('/api/broker/test', { method: 'POST', label: '连接测试' });
             this.toast(data.message, data.success ? 'success' : 'warning');
         } catch (e) {
             this.toast('连接测试失败: ' + e.message, 'error');

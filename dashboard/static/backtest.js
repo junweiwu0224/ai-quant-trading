@@ -22,7 +22,19 @@ Object.assign(App, {
 
             const btn = document.getElementById('bt-run-btn');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>运行中...';
+            btn.innerHTML = '<span class="skeleton-pulse" style="display:inline-block;width:1em;height:1em;border-radius:50%;vertical-align:middle;margin-right:4px"></span>运行中...';
+            // 显示取消按钮
+            let cancelBtn = document.getElementById('bt-cancel-btn');
+            if (!cancelBtn) {
+                cancelBtn = document.createElement('button');
+                cancelBtn.id = 'bt-cancel-btn';
+                cancelBtn.className = 'btn btn-sm btn-danger';
+                cancelBtn.textContent = '取消回测';
+                cancelBtn.style.marginLeft = '8px';
+                btn.parentElement.appendChild(cancelBtn);
+            }
+            cancelBtn.style.display = '';
+            cancelBtn.disabled = false;
             document.getElementById('bt-results').style.display = 'none';
             this._showProgress(0, '');
 
@@ -45,12 +57,20 @@ Object.assign(App, {
 
                 const result = await new Promise((resolve, reject) => {
                     ws.onopen = () => ws.send(JSON.stringify(body));
+                    // 取消按钮事件
+                    cancelBtn.onclick = () => {
+                        try { ws.send(JSON.stringify({ type: 'cancel' })); } catch (e) { /* ignore */ }
+                        cancelBtn.disabled = true;
+                        cancelBtn.textContent = '取消中...';
+                    };
                     ws.onmessage = (evt) => {
                         const msg = JSON.parse(evt.data);
                         if (msg.type === 'progress') {
                             this._showProgress(msg.progress, msg.current_date, msg.elapsed, msg.remaining);
                         } else if (msg.type === 'complete') {
                             resolve(msg.data);
+                        } else if (msg.type === 'cancelled') {
+                            reject(new Error('cancelled'));
                         } else if (msg.type === 'error') {
                             reject(new Error(msg.message));
                         }
@@ -71,10 +91,16 @@ Object.assign(App, {
                 this.toast('回测完成', 'success');
                 this.compareStrategies();
             } catch (err) {
-                this.toast('回测失败: ' + err.message, 'error');
+                if (err.message === 'cancelled') {
+                    this.toast('回测已取消', 'info');
+                } else {
+                    this.toast('回测失败: ' + err.message, 'error');
+                }
             } finally {
                 btn.disabled = false;
                 btn.textContent = '运行回测';
+                const cancelBtn = document.getElementById('bt-cancel-btn');
+                if (cancelBtn) cancelBtn.style.display = 'none';
                 this._hideProgress();
                 if (this._btWs) {
                     try { this._btWs.close(); } catch (e) { /* ignore */ }
@@ -202,8 +228,8 @@ Object.assign(App, {
     async loadBacktestCharts(reqBody) {
         try {
             const [monthly, drawdown] = await Promise.all([
-                fetch('/api/backtest/monthly-returns', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody) }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
-                fetch('/api/backtest/drawdown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody) }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+                App.fetchJSON('/api/backtest/monthly-returns', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody), label: '月度收益', silent: true }),
+                App.fetchJSON('/api/backtest/drawdown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody), label: '回撤数据', silent: true }),
             ]);
             this.renderMonthlyHeatmap(monthly);
             this.renderDrawdown(drawdown);
@@ -266,11 +292,12 @@ Object.assign(App, {
     },
 
     async _loadAnalysis(reqBody) {
-        const post = (url) => fetch(url, {
+        const post = (url) => App.fetchJSON(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(reqBody),
-        }).then(r => r.json());
+            silent: true,
+        });
 
         const [returnsData, tradesData, weekdayData, turnoverData, holdingData, attributionData] = await Promise.all([
             post('/api/backtest/analysis/returns').catch(() => null),
@@ -482,11 +509,10 @@ Object.assign(App, {
         };
 
         try {
-            const res = await fetch('/api/backtest/compare', {
+            const results = await App.fetchJSON('/api/backtest/compare', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                label: '策略对比',
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const results = await res.json();
             if (!results || results.length === 0) return;
 
             const labelMap = { dual_ma: '双均线', bollinger: '布林带', momentum: '动量' };

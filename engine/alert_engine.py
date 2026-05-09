@@ -30,6 +30,7 @@ class AlertRule:
     enabled: bool = True
     name: str = ""
     cooldown: int = 300  # 冷却秒数，默认 5 分钟
+    webhook_url: str = ""  # Webhook 推送地址
 
 
 @dataclass
@@ -170,6 +171,10 @@ class AlertEngine:
             alerts.append(alert)
             self._triggered.append(alert)
 
+            # Webhook 推送
+            if rule.webhook_url:
+                self._fire_webhook(rule.webhook_url, alert)
+
         if alerts:
             logger.info(f"触发 {len(alerts)} 条预警")
 
@@ -178,6 +183,29 @@ class AlertEngine:
     def get_recent_alerts(self, limit: int = 50) -> list[dict]:
         """获取最近触发的预警"""
         return [a.to_dict() for a in self._triggered[-limit:]]
+
+    @staticmethod
+    def _fire_webhook(url: str, alert: Alert):
+        """异步发送 Webhook 推送"""
+        import threading
+        import urllib.request
+        import json
+
+        def _send():
+            try:
+                payload = json.dumps(alert.to_dict(), ensure_ascii=False).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    logger.info(f"Webhook 推送成功: {resp.status} -> {url}")
+            except Exception as e:
+                logger.warning(f"Webhook 推送失败: {url} -> {e}")
+
+        threading.Thread(target=_send, daemon=True).start()
 
     def clear_history(self):
         """清空触发历史"""

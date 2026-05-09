@@ -154,6 +154,15 @@ def init_database(db_path: str = None):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_risk_events_type ON paper_risk_events(event_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_risk_events_created ON paper_risk_events(created_at)")
 
+        # 增量迁移：alert_rules 表添加 webhook_url 列（如果表存在）
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert_rules'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(alert_rules)")
+            cols = {row[1] for row in cursor.fetchall()}
+            if "webhook_url" not in cols:
+                cursor.execute("ALTER TABLE alert_rules ADD COLUMN webhook_url TEXT DEFAULT ''")
+                logger.info("迁移: alert_rules 表添加 webhook_url 列")
+
         conn.commit()
         logger.info(f"数据库初始化完成: {DB_PATH}")
 

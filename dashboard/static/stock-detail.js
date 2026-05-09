@@ -37,6 +37,7 @@ const StockDetail = {
         this._bindChartTabs();
         this._bindIndicatorSelector();
         this._bindDrawingToolbar();
+        this._bindDrawingShortcuts();
 
         // 默认分时模式，隐藏指标选择器
         const indicatorEl = document.querySelector('.sd-indicator-selector');
@@ -1709,6 +1710,9 @@ const StockDetail = {
     _drawingBound: false,
     _activeDrawing: null,  // 当前正在画的 overlay 类型
     _drawingOverlays: [],  // 已保存的 overlay ID 列表
+    _undoStack: [],  // {name, points, styles, drawingId, overlayId}
+    _redoStack: [],
+    _suppressRemove: false,
 
     _bindDrawingToolbar() {
         if (this._drawingBound) return;
@@ -1781,10 +1785,21 @@ const StockDetail = {
         if (points.length < 1) return;
 
         // 保存到后端
-        this._saveDrawingToBackend(overlayName, points, overlay.styles || {});
+        this._saveDrawingToBackend(overlayName, points, overlay.styles || {}).then(id => {
+            // 推入撤销栈
+            this._undoStack.push({
+                name: overlayName,
+                points: [...points],
+                styles: { ...(overlay.styles || {}) },
+                drawingId: id || null,
+                overlayId: overlay.id || null,
+            });
+            this._redoStack = [];
+        });
     },
 
     _onDrawingRemoved(event) {
+        if (this._suppressRemove) return;  // 撤销操作时不删后端
         const overlay = event.overlay || event;
         const drawingId = overlay?.extendData?.drawingId;
         if (drawingId) {
@@ -1793,9 +1808,9 @@ const StockDetail = {
     },
 
     async _saveDrawingToBackend(overlayName, points, styles) {
-        if (!this._currentCode) return;
+        if (!this._currentCode) return null;
         try {
-            const resp = await fetch(`/api/stock/drawings/${this._currentCode}`, {
+            const data = await App.fetchJSON(`/api/stock/drawings/${this._currentCode}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1803,14 +1818,16 @@ const StockDetail = {
                     points: points,
                     styles: styles,
                 }),
+                label: '保存画线',
             });
-            const data = await resp.json();
             if (data?.success && data.id) {
                 this._drawingOverlays.push(data.id);
+                return data.id;
             }
         } catch (e) {
             console.error('保存画线失败:', e);
         }
+        return null;
     },
 
     async _loadDrawings() {
@@ -1856,10 +1873,77 @@ const StockDetail = {
         try {
             await fetch(`/api/stock/drawings/${this._currentCode}/all`, { method: 'DELETE' });
             this._drawingOverlays = [];
+            this._undoStack = [];
+            this._redoStack = [];
             App.toast('画线已清空', 'success');
         } catch (e) {
             console.error('清空画线失败:', e);
         }
+    },
+
+    undoDrawing() {
+        if (this._undoStack.length === 0) return;
+        const item = this._undoStack.pop();
+        const chart = this._klineChart;
+        if (!chart) return;
+
+        // 删除后端记录（静默）
+        if (item.drawingId) {
+            fetch(`/api/stock/drawings/${item.drawingId}`, { method: 'DELETE' }).catch(() => {});
+            this._drawingOverlays = this._drawingOverlays.filter(id => id !== item.drawingId);
+        }
+
+        // 移除图表上的 overlay
+        this._suppressRemove = true;
+        if (item.overlayId) {
+            chart.removeOverlay(item.overlayId);
+        }
+        this._suppressRemove = false;
+
+        this._redoStack.push(item);
+        App.toast('撤销画线', 'info');
+    },
+
+    redoDrawing() {
+        if (this._redoStack.length === 0) return;
+        const item = this._redoStack.pop();
+        const chart = this._klineChart;
+        if (!chart) return;
+
+        const styleMap = {
+            horizontalStraightLine: { line: { color: '#e6a817', size: 1, style: 'dashed' } },
+            straightLine: { line: { color: '#4fc3f7', size: 1, style: 'solid' } },
+            fibonacciLine: { line: { color: '#ab47bc', size: 1, style: 'dashed' } },
+        };
+
+        chart.createOverlay({
+            name: item.name,
+            points: item.points,
+            styles: item.styles || styleMap[item.name] || {},
+            lock: false,
+            onDrawEnd: (event) => this._onDrawingComplete(item.name, event),
+            onRemoved: (event) => this._onDrawingRemoved(event),
+        });
+
+        this._saveDrawingToBackend(item.name, item.points, item.styles || {}).then(id => {
+            item.drawingId = id;
+            this._undoStack.push(item);
+        });
+        App.toast('重做画线', 'info');
+    },
+
+    _bindDrawingShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                this.undoDrawing();
+            }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+                e.preventDefault();
+                this.redoDrawing();
+            }
+        });
     },
 
     // ── 筹码分布 ──
@@ -2206,11 +2290,11 @@ const StockDetail = {
         const analysisDiv = document.getElementById('sd-report-analysis') || document.createElement('div');
         analysisDiv.id = 'sd-report-analysis';
         analysisDiv.className = 'report-analysis';
-        analysisDiv.innerHTML = '<div class="loading"><span class="spinner"></span>AI 解读中...</div>';
+        analysisDiv.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:120px;border-radius:8px"></div>';
         container.appendChild(analysisDiv);
 
         try {
-            const data = await fetch('/api/llm/reports/analyze', {
+            const data = await App.fetchJSON('/api/llm/reports/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2219,7 +2303,8 @@ const StockDetail = {
                     stock_code: this._currentCode || '',
                     stock_name: document.getElementById('sd-name')?.textContent || '',
                 }),
-            }).then(r => r.json());
+                label: 'AI 解读',
+            });
 
             if (data.success) {
                 analysisDiv.innerHTML = `

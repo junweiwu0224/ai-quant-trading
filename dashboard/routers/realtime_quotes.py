@@ -40,6 +40,7 @@ def _load_alert_rules():
                 id=r["id"], code=r["code"], condition=r["condition"],
                 threshold=r["threshold"], enabled=r["enabled"],
                 name=r["name"], cooldown=r["cooldown"],
+                webhook_url=r.get("webhook_url", ""),
             )
             for r in rules_data
         ]

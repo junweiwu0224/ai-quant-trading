@@ -178,3 +178,49 @@ async def analyze_report(req: ReportAnalyzeRequest):
     except Exception as e:
         logger.error(f"研报解读异常: {e}")
         return {"success": False, "error": "AI 解读失败，请稍后重试"}
+
+
+# ── 对话持久化 ──
+
+class ConversationSaveRequest(BaseModel):
+    id: str
+    title: str = "新对话"
+    messages: list[ChatMessage] = []
+
+
+@router.get("/conversations")
+async def list_conversations():
+    """获取对话列表"""
+    from data.storage.storage import DataStorage
+    storage = DataStorage()
+    return storage.list_conversations()
+
+
+@router.get("/conversations/{conv_id}")
+async def get_conversation(conv_id: str):
+    """获取单个对话"""
+    from data.storage.storage import DataStorage
+    storage = DataStorage()
+    conv = storage.get_conversation(conv_id)
+    if not conv:
+        return {"success": False, "error": "对话不存在"}
+    return {"success": True, "data": conv}
+
+
+@router.post("/conversations")
+async def save_conversation(req: ConversationSaveRequest):
+    """保存对话"""
+    from data.storage.storage import DataStorage
+    storage = DataStorage()
+    msgs = [{"role": m.role, "content": m.content} for m in req.messages]
+    storage.save_conversation(req.id, req.title, msgs)
+    return {"success": True}
+
+
+@router.delete("/conversations/{conv_id}")
+async def delete_conversation(conv_id: str):
+    """删除对话"""
+    from data.storage.storage import DataStorage
+    storage = DataStorage()
+    ok = storage.delete_conversation(conv_id)
+    return {"success": ok}

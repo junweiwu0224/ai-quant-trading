@@ -127,7 +127,11 @@
             <div class="card">
                 <h2>市场情绪</h2>
                 <div id="ov-market-stats" class="market-stats-panel">
-                    <div class="loading"><span class="spinner"></span>加载中...</div>
+                    <div class="skeleton-market-stats">
+                        <div class="skel-stat-row skeleton-pulse" style="height:16px;width:40%;margin-bottom:12px"></div>
+                        <div class="skel-stat-bar skeleton-pulse" style="height:24px;width:100%;margin-bottom:8px;border-radius:4px"></div>
+                        <div class="skel-stat-row skeleton-pulse" style="height:14px;width:60%"></div>
+                    </div>
                 </div>
             </div>
 
@@ -135,16 +139,22 @@
             <div class="card market-card">
                 <h2>市场大盘 <span id="ov-market-status" class="market-status-badge"></span></h2>
                 <div class="market-indices" id="ov-market-indices">
-                    <div class="loading"><span class="spinner"></span>加载中...</div>
+                    <div class="skeleton-indices">
+                        <div class="skel-index"><div class="skel-idx-name skeleton-pulse"></div><div class="skel-idx-price skeleton-pulse"></div><div class="skel-idx-change skeleton-pulse"></div></div>
+                        <div class="skel-index"><div class="skel-idx-name skeleton-pulse"></div><div class="skel-idx-price skeleton-pulse"></div><div class="skel-idx-change skeleton-pulse"></div></div>
+                        <div class="skel-index"><div class="skel-idx-name skeleton-pulse"></div><div class="skel-idx-price skeleton-pulse"></div><div class="skel-idx-change skeleton-pulse"></div></div>
+                        <div class="skel-index"><div class="skel-idx-name skeleton-pulse"></div><div class="skel-idx-price skeleton-pulse"></div><div class="skel-idx-change skeleton-pulse"></div></div>
+                        <div class="skel-index"><div class="skel-idx-name skeleton-pulse"></div><div class="skel-idx-price skeleton-pulse"></div><div class="skel-idx-change skeleton-pulse"></div></div>
+                    </div>
                 </div>
                 <div class="market-sectors">
                     <div class="market-sector-col">
                         <h3>行业板块 TOP10</h3>
-                        <div id="ov-hot-industries" class="sector-list"><div class="loading"><span class="spinner"></span>加载中...</div></div>
+                        <div id="ov-hot-industries" class="sector-list"><div class="skeleton-sector-rows"><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div></div></div>
                     </div>
                     <div class="market-sector-col">
                         <h3>概念板块 TOP10</h3>
-                        <div id="ov-hot-concepts" class="sector-list"><div class="loading"><span class="spinner"></span>加载中...</div></div>
+                        <div id="ov-hot-concepts" class="sector-list"><div class="skeleton-sector-rows"><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div><div class="skeleton-sector-row"><div class="skel-sr-rank skeleton-pulse"></div><div class="skel-sr-name skeleton-pulse"></div><div class="skel-sr-bar skeleton-pulse"></div><div class="skel-sr-pct skeleton-pulse"></div></div></div></div>
                     </div>
                 </div>
             </div>
@@ -249,6 +259,7 @@
                         <option value="amplitude_above">振幅超过(%)</option>
                     </select>
                     <input type="number" id="alert-threshold" class="search-input" placeholder="阈值" aria-label="阈值" step="0.01" style="max-width:100px">
+                    <input type="url" id="alert-webhook" class="search-input" placeholder="Webhook URL（可选）" aria-label="Webhook推送地址" style="max-width:200px" title="预警触发时发送POST请求到此地址">
                     <button class="btn btn-primary btn-sm" id="alert-add-btn">添加预警</button>
                 </div>
                 <div class="table-wrap">
@@ -1529,8 +1540,19 @@
                 <div class="alpha-sub-panel hidden" id="alpha-panel-llm" role="tabpanel" aria-labelledby="alpha-tab-llm">
                     <div class="card llm-card">
                         <div class="llm-header">
-                            <h2>量化 AI 助手</h2>
-                            <span class="text-muted text-sm">基于 mimo-v2.5 大模型 · 支持策略生成、因子解读、量化问答</span>
+                            <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                                <div>
+                                    <h2>量化 AI 助手</h2>
+                                    <span class="text-muted text-sm">基于 mimo-v2.5 大模型 · 支持策略生成、因子解读、量化问答</span>
+                                </div>
+                                <div style="display:flex;gap:6px;align-items:center">
+                                    <select id="llm-conv-select" class="form-control form-control-sm" style="max-width:200px;font-size:12px" onchange="App.LLM.loadConversation(this.value)">
+                                        <option value="">选择历史对话...</option>
+                                    </select>
+                                    <button class="btn btn-sm" onclick="App.LLM.newConversation()" title="新对话">+</button>
+                                    <button class="btn btn-sm btn-danger" onclick="App.LLM._deleteSelected()" title="删除选中对话" style="font-size:11px">🗑</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="llm-chat-area" id="llm-chat-area">
                             <div class="llm-welcome">
@@ -1738,8 +1760,8 @@
                         </div>
                         <div class="table-wrap">
                             <table id="pt-positions-table">
-                                <thead><tr><th>股票</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th><th>盈亏率</th><th>止损/止盈</th></tr></thead>
-                                <tbody><tr><td colspan="8" class="text-muted" style="text-align:center">暂无持仓</td></tr></tbody>
+                                <thead><tr><th>股票</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th><th>盈亏率</th><th>止损/止盈</th><th>操作</th></tr></thead>
+                                <tbody><tr><td colspan="9" class="text-muted" style="text-align:center">暂无持仓</td></tr></tbody>
                             </table>
                         </div>
                         <div id="pt-positions-empty" class="text-center text-muted" style="padding: 1.5rem; display: none;">

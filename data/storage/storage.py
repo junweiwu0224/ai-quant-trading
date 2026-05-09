@@ -114,7 +114,19 @@ class AlertRule(Base):
     enabled = Column(Integer, default=1)  # 1=启用, 0=禁用
     name = Column(String(100), default="")
     cooldown = Column(Integer, default=300)  # 冷却秒数
+    webhook_url = Column(String(500), default="")  # Webhook 推送地址
     created_at = Column(String(30))
+
+
+class Conversation(Base):
+    """LLM 对话历史表"""
+    __tablename__ = "conversations"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    title = Column(String(200), default="新对话")
+    messages_json = Column(Text, default="[]")  # JSON: [{role, content, timestamp}]
+    created_at = Column(String(30))
+    updated_at = Column(String(30))
 
 
 class DataStorage:
@@ -129,7 +141,27 @@ class DataStorage:
         """创建所有表"""
         DB_DIR.mkdir(parents=True, exist_ok=True)
         Base.metadata.create_all(self._engine)
+        self._migrate_columns()
         logger.info(f"数据库初始化完成: {DB_PATH}")
+
+    def _migrate_columns(self):
+        """增量迁移：为已有表添加新列"""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(str(DB_PATH))
+            cursor = conn.cursor()
+            # alert_rules.webhook_url
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert_rules'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(alert_rules)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "webhook_url" not in cols:
+                    cursor.execute("ALTER TABLE alert_rules ADD COLUMN webhook_url TEXT DEFAULT ''")
+                    logger.info("迁移: alert_rules 添加 webhook_url 列")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"列迁移跳过: {e}")
 
     def _get_session(self) -> Session:
         return self._Session()
@@ -492,6 +524,7 @@ class DataStorage:
                     "id": r.id, "code": r.code, "condition": r.condition,
                     "threshold": r.threshold, "enabled": bool(r.enabled),
                     "name": r.name or "", "cooldown": r.cooldown,
+                    "webhook_url": r.webhook_url or "",
                     "created_at": r.created_at or "",
                 }
                 for r in rows
@@ -500,14 +533,14 @@ class DataStorage:
             session.close()
 
     def add_alert_rule(self, code: str, condition: str, threshold: float,
-                       name: str = "", cooldown: int = 300) -> int:
+                       name: str = "", cooldown: int = 300, webhook_url: str = "") -> int:
         """添加预警规则，返回 ID"""
         from config.datetime_utils import now_beijing_iso
         session = self._get_session()
         try:
             rule = AlertRule(
                 code=code, condition=condition, threshold=threshold,
-                enabled=1, name=name, cooldown=cooldown,
+                enabled=1, name=name, cooldown=cooldown, webhook_url=webhook_url,
                 created_at=now_beijing_iso(),
             )
             session.add(rule)
@@ -549,6 +582,67 @@ class DataStorage:
         except Exception as e:
             session.rollback()
             logger.error(f"删除预警规则失败: {e}")
+            return False
+        finally:
+            session.close()
+
+    # ── 对话历史 ──
+
+    def list_conversations(self, limit: int = 50) -> list[dict]:
+        """获取对话列表"""
+        session = self._get_session()
+        try:
+            rows = session.query(Conversation).order_by(Conversation.updated_at.desc()).limit(limit).all()
+            return [{"id": r.id, "title": r.title, "created_at": r.created_at, "updated_at": r.updated_at} for r in rows]
+        finally:
+            session.close()
+
+    def get_conversation(self, conv_id: str) -> dict | None:
+        """获取单个对话（含消息）"""
+        session = self._get_session()
+        try:
+            r = session.query(Conversation).filter(Conversation.id == conv_id).first()
+            if not r:
+                return None
+            return {"id": r.id, "title": r.title, "messages": json.loads(r.messages_json), "created_at": r.created_at, "updated_at": r.updated_at}
+        finally:
+            session.close()
+
+    def save_conversation(self, conv_id: str, title: str, messages: list) -> None:
+        """创建或更新对话"""
+        import json as _json
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        session = self._get_session()
+        try:
+            existing = session.query(Conversation).filter(Conversation.id == conv_id).first()
+            if existing:
+                existing.title = title
+                existing.messages_json = _json.dumps(messages, ensure_ascii=False)
+                existing.updated_at = now
+            else:
+                session.add(Conversation(
+                    id=conv_id, title=title,
+                    messages_json=_json.dumps(messages, ensure_ascii=False),
+                    created_at=now, updated_at=now,
+                ))
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"保存对话失败: {e}")
+        finally:
+            session.close()
+
+    def delete_conversation(self, conv_id: str) -> bool:
+        """删除对话"""
+        session = self._get_session()
+        try:
+            count = session.query(Conversation).filter(Conversation.id == conv_id).delete()
+            session.commit()
+            return count > 0
+        except Exception as e:
+            session.rollback()
+            logger.error(f"删除对话失败: {e}")
             return False
         finally:
             session.close()

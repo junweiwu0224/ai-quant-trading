@@ -33,7 +33,7 @@ Object.assign(App, {
         try {
             const so = { silent: true };
             const [snapshot, trades, industry, equityHistory] = await Promise.all([
-                this.fetchJSON('/api/portfolio/snapshot'),
+                this.fetchJSON('/api/portfolio/snapshot', { silent: true }),
                 this.fetchJSON('/api/portfolio/trades', so).catch(() => []),
                 this.fetchJSON('/api/portfolio/industry-distribution', so).catch(() => []),
                 this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),

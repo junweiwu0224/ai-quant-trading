@@ -26,7 +26,7 @@
     async function loadRadar() {
         const container = document.getElementById('radar-content');
         if (!container) return;
-        container.innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
+        container.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
 
         try {
             if (_currentTab === 'sectors') {
@@ -254,8 +254,10 @@
     async function addToWatchlist(code) {
         if (!code) return;
         try {
-            const resp = await fetch(`/api/watchlist/${code}`, { method: 'POST' });
-            const data = await resp.json();
+            const data = await App.fetchJSON('/api/watchlist', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code }), label: '加入自选股',
+            });
             if (data.success) {
                 App.toast(`${code} 已加入自选股`, 'success');
             } else {

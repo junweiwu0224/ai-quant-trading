@@ -141,16 +141,22 @@ async def interpret_prediction(
     Returns:
         Markdown 格式的解读文本
     """
+    if not stock_code or not isinstance(stock_code, str):
+        raise ValueError("stock_code 不能为空")
+    if not isinstance(prediction, dict):
+        raise ValueError(f"prediction 必须是 dict，收到 {type(prediction).__name__}")
+
     context = f"股票：{stock_code} {stock_name}\n"
     context += f"预测评分：{prediction.get('score', 'N/A')}\n"
     context += f"信号：{prediction.get('signal', 'N/A')}\n"
     if prediction.get("risk_score"):
         context += f"风险评分：{prediction['risk_score']}\n"
 
-    if shap_values:
+    if shap_values and isinstance(shap_values, list):
         context += "\n因子贡献度 TOP 10：\n"
         for sv in shap_values[:10]:
-            context += f"- {sv['feature']}: {sv['importance']:.4f}\n"
+            if isinstance(sv, dict) and "feature" in sv and "importance" in sv:
+                context += f"- {sv['feature']}: {sv['importance']:.4f}\n"
 
     messages = [
         {"role": "system", "content": _SYSTEM_INTERPRET},

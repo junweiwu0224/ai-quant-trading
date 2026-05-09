@@ -2009,6 +2009,50 @@ th[data-sort].sort-desc::after {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── 骨架屏：市场指数 ── */
+.skeleton-indices {
+    display: flex;
+    gap: 12px;
+    overflow: hidden;
+}
+.skeleton-indices .skel-index {
+    flex: 1;
+    min-width: 120px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--bg-tertiary, #f0ede5);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.skeleton-indices .skel-idx-name { height: 14px; width: 60%; border-radius: 3px; }
+.skeleton-indices .skel-idx-price { height: 20px; width: 80%; border-radius: 3px; }
+.skeleton-indices .skel-idx-change { height: 12px; width: 70%; border-radius: 3px; }
+
+/* ── 骨架屏：市场情绪 ── */
+.skeleton-market-stats {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.skeleton-market-stats .skel-stat-row,
+.skeleton-market-stats .skel-stat-bar {
+    border-radius: 3px;
+}
+
+/* ── 骨架屏：板块列表 ── */
+.skeleton-sector-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+}
+.skeleton-sector-row .skel-sr-rank { width: 20px; height: 14px; border-radius: 3px; }
+.skeleton-sector-row .skel-sr-name { width: 80px; height: 14px; border-radius: 3px; }
+.skeleton-sector-row .skel-sr-bar { flex: 1; height: 16px; border-radius: 3px; }
+.skeleton-sector-row .skel-sr-pct { width: 50px; height: 14px; border-radius: 3px; }
+
 /* ── 暗色模式：仅在未手动设置 data-theme 时跟随系统 ── */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {

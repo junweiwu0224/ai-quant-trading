@@ -22,7 +22,7 @@ const Strategy = {
     async load() {
         const grid = document.getElementById('st-list');
         if (!grid) return;
-        grid.innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
+        grid.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
 
         try {
             const strategies = await App.fetchJSON('/api/strategy/list');
@@ -173,12 +173,12 @@ const Strategy = {
         // 验证代码
         overlay.querySelector('#modal-code-validate').addEventListener('click', async () => {
             try {
-                const res = await fetch('/api/strategy/validate-code', {
+                const data = await App.fetchJSON('/api/strategy/validate-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ code: editor.value }),
+                    label: '代码验证',
                 });
-                const data = await res.json();
                 if (data.valid) {
                     statusEl.innerHTML = '<span style="color:var(--success-color)">代码验证通过</span>';
                 } else {
@@ -205,17 +205,17 @@ const Strategy = {
 
                 // 先验证
                 try {
-                    const vRes = await fetch('/api/strategy/validate-code', {
+                    const vData = await App.fetchJSON('/api/strategy/validate-code', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ code: codeText }),
+                        label: '代码验证',
                     });
-                    const vData = await vRes.json();
                     if (!vData.valid) { App.toast('代码验证失败: ' + vData.error, 'error'); return; }
                 } catch (e) { /* ignore */ }
 
                 try {
-                    const res = await fetch('/api/strategy', {
+                    await App.fetchJSON('/api/strategy', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -226,8 +226,8 @@ const Strategy = {
                             params: {},
                             code: codeText,
                         }),
+                        label: '创建策略',
                     });
-                    if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`);
                     App.toast('策略已创建', 'success');
                     overlay.remove();
                     this.load();
@@ -236,12 +236,12 @@ const Strategy = {
                 }
             } else {
                 try {
-                    const res = await fetch(`/api/strategy/${name}`, {
+                    await App.fetchJSON(`/api/strategy/${name}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ code: codeText }),
+                        label: '更新策略',
                     });
-                    if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`);
                     App.toast('策略代码已更新', 'success');
                     overlay.remove();
                     this.load();
@@ -370,13 +370,12 @@ const Strategy = {
 
     async _create(name, label, description, params) {
         try {
-            const res = await fetch('/api/strategy', {
+            await App.fetchJSON('/api/strategy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, label, description, type: '自定义', params }),
+                label: '创建策略',
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             App.toast(`策略 "${label}" 已创建`, 'success');
             this.load();
         } catch (e) {
@@ -390,13 +389,12 @@ const Strategy = {
             if (label !== null) body.label = label;
             if (description !== null) body.description = description;
             if (params !== null) body.params = params;
-            const res = await fetch(`/api/strategy/${name}`, {
+            await App.fetchJSON(`/api/strategy/${name}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
+                label: '更新策略',
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             App.toast('策略已更新', 'success');
             this.load();
         } catch (e) {
@@ -407,11 +405,7 @@ const Strategy = {
     async remove(name) {
         if (!confirm(`确定删除策略 "${name}"？`)) return;
         try {
-            const res = await fetch(`/api/strategy/${name}`, { method: 'DELETE' });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.detail || `HTTP ${res.status}`);
-            }
+            await App.fetchJSON(`/api/strategy/${name}`, { method: 'DELETE', label: '删除策略' });
             App.toast('策略已删除', 'success');
             this.load();
         } catch (e) {
@@ -459,11 +453,12 @@ const Strategy = {
                 `点击"确定"覆盖同名策略，点击"取消"跳过同名策略`
             );
 
-            const result = await fetch('/api/system/strategies/import', {
+            const result = await App.fetchJSON('/api/system/strategies/import', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...data, overwrite }),
-            }).then(r => r.json());
+                label: '导入策略',
+            });
 
             if (result.success) {
                 let msg = `导入完成：${result.imported} 个成功`;

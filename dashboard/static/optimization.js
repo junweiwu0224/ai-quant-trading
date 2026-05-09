@@ -125,13 +125,12 @@ Object.assign(App, {
             };
 
             try {
-                const res = await fetch('/api/optimization/sensitivity', {
+                const data = await App.fetchJSON('/api/optimization/sensitivity', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
+                    label: '敏感性分析',
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
                 if (data.error) throw new Error(data.error);
                 this._showSensResult(data);
                 this.toast(`敏感性分析完成，最优${data.metric_name}: ${data.best_metric}`, 'success');

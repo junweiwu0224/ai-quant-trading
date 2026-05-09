@@ -48,6 +48,7 @@
         const code = document.getElementById('alert-code')?.value?.trim();
         const condition = document.getElementById('alert-condition')?.value;
         const thresholdStr = document.getElementById('alert-threshold')?.value;
+        const webhookUrl = document.getElementById('alert-webhook')?.value?.trim() || '';
 
         if (!code) { App.toast('请输入股票代码', 'error'); return; }
         if (!thresholdStr) { App.toast('请输入阈值', 'error'); return; }
@@ -59,7 +60,7 @@
             const data = await App.fetchJSON('/api/alerts/rules', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, condition, threshold }),
+                body: JSON.stringify({ code, condition, threshold, webhook_url: webhookUrl }),
             });
             if (data.success) {
                 App.toast('预警添加成功', 'success');
@@ -67,8 +68,10 @@
                 // 清空输入
                 const codeInput = document.getElementById('alert-code');
                 const threshInput = document.getElementById('alert-threshold');
+                const webhookInput = document.getElementById('alert-webhook');
                 if (codeInput) codeInput.value = '';
                 if (threshInput) threshInput.value = '';
+                if (webhookInput) webhookInput.value = '';
             } else {
                 App.toast(data.error || '添加失败', 'error');
             }
@@ -121,8 +124,9 @@
             const label = _conditionLabels[r.condition] || r.condition;
             const statusClass = r.enabled ? 'text-up' : 'text-muted';
             const statusText = r.enabled ? '启用' : '禁用';
+            const webhookBadge = r.webhook_url ? '<span class="text-muted" title="' + App.escapeHTML(r.webhook_url) + '"> 🔔</span>' : '';
             return `<tr>
-                <td>${App.escapeHTML(r.code)}</td>
+                <td>${App.escapeHTML(r.code)}${webhookBadge}</td>
                 <td>${App.escapeHTML(label)}</td>
                 <td>${r.threshold}</td>
                 <td><span class="${statusClass}" style="cursor:pointer" onclick="App.Alerts.toggleRule(${r.id}, ${r.enabled})">${statusText}</span></td>

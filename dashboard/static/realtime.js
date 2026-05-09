@@ -23,7 +23,6 @@ const RealtimeQuotes = {
         }
 
         this._ws.onopen = () => {
-            console.log('行情 WebSocket 已连接');
             clearTimeout(this._reconnectTimer);
             this._reconnectAttempts = 0;
             // 自动订阅自选股
@@ -40,7 +39,6 @@ const RealtimeQuotes = {
         };
 
         this._ws.onclose = () => {
-            console.log('行情 WebSocket 断开');
             this._scheduleReconnect();
         };
 
@@ -92,17 +90,15 @@ const RealtimeQuotes = {
                 break;
             case 'subscribed':
             case 'unsubscribed':
-                console.log(`行情 ${msg.type}:`, msg.codes);
                 break;
         }
     },
 
     _subscribeWatchlist() {
         // 每次连接都重新订阅（防止重连后丢失订阅）
-        fetch('/api/watchlist')
-            .then(r => r.json())
+        App.fetchJSON('/api/watchlist', { silent: true })
             .then(list => {
-                const codes = list.map(s => s.code);
+                const codes = (Array.isArray(list) ? list : []).map(s => s.code);
                 if (codes.length > 0 && this._ws && this._ws.readyState === WebSocket.OPEN) {
                     this._ws.send(JSON.stringify({ action: 'subscribe', codes }));
                 }

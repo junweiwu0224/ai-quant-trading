@@ -6,6 +6,7 @@ const StockDetail = {
     _indicatorPaneId: null,
     _avgOverlays: null,
     _timelineIndicatorsRegistered: false,
+    _changeInfoRegistered: false,
     _profitChart: null,
     _northChart: null,
     _capitalChart: null,
@@ -647,7 +648,14 @@ const StockDetail = {
                 tooltip: {
                     showRule: 'always',
                     showType: 'standard',
-                    text: { size: 12, color: textPrimary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
+                    text: { size: 12, color: textSecondary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
+                    rect: {
+                        position: 'fixed',
+                        paddingLeft: 10, paddingRight: 10, paddingTop: 8, paddingBottom: 8,
+                        offsetLeft: 10, offsetTop: 8, offsetRight: 10, offsetBottom: 8,
+                        borderRadius: 4, borderSize: 1, borderColor: borderColor,
+                        color: bgSecondary,
+                    },
                 },
                 area: {
                     lineColor: '#4fc3f7',
@@ -675,7 +683,8 @@ const StockDetail = {
                 tooltip: {
                     showRule: 'always',
                     showType: 'standard',
-                    text: { size: 12, color: textPrimary, marginLeft: 8, marginTop: 6, marginRight: 8, marginBottom: 0 },
+                    showName: false, showParams: false,
+                    text: { size: 12, color: textSecondary, marginLeft: 8, marginTop: 2, marginRight: 8, marginBottom: 0 },
                 },
             },
             xAxis: {
@@ -765,6 +774,36 @@ const StockDetail = {
 
         // MA 均线（叠加主图）
         chart.createIndicator('MA', false, { id: 'candle_pane' });
+
+        // 涨跌幅/涨跌额（隐藏指标，仅在 tooltip 中显示）
+        if (!this._changeInfoRegistered) {
+            this._changeInfoRegistered = true;
+            klinecharts.registerIndicator({
+                name: 'CHANGE_INFO',
+                shortName: '',
+                series: 'price',
+                figures: [
+                    { key: 'change', title: '涨跌额: ', type: 'line' },
+                    { key: 'pct', title: '涨跌幅: ', type: 'line' },
+                ],
+                calc: (dataList) => {
+                    return dataList.map((k, i) => {
+                        if (i === 0 || !dataList[i - 1]?.close || !k.close) return { change: 0, pct: 0 };
+                        const prev = dataList[i - 1].close;
+                        return {
+                            change: k.close - prev,
+                            pct: (k.close - prev) / prev * 100,
+                        };
+                    });
+                },
+                styles: ({ defaultStyles }) => {
+                    const s = defaultStyles;
+                    if (s.lines) s.lines = s.lines.map(l => ({ ...l, style: 'none', size: 0 }));
+                    return s;
+                },
+            });
+        }
+        chart.createIndicator('CHANGE_INFO', false, { id: 'candle_pane' });
 
         // 成交量（独立 pane）
         chart.createIndicator('VOL', false);

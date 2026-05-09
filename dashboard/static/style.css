@@ -1443,6 +1443,24 @@ input:focus, select:focus, textarea:focus {
 }
 .sd-ti-item .text-up { color: var(--up-color); }
 .sd-ti-item .text-down { color: var(--down-color); }
+
+/* 十字线 Y 轴涨跌幅标签 */
+.sd-crosshair-pct {
+    position: absolute;
+    right: 0;
+    z-index: 10;
+    pointer-events: none;
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1;
+    padding: 3px 5px;
+    background: var(--bg-secondary, #faf9f5);
+    border-left: 2px solid currentColor;
+    display: none;
+    white-space: nowrap;
+    transform: translateY(-50%);
+}
+
 .sd-orderbook-card { min-width: 0; }
 .sd-sub-grid {
     display: grid;

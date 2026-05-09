@@ -697,8 +697,28 @@ const StockDetail = {
             separator: { size: 1, color: borderColor, activeBackgroundColor: bgPrimary },
             crosshair: {
                 show: true,
-                horizontal: { show: true, line: { show: true, style: 'dashed', color: textSecondary }, text: { show: true, color: '#fff', size: 11, backgroundColor: textPrimary, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 } },
-                vertical: { show: true, line: { show: true, style: 'dashed', color: textSecondary }, text: { show: true, color: '#fff', size: 11, backgroundColor: textPrimary, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 } },
+                horizontal: {
+                    show: true,
+                    line: { show: true, style: 'dashed', size: 1, color: textSecondary, dashedValue: [4, 3] },
+                    text: {
+                        show: true, style: 'fill', color: '#fff', size: 11,
+                        family: 'Helvetica Neue', weight: 'normal',
+                        backgroundColor: textPrimary,
+                        borderStyle: 'solid', borderSize: 1, borderColor: borderColor, borderRadius: 4,
+                        paddingLeft: 6, paddingRight: 6, paddingTop: 3, paddingBottom: 3,
+                    },
+                },
+                vertical: {
+                    show: true,
+                    line: { show: true, style: 'dashed', size: 1, color: textSecondary, dashedValue: [4, 3] },
+                    text: {
+                        show: true, style: 'fill', color: '#fff', size: 11,
+                        family: 'Helvetica Neue', weight: 'normal',
+                        backgroundColor: textPrimary,
+                        borderStyle: 'solid', borderSize: 1, borderColor: borderColor, borderRadius: 4,
+                        paddingLeft: 6, paddingRight: 6, paddingTop: 3, paddingBottom: 3,
+                    },
+                },
             },
         };
     },
@@ -764,6 +784,44 @@ const StockDetail = {
         // 自适应宽度
         this._klineResizeObs = new ResizeObserver(() => chart.resize());
         this._klineResizeObs.observe(container);
+
+        // Y轴涨跌幅标签（十字线悬停时显示在Y轴位置）
+        this._bindCrosshairPctLabel(chart, klines, container);
+    },
+
+    /** 绑定十字线 Y 轴涨跌幅标签 */
+    _bindCrosshairPctLabel(chart, klines, container) {
+        let pctEl = container.querySelector('.sd-crosshair-pct');
+        if (!pctEl) {
+            pctEl = document.createElement('div');
+            pctEl.className = 'sd-crosshair-pct';
+            container.style.position = 'relative';
+            container.appendChild(pctEl);
+        }
+
+        chart.subscribeAction('onCrosshairChange', (crosshair) => {
+            if (!crosshair || !crosshair.kLineData || crosshair.dataIndex == null) {
+                pctEl.style.display = 'none';
+                return;
+            }
+            const idx = crosshair.dataIndex;
+            const price = crosshair.kLineData.close;
+            if (!price || idx <= 0) { pctEl.style.display = 'none'; return; }
+
+            const prevClose = klines[idx - 1]?.close;
+            if (!prevClose || prevClose <= 0) { pctEl.style.display = 'none'; return; }
+
+            const pct = (price - prevClose) / prevClose * 100;
+            const sign = pct >= 0 ? '+' : '';
+            pctEl.textContent = `${sign}${pct.toFixed(2)}%`;
+            pctEl.style.display = 'block';
+            pctEl.style.color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
+
+            // 用 crosshair.y 像素位置定位
+            if (crosshair.y != null) {
+                pctEl.style.top = `${crosshair.y}px`;
+            }
+        });
     },
 
     /** 绑定指标选择器事件（KLineChart 版） */
@@ -1100,14 +1158,36 @@ const StockDetail = {
         const lastTrend = trends[trends.length - 1];
         this._updateTimelineInfo(lastTrend, preClose, trends);
 
+        // Y轴涨跌幅浮层标签
+        let tlPctEl = container.querySelector('.sd-crosshair-pct');
+        if (!tlPctEl) {
+            tlPctEl = document.createElement('div');
+            tlPctEl.className = 'sd-crosshair-pct';
+            container.appendChild(tlPctEl);
+        }
+
         chart.subscribeAction('onCrosshairChange', (crosshair) => {
             if (!crosshair || !crosshair.kLineData) {
                 this._updateTimelineInfo(lastTrend, preClose, trends);
+                tlPctEl.style.display = 'none';
                 return;
             }
             const idx = crosshair.dataIndex;
             const t = trends[idx];
             if (t) this._updateTimelineInfo(t, preClose, trends);
+
+            // 更新 Y 轴涨跌幅浮层
+            const price = crosshair.kLineData.close;
+            if (preClose && preClose > 0 && price && crosshair.y != null) {
+                const pct = (price - preClose) / preClose * 100;
+                const sign = pct >= 0 ? '+' : '';
+                tlPctEl.textContent = `${sign}${pct.toFixed(2)}%`;
+                tlPctEl.style.display = 'block';
+                tlPctEl.style.color = pct > 0.01 ? '#c65746' : pct < -0.01 ? '#10b981' : '#6d6760';
+                tlPctEl.style.top = `${crosshair.y}px`;
+            } else {
+                tlPctEl.style.display = 'none';
+            }
         });
 
         // Y轴自动缩放（放大后线始终可见）

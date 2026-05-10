@@ -16,6 +16,7 @@ BUILTIN_STRATEGIES = [
         "type": "趋势",
         "description": "短期均线上穿长期均线买入，下穿卖出。",
         "params": {"short_window": 5, "long_window": 20},
+        "tags": ["均线", "趋势"],
         "builtin": True,
     },
     {
@@ -24,6 +25,7 @@ BUILTIN_STRATEGIES = [
         "type": "均值回归",
         "description": "价格触及下轨买入，触及上轨卖出。",
         "params": {"window": 20, "num_std": 2},
+        "tags": ["波动率", "均值回归"],
         "builtin": True,
     },
     {
@@ -32,6 +34,34 @@ BUILTIN_STRATEGIES = [
         "type": "趋势",
         "description": "基于 N 日收益率动量信号交易。",
         "params": {"lookback": 20, "threshold": 0.05},
+        "tags": ["动量", "趋势"],
+        "builtin": True,
+    },
+    {
+        "name": "rsi",
+        "label": "RSI 策略",
+        "type": "反转",
+        "description": "RSI 低于超卖线买入，高于超买线卖出。",
+        "params": {"period": 14, "oversold": 30, "overbought": 70},
+        "tags": ["RSI", "反转"],
+        "builtin": True,
+    },
+    {
+        "name": "macd",
+        "label": "MACD 策略",
+        "type": "趋势",
+        "description": "MACD 金叉买入，死叉卖出。",
+        "params": {"fast": 12, "slow": 26, "signal": 9},
+        "tags": ["MACD", "趋势"],
+        "builtin": True,
+    },
+    {
+        "name": "kdj",
+        "label": "KDJ 策略",
+        "type": "反转",
+        "description": "K 线上穿 D 线且 J 值超卖时买入，反之卖出。",
+        "params": {"period": 9, "k_period": 3, "d_period": 3, "oversold": 20, "overbought": 80},
+        "tags": ["KDJ", "反转"],
         "builtin": True,
     },
 ]
@@ -75,6 +105,7 @@ class StrategyManager:
         if s["name"] in self._overrides:
             merged["params"] = {**s.get("params", {}), **self._overrides[s["name"]]}
             merged["has_override"] = True
+        merged.setdefault("tags", [])
         return merged
 
     def list_all(self) -> list[dict]:
@@ -106,6 +137,7 @@ class StrategyManager:
             "type": data.get("type", "自定义"),
             "description": data.get("description", ""),
             "params": data.get("params", {}),
+            "tags": data.get("tags", []),
         }
         # 支持代码字段
         if "code" in data:
@@ -137,6 +169,8 @@ class StrategyManager:
                     s["description"] = data["description"]
                 if "params" in data:
                     s["params"] = data["params"]
+                if "tags" in data:
+                    s["tags"] = data["tags"]
                 if "code" in data:
                     s["code"] = data["code"]
                 self._custom[i] = s

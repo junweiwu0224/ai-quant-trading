@@ -84,7 +84,7 @@ async def save_version(req: VersionCreateRequest):
         record = StrategyVersion(
             strategy_name=req.strategy_name,
             version=new_version,
-            label=req.label or f"v{new_version}",
+            label=req.label.strip() if req.label else f"v{new_version}",
             description=req.description,
             params=json.dumps(req.params, ensure_ascii=False),
             code=req.code,
@@ -216,6 +216,36 @@ async def diff_versions(strategy_name: str, v1: int, v2: int):
             "param_diff": param_diff,
             "code_changed": code_changed,
             "code_diff": diff_lines,
+        }
+    finally:
+        session.close()
+
+
+@router.get("/versions/{strategy_name}/{version}")
+async def get_version(strategy_name: str, version: int):
+    """获取指定版本详情"""
+    session = storage._get_session()
+    try:
+        v = (
+            session.query(StrategyVersion)
+            .filter(
+                StrategyVersion.strategy_name == strategy_name,
+                StrategyVersion.version == version,
+            )
+            .first()
+        )
+        if not v:
+            return {"error": f"版本 v{version} 不存在"}
+        return {
+            "id": v.id,
+            "strategy_name": v.strategy_name,
+            "version": v.version,
+            "label": v.label,
+            "description": v.description,
+            "params": json.loads(v.params) if v.params else {},
+            "code": v.code,
+            "created_at": v.created_at,
+            "is_current": bool(v.is_current),
         }
     finally:
         session.close()

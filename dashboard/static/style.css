@@ -522,6 +522,21 @@ body.sidebar-collapsed .content { margin-left: var(--sidebar-collapsed-w); }
     margin-bottom: 12px;
 }
 
+.tag-chip {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all var(--duration-fast) ease;
+}
+.tag-chip:hover { background: var(--bg-tertiary, rgba(0,0,0,0.05)); }
+.tag-chip.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+
 .strategy-desc {
     font-size: var(--font-size-base);
     color: var(--text-secondary);

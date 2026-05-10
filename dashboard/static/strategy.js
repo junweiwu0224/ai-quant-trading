@@ -17,7 +17,27 @@ const Strategy = {
             { key: 'lookback', label: '回看周期', type: 'int', min: 2, max: 120, default: 20 },
             { key: 'entry_threshold', label: '入场阈值', type: 'float', min: 0.01, max: 1, step: 0.01, default: 0.1 },
         ],
+        rsi: [
+            { key: 'period', label: 'RSI周期', type: 'int', min: 2, max: 50, default: 14 },
+            { key: 'oversold', label: '超卖线', type: 'float', min: 10, max: 40, step: 1, default: 30 },
+            { key: 'overbought', label: '超买线', type: 'float', min: 60, max: 90, step: 1, default: 70 },
+        ],
+        macd: [
+            { key: 'fast', label: '快线周期', type: 'int', min: 2, max: 30, default: 12 },
+            { key: 'slow', label: '慢线周期', type: 'int', min: 10, max: 60, default: 26 },
+            { key: 'signal', label: '信号线', type: 'int', min: 2, max: 20, default: 9 },
+        ],
+        kdj: [
+            { key: 'period', label: 'KDJ周期', type: 'int', min: 2, max: 30, default: 9 },
+            { key: 'k_period', label: 'K平滑', type: 'int', min: 1, max: 10, default: 3 },
+            { key: 'd_period', label: 'D平滑', type: 'int', min: 1, max: 10, default: 3 },
+            { key: 'oversold', label: '超卖线', type: 'float', min: 0, max: 30, step: 1, default: 20 },
+            { key: 'overbought', label: '超买线', type: 'float', min: 70, max: 100, step: 1, default: 80 },
+        ],
     },
+
+    // 所有标签（从策略列表动态收集）
+    _allTags: [],
 
     async load() {
         const grid = document.getElementById('st-list');
@@ -26,7 +46,33 @@ const Strategy = {
 
         try {
             const strategies = await App.fetchJSON('/api/strategy/list');
-            grid.innerHTML = strategies.map(s => `
+
+            // 收集所有标签
+            const tagSet = new Set();
+            strategies.forEach(s => (s.tags || []).forEach(t => tagSet.add(t)));
+            this._allTags = [...tagSet].sort();
+            this._activeTag = this._activeTag || '';
+
+            // 标签筛选栏
+            const filterBar = document.getElementById('st-filter');
+            if (filterBar && this._allTags.length) {
+                filterBar.innerHTML = `<span style="font-size:13px;color:var(--text-secondary);margin-right:8px">标签:</span>` +
+                    [`<span class="tag-chip${!this._activeTag ? ' active' : ''}" data-tag="">全部</span>`]
+                    .concat(this._allTags.map(t => `<span class="tag-chip${this._activeTag===t ? ' active' : ''}" data-tag="${App.escapeHTML(t)}">${App.escapeHTML(t)}</span>`))
+                    .join('');
+                filterBar.onclick = (e) => {
+                    const chip = e.target.closest('.tag-chip');
+                    if (!chip) return;
+                    this._activeTag = chip.dataset.tag;
+                    this.load();
+                };
+            }
+
+            const filtered = this._activeTag
+                ? strategies.filter(s => (s.tags || []).includes(this._activeTag))
+                : strategies;
+
+            grid.innerHTML = filtered.map(s => `
                 <div class="strategy-card" data-name="${App.escapeHTML(s.name)}">
                     <h3>${App.escapeHTML(s.label || s.name)}</h3>
                     <span class="strategy-type">${App.escapeHTML(s.type || '自定义')}</span>
@@ -37,6 +83,7 @@ const Strategy = {
                     <div class="strategy-params">${this._formatParams(s.params || {})}</div>
                     <div class="strategy-actions">
                         <button class="btn btn-primary btn-sm" data-action="backtest">快速回测</button>
+                        <button class="btn btn-sm" data-action="optimize">优化</button>
                         <button class="btn btn-sm" data-action="versions">版本</button>
                         <button class="btn btn-sm" data-action="records">记录</button>
                         ${s.builtin
@@ -64,6 +111,7 @@ const Strategy = {
                 else if (action === 'versions') this.showVersions(name);
                 else if (action === 'records') this.showRecords(name);
                 else if (action === 'clone') this.clone(name);
+                else if (action === 'optimize') this.showOptimize(name);
             };
             // 通知其他模块刷新策略列表
             App._loadStrategies?.();
@@ -94,8 +142,7 @@ const Strategy = {
 
     async edit(name) {
         try {
-            const strategies = await App.fetchJSON('/api/strategy/list');
-            const s = strategies.find(x => x.name === name);
+            const s = await App.fetchJSON(`/api/strategy/${name}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             this._showModal({
                 title: s.builtin ? `编辑参数 — ${s.label || s.name}` : `编辑策略 — ${s.label || s.name}`,
@@ -113,8 +160,7 @@ const Strategy = {
 
     async editCode(name) {
         try {
-            const strategies = await App.fetchJSON('/api/strategy/list');
-            const s = strategies.find(x => x.name === name);
+            const s = await App.fetchJSON(`/api/strategy/${name}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             this._showCodeModal({
                 name: s.name,
@@ -147,7 +193,10 @@ const Strategy = {
                             <button class="btn btn-sm" id="modal-code-validate">验证代码</button>
                         </div>
                     </div>
-                    <textarea id="modal-code-editor" rows="20" style="width:100%;font-family:monospace;font-size:13px;line-height:1.5;padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);resize:vertical;tab-size:4">${App.escapeHTML(code || '')}</textarea>
+                    <div style="position:relative;display:flex;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);overflow:hidden">
+                        <div id="modal-code-lines" style="padding:12px 8px;background:var(--bg-tertiary,rgba(0,0,0,0.05));font-family:monospace;font-size:13px;line-height:1.5;text-align:right;color:var(--text-tertiary);user-select:none;min-width:36px;white-space:pre"></div>
+                        <textarea id="modal-code-editor" rows="20" style="flex:1;font-family:monospace;font-size:13px;line-height:1.5;padding:12px;border:none;background:transparent;resize:vertical;tab-size:4;outline:none">${App.escapeHTML(code || '')}</textarea>
+                    </div>
                     <div id="modal-code-status" style="margin-top:6px;font-size:12px;min-height:18px"></div>
                 </div>
                 <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px">
@@ -169,6 +218,16 @@ const Strategy = {
 
         const editor = overlay.querySelector('#modal-code-editor');
         const statusEl = overlay.querySelector('#modal-code-status');
+        const linesEl = overlay.querySelector('#modal-code-lines');
+
+        // 行号更新
+        const updateLines = () => {
+            const count = editor.value.split('\n').length;
+            linesEl.textContent = Array.from({length: count}, (_, i) => i + 1).join('\n');
+        };
+        updateLines();
+        editor.addEventListener('input', updateLines);
+        editor.addEventListener('scroll', () => { linesEl.scrollTop = editor.scrollTop; });
 
         // Tab 键支持
         editor.addEventListener('keydown', (e) => {
@@ -178,6 +237,7 @@ const Strategy = {
                 const end = editor.selectionEnd;
                 editor.value = editor.value.substring(0, start) + '    ' + editor.value.substring(end);
                 editor.selectionStart = editor.selectionEnd = start + 4;
+                updateLines();
             }
         });
 
@@ -215,10 +275,14 @@ const Strategy = {
         overlay.querySelector('#modal-code-cancel').addEventListener('click', () => overlay.remove());
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
-        // 保存
-        overlay.querySelector('#modal-code-save').addEventListener('click', async () => {
+        // 保存（防重复提交）
+        const saveBtn = overlay.querySelector('#modal-code-save');
+        saveBtn.addEventListener('click', async () => {
+            if (saveBtn.disabled) return;
             const codeText = editor.value.trim();
             if (!codeText) { App.toast('代码不能为空', 'error'); return; }
+            saveBtn.disabled = true;
+            saveBtn.textContent = '保存中...';
 
             if (isNew) {
                 const newName = overlay.querySelector('#modal-code-name')?.value.trim();
@@ -255,6 +319,8 @@ const Strategy = {
                     this.load();
                 } catch (e) {
                     App.toast('创建失败: ' + e.message, 'error');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = '保存';
                 }
             } else {
                 try {
@@ -269,6 +335,8 @@ const Strategy = {
                     this.load();
                 } catch (e) {
                     App.toast('更新失败: ' + e.message, 'error');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = '保存';
                 }
             }
         });
@@ -305,6 +373,7 @@ const Strategy = {
                 </div>` : ''}
                 ${paramHTML}
                 <div class="modal-actions">
+                    ${builtinName ? '<button class="btn btn-ghost" id="modal-st-reset" style="margin-right:auto">重置默认</button>' : ''}
                     <button class="btn btn-ghost" id="modal-st-cancel">取消</button>
                     <button class="btn btn-primary" id="modal-st-save">保存</button>
                 </div>
@@ -321,6 +390,18 @@ const Strategy = {
         overlay.querySelector('#modal-st-cancel').addEventListener('click', () => overlay.remove());
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } });
+
+        // 重置默认
+        if (builtinName) {
+            overlay.querySelector('#modal-st-reset')?.addEventListener('click', async () => {
+                try {
+                    await App.fetchJSON(`/api/strategy/${builtinName}/reset`, { method: 'POST' });
+                    App.toast('参数已重置为默认值', 'success');
+                    overlay.remove();
+                    this.load();
+                } catch (e) { App.toast('重置失败: ' + e.message, 'error'); }
+            });
+        }
 
         // 保存
         overlay.querySelector('#modal-st-save').addEventListener('click', async () => {
@@ -511,8 +592,7 @@ const Strategy = {
 
     async clone(name) {
         try {
-            const strategies = await App.fetchJSON('/api/strategy/list');
-            const s = strategies.find(x => x.name === name);
+            const s = await App.fetchJSON(`/api/strategy/${name}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             const newName = name + '_copy';
             await App.fetchJSON('/api/strategy', {
@@ -650,20 +730,19 @@ const Strategy = {
         loadVersions();
         overlay.querySelector('#ver-save').onclick = async () => {
             try {
-                const strategies = await App.fetchJSON('/api/strategy/list');
-                const s = strategies.find(x => x.name === name);
-                await App.fetchJSON('/api/strategy-version/versions/save', {
+                const s = await App.fetchJSON(`/api/strategy/${name}`);
+                const result = await App.fetchJSON('/api/strategy-version/versions/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         strategy_name: name,
-                        label: `v${Date.now()}`,
+                        label: '',
                         description: '',
                         params: s?.params || {},
                         code: s?.code || '',
                     }),
                 });
-                App.toast('版本已保存', 'success');
+                App.toast(`版本 v${result.version} 已保存`, 'success');
                 loadVersions();
             } catch (e) { App.toast('保存失败: ' + e.message, 'error'); }
         };
@@ -680,6 +759,7 @@ const Strategy = {
             <div class="modal" style="max-width:800px;width:95vw" role="dialog" aria-modal="true">
                 <h2>回测记录 — ${App.escapeHTML(name)}</h2>
                 <div id="rec-list"><div class="skeleton-block skeleton-pulse" style="height:100px"></div></div>
+                <div id="rec-compare" style="margin-top:12px"></div>
                 <div id="rec-detail" style="margin-top:12px"></div>
                 <div class="modal-actions"><button class="btn btn-ghost" id="rec-close">关闭</button></div>
             </div>`;
@@ -692,8 +772,10 @@ const Strategy = {
                 listEl.innerHTML = '<p class="text-muted">暂无回测记录。运行回测后可保存结果。</p>';
             } else {
                 listEl.innerHTML = `
+                    <div style="margin-bottom:8px"><button class="btn btn-sm" id="rec-compare-btn" disabled>对比选中 (0)</button></div>
                     <table style="width:100%;font-size:13px;border-collapse:collapse">
                         <thead><tr style="border-bottom:1px solid var(--border-color)">
+                            <th style="padding:6px;width:30px"><input type="checkbox" id="rec-select-all"></th>
                             <th style="text-align:left;padding:6px">标签</th>
                             <th style="text-align:right;padding:6px">总收益</th>
                             <th style="text-align:right;padding:6px">年化</th>
@@ -704,7 +786,8 @@ const Strategy = {
                             <th style="text-align:left;padding:6px">操作</th>
                         </tr></thead>
                         <tbody>${records.map(r => `
-                            <tr style="border-bottom:1px solid var(--border-color)" data-rec-id="${r.id}">
+                            <tr style="border-bottom:1px solid var(--border-color)">
+                                <td style="padding:6px"><input type="checkbox" class="rec-cb" data-rec-id="${r.id}"></td>
                                 <td style="padding:6px">${App.escapeHTML(r.label || '')}</td>
                                 <td style="padding:6px;text-align:right;color:${(r.total_return||0)>=0?'var(--success-color)':'var(--error-color)'}">${(r.total_return??0).toFixed(2)}%</td>
                                 <td style="padding:6px;text-align:right">${(r.annual_return??0).toFixed(2)}%</td>
@@ -719,6 +802,54 @@ const Strategy = {
                             </tr>
                         `).join('')}</tbody>
                     </table>`;
+
+                // 对比选中记录
+                const compareBtn = overlay.querySelector('#rec-compare-btn');
+                const selectAll = overlay.querySelector('#rec-select-all');
+                const getSelected = () => [...overlay.querySelectorAll('.rec-cb:checked')].map(cb => parseInt(cb.dataset.recId));
+
+                selectAll.onchange = () => {
+                    overlay.querySelectorAll('.rec-cb').forEach(cb => cb.checked = selectAll.checked);
+                    compareBtn.disabled = getSelected().length < 2;
+                    compareBtn.textContent = `对比选中 (${getSelected().length})`;
+                };
+                listEl.addEventListener('change', (e) => {
+                    if (e.target.classList.contains('rec-cb')) {
+                        compareBtn.disabled = getSelected().length < 2;
+                        compareBtn.textContent = `对比选中 (${getSelected().length})`;
+                    }
+                });
+                compareBtn.onclick = async () => {
+                    const ids = getSelected();
+                    if (ids.length < 2) return;
+                    try {
+                        const data = await App.fetchJSON('/api/strategy-version/records/compare', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(ids),
+                        });
+                        const cmpEl = overlay.querySelector('#rec-compare');
+                        const metrics = ['total_return', 'annual_return', 'max_drawdown', 'sharpe_ratio', 'win_rate', 'total_trades'];
+                        const labels = { total_return: '总收益', annual_return: '年化', max_drawdown: '最大回撤', sharpe_ratio: '夏普', win_rate: '胜率', total_trades: '交易次数' };
+                        let html = '<h3>记录对比</h3><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border-color)"><th style="text-align:left;padding:6px">指标</th>';
+                        for (const r of data) html += `<th style="text-align:right;padding:6px">${App.escapeHTML(r.label || 'R'+r.id)}</th>`;
+                        html += '</tr></thead><tbody>';
+                        for (const m of metrics) {
+                            const vals = data.map(r => r[m] ?? 0);
+                            const best = m === 'max_drawdown' ? Math.max(...vals) : Math.min(...vals);
+                            html += `<tr style="border-bottom:1px solid var(--border-color)"><td style="padding:6px">${labels[m]}</td>`;
+                            for (const r of data) {
+                                const v = r[m] ?? 0;
+                                const isBest = v === best;
+                                const fmt = m === 'total_trades' ? v.toFixed(0) : v.toFixed(2) + (m !== 'sharpe_ratio' ? '%' : '');
+                                html += `<td style="padding:6px;text-align:right;${isBest ? 'font-weight:700;color:var(--success-color)' : ''}">${fmt}</td>`;
+                            }
+                            html += '</tr>';
+                        }
+                        html += '</tbody></table>';
+                        cmpEl.innerHTML = html;
+                    } catch (e2) { App.toast('对比失败', 'error'); }
+                };
 
                 listEl.onclick = async (e) => {
                     const btn = e.target.closest('[data-rec-action]');
@@ -761,6 +892,115 @@ const Strategy = {
 
         overlay.querySelector('#rec-close').onclick = () => overlay.remove();
         overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    },
+
+    // ── 参数网格搜索优化 ──
+
+    async showOptimize(name) {
+        const s = await App.fetchJSON(`/api/strategy/${name}`).catch(() => null);
+        if (!s) { App.toast('策略不存在', 'error'); return; }
+        const params = s.params || {};
+        const paramKeys = Object.keys(params);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal" style="max-width:600px;width:95vw" role="dialog" aria-modal="true">
+                <h2>参数优化 — ${App.escapeHTML(s.label || name)}</h2>
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">设置每个参数的搜索范围（逗号分隔），系统将遍历所有组合找到最优解。</p>
+                <div id="opt-ranges">
+                    ${paramKeys.map(k => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                        <label style="min-width:100px;font-size:13px">${App.escapeHTML(k)}</label>
+                        <input type="text" data-opt-key="${App.escapeHTML(k)}" value="${params[k]}" placeholder="如: 3,5,10,15"
+                            style="flex:1;padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;font-size:13px">
+                    </div>`).join('')}
+                </div>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                    <div style="flex:1">
+                        <label style="font-size:13px">优化目标</label>
+                        <select id="opt-metric" style="width:100%;padding:6px;border:1px solid var(--border-color);border-radius:6px">
+                            <option value="sharpe_ratio">夏普比率</option>
+                            <option value="total_return">总收益</option>
+                            <option value="annual_return">年化收益</option>
+                            <option value="win_rate">胜率</option>
+                            <option value="max_drawdown">最大回撤（越小越好）</option>
+                        </select>
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:13px">股票代码</label>
+                        <input type="text" id="opt-codes" value="000001" placeholder="000001,000002"
+                            style="width:100%;padding:6px;border:1px solid var(--border-color);border-radius:6px;font-size:13px">
+                    </div>
+                </div>
+                <div id="opt-result" style="margin-top:16px"></div>
+                <div class="modal-actions">
+                    <button class="btn btn-ghost" id="opt-close">关闭</button>
+                    <button class="btn btn-primary" id="opt-run">开始优化</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#opt-close').onclick = () => overlay.remove();
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+        overlay.querySelector('#opt-run').onclick = async () => {
+            const runBtn = overlay.querySelector('#opt-run');
+            runBtn.disabled = true;
+            runBtn.textContent = '优化中...';
+
+            const paramRanges = {};
+            for (const k of paramKeys) {
+                const input = overlay.querySelector(`[data-opt-key="${k}"]`);
+                const vals = input.value.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+                if (vals.length) paramRanges[k] = vals;
+            }
+
+            const codes = overlay.querySelector('#opt-codes').value.split(',').map(c => c.trim()).filter(Boolean);
+            const metric = overlay.querySelector('#opt-metric').value;
+
+            try {
+                const data = await App.fetchJSON('/api/strategy/optimize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        strategy: name,
+                        codes: codes.length ? codes : ['000001'],
+                        param_ranges: paramRanges,
+                        metric,
+                        top_n: 5,
+                    }),
+                });
+
+                const resultEl = overlay.querySelector('#opt-result');
+                if (!data.best?.length) {
+                    resultEl.innerHTML = '<p class="text-muted">无有效结果</p>';
+                } else {
+                    const metricLabels = { sharpe_ratio: '夏普', total_return: '总收益', annual_return: '年化', win_rate: '胜率', max_drawdown: '最大回撤' };
+                    let html = `<h3>最优 Top ${data.best.length}（共 ${data.total_combos} 种组合）</h3>`;
+                    html += '<table style="width:100%;font-size:13px;border-collapse:collapse;margin-top:8px">';
+                    html += '<thead><tr style="border-bottom:1px solid var(--border-color)"><th style="text-align:left;padding:6px">排名</th>';
+                    for (const k of paramKeys) html += `<th style="text-align:right;padding:6px">${App.escapeHTML(k)}</th>`;
+                    html += `<th style="text-align:right;padding:6px">${metricLabels[metric] || metric}</th>`;
+                    html += '<th style="text-align:right;padding:6px">总收益</th><th style="text-align:right;padding:6px">夏普</th>';
+                    html += '</tr></thead><tbody>';
+                    data.best.forEach((r, i) => {
+                        html += `<tr style="border-bottom:1px solid var(--border-color)">
+                            <td style="padding:6px">#${i+1}</td>`;
+                        for (const k of paramKeys) html += `<td style="padding:6px;text-align:right">${r.params[k]}</td>`;
+                        html += `<td style="padding:6px;text-align:right;font-weight:700;color:var(--success-color)">${(r[metric]??0).toFixed(2)}${metric.includes('return')||metric==='win_rate'?'%':''}</td>`;
+                        html += `<td style="padding:6px;text-align:right">${(r.total_return??0).toFixed(2)}%</td>`;
+                        html += `<td style="padding:6px;text-align:right">${(r.sharpe_ratio??0).toFixed(2)}</td>`;
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    resultEl.innerHTML = html;
+                }
+            } catch (e) {
+                overlay.querySelector('#opt-result').innerHTML = `<p style="color:var(--error-color)">优化失败: ${App.escapeHTML(e.message)}</p>`;
+            }
+            runBtn.disabled = false;
+            runBtn.textContent = '开始优化';
+        };
     },
 
     // ── 删除策略（自定义 confirm） ──

@@ -6,7 +6,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Query
+import re as _re
+
+from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
 
@@ -348,6 +350,8 @@ async def get_kline_signals(
     sell_threshold: float = Query(0.4),
 ):
     """获取K线数据和买卖信号"""
+    if not _re.match(r'^\d{6}$', code):
+        raise HTTPException(400, "股票代码必须为6位数字")
     try:
         start = pd.Timestamp(start_date).date()
         end = pd.Timestamp(end_date).date()
@@ -377,12 +381,17 @@ async def get_kline_signals(
             signals = []
             for idx, (_, row) in enumerate(features.iterrows()):
                 sig = raw_signals[idx]
-                price = round(float(df.iloc[idx]["close"]), 2) if idx < len(df) else 0
+                if idx < len(df):
+                    price = round(float(df.iloc[idx]["close"]), 2)
+                    sig_date = str(df.iloc[idx]["date"])
+                else:
+                    price = 0
+                    sig_date = str(row.get("date", ""))
                 if sig == 1:
-                    signals.append({"date": str(row.get("date", "")),
+                    signals.append({"date": sig_date,
                                     "type": "buy", "price": price})
                 elif sig == -1:
-                    signals.append({"date": str(row.get("date", "")),
+                    signals.append({"date": sig_date,
                                     "type": "sell", "price": price})
             return {"kline": kline, "signals": signals}
         except Exception:
@@ -868,7 +877,17 @@ async def train_global(req: TrainGlobalRequest):
             result = _cs_pipeline.train_from_snapshot(
                 model_type=req.model_type,
             )
-        return result
+        # 清理 NaN/Inf 值，确保 JSON 序列化兼容
+        import math
+        def _clean(v):
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return 0.0
+            if isinstance(v, dict):
+                return {k: _clean(vv) for k, vv in v.items()}
+            if isinstance(v, list):
+                return [_clean(vv) for vv in v]
+            return v
+        return _clean(result)
     except Exception as e:
         logger.error(f"全市场训练失败: {e}")
         return {"success": False, "error": str(e)}

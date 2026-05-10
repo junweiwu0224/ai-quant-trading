@@ -16,6 +16,17 @@
         bindEvents();
         addConditionRow();
         initAI();
+        // 读取 LLM 降级存储的条件
+        try {
+            const cached = localStorage.getItem('llm_filters');
+            if (cached) {
+                const filters = JSON.parse(cached);
+                if (Array.isArray(filters) && filters.length > 0) {
+                    loadFilters(filters);
+                    localStorage.removeItem('llm_filters');
+                }
+            }
+        } catch {}
     }
 
     async function loadFields() {
@@ -68,7 +79,7 @@
             const data = await App.fetchJSON('/api/screener/run-preset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ preset_name: name, page_size: 200 }),
+                body: JSON.stringify({ preset_name: name, page_size: 10000 }),
             });
             if (!data.success) {
                 App.toast(data.error || '筛选失败', 'error');
@@ -143,6 +154,14 @@
 
     // ── 自定义条件 ──
 
+    function _getFieldUnit(field) {
+        const f = _fields.find(x => x.field === field);
+        if (!f) return '数值';
+        const label = f.label || '';
+        const m = label.match(/\(([^)]+)\)/);
+        return m ? `数值(${m[1]})` : '数值';
+    }
+
     function addConditionRow() {
         const container = document.getElementById('screener-conditions');
         if (!container) return;
@@ -171,6 +190,13 @@
         valueInput.type = 'text';
         valueInput.className = 'screener-value';
         valueInput.placeholder = '数值';
+
+        // 字段变化时更新 placeholder 单位
+        fieldSelect.addEventListener('change', () => {
+            const unit = _getFieldUnit(fieldSelect.value);
+            valueInput.placeholder = unit;
+            valueInput2.placeholder = opSelect.value === 'between' ? `最大值` : unit;
+        });
 
         const valueInput2 = document.createElement('input');
         valueInput2.type = 'text';
@@ -231,7 +257,7 @@
             const data = await App.fetchJSON('/api/screener/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filters, page_size: 200 }),
+                body: JSON.stringify({ filters, page_size: 10000 }),
             });
             if (!data.success) {
                 App.toast(data.error || '筛选失败', 'error');
@@ -259,23 +285,23 @@
 
         const rows = stocks.map(s => {
             const changeClass = (s.change_pct || 0) >= 0 ? 'text-up' : 'text-down';
-            const cap = s.market_cap != null ? s.market_cap.toFixed(1) : '--';
+            const cap = s.market_cap != null ? s.market_cap.toFixed(1) + '亿' : '--';
             const pe = s.pe_ratio != null ? s.pe_ratio.toFixed(1) : '--';
             const pb = s.pb_ratio != null ? s.pb_ratio.toFixed(2) : '--';
-            const tr = s.turnover_rate != null ? s.turnover_rate.toFixed(2) : '--';
+            const tr = s.turnover_rate != null ? s.turnover_rate.toFixed(2) + '%' : '--';
             return `<tr>
                 <td>${App.escapeHTML(s.code || '')}</td>
                 <td>${App.escapeHTML(s.name || '')}</td>
                 <td>${App.escapeHTML(s.industry || '--')}</td>
-                <td>${s.price != null ? s.price.toFixed(2) : '--'}</td>
+                <td>${s.price != null ? '¥' + s.price.toFixed(2) : '--'}</td>
                 <td class="${changeClass}">${s.change_pct != null ? (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%' : '--'}</td>
                 <td>${pe}</td>
                 <td>${pb}</td>
                 <td>${cap}</td>
-                <td>${tr}%</td>
+                <td>${tr}</td>
                 <td><button class="btn btn-sm" onclick="App.Screener.addToWatchlist('${App.escapeHTML(s.code || '')}')">加自选</button></td>
             </tr>`;
-        }).join('');
+        });
         container.innerHTML = `
             <div class="screener-result-header">
                 <span class="screener-result-label">${App.escapeHTML(label)} — 共 ${data.total} 只</span>
@@ -325,39 +351,13 @@
     // ── 加入自选股 ──
 
     async function addToWatchlist(code) {
-        if (!code) return;
-        try {
-            const data = await App.fetchJSON('/api/watchlist', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }), label: '加入自选股',
-            });
-            if (data.success) {
-                App.toast(`${code} 已加入自选股`, 'success');
-            } else {
-                App.toast(data.error || '添加失败', 'error');
-            }
-        } catch (e) {
-            App.toast('加入自选股失败', 'error');
-        }
+        await App.addToWatchlist(code);
     }
 
     async function addAllToWatchlist() {
         if (!_lastResult?.stocks?.length) return;
         const codes = _lastResult.stocks.map(s => s.code).filter(Boolean);
-        let ok = 0, fail = 0;
-        for (const code of codes) {
-            try {
-                const data = await App.fetchJSON('/api/watchlist', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code }), label: '加入自选股', silent: true,
-                });
-                if (data.success) ok++;
-                else fail++;
-            } catch {
-                fail++;
-            }
-        }
-        App.toast(`自选股: 成功 ${ok}，失败 ${fail}`, ok > 0 ? 'success' : 'error');
+        await App.addAllToWatchlist(codes);
     }
 
     // ── AI 选股 ──
@@ -507,17 +507,7 @@
             if (cells.length >= 2) codes.push(cells[1].textContent.trim());
         });
         if (!codes.length) return;
-        let ok = 0, fail = 0;
-        for (const code of codes) {
-            try {
-                const data = await App.fetchJSON('/api/watchlist', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code }), label: '加入自选股', silent: true,
-                });
-                if (data.success) ok++; else fail++;
-            } catch { fail++; }
-        }
-        App.toast(`自选股: 成功 ${ok}，失败 ${fail}`, ok > 0 ? 'success' : 'error');
+        await App.addAllToWatchlist(codes);
     }
 
     // ── 公开接口 ──

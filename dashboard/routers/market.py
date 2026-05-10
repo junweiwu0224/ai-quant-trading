@@ -22,6 +22,12 @@ _TTL_RADAR = 30   # 30 秒缓存
 _TTL_SECTOR = 60
 _TTL_NORTH = 120
 
+# 上一次成功数据（休市时回退用）
+_last_radar: dict | None = None
+_last_sectors: dict | None = None
+_last_heatmap: dict | None = None
+_last_northbound: dict | None = None
+
 
 # ── 全市场行情 TOP N ──
 
@@ -41,6 +47,7 @@ def _get_top_n(stocks: list[dict], field: str, n: int = 10, desc: bool = True) -
 @router.get("/radar")
 async def get_market_radar():
     """市场雷达：涨跌幅/振幅/换手率/量比 TOP 10"""
+    global _last_radar
     cache_key = "market_radar"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -49,6 +56,8 @@ async def get_market_radar():
     try:
         stocks = await asyncio.to_thread(_fetch_all_stocks)
         if not stocks:
+            if _last_radar:
+                return {**_last_radar, "stale": True}
             return {"success": False, "error": "无法获取行情数据"}
 
         def pick(field, n=10, desc=True):
@@ -63,13 +72,15 @@ async def get_market_radar():
             "top_losers": pick("change_pct", desc=False),
             "top_amplitude": pick("amplitude"),
             "top_turnover": pick("turnover_rate"),
-            "top_volume_ratio": pick("volume_ratio"),
             "total_stocks": len(stocks),
         }
         _cache.set(cache_key, result, _TTL_RADAR)
+        _last_radar = result
         return result
     except Exception as e:
         logger.error(f"市场雷达失败: {e}")
+        if _last_radar:
+            return {**_last_radar, "stale": True}
         return {"success": False, "error": str(e)}
 
 
@@ -98,11 +109,11 @@ def _fetch_sector_ranking(sector_type: str = "industry") -> list[dict]:
         sectors.append({
             "code": item.get("f12", ""),
             "name": item.get("f14", ""),
-            "change_pct": round(float(item.get("f3", 0)) / 100, 2) if item.get("f3") else 0,
+            "change_pct": round(float(item.get("f3", 0)), 2) if item.get("f3") else 0,
             "up_count": int(item.get("f104", 0)),
             "down_count": int(item.get("f105", 0)),
             "leader": item.get("f140", ""),
-            "leader_change": round(float(item.get("f136", 0)) / 100, 2) if item.get("f136") else 0,
+            "leader_change": round(float(item.get("f136", 0)), 2) if item.get("f136") else 0,
         })
     return sectors
 
@@ -110,6 +121,7 @@ def _fetch_sector_ranking(sector_type: str = "industry") -> list[dict]:
 @router.get("/sectors")
 async def get_sector_ranking(type: str = "industry"):
     """板块轮动排名"""
+    global _last_sectors
     cache_key = f"sectors:{type}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -119,9 +131,12 @@ async def get_sector_ranking(type: str = "industry"):
         sectors = await asyncio.to_thread(_fetch_sector_ranking, type)
         result = {"success": True, "sectors": sectors, "type": type}
         _cache.set(cache_key, result, _TTL_SECTOR)
+        _last_sectors = result
         return result
     except Exception as e:
         logger.error(f"板块排名失败: {e}")
+        if _last_sectors:
+            return {**_last_sectors, "stale": True}
         return {"success": False, "error": str(e), "sectors": []}
 
 
@@ -143,11 +158,11 @@ def _fetch_sector_heatmap() -> list[dict]:
         sectors.append({
             "code": item.get("f12", ""),
             "name": item.get("f14", ""),
-            "change_pct": round(float(item.get("f3", 0) or 0) / 100, 2),
+            "change_pct": round(float(item.get("f3", 0) or 0), 2),
             "up_count": int(item.get("f104", 0) or 0),
             "down_count": int(item.get("f105", 0) or 0),
             "leader": item.get("f140", ""),
-            "leader_change": round(float(item.get("f136", 0) or 0) / 100, 2) if item.get("f136") else 0,
+            "leader_change": round(float(item.get("f136", 0) or 0), 2) if item.get("f136") else 0,
             "total_mv": round(total_mv / 1e8, 0) if total_mv else 0,  # 亿
             "main_net_inflow": round(float(item.get("f109", 0) or 0) / 1e4, 2),  # 万→亿
         })
@@ -157,6 +172,7 @@ def _fetch_sector_heatmap() -> list[dict]:
 @router.get("/heatmap")
 async def get_sector_heatmap():
     """板块热力图（行业板块涨跌幅色块矩阵）"""
+    global _last_heatmap
     cache_key = "sector_heatmap"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -166,9 +182,12 @@ async def get_sector_heatmap():
         sectors = await asyncio.to_thread(_fetch_sector_heatmap)
         result = {"success": True, "sectors": sectors, "total": len(sectors)}
         _cache.set(cache_key, result, _TTL_SECTOR)
+        _last_heatmap = result
         return result
     except Exception as e:
         logger.error(f"板块热力图失败: {e}")
+        if _last_heatmap:
+            return {**_last_heatmap, "stale": True}
         return {"success": False, "error": str(e), "sectors": []}
 
 
@@ -213,6 +232,7 @@ def _fetch_northbound() -> dict:
 @router.get("/northbound")
 async def get_northbound():
     """北向资金净流入"""
+    global _last_northbound
     cache_key = "northbound"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -222,7 +242,15 @@ async def get_northbound():
         data = await asyncio.to_thread(_fetch_northbound)
         result = {"success": True, **data}
         _cache.set(cache_key, result, _TTL_NORTH)
+        # 仅在有实际数据时更新缓存（避免非交易时间覆盖有效数据）
+        if data.get("flow"):
+            _last_northbound = result
+            return result
+        if _last_northbound:
+            return {**_last_northbound, "stale": True}
         return result
     except Exception as e:
         logger.error(f"北向资金查询失败: {e}")
+        if _last_northbound:
+            return {**_last_northbound, "stale": True}
         return {"success": False, "error": str(e), "today_net": 0, "flow": []}

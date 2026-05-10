@@ -1127,6 +1127,9 @@ input:focus, select:focus, textarea:focus {
 @media (max-width: 768px) {
     .sidebar { display: none; }
     .bottom-nav { display: block; }
+    .bottom-nav ul { overflow-x: auto; justify-content: flex-start; padding: 0 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; gap: 2px; }
+    .bottom-nav ul::-webkit-scrollbar { display: none; }
+    .bottom-nav a { min-width: 48px; max-width: none; flex: 0 0 auto; padding: 6px 4px; }
     .content { margin-left: 0 !important; margin-right: 0; padding: 12px; padding-bottom: 72px; max-width: 100%; }
     .content::before { display: none; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -2653,14 +2656,25 @@ th[data-sort].sort-desc::after {
 .compare-controls {
     margin-bottom: 12px;
 }
-.compare-input-row {
+.compare-search-row {
+    margin-bottom: 8px;
+}
+.compare-search-row .search-box {
+    position: relative;
+}
+.compare-search-row .search-input {
+    width: 100%;
+}
+.compare-search-row .sb-tags {
+    min-height: 28px;
+}
+.compare-options-row {
     display: flex;
     gap: 8px;
     align-items: center;
     flex-wrap: wrap;
 }
-.compare-input-row input { flex: 1; min-width: 200px; }
-.compare-input-row select {
+.compare-options-row select {
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -2668,6 +2682,13 @@ th[data-sort].sort-desc::after {
     color: var(--text-primary);
     font-size: var(--font-size-xs);
 }
+.compare-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.compare-input-row input { flex: 1; min-width: 200px; }
 .compare-dot {
     display: inline-block;
     width: 10px;
@@ -2676,6 +2697,8 @@ th[data-sort].sort-desc::after {
     margin-right: 6px;
 }
 @media (max-width: 768px) {
+    .compare-options-row { flex-direction: column; }
+    .compare-options-row select, .compare-options-row .btn { width: 100%; }
     .compare-input-row { flex-direction: column; }
     .compare-input-row input { min-width: auto; }
     .compare-input-row select, .compare-input-row .btn { width: 100%; }
@@ -3064,6 +3087,15 @@ th[data-sort].sort-desc::after {
     .report-title { max-width: 150px; }
 }
 
+/* ── Alpha 信号 ── */
+.sd-alpha-summary {
+    margin-bottom: 10px;
+    font-size: var(--font-size-sm);
+}
+.sd-alpha-stat {
+    color: var(--text-secondary);
+}
+
 /* ── 市场雷达 ── */
 .radar-tabs {
     display: flex;
@@ -3088,6 +3120,15 @@ th[data-sort].sort-desc::after {
     color: var(--primary-color);
     background: var(--bg-secondary);
     font-weight: 600;
+}
+.radar-stale-hint {
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-align: center;
 }
 .radar-northbound {
     padding: 8px 0;

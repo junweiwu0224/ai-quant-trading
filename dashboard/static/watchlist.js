@@ -90,10 +90,16 @@ const Watchlist = {
             this._watchlistCodes.add(code);
             RealtimeQuotes.subscribe([code]);
 
-            // 局部更新：追加到本地数据和表格
+            // 局部更新：追加到本地数据和表格（使用 API 返回的 name/price）
             const existing = this._lastData.find(s => s.code === code);
             if (!existing) {
-                const item = { code, name: data.name || code, industry: '', sector: '', concepts: [], price: null, change_pct: null };
+                const item = {
+                    code,
+                    name: data.name || code,
+                    industry: '', sector: '', concepts: [],
+                    price: data.price || null,
+                    change_pct: data.change_pct != null ? data.change_pct : null,
+                };
                 this._lastData.push(item);
                 App.watchlistCache = [...this._lastData];
             }

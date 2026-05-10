@@ -9,7 +9,37 @@
 
     async function init() {
         bindTabs();
+        _updateRadarStatus();
         loadRadar();
+    }
+
+    function _updateRadarStatus() {
+        const el = document.getElementById('radar-market-status');
+        if (!el) return;
+        const now = new Date();
+        const day = now.getDay();
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+        let status, cls;
+        if (day === 0 || day === 6) {
+            status = '休市'; cls = 'closed';
+        } else if (hhmm >= 915 && hhmm < 930) {
+            status = '集合竞价'; cls = 'pre';
+        } else if ((hhmm >= 930 && hhmm <= 1130) || (hhmm >= 1300 && hhmm <= 1500)) {
+            status = '实时'; cls = 'open';
+        } else if (hhmm > 1130 && hhmm < 1300) {
+            status = '午间休市'; cls = 'closed';
+        } else {
+            status = '休市'; cls = 'closed';
+        }
+        el.textContent = status;
+        el.className = `market-status-badge ${cls}`;
+    }
+
+    function _staleBanner(data) {
+        if (data && data.stale) {
+            return '<div class="radar-stale-hint">数据截至上一交易日</div>';
+        }
+        return '';
     }
 
     function bindTabs() {
@@ -55,13 +85,12 @@
             losers: { list: data.top_losers, label: '跌幅', suffix: '%' },
             amplitude: { list: data.top_amplitude, label: '振幅', suffix: '%' },
             turnover: { list: data.top_turnover, label: '换手率', suffix: '%' },
-            volume_ratio: { list: data.top_volume_ratio, label: '量比', suffix: '' },
         };
 
         const cfg = fieldMap[_currentTab] || fieldMap.gainers;
         const items = cfg.list || [];
 
-        container.innerHTML = `
+        container.innerHTML = _staleBanner(data) + `
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>排名</th><th>代码</th><th>名称</th><th>${cfg.label}</th><th>操作</th></tr></thead>
@@ -70,7 +99,7 @@
                         const cls = _currentTab === 'losers' ? 'text-down' : 'text-up';
                         return `<tr>
                             <td>${i + 1}</td>
-                            <td>${App.escapeHTML(s.code || '')}</td>
+                            <td><a href="#" class="stock-link" data-code="${App.escapeHTML(s.code || '')}">${App.escapeHTML(s.code || '')}</a></td>
                             <td>${App.escapeHTML(s.name || '')}</td>
                             <td class="${cls}">${val}</td>
                             <td><button class="btn btn-sm" onclick="App.OverviewRadar.addToWatchlist('${App.escapeHTML(s.code || '')}')">加自选</button></td>
@@ -89,7 +118,7 @@
         }
 
         const sectors = data.sectors || [];
-        container.innerHTML = `
+        container.innerHTML = _staleBanner(data) + `
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>排名</th><th>板块</th><th>涨跌幅</th><th>上涨</th><th>下跌</th><th>领涨股</th></tr></thead>
@@ -150,7 +179,7 @@
         // 计算总面积和每个色块大小
         const totalMV = sectors.reduce((sum, s) => sum + s.total_mv, 0);
 
-        container.innerHTML = `
+        container.innerHTML = _staleBanner(data) + `
             <div class="heatmap-legend">
                 <span class="text-muted" style="font-size:var(--font-size-xs)">跌幅 5%</span>
                 <div class="heatmap-gradient"></div>
@@ -223,7 +252,7 @@
         const flow = data.flow || [];
         const recentFlow = flow.slice(-10);
 
-        container.innerHTML = `
+        container.innerHTML = _staleBanner(data) + `
             <div class="radar-northbound">
                 <div class="radar-nb-summary">
                     <div class="radar-nb-item">
@@ -252,20 +281,7 @@
     }
 
     async function addToWatchlist(code) {
-        if (!code) return;
-        try {
-            const data = await App.fetchJSON('/api/watchlist', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }), label: '加入自选股',
-            });
-            if (data.success) {
-                App.toast(`${code} 已加入自选股`, 'success');
-            } else {
-                App.toast(data.error || '添加失败', 'error');
-            }
-        } catch {
-            App.toast('加入自选股失败', 'error');
-        }
+        await App.addToWatchlist(code);
     }
 
     App.OverviewRadar = { init, loadRadar, addToWatchlist };

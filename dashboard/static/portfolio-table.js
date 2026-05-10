@@ -57,7 +57,7 @@ Object.assign(App, {
             const slClass = p.stop_loss_triggered ? 'pf-sl-breach' : '';
             const tpClass = p.take_profit_triggered ? 'pf-sl-breach' : '';
             return `<tr>
-                <td class="pf-code"><a href="#" onclick="App.openStockDetail('${this.escapeHTML(p.code)}');return false">${this.escapeHTML(p.code)}</a></td>
+                <td class="pf-code"><a href="#" class="stock-link" data-code="${this.escapeHTML(p.code)}">${this.escapeHTML(p.code)}</a></td>
                 <td class="pf-name">${this.escapeHTML(p.name || '--')}</td>
                 <td class="pf-right pf-mono">${p.volume}</td>
                 <td class="pf-right pf-mono">${p.avg_price.toFixed(2)}</td>
@@ -67,8 +67,8 @@ Object.assign(App, {
                 <td class="pf-right pf-mono ${colorClass(p.pnl_pct)}">${pnlSign}${fmtPct(p.pnl_pct)}</td>
                 <td class="pf-right pf-mono">${fmtPct(p.position_pct)}</td>
                 <td class="pf-right pf-mono pf-col-hide-mobile">${p.holding_days}天</td>
-                <td class="pf-right pf-mono pf-col-hide-mobile ${slClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.stop_loss_price.toFixed(2)}</span></td>
-                <td class="pf-right pf-mono pf-col-hide-mobile ${tpClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.take_profit_price.toFixed(2)}</span></td>
+                <td class="pf-right pf-mono pf-col-hide-mobile ${slClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.stop_loss_price != null ? p.stop_loss_price.toFixed(2) : '--'}</span></td>
+                <td class="pf-right pf-mono pf-col-hide-mobile ${tpClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.take_profit_price != null ? p.take_profit_price.toFixed(2) : '--'}</span></td>
                 <td class="pf-col-hide-mobile"><span class="pf-strategy-tag">${this.escapeHTML(p.strategy_name || '--')}</span></td>
                 <td><div class="pf-row-actions">
                     <button class="btn" onclick="App.pfPartialClose('${this.escapeHTML(p.code)}',${p.volume})">卖出</button>

@@ -599,12 +599,13 @@ class DataStorage:
 
     def get_conversation(self, conv_id: str) -> dict | None:
         """获取单个对话（含消息）"""
+        import json as _json
         session = self._get_session()
         try:
             r = session.query(Conversation).filter(Conversation.id == conv_id).first()
             if not r:
                 return None
-            return {"id": r.id, "title": r.title, "messages": json.loads(r.messages_json), "created_at": r.created_at, "updated_at": r.updated_at}
+            return {"id": r.id, "title": r.title, "messages": _json.loads(r.messages_json), "created_at": r.created_at, "updated_at": r.updated_at}
         finally:
             session.close()
 

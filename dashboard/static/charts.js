@@ -277,4 +277,13 @@ const ChartFactory = {
         this._instances[key] = new Chart(ctx.getContext('2d'), config);
         return this._instances[key];
     },
+
+    create(canvasId, config, key) {
+        this._removeEmpty(canvasId);
+        this.destroy(key);
+        const el = document.getElementById(canvasId);
+        if (!el) return null;
+        this._instances[key] = new Chart(el.getContext('2d'), config);
+        return this._instances[key];
+    },
 };

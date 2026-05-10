@@ -106,8 +106,27 @@ async def add_to_watchlist(req: AddWatchlistRequest):
         threading.Thread(target=_bg_discover, daemon=True, name=f"discover-{code}").start()
 
     added = storage.add_to_watchlist(code)
+
+    # 获取股票名称和实时行情（同步，不依赖后台采集）
+    stock_list = storage.get_stock_list()
+    stock_name = ""
+    if not stock_list.empty:
+        match = stock_list[stock_list["code"] == code]
+        if not match.empty:
+            stock_name = match.iloc[0].get("name", "")
+    quote = None
+    try:
+        quote = get_quote_service().get_quote(code)
+    except Exception:
+        pass
+
     if not added:
-        return {"message": "已在自选股中", "code": code}
+        return {
+            "success": True, "message": "已在自选股中", "code": code,
+            "name": stock_name,
+            "price": quote.price if quote else None,
+            "change_pct": quote.change_pct if quote else None,
+        }
 
     # 更新行情订阅（立即，不阻塞响应）
     try:
@@ -132,7 +151,12 @@ async def add_to_watchlist(req: AddWatchlistRequest):
 
     threading.Thread(target=_bg_collect, daemon=True, name=f"collect-{code}").start()
 
-    return {"message": "添加成功", "code": code}
+    return {
+        "success": True, "message": "添加成功", "code": code,
+        "name": stock_name,
+        "price": quote.price if quote else None,
+        "change_pct": quote.change_pct if quote else None,
+    }
 
 
 @router.delete("/{code}")

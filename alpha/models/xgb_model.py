@@ -61,13 +61,17 @@ class XGBModel:
         if X_val is not None and y_val is not None:
             fit_params["eval_set"] = [(X_val, y_val)]
             fit_params["verbose"] = False
-            fit_params["callbacks"] = [
-                xgb.callback.EarlyStopping(
+            # EarlyStopping 通过构造函数传入（兼容旧版 XGBoost）
+            try:
+                early_stop = xgb.callback.EarlyStopping(
                     rounds=self._config.early_stopping_rounds,
                     metric_name="auc",
                     maximize=True,
                 )
-            ]
+                self._model.set_params(callbacks=[early_stop])
+            except Exception:
+                # 旧版 XGBoost 不支持 callbacks，回退到 early_stopping_rounds
+                fit_params["early_stopping_rounds"] = self._config.early_stopping_rounds
 
         self._model.fit(X_train, y_train, **fit_params)
 

@@ -80,14 +80,24 @@ const StockDetail = {
         // 显示全局 loading
         this._setLoading(true);
 
-        // 每个加载独立 try/catch，一个失败不影响其他
+        // 分级加载：关键模块先加载，非关键模块延迟加载
         const stale = () => gen !== this._openGeneration;
-        const loads = [
+
+        // 第一屏（关键）：立即加载
+        const critical = [
             this._loadDetail(code, stale),
             this._loadTimeline(code, stale),
-            this._loadCapitalFlow(code, stale),
             this._loadOrderBook(code, stale),
             this._loadPeriodReturns(code, stale),
+        ];
+        await Promise.allSettled(critical);
+
+        if (stale()) return;
+        this._setLoading(false);
+
+        // 第二屏（非关键）：后台加载，不阻塞 loading 状态
+        const deferred = [
+            this._loadCapitalFlow(code, stale),
             this._loadProfitTrend(code, stale),
             this._loadShareholders(code, stale),
             this._loadDividends(code, stale),
@@ -98,8 +108,9 @@ const StockDetail = {
             this._loadMultiTimeframe(code, stale),
             this._loadDragonTiger(code, stale),
             this._loadReports(code, stale),
+            this._loadAlphaSignals(code, stale),
         ];
-        await Promise.allSettled(loads);
+        Promise.allSettled(deferred);
 
         if (stale()) return;
         this._setLoading(false);
@@ -166,7 +177,7 @@ const StockDetail = {
     _renderDetailStats(data) {
         const set = (id, v) => {
             const el = document.getElementById(id);
-            if (el) el.textContent = v || '--';
+            if (el) el.textContent = (v != null && v !== '') ? v : '--';
         };
 
         // 基础统计
@@ -273,17 +284,11 @@ const StockDetail = {
             const container = document.getElementById('sd-profit-chart');
             if (!container) return;
 
-            // 清除现有图表
-            if (this._profitChart) {
-                this._profitChart.destroy();
-                this._profitChart = null;
-            }
-
             const labels = trends.map(t => t.date);
             const revenues = trends.map(t => t.revenue);
             const profits = trends.map(t => t.net_profit);
 
-            this._profitChart = new Chart(container, {
+            this._profitChart = ChartFactory.create('sd-profit-chart', {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -355,7 +360,7 @@ const StockDetail = {
                         },
                     },
                 },
-            });
+            }, 'sd-profit');
         } catch (e) {
             console.error('加载利润趋势失败:', e);
         }
@@ -526,19 +531,13 @@ const StockDetail = {
             const canvas = document.getElementById('sd-north-chart');
             if (!canvas || records.length === 0) return;
 
-            // 销毁旧图表
-            if (this._northChart) {
-                this._northChart.destroy();
-                this._northChart = null;
-            }
-
             // 按日期正序（旧→新）
             const sorted = [...records].reverse();
             const labels = sorted.map(r => r.date.slice(5)); // MM-DD
             const holdData = sorted.map(r => r.hold_shares); // 已经是万股
             const changeData = sorted.map(r => r.change_shares);
 
-            this._northChart = new Chart(canvas, {
+            this._northChart = ChartFactory.create('sd-north-chart', {
                 type: 'bar',
                 data: {
                     labels,
@@ -589,7 +588,7 @@ const StockDetail = {
                         },
                     },
                 },
-            });
+            }, 'sd-north');
         } catch (e) {
             console.error('加载北向资金失败:', e);
         }
@@ -762,6 +761,8 @@ const StockDetail = {
             this._klineResizeObs = null;
         }
         this._indicatorPaneId = null;
+        this._avgOverlays = null;
+        this._multiDayOverlays = [];
 
         // 清除容器残留内容
         container.innerHTML = '';
@@ -963,7 +964,7 @@ const StockDetail = {
         this._currentPeriod = 'timeline';
         try {
             const data = await App.fetchJSON(`/api/stock/timeline/${code}`);
-            if (!data || stale()) return;
+            if (!data || (stale && stale())) return;
             this._renderTimelineChart(data.trends, data.pre_close);
         } catch (e) {
             console.error('加载分时失败:', e);
@@ -1211,6 +1212,16 @@ const StockDetail = {
             close: t.close,
             volume: t.volume,
         })));
+
+        // 设置默认缩放：确保显示完整交易时段（9:30-15:00 = 242根1分钟线）
+        const fullDayBars = 242;
+        const dataLen = trends.length;
+        if (dataLen > 0) {
+            // 通过 barSpace 控制可见范围，确保始终显示完整交易时段
+            const widthPx = container.clientWidth || 600;
+            const barSpace = Math.max(1, Math.min(30, Math.floor(widthPx / fullDayBars)));
+            chart.setBarSpace(barSpace);
+        }
 
         // 注册分时专用指标
         this._registerTimelineIndicators();
@@ -1504,12 +1515,6 @@ const StockDetail = {
         const canvas = document.getElementById('sd-capital-chart');
         if (!canvas) return;
 
-        // 销毁旧图表
-        if (this._capitalChart) {
-            this._capitalChart.destroy();
-            this._capitalChart = null;
-        }
-
         if (!flow || flow.length === 0) {
             canvas.parentElement.innerHTML = '<p class="text-muted" style="text-align:center;padding:1rem">暂无资金流向数据</p>';
             return;
@@ -1526,7 +1531,7 @@ const StockDetail = {
         const getColor = (v) => v >= 0 ? 'rgba(239, 83, 80, 0.85)' : 'rgba(38, 166, 154, 0.85)';
         const getBorderColor = (v) => v >= 0 ? 'rgba(239, 83, 80, 1)' : 'rgba(38, 166, 154, 1)';
 
-        this._capitalChart = new Chart(canvas, {
+        this._capitalChart = ChartFactory.create('sd-capital-chart', {
             type: 'bar',
             data: {
                 labels,
@@ -1629,7 +1634,7 @@ const StockDetail = {
                     },
                 },
             },
-        });
+        }, 'sd-capital');
     },
 
     async _loadOrderBook(code, stale) {
@@ -1666,6 +1671,7 @@ const StockDetail = {
             this._l2Ws = ws;
 
             ws.onopen = () => {
+                this._l2RetryCount = 0;
                 ws.send(JSON.stringify({ action: 'subscribe', code }));
                 const badge = document.getElementById('sd-ob-source');
                 if (badge) { badge.textContent = 'L2'; badge.title = 'L2 十档行情（模拟）'; }
@@ -1684,6 +1690,15 @@ const StockDetail = {
             ws.onclose = () => {
                 const badge = document.getElementById('sd-ob-source');
                 if (badge) { badge.textContent = 'L1'; badge.title = 'L1 五档行情'; }
+                // 断线重连（指数退避，最多 3 次）
+                if (this._currentCode === code && (this._l2RetryCount || 0) < 3) {
+                    const delay = Math.min(1000 * Math.pow(2, this._l2RetryCount || 0), 8000);
+                    this._l2RetryCount = (this._l2RetryCount || 0) + 1;
+                    this._l2ReconnectTimer = setTimeout(() => {
+                        this._l2ReconnectTimer = null;
+                        this._connectL2(code);
+                    }, delay);
+                }
             };
         } catch (e) {
             console.warn('L2 WebSocket 连接失败:', e);
@@ -2062,6 +2077,9 @@ const StockDetail = {
     _bindDrawingShortcuts() {
         document.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // 仅在行情详情 tab 激活时响应
+            const stockTab = document.getElementById('tab-stock');
+            if (!stockTab || stockTab.style.display === 'none') return;
             if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
                 e.preventDefault();
                 this.undoDrawing();
@@ -2080,7 +2098,7 @@ const StockDetail = {
     async _loadChips(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/chips/${code}?days=120`);
-            if (stale()) return;
+            if (!data || stale()) return;
             this._renderChips(data);
         } catch (e) {
             console.error('加载筹码分布失败:', e);
@@ -2105,11 +2123,6 @@ const StockDetail = {
         const canvas = document.getElementById('sd-chips-chart');
         if (!canvas || !data.chips || data.chips.length === 0) return;
 
-        if (this._chipsChart) {
-            this._chipsChart.destroy();
-            this._chipsChart = null;
-        }
-
         const chips = data.chips;
         const labels = chips.map(c => c.price.toFixed(2));
         const values = chips.map(c => c.pct);
@@ -2119,7 +2132,7 @@ const StockDetail = {
             c.price <= currentPrice ? 'rgba(102, 187, 106, 0.7)' : 'rgba(239, 83, 80, 0.7)'
         );
 
-        this._chipsChart = new Chart(canvas, {
+        this._chipsChart = ChartFactory.create('sd-chips-chart', {
             type: 'bar',
             data: {
                 labels: labels,
@@ -2160,7 +2173,7 @@ const StockDetail = {
                     },
                 },
             },
-        });
+        }, 'sd-chips');
     },
 
     // ── 多周期共振分析 ──
@@ -2168,7 +2181,7 @@ const StockDetail = {
     async _loadMultiTimeframe(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/multi-timeframe/${code}`);
-            if (stale()) return;
+            if (!data || stale()) return;
             this._renderMultiTimeframe(data);
         } catch (e) {
             console.error('加载多周期分析失败:', e);
@@ -2239,7 +2252,7 @@ const StockDetail = {
     async _loadDragonTiger(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/dragon-tiger/${code}?days=90`);
-            if (stale()) return;
+            if (!data || stale()) return;
             this._renderDragonTiger(data);
         } catch (e) {
             console.error('加载龙虎榜分析失败:', e);
@@ -2362,7 +2375,7 @@ const StockDetail = {
     async _loadReports(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/llm/reports/${code}?page_size=10`);
-            if (stale()) return;
+            if (!data || stale()) return;
             this._renderReports(data);
         } catch (e) {
             console.error('加载研报失败:', e);
@@ -2393,19 +2406,27 @@ const StockDetail = {
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>日期</th><th>标题</th><th>机构</th><th>评级</th><th>操作</th></tr></thead>
-                    <tbody>${data.reports.map(r => {
+                    <tbody>${data.reports.map((r, i) => {
                         const ratingCls = ratingMap[r.rating] || '';
                         return `<tr>
                             <td>${r.date}</td>
                             <td class="report-title" title="${App.escapeHTML(r.title)}">${App.escapeHTML(r.title)}</td>
                             <td>${App.escapeHTML(r.org)}</td>
                             <td class="${ratingCls}">${App.escapeHTML(r.rating || '--')}</td>
-                            <td><button class="btn btn-sm" onclick="App.StockDetail._analyzeReport('${App.escapeHTML(r.title)}', '${App.escapeHTML(r.summary)}')">AI解读</button></td>
+                            <td><button class="btn btn-sm js-analyze-report" data-idx="${i}">AI解读</button></td>
                         </tr>`;
                     }).join('')}</tbody>
                 </table>
             </div>
         `;
+        // 事件委托：AI解读按钮
+        container.querySelector('table').addEventListener('click', (e) => {
+            const btn = e.target.closest('.js-analyze-report');
+            if (!btn) return;
+            const idx = parseInt(btn.dataset.idx, 10);
+            const r = data.reports[idx];
+            if (r) this._analyzeReport(r.title, r.summary);
+        });
     },
 
     async _analyzeReport(title, summary) {
@@ -2444,5 +2465,66 @@ const StockDetail = {
         } catch (e) {
             analysisDiv.innerHTML = '<div class="text-muted">AI 解读失败</div>';
         }
+    },
+
+    async _loadAlphaSignals(code, stale) {
+        try {
+            const end = new Date();
+            const start = new Date();
+            start.setMonth(start.getMonth() - 6);
+            const fmt = d => d.toISOString().slice(0, 10);
+            const data = await App.fetchJSON(
+                `/api/alpha/kline-signals?code=${code}&start_date=${fmt(start)}&end_date=${fmt(end)}`
+            );
+            if (!data || stale()) return;
+            this._renderAlphaSignals(data);
+        } catch (e) {
+            console.error('加载 Alpha 信号失败:', e);
+        }
+    },
+
+    _renderAlphaSignals(data) {
+        const container = document.getElementById('sd-alpha-signals');
+        if (!container) return;
+
+        const hint = document.getElementById('sd-alpha-hint');
+        const signals = data.signals || [];
+
+        if (signals.length === 0) {
+            if (hint) hint.textContent = '';
+            container.innerHTML = '<div class="text-muted text-center" style="padding:20px">暂无 Alpha 信号</div>';
+            return;
+        }
+
+        const buyCount = signals.filter(s => s.type === 'buy').length;
+        const sellCount = signals.filter(s => s.type === 'sell').length;
+        const lastSignal = signals[signals.length - 1];
+        if (hint) hint.textContent = `${signals.length} 个信号 (买${buyCount}/卖${sellCount})`;
+
+        const recent = signals.slice(-20).reverse();
+        container.innerHTML = `
+            <div class="sd-alpha-summary">
+                <span class="sd-alpha-stat">最近信号:
+                    <span class="${lastSignal.type === 'buy' ? 'text-up' : 'text-down'}">
+                        ${lastSignal.type === 'buy' ? '买入' : '卖出'}
+                    </span>
+                    ${lastSignal.date} @ ¥${lastSignal.price}
+                </span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>日期</th><th>信号</th><th>价格</th></tr></thead>
+                    <tbody>${recent.map(s => {
+                        const cls = s.type === 'buy' ? 'text-up' : 'text-down';
+                        const label = s.type === 'buy' ? '买入' : '卖出';
+                        return `<tr>
+                            <td>${s.date}</td>
+                            <td class="${cls}">${label}</td>
+                            <td>¥${s.price}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        `;
     },
 };

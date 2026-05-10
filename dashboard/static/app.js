@@ -126,6 +126,66 @@ const App = {
         setTimeout(() => el.remove(), duration);
     },
 
+    /** 统一加入自选股：即时更新表格 + 延迟 enrichment 刷新 */
+    async addToWatchlist(code) {
+        if (!code) return false;
+        try {
+            const data = await this.fetchJSON('/api/watchlist', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code }), label: '加入自选股',
+            });
+            if (!data.success) {
+                this.toast(data.error || data.message || '添加失败', 'error');
+                return false;
+            }
+            // 即时追加到本地缓存
+            const existing = (this.watchlistCache || []).find(s => s.code === code);
+            if (!existing) {
+                const item = {
+                    code,
+                    name: data.name || code,
+                    industry: '', sector: '', concepts: [],
+                    price: data.price || null,
+                    change_pct: data.change_pct != null ? data.change_pct : null,
+                };
+                this.watchlistCache = [...(this.watchlistCache || []), item];
+            }
+            // 即时重渲染自选股表格
+            Watchlist.render(this.watchlistCache);
+            this._watchlistRowMap = null;
+            RealtimeQuotes.subscribe([code]);
+            this.toast(`${code} ${data.name || ''} 已加入自选股`, 'success');
+            // 延迟刷新获取 enrichment（行业/板块/概念/实时行情）
+            this._scheduleWatchlistRefresh();
+            return true;
+        } catch (e) {
+            this.toast('加入自选股失败', 'error');
+            return false;
+        }
+    },
+
+    /** 批量加入自选股 */
+    async addAllToWatchlist(codes) {
+        if (!Array.isArray(codes) || codes.length === 0) return;
+        let ok = 0, fail = 0;
+        for (const code of codes) {
+            const result = await this.addToWatchlist(code);
+            if (result) ok++; else fail++;
+        }
+        if (codes.length > 1) {
+            this.toast(`自选股: 成功 ${ok}，失败 ${fail}`, ok > 0 ? 'success' : 'error');
+        }
+    },
+
+    _watchlistRefreshTimer: null,
+    _scheduleWatchlistRefresh() {
+        if (this._watchlistRefreshTimer) return;
+        this._watchlistRefreshTimer = setTimeout(() => {
+            this._watchlistRefreshTimer = null;
+            Watchlist._refreshWatchlistTable();
+        }, 3000);
+    },
+
     init() {
         this._initTheme();
         this.bindTabs();
@@ -469,7 +529,10 @@ const App = {
         history.replaceState(null, '', '#' + tab);
 
         if (tab === 'overview') this._startMarketRefresh();
-        else this._stopMarketRefresh();
+        else {
+            this._stopMarketRefresh();
+            if (App._quoteStatusTimer) { clearInterval(App._quoteStatusTimer); App._quoteStatusTimer = null; }
+        }
 
         if (tab === 'risk') this._rkStartPolling && this._rkStartPolling();
         else this._rkStopPolling && this._rkStopPolling();

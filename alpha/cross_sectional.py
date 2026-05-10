@@ -30,7 +30,7 @@ _MODEL_DIR.mkdir(parents=True, exist_ok=True)
 # 截面特征：从 screener 实时数据计算的横截面排名百分位
 _CROSS_SECTIONAL_FEATURES = [
     "rank_change_pct", "rank_pe_ratio", "rank_pb_ratio",
-    "rank_market_cap", "rank_turnover_rate", "rank_volume_ratio",
+    "rank_market_cap", "rank_turnover_rate",
     "rank_amplitude", "rank_price",
     "log_market_cap", "value_score", "activity_score",
 ]
@@ -82,7 +82,7 @@ def _compute_cross_sectional_features(stocks: list[dict]) -> pd.DataFrame:
     # 数值字段排名百分位
     rank_fields = [
         "change_pct", "pe_ratio", "pb_ratio", "market_cap",
-        "turnover_rate", "volume_ratio", "amplitude", "price",
+        "turnover_rate", "amplitude", "price",
     ]
     for f in rank_fields:
         if f in df.columns:
@@ -98,8 +98,8 @@ def _compute_cross_sectional_features(stocks: list[dict]) -> pd.DataFrame:
     if "rank_pe_ratio" in df.columns and "rank_pb_ratio" in df.columns:
         df["value_score"] = (1 - df["rank_pe_ratio"]) * 0.5 + (1 - df["rank_pb_ratio"]) * 0.5
 
-    # 综合因子：活跃度分
-    act_fields = ["rank_turnover_rate", "rank_volume_ratio", "rank_amplitude"]
+    # 综合因子：活跃度分（volume_ratio 已移除，用 turnover_rate + amplitude 代替）
+    act_fields = ["rank_turnover_rate", "rank_amplitude"]
     if all(f in df.columns for f in act_fields):
         df["activity_score"] = df[act_fields].mean(axis=1)
 

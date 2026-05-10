@@ -71,11 +71,6 @@ const RealtimeQuotes = {
             case 'status':
                 this._notifyListeners({ _status: msg });
                 break;
-            case 'risk_alert':
-                if (typeof App !== 'undefined' && App._rkHandleAlert) {
-                    App._rkHandleAlert(msg);
-                }
-                break;
             case 'alerts':
                 // 预警触发消息
                 if (msg.data && Array.isArray(msg.data)) {

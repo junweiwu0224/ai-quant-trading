@@ -7,6 +7,7 @@
 
     let _chart = null;
     let _codes = [];
+    let _multiSearch = null;
 
     const COLORS = [
         '#4fc3f7', '#ef5350', '#66bb6a', '#ffa726', '#ab47bc',
@@ -17,32 +18,58 @@
 
     function init() {
         const btn = document.getElementById('compare-run-btn');
-        const input = document.getElementById('compare-codes-input');
-        if (!btn || !input) return;
+        if (!btn) return;
 
         btn.addEventListener('click', () => run());
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') run();
+
+        // 初始化 MultiSearchBox
+        _multiSearch = new MultiSearchBox('compare-codes-input', 'compare-search-dropdown', 'compare-search-tags', {
+            maxResults: 200,
+            formatItem: (s) => `${s.code} ${s.name || ''}`,
+        });
+
+        // 限制最多5只
+        _multiSearch.onToggle = (item, added) => {
+            if (added && _multiSearch.getSelected().length > 5) {
+                // 超过5只时移除刚添加的
+                _multiSearch._selected = _multiSearch._selected.filter(s => s.code !== item.code);
+                _multiSearch._renderTags();
+                App.toast('最多选择5只股票', 'error');
+            }
+        };
+
+        // 数据源：优先全量股票列表，搜索时实时查询
+        _multiSearch.setDataSource(async (q) => {
+            if (!q) {
+                // 无搜索词时显示自选股 + 缓存的全量列表
+                const watchlist = App.watchlistCache || [];
+                if (watchlist.length > 0) return watchlist;
+                // 尝试获取全量列表
+                try {
+                    return await App.fetchJSON('/api/stock/search?limit=200', { silent: true });
+                } catch {
+                    return [];
+                }
+            }
+            try {
+                return await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`, { silent: true });
+            } catch {
+                return [];
+            }
         });
     }
 
     // ── 执行对比 ──
 
     async function run() {
-        const input = document.getElementById('compare-codes-input');
         const periodSel = document.getElementById('compare-period');
         const countSel = document.getElementById('compare-count');
-        if (!input) return;
 
-        const raw = input.value.trim();
-        if (!raw) {
-            App.toast('请输入股票代码（逗号分隔）', 'error');
-            return;
-        }
+        const selected = _multiSearch ? _multiSearch.getSelected() : [];
+        const codes = selected.map(s => s.code).filter(Boolean);
 
-        const codes = raw.split(/[,，\s]+/).filter(Boolean).slice(0, 5);
         if (codes.length < 2) {
-            App.toast('至少需要2只股票才能对比', 'error');
+            App.toast('至少需要选择2只股票才能对比', 'error');
             return;
         }
 
@@ -96,10 +123,21 @@
         }
         const labels = [...dateSet].sort();
 
+        // 构建名称映射（优先API返回，其次MultiSearchBox选中项，最后watchlistCache）
+        const nameMap = {};
+        if (_multiSearch) {
+            for (const s of _multiSearch.getSelected()) {
+                if (s.code && s.name) nameMap[s.code] = s.name;
+            }
+        }
+        for (const s of (App.watchlistCache || [])) {
+            if (s.code && s.name && !nameMap[s.code]) nameMap[s.code] = s.name;
+        }
+
         // 构建数据集
         const datasets = _codes.map((code, i) => {
             const stock = stocks[code];
-            const name = stock?.name || code;
+            const name = stock?.name || nameMap[code] || code;
             const dateMap = {};
             for (const d of stock?.data || []) {
                 dateMap[d.date] = d.value;
@@ -179,9 +217,20 @@
         const container = document.getElementById('compare-stats');
         if (!container) return;
 
+        // 名称映射
+        const nameMap = {};
+        if (_multiSearch) {
+            for (const s of _multiSearch.getSelected()) {
+                if (s.code && s.name) nameMap[s.code] = s.name;
+            }
+        }
+        for (const s of (App.watchlistCache || [])) {
+            if (s.code && s.name && !nameMap[s.code]) nameMap[s.code] = s.name;
+        }
+
         const rows = _codes.map((code, i) => {
             const stock = stocks[code];
-            const name = stock?.name || code;
+            const name = stock?.name || nameMap[code] || code;
             const data = stock?.data || [];
             if (data.length < 2) return `<tr><td>${code}</td><td>${name}</td><td colspan="3">数据不足</td></tr>`;
 

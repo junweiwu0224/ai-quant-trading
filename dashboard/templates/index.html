@@ -11,7 +11,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=12">
     <link rel="stylesheet" href="/static/paper-trading.css?v=1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -88,6 +88,10 @@
             <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="m-nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></span>
                 <span>模拟盘</span>
+            </a></li>
+            <li><a href="#strategy" class="nav-link" data-tab="strategy" role="tab" id="m-nav-strategy" aria-selected="false" aria-controls="tab-strategy">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></span>
+                <span>策略</span>
             </a></li>
         </ul>
     </nav>
@@ -167,13 +171,12 @@
 
             <!-- Row 3.4: 市场雷达 -->
             <div class="card">
-                <h2>市场雷达</h2>
+                <h2>市场雷达 <span id="radar-market-status" class="market-status-badge"></span></h2>
                 <div class="radar-tabs">
                     <button class="radar-tab active" data-tab="gainers">涨幅榜</button>
                     <button class="radar-tab" data-tab="losers">跌幅榜</button>
                     <button class="radar-tab" data-tab="amplitude">振幅榜</button>
                     <button class="radar-tab" data-tab="turnover">换手率</button>
-                    <button class="radar-tab" data-tab="volume_ratio">量比</button>
                     <button class="radar-tab" data-tab="sectors">板块轮动</button>
                     <button class="radar-tab" data-tab="heatmap">热力图</button>
                     <button class="radar-tab" data-tab="northbound">北向资金</button>
@@ -185,8 +188,14 @@
             <div class="card">
                 <h2>多股对比</h2>
                 <div class="compare-controls">
-                    <div class="compare-input-row">
-                        <input type="text" id="compare-codes-input" class="search-input" placeholder="输入股票代码（逗号分隔，最多5只），如 000001,600519,300750" aria-label="股票代码">
+                    <div class="compare-search-row">
+                        <div class="search-box" id="compare-search-box">
+                            <input type="text" id="compare-codes-input" class="search-input" placeholder="搜索并选择股票（最多5只）" autocomplete="off" aria-label="搜索并选择股票">
+                            <div class="search-dropdown" id="compare-search-dropdown"></div>
+                        </div>
+                        <div class="sb-tags" id="compare-search-tags"></div>
+                    </div>
+                    <div class="compare-options-row">
                         <select id="compare-period" aria-label="K线周期">
                             <option value="daily" selected>日线</option>
                             <option value="weekly">周线</option>
@@ -478,8 +487,8 @@
                         <div class="sd-ob-header">
                             <h3>盘口行情</h3>
                             <div class="sd-ob-toggle">
-                                <button class="btn btn-xs sd-ob-btn active" data-levels="5" onclick="App.StockDetail.setOrderBookLevels(5)">五档</button>
-                                <button class="btn btn-xs sd-ob-btn" data-levels="10" onclick="App.StockDetail.setOrderBookLevels(10)">十档</button>
+                                <button class="btn btn-xs sd-ob-btn active" data-levels="5" onclick="StockDetail.setOrderBookLevels(5)">五档</button>
+                                <button class="btn btn-xs sd-ob-btn" data-levels="10" onclick="StockDetail.setOrderBookLevels(10)">十档</button>
                                 <span class="badge badge-sm" id="sd-ob-source" title="数据来源">L1</span>
                             </div>
                         </div>
@@ -533,6 +542,14 @@
                 <div class="card">
                     <h3>研究报告 <span class="text-muted" id="sd-reports-hint"></span></h3>
                     <div id="sd-reports">
+                        <div class="text-muted text-center" style="padding:20px">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- Alpha 信号 -->
+                <div class="card">
+                    <h3>Alpha 信号 <span class="text-muted" id="sd-alpha-hint"></span></h3>
+                    <div id="sd-alpha-signals">
                         <div class="text-muted text-center" style="padding:20px">加载中...</div>
                     </div>
                 </div>
@@ -1940,13 +1957,13 @@
     <script src="/static/charts.js?v=5"></script>
     <script src="/static/utils.js?v=1"></script>
     <script src="/static/search.js?v=9"></script>
-    <script src="/static/watchlist.js?v=4"></script>
+    <script src="/static/watchlist.js?v=5"></script>
     <script src="/static/paper.js?v=8"></script>
     <script src="/static/paper-trading.js?v=1"></script>
     <script src="/static/strategy.js?v=4"></script>
     <script src="/static/realtime.js?v=2"></script>
     <script src="/static/stock-detail.js?v=6"></script>
-    <script src="/static/app.js?v=10"></script>
+    <script src="/static/app.js?v=11"></script>
     <script src="/static/overview.js?v=2"></script>
     <script src="/static/backtest.js?v=2"></script>
     <script src="/static/portfolio-stats.js?v=1"></script>
@@ -1964,10 +1981,10 @@
     <script src="/static/risk-alerts.js?v=2"></script>
     <script src="/static/alpha.js?v=2"></script>
     <script src="/static/llm.js?v=1"></script>
-    <script src="/static/compare.js?v=1"></script>
-    <script src="/static/screener.js?v=1"></script>
+    <script src="/static/compare.js?v=3"></script>
+    <script src="/static/screener.js?v=4"></script>
     <script src="/static/alerts.js?v=1"></script>
-    <script src="/static/overview-radar.js?v=1"></script>
+    <script src="/static/overview-radar.js?v=4"></script>
     <script src="/static/optimization.js?v=2"></script>
 </body>
 </html>

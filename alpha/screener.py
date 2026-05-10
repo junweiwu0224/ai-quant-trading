@@ -39,7 +39,8 @@ _FIELD_MAP = {
 _REVERSE_MAP = {v: k for k, v in _FIELD_MAP.items()}
 
 # 需要除以100的字段（API 返回值放大了100倍）
-_DIV100_FIELDS = {"change_pct", "amplitude", "turnover_rate", "pe_ratio", "pb_ratio", "volume_ratio"}
+# 注意：f3/f7/f8 已经是百分比，f9/f23 已经是实际比率，无需再除
+_DIV100_FIELDS: set[str] = set()
 
 # 需要除以1e8的字段（市值单位：元→亿元）
 _DIV1E8_FIELDS = {"market_cap", "circulating_cap"}
@@ -55,7 +56,11 @@ class Filter:
     def match(self, stock: dict) -> bool:
         val = stock.get(self.field)
         if val is None:
-            return False
+            # 数值比较操作：None 视为 0（停牌/缺失数据的股票仍可参与筛选）
+            if self.op in ("gt", "lt", "gte", "lte", "between"):
+                val = 0
+            else:
+                return False
 
         if self.op == "gt":
             return val > self.value
@@ -85,11 +90,11 @@ PRESETS: dict[str, dict] = {
         ],
     },
     "放量突破": {
-        "desc": "涨幅>3%、量比>2、换手率>3%的强势股",
+        "desc": "涨幅>3%、换手率>3%、振幅>4%的强势股",
         "filters": [
             {"field": "change_pct", "op": "gt", "value": 3},
-            {"field": "volume_ratio", "op": "gt", "value": 2},
             {"field": "turnover_rate", "op": "gt", "value": 3},
+            {"field": "amplitude", "op": "gt", "value": 4},
         ],
     },
     "超跌反弹": {
@@ -101,11 +106,11 @@ PRESETS: dict[str, dict] = {
         ],
     },
     "高换手活跃": {
-        "desc": "换手率>5%、量比>1.5、振幅>3%的活跃股",
+        "desc": "换手率>5%、振幅>3%、成交额>5亿的活跃股",
         "filters": [
             {"field": "turnover_rate", "op": "gt", "value": 5},
-            {"field": "volume_ratio", "op": "gt", "value": 1.5},
             {"field": "amplitude", "op": "gt", "value": 3},
+            {"field": "amount", "op": "gt", "value": 5},
         ],
     },
     "小盘成长": {
@@ -117,24 +122,41 @@ PRESETS: dict[str, dict] = {
         ],
     },
     "涨停潜力": {
-        "desc": "涨幅>7%、量比>3、换手率>5%的涨停潜力股",
+        "desc": "涨幅>7%、换手率>5%、振幅>5%的涨停潜力股",
         "filters": [
             {"field": "change_pct", "op": "gt", "value": 7},
-            {"field": "volume_ratio", "op": "gt", "value": 3},
             {"field": "turnover_rate", "op": "gt", "value": 5},
+            {"field": "amplitude", "op": "gt", "value": 5},
         ],
     },
 }
 
 
-def _fetch_market_stocks(page_size: int = 5000) -> list[dict]:
-    """从东方财富 API 获取全市场股票行情"""
-    fields = ",".join(_FIELD_MAP.values())
+_market_cache: list[dict] = []
+_market_cache_ts: float = 0
+_MARKET_CACHE_TTL = 60  # 60 秒缓存
+
+
+def _fetch_market_stocks(max_pages: int = 60) -> list[dict]:
+    """从东方财富 API 获取全市场股票行情
+
+    API 限制每页最多 100 条，自动分页获取，结果缓存 60 秒。
+    """
+    global _market_cache, _market_cache_ts
+    import time
+    now = time.time()
+    if _market_cache and (now - _market_cache_ts) < _MARKET_CACHE_TTL:
+        return _market_cache
+
+    # 移除 f50(volume_ratio)：该 API 返回的是原始成交量而非比率
+    field_map = {k: v for k, v in _FIELD_MAP.items() if v != "f50"}
+    fields = ",".join(field_map.values())
+    reverse_map = {v: k for k, v in field_map.items()}
     fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+    page_size = 100  # API 硬限制
 
     all_stocks = []
-    pn = 1
-    while True:
+    for pn in range(1, max_pages + 1):
         url = (
             f"https://push2delay.eastmoney.com/api/qt/clist/get"
             f"?pn={pn}&pz={page_size}&po=1&np=1&fltt=2&invt=2"
@@ -147,10 +169,15 @@ def _fetch_market_stocks(page_size: int = 5000) -> list[dict]:
 
         for item in items:
             stock = {}
-            for api_field, biz_field in _REVERSE_MAP.items():
+            for api_field, biz_field in reverse_map.items():
                 raw = item.get(api_field)
                 if raw is None or raw == "-":
                     stock[biz_field] = None
+                    continue
+
+                # code 保持为字符串
+                if biz_field == "code":
+                    stock[biz_field] = str(raw)
                     continue
 
                 try:
@@ -167,8 +194,9 @@ def _fetch_market_stocks(page_size: int = 5000) -> list[dict]:
 
         if len(items) < page_size:
             break
-        pn += 1
 
+    _market_cache = all_stocks
+    _market_cache_ts = time.time()
     return all_stocks
 
 
@@ -257,7 +285,6 @@ class StockScreener:
             {"field": "market_cap", "label": "总市值(亿)", "type": "number"},
             {"field": "circulating_cap", "label": "流通市值(亿)", "type": "number"},
             {"field": "turnover_rate", "label": "换手率(%)", "type": "number"},
-            {"field": "volume_ratio", "label": "量比", "type": "number"},
             {"field": "amplitude", "label": "振幅(%)", "type": "number"},
             {"field": "high", "label": "最高价", "type": "number"},
             {"field": "low", "label": "最低价", "type": "number"},

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -17,6 +17,16 @@ from pydantic import BaseModel
 from alpha import nl_strategy
 
 router = APIRouter()
+
+
+def _safe_float(v, default=None):
+    """将值安全转换为浮点数，失败返回 default"""
+    if v is None or v == "" or v == "-":
+        return default
+    try:
+        return round(float(v), 2)
+    except (ValueError, TypeError):
+        return default
 
 
 # ── 请求模型 ──
@@ -113,6 +123,9 @@ class ReportAnalyzeRequest(BaseModel):
 @router.get("/reports/{code}")
 async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
     """获取个股研报列表（东方财富）"""
+    import re
+    if not re.match(r'^\d{6}$', code):
+        raise HTTPException(400, "股票代码必须为6位数字")
     import time
     import asyncio
     from data.collector.http_client import fetch_json
@@ -138,7 +151,7 @@ async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
                 "author": item.get("researcher", ""),
                 "date": (item.get("publishDate", ""))[:10],
                 "rating": item.get("emRatingName", ""),
-                "target_price": item.get("predictThisYearPe", ""),
+                "target_price": _safe_float(item.get("predictThisYearPe")),
                 "summary": item.get("content", "")[:200] if item.get("content") else "",
                 "url": f"https://data.eastmoney.com/report/zw/stock.jshtml?encodeUrl={item.get('encodeUrl', '')}",
             })
@@ -152,7 +165,7 @@ async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
         }
     except Exception as e:
         logger.error(f"获取研报失败 {code}: {e}")
-        return {"success": False, "error": str(e), "reports": []}
+        return {"success": False, "error": "获取研报失败，请稍后重试", "reports": []}
 
 
 @router.post("/reports/analyze")

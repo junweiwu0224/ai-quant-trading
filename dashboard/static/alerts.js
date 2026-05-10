@@ -23,7 +23,6 @@
         bindEvents();
         await loadRules();
         loadHistory();
-        listenWebSocket();
     }
 
     function bindEvents() {
@@ -155,15 +154,7 @@
         }
     }
 
-    // ── WebSocket 预警接收 ──
-
-    function listenWebSocket() {
-        // 在现有 WebSocket 连接上监听 alert 类型消息
-        // 由 app.js 的 WebSocket 管理器分发
-        if (window.App && App.onAlert) {
-            App.onAlert(handleAlert);
-        }
-    }
+    // ── WebSocket 预警接收（由 realtime.js 直接调用 App.Alerts.handleAlert） ──
 
     function handleAlert(alert) {
         // 顶部通知

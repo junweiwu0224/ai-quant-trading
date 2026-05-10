@@ -46,6 +46,9 @@ const Strategy = {
                     </div>
                 </div>
             `).join('');
+            // 通知其他模块刷新策略列表
+            App._loadStrategies?.();
+            if (typeof PaperTrading !== 'undefined') PaperTrading.loadStrategyList?.();
         } catch (e) {
             grid.innerHTML = '<div class="empty-state"><p>策略加载失败，请刷新重试</p></div>';
             App.toast('策略数据加载失败', 'error');

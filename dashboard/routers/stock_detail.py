@@ -4,6 +4,8 @@ import json
 import time
 from datetime import datetime
 
+from urllib.request import Request, urlopen
+
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
@@ -101,6 +103,15 @@ def _fmt_cap(v: float) -> str:
     return f"{v:.2f}"
 
 
+def _calc_volume_ratio(quote) -> float | None:
+    """计算量比：当前成交量 / 5日均量"""
+    if quote.volume_ratio:
+        return round(quote.volume_ratio, 2)
+    if quote.avg_volume_5d and quote.avg_volume_5d > 0 and quote.volume:
+        return round(quote.volume / quote.avg_volume_5d, 2)
+    return None
+
+
 @router.get("/kline/{code}")
 async def get_kline(code: str, period: str = "daily", count: int = 120):
     """获取 K 线数据（push2his 优先，腾讯回退）"""
@@ -130,9 +141,9 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
                 "low": l,
                 "volume": vol,
                 "amount": float(parts[6]) if len(parts) >= 7 else 0,
-                "amplitude": round((h - l) / o * 100, 2) if o else 0,
-                "change_pct": round((c - o) / o * 100, 2) if o else 0,
-                "change": round(c - o, 2),
+                "amplitude": float(parts[7]) if len(parts) > 7 and parts[7] != '-' else 0,
+                "change_pct": float(parts[8]) if len(parts) > 8 and parts[8] != '-' else 0,
+                "change": float(parts[9]) if len(parts) > 9 and parts[9] != '-' else 0,
                 "turnover": float(parts[10]) if len(parts) >= 11 else 0,
             })
 
@@ -358,11 +369,9 @@ async def get_order_book(code: str):
         return result
     except Exception as e:
         logger.warning(f"盘口数据获取失败 (push2 stock/get 暂不可用): {e}")
-        # 返回空盘口数据（优雅降级）
+        # 返回空盘口数据（优雅降级，不缓存错误结果以便下次重试）
         empty = [{"price": 0, "volume": 0} for _ in range(5)]
-        result = {"code": code, "bids": empty, "asks": empty}
-        _cache.set(cache_key, result, _TTL_QUOTE)
-        return result
+        return {"code": code, "bids": empty, "asks": empty}
 
 
 @router.get("/detail/{code}")
@@ -431,7 +440,7 @@ async def get_stock_detail(code: str):
         "pb_ratio": round(quote.pb_ratio, 2) or None,
         "turnover_rate": round(quote.turnover_rate, 2) or None,
         "amplitude": round(quote.amplitude, 2) or None,
-        "volume_ratio": round(quote.volume_ratio, 2) or None,
+        "volume_ratio": _calc_volume_ratio(quote),
         # 新增专业字段（0 值返回 null 让前端显示 "--"）
         "high_52w": round(quote.high_52w, 2) or None,
         "low_52w": round(quote.low_52w, 2) or None,
@@ -872,7 +881,7 @@ async def market_indices():
             f"&secids={secids}"
             f"&_={int(time.time() * 1000)}"
         )
-        data = fetch_json(url)
+        data = await _fetch_async(url)
         diff = (data.get("data") or {}).get("diff", [])
 
         # 建立 secid -> name 映射
@@ -1075,9 +1084,26 @@ async def compare_stocks(
     """多股归一化收益率对比（基准日=100）"""
     code_list = [c.strip() for c in codes.split(",") if c.strip()]
     if not code_list:
-        return {"error": "请提供至少一个股票代码"}
+        raise HTTPException(400, "请提供至少一个股票代码")
     if len(code_list) > 5:
-        return {"error": "最多支持5只股票对比"}
+        raise HTTPException(400, "最多支持5只股票对比")
+
+    # 预加载股票名称映射
+    name_map: dict[str, str] = {}
+    try:
+        import time as _time
+        if _stock_list_cache["df"] is None or _time.time() - _stock_list_cache["ts"] > 300:
+            from data.storage.storage import DataStorage
+            storage = DataStorage()
+            df = storage.get_stock_list()
+            _stock_list_cache["df"] = df
+            _stock_list_cache["ts"] = _time.time()
+        else:
+            df = _stock_list_cache["df"]
+        if not df.empty:
+            name_map = dict(zip(df["code"], df["name"]))
+    except Exception:
+        pass
 
     results = {}
     for code in code_list:
@@ -1085,7 +1111,11 @@ async def compare_stocks(
         cache_key = f"compare:{code}:{period}:{count}"
         hit, cached = _cache.get(cache_key)
         if hit:
-            results[code] = cached
+            # 补全旧缓存中可能缺失的名称（不可变更新）
+            if not cached.get("name") and code in name_map:
+                results[code] = {**cached, "name": name_map[code]}
+            else:
+                results[code] = cached
             continue
 
         try:
@@ -1093,13 +1123,15 @@ async def compare_stocks(
             if not raw or not raw.get("klines_raw"):
                 continue
 
+            # 名称来源：kline API > 股票列表缓存 > code
+            stock_name = raw.get("name", "") or name_map.get(code, "") or code
+
             klines = []
             for parts in raw["klines_raw"]:
                 if len(parts) >= 6:
                     klines.append({
                         "date": parts[0],
                         "close": float(parts[2]),
-                        "name": raw.get("name", ""),
                     })
 
             if not klines:
@@ -1114,7 +1146,7 @@ async def compare_stocks(
                 {"date": k["date"], "value": round(k["close"] / base * 100, 2)}
                 for k in klines
             ]
-            entry = {"name": klines[0].get("name", code), "data": normalized}
+            entry = {"name": stock_name, "data": normalized}
             _cache.set(cache_key, entry, _TTL_KLINE)
             results[code] = entry
         except Exception as e:
@@ -1216,7 +1248,14 @@ async def get_chips_distribution(code: str, days: int = 120):
 
         klines = []
         for parts in raw["klines_raw"]:
-            if len(parts) >= 7:
+            if len(parts) >= 6:
+                # 换手率：优先用 API 提供的值，否则用成交量估算（假设流通股 50 亿股）
+                turnover = 0
+                if len(parts) > 10 and parts[10] != '-' and parts[10] != '0':
+                    turnover = float(parts[10])
+                elif float(parts[5]) > 0:
+                    # 估算换手率：成交量 / 估算流通股（从 detail API 获取或默认 50 亿股）
+                    turnover = min(float(parts[5]) / 5e9 * 100, 100)
                 klines.append({
                     "date": parts[0],
                     "open": float(parts[1]),
@@ -1224,7 +1263,7 @@ async def get_chips_distribution(code: str, days: int = 120):
                     "high": float(parts[3]),
                     "low": float(parts[4]),
                     "volume": float(parts[5]),
-                    "turnover_rate": float(parts[7]) if len(parts) > 7 and parts[7] != '-' else 0,
+                    "turnover_rate": turnover,
                 })
 
         if not klines:
@@ -1522,8 +1561,23 @@ async def get_multi_timeframe(code: str):
         return cached
 
     try:
-        klines = await asyncio.to_thread(_fetch_kline_shared, code, "daily", 250)
-        if not klines or len(klines) < 30:
+        raw = await asyncio.to_thread(_fetch_kline_shared, code, 250, "daily")
+        if not raw or not raw.get("klines_raw"):
+            return {"success": False, "error": "K线数据不足"}
+
+        # 解析原始 K 线数据
+        klines = []
+        for parts in raw["klines_raw"]:
+            if len(parts) >= 6:
+                klines.append({
+                    "date": parts[0],
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "high": float(parts[3]),
+                    "low": float(parts[4]),
+                    "volume": float(parts[5]),
+                })
+        if len(klines) < 30:
             return {"success": False, "error": "K线数据不足"}
 
         daily_closes = [k["close"] for k in klines]
@@ -1576,7 +1630,7 @@ async def get_multi_timeframe(code: str):
 # ── 龙虎榜深度分析 ──
 
 @router.get("/dragon-tiger/{code}")
-async def get_dragon_tiger(code: str, days: int = 90):
+async def get_dragon_tiger(code: str, days: int = Query(90, ge=1, le=365)):
     """龙虎榜深度分析：上榜记录 + 游资画像 + 收益统计"""
     code = _validate_code(code)
     cache_key = f"dragon-tiger:{code}:{days}"

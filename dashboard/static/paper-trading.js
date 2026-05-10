@@ -421,7 +421,7 @@ const PaperTrading = {
             const dirText = order.direction === 'buy' ? '买入' : '卖出';
 
             return `<tr>
-                <td>${App.escapeHTML(order.code)}</td>
+                <td><a href="#" class="stock-link" data-code="${App.escapeHTML(order.code)}">${App.escapeHTML(order.code)}</a></td>
                 <td class="${dirClass}">${dirText}</td>
                 <td>${typeMap[order.order_type] || order.order_type}</td>
                 <td>${order.price ? '¥' + order.price.toFixed(2) : '市价'}</td>
@@ -466,7 +466,7 @@ const PaperTrading = {
             const results = await Promise.allSettled(
                 missing.map(code =>
                     App.fetchJSON(`/api/stock/detail/${code}`)
-                        .then(d => ({ code, name: d.data?.name || code }))
+                        .then(d => ({ code, name: d.name || code }))
                 )
             );
             results.forEach(r => {
@@ -550,7 +550,7 @@ const PaperTrading = {
             const tpDist = pos.take_profit_price ? ((pos.take_profit_price - price) / price * 100) : null;
 
             return `<tr>
-                <td><span class="pos-code">${App.escapeHTML(pos.code)}</span> ${App.escapeHTML(name)}</td>
+                <td><a href="#" class="stock-link" data-code="${App.escapeHTML(pos.code)}">${App.escapeHTML(pos.code)}</a> ${App.escapeHTML(name)}</td>
                 <td>${pos.volume}</td>
                 <td>¥${avg.toFixed(2)}</td>
                 <td>¥${price.toFixed(2)}</td>
@@ -837,7 +837,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.dailyReturns = new Chart(canvas, {
+        this.charts.dailyReturns = ChartFactory.create('pt-daily-returns-chart', {
             type: 'bar',
             data: {
                 labels,
@@ -868,7 +868,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-daily-returns');
     },
 
     // ────────────── 收益分布 ──────────────
@@ -905,7 +905,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.returnDist = new Chart(canvas, {
+        this.charts.returnDist = ChartFactory.create('pt-return-dist-chart', {
             type: 'bar',
             data: {
                 labels,
@@ -943,7 +943,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-return-dist');
     },
 
     // ────────────── 星期效应 ──────────────
@@ -978,7 +978,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.weekdayEffect = new Chart(canvas, {
+        this.charts.weekdayEffect = ChartFactory.create('pt-weekday-chart', {
             type: 'bar',
             data: {
                 labels: weekdays,
@@ -1011,7 +1011,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-weekday');
     },
 
     // ────────────── 资金曲线 + 基准对比 ──────────────
@@ -1097,7 +1097,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.equityCurve = new Chart(canvas, {
+        this.charts.equityCurve = ChartFactory.create('pt-equity-chart', {
             type: 'line',
             data: { labels, datasets },
             options: {
@@ -1121,7 +1121,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-equity');
     },
 
     // ────────────── 交易历史 ──────────────
@@ -1180,7 +1180,7 @@ const PaperTrading = {
 
             return `<tr>
                 <td>${time}</td>
-                <td>${App.escapeHTML(trade.code)}</td>
+                <td><a href="#" class="stock-link" data-code="${App.escapeHTML(trade.code)}">${App.escapeHTML(trade.code)}</a></td>
                 <td class="${dirClass}">${dirText}</td>
                 <td>¥${trade.price.toFixed(2)}</td>
                 <td>${trade.volume}</td>
@@ -1311,7 +1311,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.perfTrend = new Chart(canvas, {
+        this.charts.perfTrend = ChartFactory.create('pt-perf-trend-chart', {
             type: 'line',
             data: {
                 labels,
@@ -1370,7 +1370,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-perf-trend');
     },
 
     // ────────────── 交易频率热力图 ──────────────
@@ -1425,7 +1425,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.frequency = new Chart(canvas, {
+        this.charts.frequency = ChartFactory.create('pt-frequency-chart', {
             type: 'bar',
             data: {
                 labels,
@@ -1453,7 +1453,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-frequency');
     },
 
     // ────────────── 持仓配比饼图 ──────────────
@@ -1488,7 +1488,7 @@ const PaperTrading = {
             return;
         }
 
-        this.charts.positionPie = new Chart(canvas, {
+        this.charts.positionPie = ChartFactory.create('pt-position-pie', {
             type: 'doughnut',
             data: {
                 labels,
@@ -1519,7 +1519,7 @@ const PaperTrading = {
                     },
                 },
             },
-        });
+        }, 'pt-position');
     },
 
     // ────────────── 状态管理 ──────────────

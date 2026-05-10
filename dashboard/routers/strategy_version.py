@@ -1,4 +1,5 @@
 """策略版本管理 & 回测结果持久化 API"""
+import difflib
 import json
 from datetime import datetime
 from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
@@ -107,7 +108,7 @@ async def save_version(req: VersionCreateRequest):
 
 @router.post("/versions/rollback")
 async def rollback_version(req: VersionRollbackRequest):
-    """回滚到指定版本"""
+    """回滚到指定版本（创建新版本，复制目标版本的参数和代码）"""
     session = storage._get_session()
     try:
         target = (
@@ -121,20 +122,40 @@ async def rollback_version(req: VersionRollbackRequest):
         if not target:
             return {"error": f"版本 v{req.version} 不存在"}
 
+        # 获取当前最大版本号
+        latest = (
+            session.query(StrategyVersion)
+            .filter(StrategyVersion.strategy_name == req.strategy_name)
+            .order_by(StrategyVersion.version.desc())
+            .first()
+        )
+        new_version = (latest.version + 1) if latest else 1
+
         # 取消当前版本标记
         session.query(StrategyVersion).filter(
             StrategyVersion.strategy_name == req.strategy_name,
             StrategyVersion.is_current == 1,
         ).update({"is_current": 0})
 
-        # 标记目标版本为当前
-        target.is_current = 1
+        # 创建新版本，复制目标版本的内容
+        record = StrategyVersion(
+            strategy_name=req.strategy_name,
+            version=new_version,
+            label=f"回滚至 v{req.version}",
+            description=f"从 v{req.version} 回滚",
+            params=target.params,
+            code=target.code,
+            created_at=now_beijing().strftime("%Y-%m-%d %H:%M:%S"),
+            is_current=1,
+        )
+        session.add(record)
         session.commit()
 
-        logger.info(f"回滚策略: {req.strategy_name} -> v{req.version}")
+        logger.info(f"回滚策略: {req.strategy_name} v{req.version} -> v{new_version}")
         return {
             "strategy_name": req.strategy_name,
-            "version": req.version,
+            "version": new_version,
+            "rolled_back_from": req.version,
             "params": json.loads(target.params) if target.params else {},
             "code": target.code,
         }
@@ -178,8 +199,15 @@ async def diff_versions(strategy_name: str, v1: int, v2: int):
             if val1 != val2:
                 param_diff[k] = {"v" + str(v1): val1, "v" + str(v2): val2}
 
-        # 代码差异（简化：只报告是否相同）
-        code_changed = (ver1.code or "") != (ver2.code or "")
+        # 代码差异（逐行 diff）
+        code1 = (ver1.code or "").splitlines(keepends=True)
+        code2 = (ver2.code or "").splitlines(keepends=True)
+        code_changed = code1 != code2
+        diff_lines = list(difflib.unified_diff(
+            code1, code2,
+            fromfile=f"v{v1}", tofile=f"v{v2}",
+            lineterm="",
+        )) if code_changed else []
 
         return {
             "strategy_name": strategy_name,
@@ -187,6 +215,7 @@ async def diff_versions(strategy_name: str, v1: int, v2: int):
             "v2": {"version": v2, "label": ver2.label, "created_at": ver2.created_at},
             "param_diff": param_diff,
             "code_changed": code_changed,
+            "code_diff": diff_lines,
         }
     finally:
         session.close()

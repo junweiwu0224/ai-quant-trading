@@ -27,7 +27,7 @@ const Strategy = {
         try {
             const strategies = await App.fetchJSON('/api/strategy/list');
             grid.innerHTML = strategies.map(s => `
-                <div class="strategy-card">
+                <div class="strategy-card" data-name="${App.escapeHTML(s.name)}">
                     <h3>${App.escapeHTML(s.label || s.name)}</h3>
                     <span class="strategy-type">${App.escapeHTML(s.type || '自定义')}</span>
                     ${s.builtin ? '<span class="badge badge-info">内置</span>' : ''}
@@ -36,16 +36,35 @@ const Strategy = {
                     <p class="strategy-desc">${App.escapeHTML(s.description)}</p>
                     <div class="strategy-params">${this._formatParams(s.params || {})}</div>
                     <div class="strategy-actions">
-                        <button class="btn btn-primary btn-sm" onclick="App.quickBacktest('${App.escapeHTML(s.name)}')">快速回测</button>
+                        <button class="btn btn-primary btn-sm" data-action="backtest">快速回测</button>
+                        <button class="btn btn-sm" data-action="versions">版本</button>
+                        <button class="btn btn-sm" data-action="records">记录</button>
                         ${s.builtin
-                            ? `<button class="btn btn-secondary btn-sm" onclick="Strategy.edit('${App.escapeHTML(s.name)}')">编辑参数</button>`
-                            : `<button class="btn btn-secondary btn-sm" onclick="Strategy.edit('${App.escapeHTML(s.name)}')">编辑</button>
-                               <button class="btn btn-sm" onclick="Strategy.editCode('${App.escapeHTML(s.name)}')">代码</button>`
+                            ? `<button class="btn btn-secondary btn-sm" data-action="edit">编辑参数</button>`
+                            : `<button class="btn btn-secondary btn-sm" data-action="edit">编辑</button>
+                               <button class="btn btn-sm" data-action="editCode">代码</button>
+                               <button class="btn btn-sm" data-action="clone">克隆</button>`
                         }
-                        ${s.builtin ? '' : `<button class="btn btn-danger btn-sm" onclick="Strategy.remove('${App.escapeHTML(s.name)}')">删除</button>`}
+                        ${s.builtin ? '' : `<button class="btn btn-danger btn-sm" data-action="delete">删除</button>`}
                     </div>
                 </div>
             `).join('');
+            // 事件委托（避免 XSS）
+            grid.onclick = (e) => {
+                const btn = e.target.closest('[data-action]');
+                if (!btn) return;
+                const card = btn.closest('.strategy-card');
+                const name = card?.dataset.name;
+                if (!name) return;
+                const action = btn.dataset.action;
+                if (action === 'backtest') App.quickBacktest(name);
+                else if (action === 'edit') this.edit(name);
+                else if (action === 'editCode') this.editCode(name);
+                else if (action === 'delete') this.remove(name);
+                else if (action === 'versions') this.showVersions(name);
+                else if (action === 'records') this.showRecords(name);
+                else if (action === 'clone') this.clone(name);
+            };
             // 通知其他模块刷新策略列表
             App._loadStrategies?.();
             if (typeof PaperTrading !== 'undefined') PaperTrading.loadStrategyList?.();
@@ -405,17 +424,6 @@ const Strategy = {
         }
     },
 
-    async remove(name) {
-        if (!confirm(`确定删除策略 "${name}"？`)) return;
-        try {
-            await App.fetchJSON(`/api/strategy/${name}`, { method: 'DELETE', label: '删除策略' });
-            App.toast('策略已删除', 'success');
-            this.load();
-        } catch (e) {
-            App.toast('删除失败: ' + e.message, 'error');
-        }
-    },
-
     /** 导出所有策略为 JSON 文件 */
     async exportAll() {
         try {
@@ -442,18 +450,17 @@ const Strategy = {
     async importFromFile(event) {
         const file = event.target.files[0];
         if (!file) return;
-        event.target.value = ''; // 清空 input 允许重复选择同一文件
+        event.target.value = '';
 
         try {
             const text = await file.text();
             const data = JSON.parse(text);
 
-            // 显示导入预览
             const strategies = data.custom || (data.strategy ? [data.strategy] : []);
             const names = strategies.map(s => s.name || '未命名').join('、');
-            const overwrite = confirm(
-                `发现 ${strategies.length} 个策略：${names}\n\n` +
-                `点击"确定"覆盖同名策略，点击"取消"跳过同名策略`
+            const overwrite = await this._confirm(
+                `发现 ${strategies.length} 个策略：${names}`,
+                '覆盖同名策略？点击确认覆盖，取消跳过'
             );
 
             const result = await App.fetchJSON('/api/system/strategies/import', {
@@ -474,6 +481,299 @@ const Strategy = {
             }
         } catch (e) {
             App.toast('导入失败：文件格式无效', 'error');
+        }
+    },
+
+    // ── 自定义确认弹窗 (H3) ──
+
+    _confirm(title, message) {
+        return new Promise(resolve => {
+            document.querySelector('.modal-overlay')?.remove();
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal" style="max-width:400px" role="dialog" aria-modal="true">
+                    <h2>${App.escapeHTML(title)}</h2>
+                    <p style="color:var(--text-secondary);margin-bottom:16px">${App.escapeHTML(message)}</p>
+                    <div class="modal-actions">
+                        <button class="btn btn-ghost" id="confirm-cancel">取消</button>
+                        <button class="btn btn-primary" id="confirm-ok">确认</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            overlay.querySelector('#confirm-ok').onclick = () => { overlay.remove(); resolve(true); };
+            overlay.querySelector('#confirm-cancel').onclick = () => { overlay.remove(); resolve(false); };
+            overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+        });
+    },
+
+    // ── 克隆策略 (M2) ──
+
+    async clone(name) {
+        try {
+            const strategies = await App.fetchJSON('/api/strategy/list');
+            const s = strategies.find(x => x.name === name);
+            if (!s) { App.toast('策略不存在', 'error'); return; }
+            const newName = name + '_copy';
+            await App.fetchJSON('/api/strategy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: newName,
+                    label: (s.label || s.name) + ' (副本)',
+                    type: s.type || '自定义',
+                    description: s.description || '',
+                    params: { ...(s.params || {}) },
+                    code: s.code || '',
+                }),
+                label: '克隆策略',
+            });
+            App.toast(`策略已克隆为 "${newName}"`, 'success');
+            this.load();
+        } catch (e) {
+            App.toast('克隆失败: ' + e.message, 'error');
+        }
+    },
+
+    // ── 版本管理 (C1) ──
+
+    async showVersions(name) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal" style="max-width:700px;width:95vw" role="dialog" aria-modal="true">
+                <h2>版本管理 — ${App.escapeHTML(name)}</h2>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <button class="btn btn-primary btn-sm" id="ver-save">保存当前版本</button>
+                </div>
+                <div id="ver-list"><div class="skeleton-block skeleton-pulse" style="height:100px"></div></div>
+                <div id="ver-diff" style="margin-top:12px"></div>
+                <div class="modal-actions"><button class="btn btn-ghost" id="ver-close">关闭</button></div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const loadVersions = async () => {
+            try {
+                const versions = await App.fetchJSON(`/api/strategy-version/versions/${name}`);
+                const listEl = overlay.querySelector('#ver-list');
+                if (!versions.length) {
+                    listEl.innerHTML = '<p class="text-muted">暂无版本记录</p>';
+                    return;
+                }
+                listEl.innerHTML = `
+                    <table style="width:100%;font-size:13px;border-collapse:collapse">
+                        <thead><tr style="border-bottom:1px solid var(--border-color)">
+                            <th style="text-align:left;padding:6px">版本</th>
+                            <th style="text-align:left;padding:6px">标签</th>
+                            <th style="text-align:left;padding:6px">时间</th>
+                            <th style="text-align:left;padding:6px">操作</th>
+                        </tr></thead>
+                        <tbody>${versions.map(v => `
+                            <tr style="border-bottom:1px solid var(--border-color)">
+                                <td style="padding:6px">v${v.version}${v.is_current ? ' <span class="badge badge-success">当前</span>' : ''}</td>
+                                <td style="padding:6px">${App.escapeHTML(v.label || '')}</td>
+                                <td style="padding:6px">${App.escapeHTML(v.created_at || '')}</td>
+                                <td style="padding:6px">
+                                    ${!v.is_current ? `<button class="btn btn-sm" data-ver-action="rollback" data-ver="${v.version}">回滚</button>` : ''}
+                                    <button class="btn btn-sm" data-ver-action="diff" data-ver="${v.version}">对比</button>
+                                </td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table>`;
+
+                listEl.onclick = async (e) => {
+                    const btn = e.target.closest('[data-ver-action]');
+                    if (!btn) return;
+                    const ver = parseInt(btn.dataset.ver);
+                    const action = btn.dataset.verAction;
+
+                    if (action === 'rollback') {
+                        const ok = await this._confirm(`回滚到 v${ver}`, '将创建新版本并复制该版本的参数和代码');
+                        if (!ok) return;
+                        try {
+                            const result = await App.fetchJSON('/api/strategy-version/versions/rollback', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ strategy_name: name, version: ver }),
+                            });
+                            if (result.error) { App.toast(result.error, 'error'); return; }
+                            App.toast(`已回滚至 v${ver}，新版本 v${result.version}`, 'success');
+                            loadVersions();
+                            this.load();
+                        } catch (e2) { App.toast('回滚失败: ' + e2.message, 'error'); }
+                    }
+
+                    if (action === 'diff') {
+                        const currentVer = versions.find(v => v.is_current)?.version;
+                        if (!currentVer) return;
+                        const v1 = Math.min(ver, currentVer);
+                        const v2 = Math.max(ver, currentVer);
+                        try {
+                            const diff = await App.fetchJSON(`/api/strategy-version/versions/${name}/diff?v1=${v1}&v2=${v2}`);
+                            const diffEl = overlay.querySelector('#ver-diff');
+                            let html = `<h3 style="margin-bottom:8px">v${v1} vs v${v2}</h3>`;
+
+                            // 参数差异
+                            if (Object.keys(diff.param_diff || {}).length) {
+                                html += '<h4>参数差异</h4><table style="width:100%;font-size:13px;border-collapse:collapse">';
+                                for (const [k, vals] of Object.entries(diff.param_diff)) {
+                                    html += `<tr><td style="padding:4px 8px">${App.escapeHTML(k)}</td><td style="padding:4px 8px;color:var(--error-color)">${App.escapeHTML(String(vals[`v${v1}`] ?? '-'))}</td><td style="padding:4px 8px">→</td><td style="padding:4px 8px;color:var(--success-color)">${App.escapeHTML(String(vals[`v${v2}`] ?? '-'))}</td></tr>`;
+                                }
+                                html += '</table>';
+                            }
+
+                            // 代码差异
+                            if (diff.code_changed && diff.code_diff?.length) {
+                                html += '<h4 style="margin-top:8px">代码差异</h4>';
+                                html += '<pre style="font-size:12px;background:var(--bg-secondary);padding:8px;border-radius:6px;overflow-x:auto;max-height:200px">';
+                                for (const line of diff.code_diff) {
+                                    const color = line.startsWith('+') ? 'var(--success-color)' : line.startsWith('-') ? 'var(--error-color)' : 'var(--text-secondary)';
+                                    html += `<span style="color:${color}">${App.escapeHTML(line)}</span>\n`;
+                                }
+                                html += '</pre>';
+                            } else if (diff.code_changed) {
+                                html += '<p class="text-muted">代码有变化（内容相同则不显示）</p>';
+                            }
+
+                            if (!Object.keys(diff.param_diff || {}).length && !diff.code_changed) {
+                                html += '<p class="text-muted">无差异</p>';
+                            }
+                            diffEl.innerHTML = html;
+                        } catch (e2) { App.toast('对比失败: ' + e2.message, 'error'); }
+                    }
+                };
+            } catch (e) {
+                overlay.querySelector('#ver-list').innerHTML = '<p class="text-muted">加载失败</p>';
+            }
+        };
+
+        loadVersions();
+        overlay.querySelector('#ver-save').onclick = async () => {
+            try {
+                const strategies = await App.fetchJSON('/api/strategy/list');
+                const s = strategies.find(x => x.name === name);
+                await App.fetchJSON('/api/strategy-version/versions/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        strategy_name: name,
+                        label: `v${Date.now()}`,
+                        description: '',
+                        params: s?.params || {},
+                        code: s?.code || '',
+                    }),
+                });
+                App.toast('版本已保存', 'success');
+                loadVersions();
+            } catch (e) { App.toast('保存失败: ' + e.message, 'error'); }
+        };
+        overlay.querySelector('#ver-close').onclick = () => overlay.remove();
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    },
+
+    // ── 回测记录 (C1) ──
+
+    async showRecords(name) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal" style="max-width:800px;width:95vw" role="dialog" aria-modal="true">
+                <h2>回测记录 — ${App.escapeHTML(name)}</h2>
+                <div id="rec-list"><div class="skeleton-block skeleton-pulse" style="height:100px"></div></div>
+                <div id="rec-detail" style="margin-top:12px"></div>
+                <div class="modal-actions"><button class="btn btn-ghost" id="rec-close">关闭</button></div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        try {
+            const records = await App.fetchJSON(`/api/strategy-version/records?strategy_name=${name}&limit=20`);
+            const listEl = overlay.querySelector('#rec-list');
+            if (!records.length) {
+                listEl.innerHTML = '<p class="text-muted">暂无回测记录。运行回测后可保存结果。</p>';
+            } else {
+                listEl.innerHTML = `
+                    <table style="width:100%;font-size:13px;border-collapse:collapse">
+                        <thead><tr style="border-bottom:1px solid var(--border-color)">
+                            <th style="text-align:left;padding:6px">标签</th>
+                            <th style="text-align:right;padding:6px">总收益</th>
+                            <th style="text-align:right;padding:6px">年化</th>
+                            <th style="text-align:right;padding:6px">最大回撤</th>
+                            <th style="text-align:right;padding:6px">夏普</th>
+                            <th style="text-align:right;padding:6px">胜率</th>
+                            <th style="text-align:left;padding:6px">时间</th>
+                            <th style="text-align:left;padding:6px">操作</th>
+                        </tr></thead>
+                        <tbody>${records.map(r => `
+                            <tr style="border-bottom:1px solid var(--border-color)" data-rec-id="${r.id}">
+                                <td style="padding:6px">${App.escapeHTML(r.label || '')}</td>
+                                <td style="padding:6px;text-align:right;color:${(r.total_return||0)>=0?'var(--success-color)':'var(--error-color)'}">${(r.total_return??0).toFixed(2)}%</td>
+                                <td style="padding:6px;text-align:right">${(r.annual_return??0).toFixed(2)}%</td>
+                                <td style="padding:6px;text-align:right;color:var(--error-color)">${(r.max_drawdown??0).toFixed(2)}%</td>
+                                <td style="padding:6px;text-align:right">${(r.sharpe_ratio??0).toFixed(2)}</td>
+                                <td style="padding:6px;text-align:right">${(r.win_rate??0).toFixed(1)}%</td>
+                                <td style="padding:6px">${App.escapeHTML(r.created_at||'')}</td>
+                                <td style="padding:6px">
+                                    <button class="btn btn-sm" data-rec-action="detail" data-rec-id="${r.id}">详情</button>
+                                    <button class="btn btn-sm" data-rec-action="delete" data-rec-id="${r.id}">删除</button>
+                                </td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table>`;
+
+                listEl.onclick = async (e) => {
+                    const btn = e.target.closest('[data-rec-action]');
+                    if (!btn) return;
+                    const recId = btn.dataset.recId;
+                    const action = btn.dataset.recAction;
+
+                    if (action === 'detail') {
+                        try {
+                            const d = await App.fetchJSON(`/api/strategy-version/records/${recId}`);
+                            const detailEl = overlay.querySelector('#rec-detail');
+                            detailEl.innerHTML = `
+                                <h3>${App.escapeHTML(d.label || '')}</h3>
+                                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0">
+                                    <div class="stat-card"><div class="stat-label">总收益</div><div class="stat-value">${(d.total_return??0).toFixed(2)}%</div></div>
+                                    <div class="stat-card"><div class="stat-label">年化收益</div><div class="stat-value">${(d.annual_return??0).toFixed(2)}%</div></div>
+                                    <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value">${(d.max_drawdown??0).toFixed(2)}%</div></div>
+                                    <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value">${(d.sharpe_ratio??0).toFixed(2)}</div></div>
+                                    <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value">${(d.win_rate??0).toFixed(1)}%</div></div>
+                                    <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value">${d.total_trades||0}</div></div>
+                                </div>
+                                <p style="font-size:12px;color:var(--text-tertiary)">股票: ${(d.codes||[]).join(', ')} | 区间: ${d.start_date||''} ~ ${d.end_date||''} | 初始资金: ${(d.initial_cash||0).toLocaleString()}</p>`;
+                        } catch (e2) { App.toast('加载详情失败', 'error'); }
+                    }
+
+                    if (action === 'delete') {
+                        const ok = await this._confirm('删除记录', '确定删除这条回测记录？');
+                        if (!ok) return;
+                        try {
+                            await App.fetchJSON(`/api/strategy-version/records/${recId}`, { method: 'DELETE' });
+                            App.toast('记录已删除', 'success');
+                            this.showRecords(name);
+                        } catch (e2) { App.toast('删除失败', 'error'); }
+                    }
+                };
+            }
+        } catch (e) {
+            overlay.querySelector('#rec-list').innerHTML = '<p class="text-muted">加载失败</p>';
+        }
+
+        overlay.querySelector('#rec-close').onclick = () => overlay.remove();
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    },
+
+    // ── 删除策略（自定义 confirm） ──
+
+    async remove(name) {
+        const ok = await this._confirm(`删除策略 "${name}"`, '删除后不可恢复，确定继续？');
+        if (!ok) return;
+        try {
+            await App.fetchJSON(`/api/strategy/${name}`, { method: 'DELETE', label: '删除策略' });
+            App.toast('策略已删除', 'success');
+            this.load();
+        } catch (e) {
+            App.toast('删除失败: ' + e.message, 'error');
         }
     },
 };

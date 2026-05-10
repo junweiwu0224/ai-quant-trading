@@ -159,6 +159,8 @@
     function handleAlert(alert) {
         // 顶部通知
         App.toast(`[预警] ${alert.message}`, 'warning');
+        // 发射到异常聚合条
+        App.emit('alert:triggered', { code: alert.code, msg: alert.message || '预警触发' });
 
         // 更新历史列表
         const container = document.getElementById('alert-history');
@@ -176,10 +178,8 @@
             }
         }
 
-        // 浏览器通知（如果授权）
-        if (Notification && Notification.permission === 'granted') {
-            new Notification('量化预警', { body: alert.message });
-        }
+        // 浏览器通知 + 音频提醒
+        App.notify('量化预警', alert.message, { level: 'warning' });
     }
 
     // ── 公开接口 ──

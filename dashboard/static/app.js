@@ -44,6 +44,40 @@ const PollManager = {
 const App = {
     stockCache: null,
     currentTab: 'overview',
+    // EventBus 跨模块通信
+    _eventHandlers: {},
+    on(event, handler) {
+        (this._eventHandlers[event] ??= []).push(handler);
+    },
+    off(event, handler) {
+        const list = this._eventHandlers[event];
+        if (list) this._eventHandlers[event] = list.filter(h => h !== handler);
+    },
+    emit(event, data) {
+        (this._eventHandlers[event] || []).forEach(h => {
+            try { h(data); } catch (e) { console.error(`EventBus [${event}]:`, e); }
+        });
+    },
+
+    // V2: ContextProvider 页面上下文感知
+    _contextProviders: {},
+    registerContext(tab, provider) {
+        this._contextProviders[tab] = provider;
+    },
+    getContext(tab) {
+        const p = this._contextProviders[tab || this.currentTab];
+        return p ? p() : null;
+    },
+
+    // V2: Copilot 快捷入口（FAB 按钮调用）
+    toggleCopilot() {
+        if (typeof App.LLM !== 'undefined') App.LLM.toggleCopilot();
+    },
+
+    // Tab别名映射 (新Tab名 → 实际面板ID)
+    _panelAlias: {
+        sim: 'paper',          // 模拟 复用模拟盘面板
+    },
 
     escapeHTML(str) {
         if (str == null) return '';
@@ -126,6 +160,67 @@ const App = {
         setTimeout(() => el.remove(), duration);
     },
 
+    /** 浏览器通知 + 音频提醒 */
+    notify(title, body, { sound = true, level = 'info' } = {}) {
+        // 浏览器通知
+        if ('Notification' in window) {
+            if (Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+            if (Notification.permission === 'granted') {
+                try { new Notification(title, { body, tag: 'quant-alert' }); } catch {}
+            }
+        }
+        // 音频提醒（Web Audio API 生成，无需外部文件）
+        if (sound && this._audioEnabled !== false) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                const freq = level === 'critical' ? 880 : level === 'warning' ? 660 : 440;
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.4);
+            } catch {}
+        }
+    },
+
+    /** 请求通知权限（首次交互时调用） */
+    _requestNotifyPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    },
+
+    /** PWA 离线状态指示条 */
+    _initNetworkStatus() {
+        const bar = document.getElementById('offline-bar');
+        if (!bar) return;
+
+        const update = () => {
+            if (navigator.onLine) {
+                bar.classList.add('hidden');
+            } else {
+                bar.classList.remove('hidden');
+            }
+        };
+
+        window.addEventListener('online', () => {
+            update();
+            this.toast('网络已恢复', 'success');
+        });
+        window.addEventListener('offline', () => {
+            update();
+            this.toast('网络已断开，部分功能不可用', 'warning');
+        });
+        update();
+    },
+
     /** 统一加入自选股：即时更新表格 + 延迟 enrichment 刷新 */
     async addToWatchlist(code) {
         if (!code) return false;
@@ -188,6 +283,7 @@ const App = {
 
     init() {
         this._initTheme();
+        this._initV2();
         this.bindTabs();
         this.bindBacktest();
         this.bindOptimize();
@@ -236,6 +332,482 @@ const App = {
         if (hash) this.switchTab(hash);
     },
 
+    _initV2() {
+        // 加载情报页模块
+        if (typeof Intelligence !== 'undefined') Intelligence.init();
+        // 初始化 Offcanvas 抽屉
+        this._initOffcanvas();
+        // EventBus 联动
+        this._initV2Events();
+        // 预移动研发Tab内容
+        this._moveResearchPanels();
+        this._researchMoved = true;
+        // 绑定研发子Tab切换
+        this._initResearchSubTabs();
+        // 初始化异常聚合条
+        this._initAlertAggregator();
+        // 请求通知权限
+        this._requestNotifyPermission();
+        // PWA 离线状态指示
+        this._initNetworkStatus();
+        console.log('[V2] 5+1导航模式已启用');
+    },
+
+    // ── V2: Offcanvas 行情速览抽屉 ──
+
+    _initOffcanvas() {
+        const overlay = document.getElementById('offcanvas-overlay');
+        const closeBtn = document.getElementById('offcanvas-close');
+        if (overlay) overlay.addEventListener('click', () => this.closeOffcanvas());
+        if (closeBtn) closeBtn.addEventListener('click', () => this.closeOffcanvas());
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closeOffcanvas();
+        });
+    },
+
+    async openOffcanvas(code) {
+        // 排他性：打开行情抽屉时关闭 Copilot
+        if (typeof App.LLM !== 'undefined' && App.LLM.closeCopilot) App.LLM.closeCopilot();
+
+        const panel = document.getElementById('stock-offcanvas');
+        const overlay = document.getElementById('offcanvas-overlay');
+        const body = document.getElementById('offcanvas-body');
+        const title = document.getElementById('offcanvas-title');
+        if (!panel || !body) return;
+
+        panel.classList.add('active');
+        if (overlay) overlay.classList.add('active');
+        panel.setAttribute('aria-hidden', 'false');
+        body.innerHTML = '<div class="text-center" style="padding:40px"><span class="spinner"></span> 加载中...</div>';
+
+        try {
+            const data = await this.fetchJSON(`/api/stock/detail/${code}`);
+            if (!data.success) {
+                body.innerHTML = `<div class="text-muted text-center">${this.escapeHTML(data.error || '加载失败')}</div>`;
+                return;
+            }
+            const q = data.quote || {};
+            const name = q.name || code;
+            if (title) title.textContent = `${name} 行情速览`;
+
+            const changePct = q.change_pct ?? 0;
+            const changeAbs = q.change ?? 0;
+            const cls = changePct >= 0 ? 'text-up' : 'text-down';
+            const sign = changePct >= 0 ? '+' : '';
+
+            const metrics = [
+                ['今开', q.open != null ? '¥' + q.open.toFixed(2) : '--'],
+                ['最高', q.high != null ? '¥' + q.high.toFixed(2) : '--'],
+                ['最低', q.low != null ? '¥' + q.low.toFixed(2) : '--'],
+                ['昨收', q.pre_close != null ? '¥' + q.pre_close.toFixed(2) : '--'],
+                ['成交量', q.volume != null ? this._fmtVol(q.volume) : '--'],
+                ['成交额', q.amount != null ? this._fmtAmt(q.amount) : '--'],
+                ['换手率', q.turnover_rate != null ? q.turnover_rate.toFixed(2) + '%' : '--'],
+                ['PE(TTM)', q.pe_ttm != null ? q.pe_ttm.toFixed(1) : '--'],
+                ['市值', q.market_cap != null ? q.market_cap.toFixed(1) + '亿' : '--'],
+                ['量比', q.volume_ratio != null ? q.volume_ratio.toFixed(2) : '--'],
+            ];
+
+            body.innerHTML = `
+                <div class="oc-quote-header">
+                    <span class="oc-quote-name">${this.escapeHTML(name)}</span>
+                    <span class="oc-quote-code">${this.escapeHTML(code)}</span>
+                </div>
+                <div class="oc-quote-price ${cls}">¥${q.price != null ? q.price.toFixed(2) : '--'}</div>
+                <div class="oc-quote-change ${cls}">${sign}${changeAbs.toFixed(2)} (${sign}${changePct.toFixed(2)}%)</div>
+                <div class="oc-metrics">
+                    ${metrics.map(([l, v]) => `<div class="oc-metric"><span class="label">${l}</span><span class="value">${v}</span></div>`).join('')}
+                </div>
+                <div class="oc-actions">
+                    <button class="btn btn-sm btn-primary" onclick="App.switchTab('stock'); StockDetail.open('${this.escapeHTML(code)}'); App.closeOffcanvas();">查看详情</button>
+                    <button class="btn btn-sm" onclick="App.addToWatchlist('${this.escapeHTML(code)}')">加自选</button>
+                </div>
+            `;
+        } catch (e) {
+            body.innerHTML = `<div class="text-muted text-center">加载失败: ${this.escapeHTML(e.message)}</div>`;
+        }
+    },
+
+    closeOffcanvas() {
+        const panel = document.getElementById('stock-offcanvas');
+        const overlay = document.getElementById('offcanvas-overlay');
+        if (panel) {
+            panel.classList.remove('active');
+            panel.setAttribute('aria-hidden', 'true');
+        }
+        if (overlay) overlay.classList.remove('active');
+    },
+
+    _fmtVol(v) {
+        if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿手';
+        if (v >= 1e4) return (v / 1e4).toFixed(1) + '万手';
+        return v + '手';
+    },
+
+    _fmtAmt(v) {
+        if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿';
+        if (v >= 1e4) return (v / 1e4).toFixed(1) + '万';
+        return v.toFixed(0);
+    },
+
+    // ── 异常聚合条 ──
+
+    _initAlertAggregator() {
+        const bar = document.getElementById('alert-agg-bar');
+        const textEl = document.getElementById('alert-agg-text');
+        const dismissBtn = document.getElementById('alert-agg-dismiss');
+        if (!bar || !textEl) return;
+
+        this._aggAlerts = [];
+        this._aggSilenced = false;
+        this._aggTimer = null;
+
+        const update = () => {
+            const alerts = this._aggAlerts;
+            if (alerts.length === 0) {
+                bar.classList.add('hidden');
+                return;
+            }
+            bar.classList.remove('hidden');
+            const danger = alerts.filter(a => a.level === 'critical').length;
+            const warn = alerts.filter(a => a.level === 'warn').length;
+            bar.className = 'alert-agg-bar ' + (danger > 0 ? 'level-critical' : warn > 0 ? 'level-warn' : 'level-danger');
+            if (this._aggSilenced) bar.classList.add('silenced');
+            const parts = [];
+            if (danger > 0) parts.push(`${danger}个严重`);
+            if (warn > 0) parts.push(`${warn}个警告`);
+            textEl.textContent = parts.join('，') + ' — ' + alerts[alerts.length - 1].msg;
+        };
+
+        // 监听风控告警事件
+        this.on('risk:alert', (data) => {
+            this._aggAlerts.push({ level: data.level || 'warn', msg: data.msg || '风控告警', ts: Date.now() });
+            this._aggSilenced = false;
+            update();
+            clearTimeout(this._aggTimer);
+            this._aggTimer = setTimeout(() => { this._aggSilenced = true; update(); }, 30000);
+        });
+
+        // 监听预警触发事件
+        this.on('alert:triggered', (data) => {
+            this._aggAlerts.push({ level: 'warn', msg: `预警触发: ${data.code || ''}`, ts: Date.now() });
+            this._aggSilenced = false;
+            update();
+            clearTimeout(this._aggTimer);
+            this._aggTimer = setTimeout(() => { this._aggSilenced = true; update(); }, 30000);
+        });
+
+        // 手动关闭
+        if (dismissBtn) {
+            dismissBtn.addEventListener('click', () => {
+                this._aggAlerts = [];
+                this._aggSilenced = false;
+                clearTimeout(this._aggTimer);
+                update();
+            });
+        }
+    },
+
+    // ── V2: EventBus 联动 ──
+
+    _initV2Events() {
+        // 新闻→行情抽屉
+        this.on('news:open-stock', ({ code }) => {
+            if (code) this.openOffcanvas(code);
+        });
+
+        // 问财→选股器：切换到研发Tab并传递股票池
+        this.on('iwencai:send-to-screener', ({ pool, query }) => {
+            this.toast(`已推送 ${pool?.length || 0} 只股票至选股器`, 'success');
+            this.switchTab('research');
+            requestAnimationFrame(() => {
+                document.querySelector('.research-sub-tab[data-subtab="screener"]')?.click();
+                requestAnimationFrame(() => {
+                    if (typeof App.Screener !== 'undefined') {
+                        if (App.Screener.init && !this._tabCache['screener']) {
+                            App.Screener.init();
+                            this._tabCache['screener'] = Date.now();
+                        }
+                        if (App.Screener.renderFromPool) {
+                            App.Screener.renderFromPool(pool, query);
+                        }
+                    }
+                });
+            });
+        });
+
+        // 问财/AI预测→AI分析：打开 Copilot 并发送分析请求
+        this.on('iwencai:analyze', ({ query, data }) => {
+            if (typeof App.LLM !== 'undefined') {
+                this.toast('已发送至 AI 助手', 'info');
+                App.LLM.openCopilot();
+                let msg;
+                if (data && data.data) {
+                    msg = `请分析以下问财查询结果：\n查询：${query}\n数据：${JSON.stringify(data.data.slice(0, 5))}`;
+                } else {
+                    msg = query;
+                }
+                setTimeout(() => App.LLM.sendQuick(msg), 400);
+            }
+        });
+
+        // 热点→问财（已在 intelligence.js 中处理，此处无需重复）
+
+        // 模拟交易下单/撤单后自动刷新持仓数据
+        this.on('data:portfolio-updated', ({ source } = {}) => {
+            const active = this._activeTab;
+            if (active === 'overview') {
+                this.loadOverview();
+            } else if (active === 'trade') {
+                this.loadTradeTab();
+            }
+        });
+
+        // 时间轴联动：情报→研发（同步日期）
+        this.on('timeline:focus', ({ date }) => {
+            if (!date) return;
+            this.switchTab('research');
+            // 延迟确保研发页已激活
+            requestAnimationFrame(() => {
+                ['alpha-start', 'bt-start', 'ensemble-start'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && !el.value) el.value = date;
+                });
+                this.toast(`已联动日期: ${date}`, 'info');
+            });
+        });
+    },
+
+    // ── V2: 研发Tab 子Tab初始化 ──
+
+    _researchMoved: false,
+    _researchTabsInited: false,
+    _tradeTabsInited: false,
+
+    // 研发页跨子Tab状态同步
+    _researchSession: { code: '', startDate: '', endDate: '' },
+
+    _saveResearchSession() {
+        const active = this._researchActiveSubtab;
+        if (!active) return;
+        const fieldMap = {
+            factor:    { code: 'alpha-code',      start: 'alpha-start',    end: 'alpha-end' },
+            model:     { code: 'ensemble-codes',   start: 'ensemble-start', end: 'ensemble-end' },
+            backtest:  { code: 'bt-code',          start: 'bt-start',       end: 'bt-end' },
+            compare:   { code: 'compare-codes-input' },
+        };
+        const m = fieldMap[active];
+        if (!m) return;
+        const codeEl = document.getElementById(m.code);
+        const startEl = m.start && document.getElementById(m.start);
+        const endEl = m.end && document.getElementById(m.end);
+        if (codeEl?.value?.trim()) this._researchSession.code = codeEl.value.trim();
+        if (startEl?.value) this._researchSession.startDate = startEl.value;
+        if (endEl?.value) this._researchSession.endDate = endEl.value;
+    },
+
+    _applyResearchSession() {
+        const subtab = this._researchActiveSubtab;
+        const s = this._researchSession;
+        if (!s.code) return;
+        const fieldMap = {
+            factor:    { code: 'alpha-code',      start: 'alpha-start',    end: 'alpha-end' },
+            model:     { code: 'ensemble-codes',   start: 'ensemble-start', end: 'ensemble-end' },
+            backtest:  { code: 'bt-code',          start: 'bt-start',       end: 'bt-end' },
+        };
+        const m = fieldMap[subtab];
+        if (!m) return;
+        const codeEl = document.getElementById(m.code);
+        if (codeEl && !codeEl.value) codeEl.value = s.code;
+        if (m.start) {
+            const startEl = document.getElementById(m.start);
+            if (startEl && !startEl.value && s.startDate) startEl.value = s.startDate;
+        }
+        if (m.end) {
+            const endEl = document.getElementById(m.end);
+            if (endEl && !endEl.value && s.endDate) endEl.value = s.endDate;
+        }
+    },
+
+    _initTradeSubTabs() {
+        if (this._tradeTabsInited) return;
+        this._tradeTabsInited = true;
+        const tabs = document.querySelectorAll('.trade-sub-tab');
+        if (!tabs.length) return;
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+                tab.classList.add('active');
+                tab.setAttribute('aria-selected', 'true');
+                document.querySelectorAll('.trade-sub-panel').forEach(p => p.classList.remove('active'));
+                const subtab = tab.dataset.subtab;
+                const panel = document.getElementById('trade-panel-' + subtab);
+                if (panel) panel.classList.add('active');
+                // 券商子Tab激活时加载配置
+                if (subtab === 'broker' && !this._tabCache['broker']) {
+                    this.loadBrokerConfig();
+                    this._tabCache['broker'] = Date.now();
+                }
+                // 触发resize让图表重新计算
+                requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+            });
+        });
+    },
+
+    _initResearchSubTabs() {
+        // 首次激活时移动 DOM 元素
+        if (!this._researchMoved) {
+            this._researchMoved = true;
+            this._moveResearchPanels();
+        }
+        // Bug2修复: 防止重复绑定子Tab事件
+        if (this._researchTabsInited) return;
+        this._researchTabsInited = true;
+        const tabs = document.querySelectorAll('.research-sub-tab');
+        if (tabs.length) {
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    this._saveResearchSession();
+                    tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+                    tab.classList.add('active');
+                    tab.setAttribute('aria-selected', 'true');
+                    document.querySelectorAll('.research-sub-panel').forEach(p => p.classList.remove('active'));
+                    const panel = document.getElementById('research-panel-' + tab.dataset.subtab);
+                    if (panel) panel.classList.add('active');
+                    // 延迟加载子模块
+                    this._onResearchSubTabActivate(tab.dataset.subtab);
+                    // 应用跨子Tab共享状态（下一帧确保DOM就绪）
+                    requestAnimationFrame(() => this._applyResearchSession());
+                });
+            });
+            // 初始化默认子Tab的头部可见性
+            const defaultTab = document.querySelector('.research-sub-tab.active');
+            if (defaultTab) this._onResearchSubTabActivate(defaultTab.dataset.subtab);
+        }
+    },
+
+    _moveResearchPanels() {
+        const move = (srcId, destId) => {
+            const src = document.getElementById(srcId);
+            const dest = document.getElementById(destId);
+            if (src && dest) {
+                while (src.firstChild) dest.appendChild(src.firstChild);
+            }
+        };
+
+        // 选股器和多股对比已直接放在研发页 HTML 中，无需运行时移动
+
+        // 因子：从 alpha 移动因子研究面板
+        move('alpha-panel-factor', 'research-panel-factor');
+
+        // 模型：从 alpha 移动模型分析 + 交易信号 + 模型对比 + Walk-forward
+        const modelDest = document.getElementById('research-panel-model');
+        const modelSrc = document.getElementById('alpha-panel-model');
+        const signalSrc = document.getElementById('alpha-panel-signal');
+        const compareSrc = document.getElementById('alpha-panel-compare');
+        const wfSrc = document.getElementById('alpha-panel-wf');
+        if (modelDest) {
+            // 股票选择器提升到研究Tab共享区域（因子/模型/挖掘都需要）
+            const researchPanels = document.querySelector('#tab-research .research-sub-panels');
+            const alphaHeader = document.querySelector('#tab-alpha .page-header');
+            const alphaStats = document.getElementById('alpha-perf-stats');
+            if (alphaHeader && researchPanels) researchPanels.parentNode.insertBefore(alphaHeader, researchPanels);
+            if (alphaStats && researchPanels) researchPanels.parentNode.insertBefore(alphaStats, researchPanels);
+            if (modelSrc) { while (modelSrc.firstChild) modelDest.appendChild(modelSrc.firstChild); }
+            if (signalSrc) { while (signalSrc.firstChild) modelDest.appendChild(signalSrc.firstChild); }
+            if (compareSrc) { while (compareSrc.firstChild) modelDest.appendChild(compareSrc.firstChild); }
+            if (wfSrc) { while (wfSrc.firstChild) modelDest.appendChild(wfSrc.firstChild); }
+        }
+
+        // 回测：移动整个 backtest 面板内容
+        const btPanel = document.getElementById('tab-backtest');
+        const btDest = document.getElementById('research-panel-backtest');
+        if (btPanel && btDest) {
+            // 跳过 section 本身，只移动子元素
+            while (btPanel.children.length > 0) {
+                btDest.appendChild(btPanel.children[0]);
+            }
+        }
+
+        // LLM：从 alpha 移动 AI 聊天面板到模型子Tab
+        move('alpha-panel-llm', 'research-panel-model');
+
+        // 挖掘：从 alpha 移动因子挖掘 + 组合优化
+        const miningDest = document.getElementById('research-panel-mining');
+        const mineSrc = document.getElementById('alpha-panel-mine');
+        const portoptSrc = document.getElementById('alpha-panel-portopt');
+        if (miningDest) {
+            if (mineSrc) { while (mineSrc.firstChild) miningDest.appendChild(mineSrc.firstChild); }
+            if (portoptSrc) { while (portoptSrc.firstChild) miningDest.appendChild(portoptSrc.firstChild); }
+        }
+
+        // 策略：移动整个 strategy 面板内容
+        const stPanel = document.getElementById('tab-strategy');
+        const stDest = document.getElementById('research-panel-strategy');
+        if (stPanel && stDest) {
+            while (stPanel.children.length > 0) {
+                stDest.appendChild(stPanel.children[0]);
+            }
+        }
+
+        // 风控已作为交易子Tab，无需DOM移动
+    },
+
+    _onResearchSubTabActivate(subtab) {
+        // 共享头部按需显示 + 控件精准切换
+        const alphaHeader = document.querySelector('#tab-research > .page-header');
+        const alphaStats = document.getElementById('alpha-perf-stats');
+        const modelSel = document.getElementById('alpha-model');
+        const analyzeBtn = document.querySelector('button[onclick="App.loadAlpha()"]');
+        const optimizeBtn = document.querySelector('button[onclick="App.optimizeAlpha()"]');
+        const needsHeader = ['factor', 'model', 'mining'].includes(subtab);
+
+        if (alphaHeader) alphaHeader.style.display = needsHeader ? '' : 'none';
+        if (alphaStats) alphaStats.style.display = (subtab === 'model') ? '' : 'none';
+        if (modelSel) modelSel.style.display = (subtab === 'model') ? '' : 'none';
+        if (analyzeBtn) analyzeBtn.style.display = (subtab === 'model') ? '' : 'none';
+        if (optimizeBtn) optimizeBtn.style.display = (subtab === 'model') ? '' : 'none';
+
+        // 切换子Tab时重置共享选择器状态，避免缓存残留
+        this._researchActiveSubtab = subtab;
+        if (!needsHeader) {
+            const codeInput = document.getElementById('alpha-code');
+            if (codeInput) codeInput.value = '';
+        }
+
+        // 延迟初始化各子模块（首次激活时加载）
+        if (subtab === 'backtest') {
+            if (typeof Backtest !== 'undefined' && Backtest.load && !this._tabCache['backtest']) {
+                Backtest.load();
+                this._tabCache['backtest'] = Date.now();
+            }
+        } else if (subtab === 'factor') {
+            if (typeof Factor !== 'undefined' && Factor.init && !this._tabCache['factor']) {
+                Factor.init();
+                this._tabCache['factor'] = Date.now();
+            }
+        } else if (subtab === 'strategy') {
+            if (typeof Strategy !== 'undefined') Strategy.load();
+        } else if (subtab === 'screener') {
+            if (typeof App.Screener !== 'undefined' && App.Screener.init && !this._tabCache['screener']) {
+                App.Screener.init();
+                this._tabCache['screener'] = Date.now();
+            }
+        } else if (subtab === 'compare') {
+            if (typeof App.Compare !== 'undefined' && App.Compare.init && !this._tabCache['compare']) {
+                App.Compare.init();
+                this._tabCache['compare'] = Date.now();
+            }
+        } else if (subtab === 'model') {
+            if (typeof App.initAlpha === 'function' && !this._tabCache['model']) {
+                App.initAlpha();
+                this._tabCache['model'] = Date.now();
+            }
+        }
+        // Bug3修复: 子面板激活后触发 resize，让图表重新计算尺寸
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    },
+
     _initTheme() {
         const saved = localStorage.getItem('theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -257,13 +829,14 @@ const App = {
     _initPWA() {
         // Service Worker 注册
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
-                // 检查更新
+            navigator.serviceWorker.register('/sw.js?v=6', { scope: '/' }).then((reg) => {
+                // 强制检查 SW 更新
+                reg.update();
                 reg.addEventListener('updatefound', () => {
                     const newWorker = reg.installing;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'activated') {
-                            this.toast('应用已更新，刷新页面生效', 'info');
+                            location.reload();
                         }
                     });
                 });
@@ -309,7 +882,7 @@ const App = {
     },
 
     _initGlobalShortcuts() {
-        const tabs = ['overview', 'backtest', 'portfolio', 'risk', 'alpha', 'paper', 'strategy', 'stock'];
+        const tabs = ['overview', 'intelligence', 'research', 'trade', 'sim', 'stock'];
         document.addEventListener('keydown', (e) => {
             const tag = e.target.tagName;
             const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
@@ -374,6 +947,20 @@ const App = {
                 this._toggleShortcutsHelp();
                 return;
             }
+
+            // Alt+P: Command Palette
+            if (e.altKey && e.key === 'p') {
+                e.preventDefault();
+                this._toggleCommandPalette();
+                return;
+            }
+
+            // Alt+H: 隐私模式
+            if (e.altKey && e.key === 'h') {
+                e.preventDefault();
+                this.togglePrivacy();
+                return;
+            }
         });
     },
 
@@ -390,6 +977,7 @@ const App = {
                     <kbd>Ctrl+K</kbd><span>聚焦搜索框</span>
                     <kbd>Ctrl+0~8</kbd><span>切换页面</span>
                     <kbd>r</kbd><span>刷新当前页</span>
+                    <kbd>Alt+P</kbd><span>命令面板</span>
                     <kbd>?</kbd><span>显示/隐藏帮助</span>
                     <kbd>Esc</kbd><span>关闭弹窗/帮助</span>
                 </div>
@@ -398,6 +986,118 @@ const App = {
         } else {
             el.style.display = el.style.display === 'none' ? '' : 'none';
         }
+    },
+
+    /** Command Palette (Alt+P) */
+    _toggleCommandPalette() {
+        let el = document.getElementById('cmd-palette');
+        if (el) {
+            el.classList.toggle('hidden');
+            if (!el.classList.contains('hidden')) {
+                el.querySelector('input')?.focus();
+            }
+            return;
+        }
+
+        // 首次创建
+        el = document.createElement('div');
+        el.id = 'cmd-palette';
+        el.className = 'cmd-palette-overlay';
+        el.innerHTML = `
+            <div class="cmd-palette">
+                <input type="text" class="cmd-palette-input" placeholder="输入命令或搜索..." autocomplete="off" aria-label="命令面板">
+                <div class="cmd-palette-list" id="cmd-palette-list"></div>
+                <div class="cmd-palette-footer">
+                    <span><kbd>↑↓</kbd> 导航</span>
+                    <span><kbd>Enter</kbd> 执行</span>
+                    <span><kbd>Esc</kbd> 关闭</span>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(el);
+
+        const input = el.querySelector('input');
+        const list = document.getElementById('cmd-palette-list');
+
+        const commands = [
+            { label: '监控', desc: '切换到监控页', icon: '📊', action: () => this.switchTab('overview') },
+            { label: '情报', desc: '切换到情报页', icon: '📰', action: () => this.switchTab('intelligence') },
+            { label: '研发', desc: '切换到研发页', icon: '🔬', action: () => this.switchTab('research') },
+            { label: '交易', desc: '切换到交易页', icon: '💹', action: () => this.switchTab('trade') },
+            { label: '模拟', desc: '切换到模拟盘', icon: '🎮', action: () => this.switchTab('sim') },
+            { label: '刷新', desc: '刷新当前页数据', icon: '🔄', action: () => { const t = document.querySelector('.nav-link.active')?.dataset.tab; if (t === 'overview') this.loadOverview(); } },
+            { label: '搜索', desc: '聚焦搜索框', icon: '🔍', action: () => { document.getElementById('stock-detail-code')?.focus(); } },
+            { label: '帮助', desc: '显示快捷键帮助', icon: '❓', action: () => this._toggleShortcutsHelp() },
+            { label: '主题', desc: '切换深色/浅色主题', icon: '🎨', action: () => { const t = document.documentElement.getAttribute('data-theme'); document.documentElement.setAttribute('data-theme', t === 'dark' ? 'light' : 'dark'); } },
+            { label: '隐私', desc: '切换隐私模式 (Alt+H)', icon: '🙈', action: () => this.togglePrivacy() },
+            { label: '导出', desc: 'Emergency Data Dump', icon: '💾', action: () => this.dumpAll() },
+        ];
+
+        let selectedIndex = 0;
+
+        const render = (filter = '') => {
+            const f = filter.toLowerCase();
+            const filtered = f ? commands.filter(c => c.label.toLowerCase().includes(f) || c.desc.toLowerCase().includes(f)) : commands;
+            selectedIndex = 0;
+            list.innerHTML = filtered.map((c, i) => `
+                <div class="cmd-palette-item ${i === 0 ? 'active' : ''}" data-index="${i}">
+                    <span class="cmd-palette-icon">${c.icon}</span>
+                    <span class="cmd-palette-label">${c.label}</span>
+                    <span class="cmd-palette-desc">${c.desc}</span>
+                </div>
+            `).join('');
+            return filtered;
+        };
+
+        let filtered = render();
+
+        input.addEventListener('input', () => { filtered = render(input.value); });
+
+        input.addEventListener('keydown', (e) => {
+            const items = list.querySelectorAll('.cmd-palette-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+                items.forEach((it, i) => it.classList.toggle('active', i === selectedIndex));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedIndex = Math.max(selectedIndex - 1, 0);
+                items.forEach((it, i) => it.classList.toggle('active', i === selectedIndex));
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (filtered[selectedIndex]) {
+                    filtered[selectedIndex].action();
+                    el.classList.add('hidden');
+                    input.value = '';
+                }
+            } else if (e.key === 'Escape') {
+                el.classList.add('hidden');
+                input.value = '';
+            }
+        });
+
+        list.addEventListener('click', (e) => {
+            const item = e.target.closest('.cmd-palette-item');
+            if (item) {
+                const idx = parseInt(item.dataset.index);
+                if (filtered[idx]) {
+                    filtered[idx].action();
+                    el.classList.add('hidden');
+                    input.value = '';
+                }
+            }
+        });
+
+        // 点击遮罩关闭
+        el.addEventListener('click', (e) => {
+            if (e.target === el) {
+                el.classList.add('hidden');
+                input.value = '';
+            }
+        });
+
+        el.classList.remove('hidden');
+        input.focus();
     },
 
     _updateQuoteStatus() {
@@ -513,19 +1213,29 @@ const App = {
     _tabCache: {},
 
     switchTab(tab) {
+        // 旧路由重定向
+        const _legacyRedirect = { backtest: 'research', alpha: 'research', portfolio: 'trade', paper: 'sim', strategy: 'research', risk: 'trade' };
+        tab = _legacyRedirect[tab] || tab;
+
         if (this.currentTab === tab) return;
         this.currentTab = tab;
+
+        // Tab → 面板映射（部分Tab复用旧面板）
+        const panelId = this._panelAlias[tab] || tab;
 
         document.querySelectorAll('.nav-link').forEach(l => {
             l.classList.toggle('active', l.dataset.tab === tab);
             l.setAttribute('aria-selected', l.dataset.tab === tab);
         });
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        const panel = document.getElementById('tab-' + tab);
+        const panel = document.getElementById('tab-' + panelId);
         if (panel) panel.classList.add('active');
 
-        const titles = { overview: '总览', stock: '行情', backtest: '回测', portfolio: '持仓', risk: '风控', alpha: 'AI Alpha', paper: '模拟盘', strategy: '策略管理' };
-        document.title = (titles[tab] || '总览') + ' - AI 量化交易系统';
+        const titles = {
+            overview: '监控', stock: '行情', alpha: 'AI Alpha', paper: '模拟盘', strategy: '策略管理',
+            intelligence: '情报', research: '研发', trade: '交易', sim: '模拟',
+        };
+        document.title = (titles[tab] || '监控') + ' - AI 量化交易系统';
         history.replaceState(null, '', '#' + tab);
 
         if (tab === 'overview') this._startMarketRefresh();
@@ -534,8 +1244,12 @@ const App = {
             if (App._quoteStatusTimer) { clearInterval(App._quoteStatusTimer); App._quoteStatusTimer = null; }
         }
 
-        if (tab === 'risk') this._rkStartPolling && this._rkStartPolling();
-        else this._rkStopPolling && this._rkStopPolling();
+        // 风控内容在交易Tab，切换到交易时启动风控轮询
+        if (tab === 'trade') {
+            this._rkStartPolling && this._rkStartPolling();
+        } else {
+            this._rkStopPolling && this._rkStopPolling();
+        }
 
         // 缓存策略：首次切换必加载，后续30秒内不重复加载
         const now = Date.now();
@@ -543,12 +1257,20 @@ const App = {
         const stale = !cached || (now - cached > 30000);
 
         if (tab === 'overview') { if (stale) { this.loadOverview(); this._tabCache[tab] = now; } }
-        else if (tab === 'portfolio') { if (stale) { this.loadPortfolio(); this._tabCache[tab] = now; } }
-        else if (tab === 'risk') { if (stale) { this.loadRisk(); this._tabCache[tab] = now; } }
+        else if (tab === 'trade') {
+            this._initTradeSubTabs();
+            if (stale) { this.loadTradeTab(); this._tabCache[tab] = now; }
+        }
         else if (tab === 'strategy') { Strategy.load(); }
-        else if (tab === 'alpha') { this.initAlpha(); }
-        else if (tab === 'paper') { if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
+        else if (tab === 'research') {
+            this._initResearchSubTabs();
+        }
+        else if (tab === 'paper' || tab === 'sim') { if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
         else if (tab === 'stock') { StockDetail.refresh(); }
+        else if (tab === 'intelligence') { if (typeof Intelligence !== 'undefined') Intelligence.load(); }
+
+        // Bug3修复: 延迟触发 resize，解决 ECharts/Chart.js 在隐藏面板中宽高为0的问题
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
     },
 
     async setDefaultDate() {
@@ -718,7 +1440,10 @@ const App = {
 
     quickBacktest(strategyName) {
         document.getElementById('bt-strategy').value = strategyName;
-        this.switchTab('backtest');
+        this.switchTab('research');
+        requestAnimationFrame(() => {
+            document.querySelector('.research-sub-tab[data-subtab="backtest"]')?.click();
+        });
     },
 
     bindStrategyChips() {
@@ -735,11 +1460,9 @@ const App = {
     },
 
     toggleBrokerConfig() {
-        const card = document.getElementById('broker-config-card');
-        if (!card) return;
-        const visible = card.style.display !== 'none';
-        card.style.display = visible ? 'none' : '';
-        if (!visible) this.loadBrokerConfig();
+        // 切换到券商配置子Tab
+        const brokerTab = document.querySelector('.trade-sub-tab[data-subtab="broker"]');
+        if (brokerTab) brokerTab.click();
     },
 
     async loadBrokerConfig() {
@@ -798,7 +1521,114 @@ const App = {
         if (account) account.placeholder = hint.account || '券商账户编号';
     },
 
+    /** 统一加载交易Tab数据：共享API只请求一次，分发给持仓和风控模块 */
+    async loadTradeTab() {
+        try {
+            const so = { silent: true };
+            // 共享数据：snapshot + equityHistory + industry（3个API只调一次）
+            const [snapshot, equityHistory, industry] = await Promise.all([
+                this.fetchJSON('/api/portfolio/snapshot', so).catch(() => null),
+                this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
+                this.fetchJSON('/api/portfolio/industry-distribution', so).catch(() => []),
+            ]);
+            const shared = { snapshot, equityHistory, industry };
+            // 并行加载持仓特有数据 + 风控特有数据 + 活跃订单
+            await Promise.all([
+                this.loadPortfolio(shared),
+                this.loadRisk(shared),
+                this.loadActiveOrders(),
+            ]);
+        } catch (e) {
+            this.toast('交易数据加载失败: ' + e.message, 'error');
+        }
+    },
+
     /* loadRisk 已移至 risk.js */
+
+    /** 加载活跃挂单（交易页） */
+    async loadActiveOrders() {
+        try {
+            const data = await this.fetchJSON('/api/paper/orders?status=pending&page_size=50', { silent: true });
+            const orders = data?.data?.items || [];
+            this._activeOrders = orders;
+            this.renderActiveOrders(orders);
+        } catch {
+            this._activeOrders = [];
+            this.renderActiveOrders([]);
+        }
+    },
+
+    /** 渲染活跃订单表格 */
+    renderActiveOrders(orders) {
+        const tbody = document.querySelector('#active-orders-table tbody');
+        const countEl = document.getElementById('active-orders-count');
+        const panicBtn = document.getElementById('panic-btn');
+        if (!tbody) return;
+
+        if (countEl) countEl.textContent = orders.length;
+        if (panicBtn) panicBtn.style.display = orders.length > 0 ? '' : 'none';
+
+        if (orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无挂单</td></tr>';
+            return;
+        }
+
+        const typeMap = { market: '市价', limit: '限价', stop_loss: '止损', take_profit: '止盈' };
+        tbody.innerHTML = orders.map(o => {
+            const dirCls = o.direction === 'buy' ? 'text-up' : 'text-down';
+            const dirText = o.direction === 'buy' ? '买入' : '卖出';
+            return `<tr>
+                <td><a href="#" class="stock-link" data-code="${this.escapeHTML(o.code)}">${this.escapeHTML(o.code)}</a></td>
+                <td class="${dirCls}">${dirText}</td>
+                <td>${typeMap[o.order_type] || o.order_type}</td>
+                <td>${o.price ? '¥' + o.price.toFixed(2) : '市价'}</td>
+                <td>${o.volume}</td>
+                <td><span class="badge badge-warning">待撮合</span></td>
+                <td><button class="btn btn-sm btn-danger" onclick="App.cancelActiveOrder('${o.order_id}')">撤销</button></td>
+            </tr>`;
+        }).join('');
+    },
+
+    /** 撤销单个活跃订单 */
+    async cancelActiveOrder(orderId) {
+        try {
+            await this.fetchJSON(`/api/paper/orders/${orderId}`, { method: 'DELETE' });
+            this.toast('订单已撤销', 'success');
+            this.loadActiveOrders();
+            this.emit('data:portfolio-updated', { source: 'cancel' });
+        } catch (e) {
+            this.toast('撤销失败: ' + e.message, 'error');
+        }
+    },
+
+    /** Panic Button：一键全撤 */
+    async panicCancelAll() {
+        const orders = this._activeOrders || [];
+        if (orders.length === 0) return;
+        if (!confirm(`确定撤销全部 ${orders.length} 笔挂单？`)) return;
+
+        const panicBtn = document.getElementById('panic-btn');
+        if (panicBtn) { panicBtn.disabled = true; panicBtn.textContent = '撤销中...'; }
+
+        try {
+            const results = await Promise.allSettled(
+                orders.map(o => this.fetchJSON(`/api/paper/orders/${o.order_id}`, { method: 'DELETE' }))
+            );
+            const succeeded = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.length - succeeded;
+            if (failed === 0) {
+                this.toast(`已撤销全部 ${succeeded} 笔订单`, 'success');
+            } else {
+                this.toast(`撤销完成：成功 ${succeeded}，失败 ${failed}`, 'warning');
+            }
+            this.loadActiveOrders();
+            this.emit('data:portfolio-updated', { source: 'panic' });
+        } catch (e) {
+            this.toast('批量撤销异常: ' + e.message, 'error');
+        } finally {
+            if (panicBtn) { panicBtn.disabled = false; panicBtn.textContent = '一键全撤'; }
+        }
+    },
 
     _startMarketRefresh() {
         PollManager.cancel('marketRefresh');
@@ -859,6 +1689,209 @@ const App = {
         } catch (e) {
             console.warn('市场数据刷新失败:', e);
         }
+    },
+
+    // ── 实验快照系统 ──
+
+    _SNAPSHOT_KEY: 'quant_snapshots',
+    _SIM_SNAPSHOT_KEY: 'quant_sim_snapshots',
+
+    /** 保存当前研发页实验状态为快照 */
+    saveSnapshot(name) {
+        const snapshot = {
+            id: Date.now().toString(36),
+            name: name || `实验 ${new Date().toLocaleString('zh-CN')}`,
+            timestamp: Date.now(),
+            data: {},
+        };
+
+        // 收集各子Tab的输入状态
+        const fields = {
+            'alpha-code': 'alpha-code', 'alpha-start': 'alpha-start', 'alpha-end': 'alpha-end',
+            'bt-code': 'bt-code', 'bt-start': 'bt-start', 'bt-end': 'bt-end', 'bt-cash': 'bt-cash',
+            'bt-strategy': 'bt-strategy', 'bt-benchmark': 'bt-benchmark',
+            'ensemble-codes': 'ensemble-codes', 'ensemble-start': 'ensemble-start', 'ensemble-end': 'ensemble-end',
+            'compare-codes-input': 'compare-codes-input',
+        };
+        for (const [key, id] of Object.entries(fields)) {
+            const el = document.getElementById(id);
+            if (el?.value) snapshot.data[key] = el.value;
+        }
+
+        // 保存到 localStorage
+        const snapshots = this._loadSnapshots();
+        snapshots.unshift(snapshot);
+        // 最多保留 20 个
+        if (snapshots.length > 20) snapshots.length = 20;
+        localStorage.setItem(this._SNAPSHOT_KEY, JSON.stringify(snapshots));
+        this.toast(`快照已保存: ${snapshot.name}`, 'success');
+        return snapshot;
+    },
+
+    /** 加载快照到研发页 */
+    loadSnapshot(id) {
+        const snapshots = this._loadSnapshots();
+        const snap = snapshots.find(s => s.id === id);
+        if (!snap) { this.toast('快照不存在', 'error'); return; }
+
+        for (const [key, value] of Object.entries(snap.data)) {
+            const el = document.getElementById(key);
+            if (el) el.value = value;
+        }
+        this._researchSession = { ...this._researchSession, ...snap.data };
+        this.toast(`已加载快照: ${snap.name}`, 'success');
+    },
+
+    /** 导出所有快照为 JSON 文件 */
+    exportSnapshots() {
+        const snapshots = this._loadSnapshots();
+        if (snapshots.length === 0) { this.toast('没有可导出的快照', 'info'); return; }
+
+        const blob = new Blob([JSON.stringify(snapshots, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `quant-snapshots-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.toast('快照已导出', 'success');
+    },
+
+    /** 从 JSON 文件导入快照 */
+    importSnapshots(file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const imported = JSON.parse(reader.result);
+                if (!Array.isArray(imported)) throw new Error('格式错误');
+                const existing = this._loadSnapshots();
+                const merged = [...imported, ...existing];
+                // 去重（按 id）
+                const unique = merged.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i);
+                if (unique.length > 20) unique.length = 20;
+                localStorage.setItem(this._SNAPSHOT_KEY, JSON.stringify(unique));
+                this.toast(`已导入 ${imported.length} 个快照`, 'success');
+            } catch (e) {
+                this.toast('导入失败: ' + e.message, 'error');
+            }
+        };
+        reader.readAsText(file);
+    },
+
+    _loadSnapshots() {
+        try {
+            return JSON.parse(localStorage.getItem(this._SNAPSHOT_KEY) || '[]');
+        } catch {
+            return [];
+        }
+    },
+
+    // ── 模拟盘策略对比 ──
+
+    /** 保存当前模拟盘绩效快照 */
+    saveSimSnapshot() {
+        const metrics = {
+            id: Date.now().toString(36),
+            name: `策略 ${new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`,
+            timestamp: Date.now(),
+            cumReturn: document.getElementById('pt-cumulative-return')?.textContent || '--',
+            maxDD: document.getElementById('pt-max-drawdown')?.textContent || '--',
+            sharpe: document.getElementById('pt-sortino-ratio')?.textContent || '--',
+            winRate: document.getElementById('pt-win-rate-perf')?.textContent || '--',
+        };
+
+        const snapshots = this._loadSimSnapshots();
+        snapshots.unshift(metrics);
+        if (snapshots.length > 10) snapshots.length = 10;
+        localStorage.setItem(this._SIM_SNAPSHOT_KEY, JSON.stringify(snapshots));
+        this.renderSimCompare();
+        this.toast('模拟盘快照已保存', 'success');
+    },
+
+    /** 渲染策略对比表 */
+    renderSimCompare() {
+        const tbody = document.querySelector('#sim-compare-table tbody');
+        if (!tbody) return;
+        const snapshots = this._loadSimSnapshots();
+        if (snapshots.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无对比数据，点击"保存当前快照"</td></tr>';
+            return;
+        }
+        tbody.innerHTML = snapshots.map(s => {
+            const date = new Date(s.timestamp).toLocaleDateString('zh-CN');
+            return `<tr>
+                <td>${this.escapeHTML(s.name)}</td>
+                <td>${date}</td>
+                <td>${s.cumReturn}</td>
+                <td>${s.maxDD}</td>
+                <td>${s.sharpe}</td>
+                <td>${s.winRate}</td>
+                <td><button class="btn btn-sm" onclick="App.deleteSimSnapshot('${s.id}')">删除</button></td>
+            </tr>`;
+        }).join('');
+    },
+
+    deleteSimSnapshot(id) {
+        const snapshots = this._loadSimSnapshots().filter(s => s.id !== id);
+        localStorage.setItem(this._SIM_SNAPSHOT_KEY, JSON.stringify(snapshots));
+        this.renderSimCompare();
+    },
+
+    _loadSimSnapshots() {
+        try {
+            return JSON.parse(localStorage.getItem(this._SIM_SNAPSHOT_KEY) || '[]');
+        } catch {
+            return [];
+        }
+    },
+
+    // ── Emergency Data Dump ──
+
+    /** 导出所有关键数据（dump all） */
+    async dumpAll() {
+        this.toast('正在导出数据...', 'info');
+        const so = { silent: true };
+        const [snapshot, trades, watchlist, alerts, qlib, status] = await Promise.allSettled([
+            this.fetchJSON('/api/portfolio/snapshot', so),
+            this.fetchJSON('/api/portfolio/trades/recent?limit=100', so),
+            this.fetchJSON('/api/watchlist', so),
+            this.fetchJSON('/api/alerts/rules', so),
+            this.fetchJSON('/api/qlib/top?top_n=50', so),
+            this.fetchJSON('/api/system/status', so),
+        ]);
+
+        const dump = {
+            version: '1.0',
+            timestamp: new Date().toISOString(),
+            portfolio: snapshot.status === 'fulfilled' ? snapshot.value : null,
+            trades: trades.status === 'fulfilled' ? trades.value : null,
+            watchlist: watchlist.status === 'fulfilled' ? watchlist.value : null,
+            alerts: alerts.status === 'fulfilled' ? alerts.value : null,
+            qlib: qlib.status === 'fulfilled' ? qlib.value : null,
+            system: status.status === 'fulfilled' ? status.value : null,
+            snapshots: this._loadSnapshots(),
+            simSnapshots: this._loadSimSnapshots(),
+            localStorage: { ...localStorage },
+        };
+
+        const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `quant-dump-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.toast('数据导出完成', 'success');
+    },
+
+    // ── 隐私模式 ──
+
+    _privacyMode: false,
+
+    togglePrivacy() {
+        this._privacyMode = !this._privacyMode;
+        document.documentElement.classList.toggle('privacy-mode', this._privacyMode);
+        this.toast(this._privacyMode ? '隐私模式已开启' : '隐私模式已关闭', 'info');
     },
 };
 

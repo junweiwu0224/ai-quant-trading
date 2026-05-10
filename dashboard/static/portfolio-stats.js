@@ -10,8 +10,10 @@ Object.assign(App, {
         const colorClass = (v) => v > 0 ? 'pf-val-up' : v < 0 ? 'pf-val-down' : 'pf-val-flat';
 
         document.getElementById('pf-equity').textContent = fmt(s.total_equity);
-        document.getElementById('pf-cash').textContent = fmt(s.cash);
-        document.getElementById('pf-mv').textContent = fmt(s.market_value);
+        const cashEl = document.getElementById('pf-cash');
+        if (cashEl) cashEl.textContent = fmt(s.cash);
+        const mvEl = document.getElementById('pf-mv');
+        if (mvEl) mvEl.textContent = fmt(s.market_value);
         document.getElementById('pf-count').textContent = s.positions.length;
 
         const dayPnlEl = document.getElementById('pf-day-pnl');
@@ -31,7 +33,9 @@ Object.assign(App, {
         sharpeEl.className = 'stat-value ' + colorClass(s.sharpe_ratio);
 
         const utilEl = document.getElementById('pf-utilization');
-        const utilRate = s.capital ? s.capital.utilization_rate : 0;
-        utilEl.textContent = fmtPct(utilRate);
+        if (utilEl) {
+            const utilRate = s.capital ? s.capital.utilization_rate : 0;
+            utilEl.textContent = fmtPct(utilRate);
+        }
     },
 });

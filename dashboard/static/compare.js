@@ -280,10 +280,4 @@
     // ── 公开接口 ──
 
     App.Compare = { init, run };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
 })();

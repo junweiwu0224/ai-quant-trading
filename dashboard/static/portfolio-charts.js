@@ -98,6 +98,7 @@ Object.assign(App, {
     },
 
     _pfRenderIndustryChart() {
+        if (!document.getElementById('pf-industry-chart')) return;
         const industry = this._pf.industry;
         if (!industry || industry.length === 0) { ChartFactory.showEmpty('pf-industry-chart'); return; }
         ChartFactory.pie('pf-industry-chart', {

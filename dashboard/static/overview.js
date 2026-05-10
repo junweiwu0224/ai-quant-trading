@@ -8,6 +8,7 @@ Object.assign(App, {
         this._loadingOverview = true;
         const refreshBtn = document.querySelector('button[onclick="App.loadOverview()"]');
         if (refreshBtn) refreshBtn.disabled = true;
+        const loadStartTime = Date.now();
 
         // 首次加载显示骨架屏
         if (!this._overviewLoaded) {
@@ -32,7 +33,12 @@ Object.assign(App, {
             this._renderMetric('ov-daily-pnl', snapshot.daily_pnl, snapshot.daily_pnl_pct, true);
             this._renderPctMetric('ov-cum-return', snapshot.cumulative_return);
             this._renderPctMetric('ov-max-dd', snapshot.max_drawdown, true);
-            document.getElementById('ov-sharpe').textContent = snapshot.sharpe_ratio?.toFixed(2) ?? '--';
+            const sharpeEl = document.getElementById('ov-sharpe');
+            const sharpeVal = snapshot.sharpe_ratio;
+            sharpeEl.textContent = sharpeVal?.toFixed(2) ?? '--';
+            if (sharpeVal != null) {
+                sharpeEl.className = 'stat-value ' + (sharpeVal >= 1 ? 'text-up' : sharpeVal >= 0 ? 'stat-value-warn' : 'text-down');
+            }
             document.getElementById('ov-position-count').textContent = snapshot.positions?.length ?? 0;
 
             ['ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe', 'ov-position-count'].forEach(id => {
@@ -50,7 +56,17 @@ Object.assign(App, {
             const aiEl = document.getElementById('ov-ai-status');
             if (aiEl) aiEl.textContent = status.ai_model || '--';
 
+            // Qlib 心跳检查（异步，不阻塞）
+            this._checkQlibHealth();
+
             this._updateQuoteStatus();
+            this._updateMarketPhase();
+            if (!this._phaseTimer) {
+                this._phaseTimer = setInterval(() => this._updateMarketPhase(), 60000);
+            }
+            if (!this._freshnessTimer) {
+                this._freshnessTimer = setInterval(() => this._updateDataFreshness(), 30000);
+            }
             if (!this._quoteStatusTimer) {
                 this._quoteStatusTimer = setInterval(() => this._updateQuoteStatus(), 1000);
             }
@@ -64,16 +80,20 @@ Object.assign(App, {
             // 持仓明细
             this._renderPositions(snapshot);
 
-            // 最近交易
+            // 最近交易（仅显示前5条）
             const tradesBody = document.querySelector('#ov-trades-table tbody');
             if (tradesBody && trades.length > 0) {
-                tradesBody.innerHTML = trades.map(t => `
+                tradesBody.innerHTML = trades.slice(0, 5).map(t => `
                     <tr><td>${Utils.formatBeijingTime(t.time)}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)} ${this.escapeHTML(t.name || '')}</a></td><td class="${(t.direction === 'long' || t.direction === 'buy') ? 'text-up' : 'text-down'}">${(t.direction === 'long' || t.direction === 'buy') ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
                 `).join('');
             }
 
             // 阶段 2：次要数据（图表 + 市场，不阻塞首屏）
             this._loadOverviewSecondary(so);
+
+            // 数据新鲜度指示
+            this._overviewDataTime = loadStartTime;
+            this._updateDataFreshness();
         } catch (e) {
             ['ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe', 'ov-position-count'].forEach(id => {
                 const el = document.getElementById(id);
@@ -89,17 +109,13 @@ Object.assign(App, {
 
     /** 阶段 2：图表 + 市场数据（异步加载，不阻塞首屏） */
     async _loadOverviewSecondary(so) {
-        const [equityHistory, indices, hotSectors, marketStats, benchmark] = await Promise.all([
+        const [equityHistory, indices, hotSectors] = await Promise.all([
             this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
             this.fetchJSON('/api/stock/market/indices', so).catch(() => []),
             this.fetchJSON('/api/stock/market/hot-sectors', so).catch(() => ({ industries: [], concepts: [] })),
-            this.fetchJSON('/api/stock/market/stats', so).catch(() => null),
-            this.fetchJSON('/api/stock/market/benchmark?count=60', so).catch(() => []),
         ]);
 
         this._overviewChartData = equityHistory;
-        this._overviewBenchmarkData = benchmark;
-        this._overviewChartMode = 'equity';
 
         const chartContainer = document.querySelector('#tab-overview .chart-container');
         if (chartContainer) {
@@ -111,7 +127,6 @@ Object.assign(App, {
         try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
         try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
         try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
-        if (marketStats) this._renderMarketStats(marketStats);
     },
 
     _showOverviewSkeletons() {
@@ -122,10 +137,10 @@ Object.assign(App, {
         });
         // 持仓表格骨架屏
         const posBody = document.querySelector('#ov-positions-table tbody');
-        if (posBody) posBody.innerHTML = `<tr><td colspan="8">${Utils.skeletonRows(4, 8)}</td></tr>`;
+        if (posBody) posBody.innerHTML = `<tr><td colspan="8">${Utils.skeletonRows(5, 8)}</td></tr>`;
         // 交易表格骨架屏
         const tradesBody = document.querySelector('#ov-trades-table tbody');
-        if (tradesBody) tradesBody.innerHTML = `<tr><td colspan="5">${Utils.skeletonRows(3, 5)}</td></tr>`;
+        if (tradesBody) tradesBody.innerHTML = `<tr><td colspan="5">${Utils.skeletonRows(5, 5)}</td></tr>`;
         // 图表骨架屏
         const chartContainer = document.querySelector('#tab-overview .chart-container');
         if (chartContainer) {
@@ -161,8 +176,12 @@ Object.assign(App, {
         if (!el) return;
         const arrow = value >= 0 ? '↑' : '↓';
         el.textContent = arrow + ' ' + (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
-        if (alwaysRed) el.className = 'stat-value text-up';
-        else el.className = 'stat-value ' + (value >= 0 ? 'text-up' : 'text-down');
+        if (alwaysRed) {
+            // 回撤阈值：>0.5% 暗红，否则普通红
+            el.className = 'stat-value ' + (Math.abs(value) > 0.005 ? 'stat-value-critical' : 'text-up');
+        } else {
+            el.className = 'stat-value ' + (value >= 0 ? 'text-up' : 'text-down');
+        }
     },
 
     _renderPositions(snapshot) {
@@ -174,7 +193,8 @@ Object.assign(App, {
             return;
         }
         const totalEquity = snapshot.total_equity || 1;
-        tbody.innerHTML = positions.map(p => {
+        const top5 = positions.slice(0, 5);
+        tbody.innerHTML = top5.map(p => {
             const pctClass = p.pnl >= 0 ? 'text-up' : 'text-down';
             const sign = p.pnl >= 0 ? '+' : '';
             const arrow = p.pnl >= 0 ? '↑' : '↓';
@@ -190,7 +210,7 @@ Object.assign(App, {
                 <td>${weight}%</td>
             </tr>`;
         }).join('') + `<tr class="pos-summary">
-            <td colspan="2"><strong>合计</strong></td>
+            <td colspan="2"><strong>合计 (${positions.length}只)</strong></td>
             <td>${positions.reduce((s, p) => s + p.volume, 0)}</td>
             <td></td>
             <td></td>
@@ -198,50 +218,6 @@ Object.assign(App, {
             <td class="${snapshot.total_pnl >= 0 ? 'text-up' : 'text-down'}"><strong>${snapshot.total_pnl >= 0 ? '+' : ''}${(snapshot.total_pnl_pct * 100).toFixed(2)}%</strong></td>
             <td></td>
         </tr>`;
-
-        // 表格增强：排序+分页
-        if (positions.length > 10) {
-            Utils.enhanceTable('#ov-positions-table', { pageSize: 15, searchable: false });
-        }
-    },
-
-    _renderMarketStats(stats) {
-        const el = document.getElementById('ov-market-stats');
-        if (!el || !stats) return;
-        const up = stats.up_count || 0;
-        const flat = stats.flat_count || 0;
-        const down = stats.down_count || 0;
-        const total = up + flat + down || 1;
-        const upPct = (up / total * 100).toFixed(0);
-        const flatPct = (flat / total * 100).toFixed(0);
-        const downPct = (down / total * 100).toFixed(0);
-
-        // 情绪指标：上涨占比 > 60% 偏多，< 40% 偏空
-        let sentimentText, sentimentCls;
-        const upRatio = up / total;
-        if (upRatio >= 0.6) { sentimentText = '偏多'; sentimentCls = 'text-up'; }
-        else if (upRatio <= 0.4) { sentimentText = '偏空'; sentimentCls = 'text-down'; }
-        else { sentimentText = '震荡'; sentimentCls = 'text-muted'; }
-
-        const upEnd = parseFloat(upPct);
-        const flatEnd = upEnd + parseFloat(flatPct);
-        el.innerHTML = `
-            <div class="market-stat-row">
-                <span class="market-stat-label">涨跌分布</span>
-                <span class="market-stat-sentiment ${sentimentCls}">${sentimentText}</span>
-            </div>
-            <div class="market-stat-bar-wrap">
-                <div class="market-stat-bar" style="background:linear-gradient(to right,#c65746 0%,#c65746 ${upEnd}%,#a29c95 ${upEnd}%,#a29c95 ${flatEnd}%,#10b981 ${flatEnd}%,#10b981 100%)"></div>
-                <div class="market-stat-bar-labels">
-                    <span class="text-up">${up} (${upPct}%)</span>
-                    <span class="text-muted">${flat}</span>
-                    <span class="text-down">${down} (${downPct}%)</span>
-                </div>
-            </div>
-            <div class="market-stat-extra">
-                <span>涨停 <strong class="text-up">${stats.limit_up || 0}</strong></span>
-                <span>跌停 <strong class="text-down">${stats.limit_down || 0}</strong></span>
-            </div>`;
     },
 
     renderEquityChart(data) {
@@ -274,120 +250,6 @@ Object.assign(App, {
                 },
             },
         });
-    },
-
-    renderReturnDistribution(data) {
-        const canvasId = 'ov-overview-chart';
-        if (!data || data.length < 2) { ChartFactory.showEmpty(canvasId); return; }
-
-        const labels = [];
-        const dailyReturns = [];
-        for (let i = 1; i < data.length; i++) {
-            const prev = data[i - 1].equity;
-            if (prev > 0) {
-                labels.push(data[i].date ? data[i].date.substring(5) : '');
-                dailyReturns.push((data[i].equity - prev) / prev * 100);
-            }
-        }
-        if (dailyReturns.length === 0) { ChartFactory.showEmpty(canvasId); return; }
-
-        const colors = dailyReturns.map(v => v >= 0 ? 'rgba(239,83,80,0.7)' : 'rgba(16,185,129,0.7)');
-        const borderColors = dailyReturns.map(v => v >= 0 ? '#ef5350' : '#10b981');
-
-        ChartFactory.bar(canvasId, { labels, values: dailyReturns, colors, borderColors }, 'overviewChart', {
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => `日收益: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%`,
-                    },
-                },
-            },
-            scales: {
-                y: {
-                    ticks: {
-                        callback: v => v.toFixed(1) + '%',
-                        color: '#a29c95',
-                        font: { size: 11 },
-                    },
-                    grid: { color: 'rgba(227,225,219,0.25)' },
-                },
-                x: {
-                    ticks: { maxTicksLimit: 10, color: '#a29c95', font: { size: 11 } },
-                    grid: { display: false },
-                },
-            },
-        });
-    },
-
-    renderBenchmarkChart(equityData, benchmarkData) {
-        const canvasId = 'ov-overview-chart';
-        if (!equityData || equityData.length < 2) { ChartFactory.showEmpty(canvasId); return; }
-
-        const baseEquity = equityData[0].equity;
-        const portfolioReturns = equityData.map(d => ((d.equity - baseEquity) / baseEquity * 100));
-        const labels = equityData.map(d => d.date ? d.date.substring(5) : '');
-
-        const datasets = [{
-            label: '模拟盘',
-            data: portfolioReturns,
-            color: '#ef5350',
-            borderWidth: 2,
-            pointRadius: 0,
-        }];
-
-        if (benchmarkData && benchmarkData.length > 0) {
-            const benchMap = {};
-            benchmarkData.forEach(b => { benchMap[b.date] = b.return_pct; });
-            const benchReturns = equityData.map(d => benchMap[d.date] ?? null);
-            datasets.push({
-                label: '沪深300',
-                data: benchReturns,
-                color: '#4fc3f7',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                borderDash: [4, 4],
-            });
-        }
-
-        ChartFactory.line(canvasId, { labels, datasets }, 'overviewChart', {
-            plugins: {
-                legend: { display: true, position: 'top', labels: { color: '#a29c95', font: { size: 11 }, boxWidth: 12, padding: 16 } },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%`,
-                    },
-                },
-            },
-            scales: {
-                y: {
-                    ticks: { callback: v => v.toFixed(1) + '%', color: '#a29c95', font: { size: 11 } },
-                    grid: { color: 'rgba(227,225,219,0.25)' },
-                },
-                x: {
-                    ticks: { maxTicksLimit: 8, color: '#a29c95', font: { size: 11 } },
-                    grid: { display: false },
-                },
-            },
-        });
-    },
-
-    _switchOverviewChart(mode) {
-        if (this._overviewChartMode === mode) return;
-        // 防抖：200ms 内不重复切换
-        clearTimeout(this._chartSwitchTimer);
-        this._chartSwitchTimer = setTimeout(() => this._doSwitchChart(mode), 150);
-    },
-
-    _doSwitchChart(mode) {
-        this._overviewChartMode = mode;
-        document.querySelectorAll('.chart-toggle-btn').forEach(b =>
-            b.classList.toggle('active', b.dataset.mode === mode));
-        const titles = { equity: '资产走势', daily: '每日收益', benchmark: '收益对比' };
-        document.getElementById('ov-chart-title').textContent = titles[mode] || '资产走势';
-        if (mode === 'equity') this.renderEquityChart(this._overviewChartData);
-        else if (mode === 'daily') this.renderReturnDistribution(this._overviewChartData);
-        else if (mode === 'benchmark') this.renderBenchmarkChart(this._overviewChartData, this._overviewBenchmarkData);
     },
 
     renderMarketIndices(indices) {
@@ -434,6 +296,80 @@ Object.assign(App, {
 
         renderList(industriesEl, data.industries);
         renderList(conceptsEl, data.concepts);
+    },
+
+    /** Qlib 心跳检查 */
+    async _checkQlibHealth() {
+        const el = document.getElementById('ov-qlib-status');
+        if (!el) return;
+        try {
+            const data = await this.fetchJSON('/api/qlib/health', { silent: true });
+            if (data?.status === 'online') {
+                el.textContent = '🟢 在线';
+                el.className = 'stat-value text-up';
+            } else if (data?.status === 'stale') {
+                el.textContent = '🟡 过期';
+                el.className = 'stat-value stat-value-warn';
+            } else {
+                el.textContent = '🔴 离线';
+                el.className = 'stat-value text-down';
+            }
+        } catch {
+            el.textContent = '🔴 离线';
+            el.className = 'stat-value text-down';
+        }
+    },
+
+    /** 更新数据新鲜度指示 */
+    _updateDataFreshness() {
+        const el = document.getElementById('ov-data-freshness');
+        if (!el || !this._overviewDataTime) return;
+
+        const age = Date.now() - this._overviewDataTime;
+        const min = Math.floor(age / 60000);
+
+        let label, cls;
+        if (min < 1) {
+            label = '刚刚更新'; cls = 'fresh';
+        } else if (min < 5) {
+            label = `${min}分钟前`; cls = 'fresh';
+        } else if (min < 15) {
+            label = `${min}分钟前`; cls = 'stale';
+        } else {
+            label = `${min}分钟前`; cls = 'old';
+        }
+
+        el.textContent = label;
+        el.className = `data-freshness ${cls}`;
+    },
+
+    /** 更新市场阶段指示器 (盘前/盘中/盘后) */
+    _updateMarketPhase() {
+        const el = document.getElementById('ov-market-phase');
+        if (!el) return;
+
+        const now = new Date();
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+        const day = now.getDay();
+        const isWeekday = day >= 1 && day <= 5;
+
+        let phase, label;
+        if (!isWeekday) {
+            phase = 'post'; label = '休市';
+        } else if (hhmm < 915) {
+            phase = 'pre'; label = '盘前';
+        } else if (hhmm <= 1130) {
+            phase = 'open'; label = '盘中（上午）';
+        } else if (hhmm < 1300) {
+            phase = 'pre'; label = '午间休市';
+        } else if (hhmm <= 1500) {
+            phase = 'open'; label = '盘中（下午）';
+        } else {
+            phase = 'post'; label = '盘后';
+        }
+
+        el.className = `market-phase phase-${phase}`;
+        el.querySelector('.market-phase-text').textContent = label;
     },
 
     // _startMarketRefresh / _stopMarketRefresh / _refreshMarket

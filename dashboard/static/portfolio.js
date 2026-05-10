@@ -22,7 +22,7 @@ Object.assign(App, {
 
     _pfLoaded: false,
 
-    async loadPortfolio() {
+    async loadPortfolio(shared) {
         const refreshBtn = document.querySelector('button[onclick="App.loadPortfolio()"]');
         if (refreshBtn) refreshBtn.disabled = true;
 
@@ -32,12 +32,23 @@ Object.assign(App, {
 
         try {
             const so = { silent: true };
-            const [snapshot, trades, industry, equityHistory] = await Promise.all([
-                this.fetchJSON('/api/portfolio/snapshot', { silent: true }),
-                this.fetchJSON('/api/portfolio/trades', so).catch(() => []),
-                this.fetchJSON('/api/portfolio/industry-distribution', so).catch(() => []),
-                this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
-            ]);
+            let snapshot, trades, industry, equityHistory;
+
+            if (shared) {
+                // 由 loadTradeTab 传入共享数据，只获取持仓特有数据
+                snapshot = shared.snapshot;
+                equityHistory = shared.equityHistory;
+                industry = shared.industry;
+                trades = await this.fetchJSON('/api/portfolio/trades', so).catch(() => []);
+            } else {
+                // 独立调用时（如刷新按钮），自行获取全部数据
+                [snapshot, trades, industry, equityHistory] = await Promise.all([
+                    this.fetchJSON('/api/portfolio/snapshot', { silent: true }),
+                    this.fetchJSON('/api/portfolio/trades', so).catch(() => []),
+                    this.fetchJSON('/api/portfolio/industry-distribution', so).catch(() => []),
+                    this.fetchJSON('/api/portfolio/equity-history', so).catch(() => []),
+                ]);
+            }
 
             this._pf.snapshot = snapshot;
             this._pf.positions = snapshot.positions || [];

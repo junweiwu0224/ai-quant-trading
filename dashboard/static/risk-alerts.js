@@ -9,11 +9,12 @@ Object.assign(App, {
         const level = alert.level || 'warning';
         this.toast(`[风控] ${alert.message}`, level === 'critical' ? 'error' : 'warning');
 
+        // 发射到异常聚合条
+        this.emit('risk:alert', { level: level === 'critical' ? 'critical' : 'warn', msg: alert.message || '风控告警' });
+
         this._rkRenderAlertBanner();
 
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('风控告警', { body: alert.message });
-        }
+        App.notify('风控告警', alert.message, { level: level === 'critical' ? 'critical' : 'warning' });
     },
 
     _rkRenderAlertBanner() {

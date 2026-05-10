@@ -258,13 +258,6 @@ const Watchlist = {
                 const changePct = rt ? rt.change_pct : (s.change_pct != null ? s.change_pct : null);
                 const industry = rt ? (rt.industry || '') : (s.industry || '');
                 const sector = rt ? (rt.sector || '') : (s.sector || '');
-                let concepts = rt ? (rt.concepts || []) : (s.concepts || []);
-                if (typeof concepts === 'string') concepts = concepts.split(',').filter(Boolean);
-                if (!Array.isArray(concepts)) concepts = [];
-                const conceptStr = concepts.length > 0
-                    ? concepts.slice(0, 3).map(c => `<span class="sd-tag">${App.escapeHTML(c)}</span>`).join('')
-                    + (concepts.length > 3 ? `<span class="text-muted" title="${App.escapeHTML(concepts.join('、'))}"> +${concepts.length - 3}</span>` : '')
-                    : '--';
                 const priceStr = price ? '¥' + Number(price).toFixed(2) : '--';
                 const changeStr = changePct != null
                     ? `<span class="change-pct">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</span>`
@@ -276,14 +269,13 @@ const Watchlist = {
                     <td><a href="#stock" class="stock-link" data-code="${App.escapeHTML(s.code)}">${App.escapeHTML(s.name) || '--'}</a></td>
                     <td>${App.escapeHTML(industry) || '--'}</td>
                     <td>${App.escapeHTML(sector) || '--'}</td>
-                    <td class="concepts-cell">${conceptStr}</td>
                     <td class="${changeClass}">${priceStr}</td>
                     <td class="${changeClass}">${changeStr}</td>
                 </tr>`;
             }).join('');
         } else {
             if (hintEl) hintEl.textContent = '';
-            stockBody.innerHTML = '<tr><td colspan="7" class="text-muted">暂无自选股，使用上方搜索框添加</td></tr>';
+            stockBody.innerHTML = '<tr><td colspan="6" class="text-muted">暂无自选股，使用上方搜索框添加</td></tr>';
         }
     },
 };

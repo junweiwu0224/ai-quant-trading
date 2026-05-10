@@ -366,6 +366,7 @@ const PaperTrading = {
             App.toast(`订单创建成功: ${data.data.order_id}`, 'success');
             this.loadOrders();
             this.loadPositions();
+            App.emit('data:portfolio-updated', { source: 'order' });
         } catch (e) {
             App.toast(`创建订单失败: ${e.message}`, 'error');
         } finally {
@@ -386,6 +387,7 @@ const PaperTrading = {
 
             App.toast('订单已撤销', 'success');
             this.loadOrders();
+            App.emit('data:portfolio-updated', { source: 'cancel' });
         } catch (e) {
             App.toast(`撤销订单失败: ${e.message}`, 'error');
         }

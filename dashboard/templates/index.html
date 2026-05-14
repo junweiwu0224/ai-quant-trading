@@ -1158,7 +1158,7 @@
             <div class="card" id="active-orders-card">
                 <div class="card-header-row">
                     <h2>活跃订单 <span class="badge badge-warning" id="active-orders-count">0</span></h2>
-                    <button class="btn btn-sm btn-danger" id="panic-btn" onclick="App.panicCancelAll()" style="display:none">一键全撤</button>
+                    <button class="btn btn-sm btn-danger" id="panic-btn" data-portfolio-action="panic-cancel-all" style="display:none">一键全撤</button>
                 </div>
                 <div class="table-wrap">
                     <table id="active-orders-table" class="sortable">
@@ -1173,10 +1173,10 @@
                 <div class="card-header-row">
                     <h2>权益曲线</h2>
                     <div class="flex-center pf-range-btns">
-                        <button class="chip active" data-range="1m" onclick="App.pfSetRange('1m')">1月</button>
-                        <button class="chip" data-range="3m" onclick="App.pfSetRange('3m')">3月</button>
-                        <button class="chip" data-range="6m" onclick="App.pfSetRange('6m')">6月</button>
-                        <button class="chip" data-range="all" onclick="App.pfSetRange('all')">全部</button>
+                        <button class="chip active" data-range="1m" data-portfolio-range="1m">1月</button>
+                        <button class="chip" data-range="3m" data-portfolio-range="3m">3月</button>
+                        <button class="chip" data-range="6m" data-portfolio-range="6m">6月</button>
+                        <button class="chip" data-range="all" data-portfolio-range="all">全部</button>
                     </div>
                 </div>
                 <div class="chart-container chart-h-lg"><canvas id="pf-equity-curve" aria-label="权益曲线图"></canvas></div>
@@ -1205,7 +1205,7 @@
                     <div class="pf-toolbar">
                         <input type="text" class="search-input" id="pf-search" placeholder="搜索代码/名称..." aria-label="搜索持仓">
                         <select id="pf-filter-strategy" class="pf-filter-select" aria-label="按策略筛选"><option value="">全部策略</option></select>
-                        <button class="btn btn-sm" onclick="App.pfExportCSV()" title="导出 CSV">导出</button>
+                        <button class="btn btn-sm" data-portfolio-action="export-csv" title="导出 CSV">导出</button>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -1239,8 +1239,8 @@
                 <div class="card-header-row">
                     <h2>交易记录</h2>
                     <div class="pf-trade-tabs">
-                        <button class="analysis-tab active" onclick="App.pfSwitchTradeTab('today')">今日交易</button>
-                        <button class="analysis-tab" onclick="App.pfSwitchTradeTab('history')">历史记录</button>
+                        <button class="analysis-tab active" data-portfolio-trade-tab="today">今日交易</button>
+                        <button class="analysis-tab" data-portfolio-trade-tab="history">历史记录</button>
                     </div>
                 </div>
                 <div class="analysis-panel active" id="pf-trade-today">
@@ -1256,7 +1256,7 @@
                         <input type="date" id="pf-hist-start" aria-label="起始日期">
                         <span class="text-muted">至</span>
                         <input type="date" id="pf-hist-end" aria-label="结束日期">
-                        <button class="btn btn-sm" onclick="App.pfLoadHistory()">查询</button>
+                        <button class="btn btn-sm" data-portfolio-action="load-history">查询</button>
                     </div>
                     <div class="table-wrap">
                         <table id="pf-trade-history-table" class="sortable">
@@ -1435,7 +1435,7 @@
                     <input type="text" id="pf-close-confirm" placeholder="输入代码确认">
                 </div>
                 <div class="modal-actions">
-                    <button class="btn" onclick="App.pfCloseModal()">取消</button>
+                    <button class="btn" data-portfolio-action="close-modal">取消</button>
                     <button class="btn btn-primary" id="pf-close-confirm-btn" disabled>确认平仓</button>
                 </div>
             </div>
@@ -1450,7 +1450,7 @@
                     <input type="number" id="pf-partial-vol" min="1" step="100" placeholder="输入数量">
                 </div>
                 <div class="modal-actions">
-                    <button class="btn" onclick="App.pfPartialModal()">取消</button>
+                    <button class="btn" data-portfolio-action="partial-modal">取消</button>
                     <button class="btn btn-primary" id="pf-partial-confirm-btn" disabled>确认卖出</button>
                 </div>
             </div>
@@ -1471,8 +1471,8 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button class="btn" onclick="App.pfSltpModal()">取消</button>
-                    <button class="btn btn-primary" onclick="App.pfSaveSltp()">保存</button>
+                    <button class="btn" data-portfolio-action="sltp-modal">取消</button>
+                    <button class="btn btn-primary" data-portfolio-action="save-sltp">保存</button>
                 </div>
             </div>
         </div>

@@ -23,7 +23,45 @@ Object.assign(App, {
     _pfLoaded: false,
     _pfLoading: false,
 
+
+    _bindPortfolioActions() {
+        if (this._pf.actionsBound) return;
+        this._pf.actionsBound = true;
+
+        document.addEventListener('click', (event) => {
+            const rangeButton = event.target.closest('[data-portfolio-range]');
+            if (rangeButton) {
+                event.preventDefault();
+                this.pfSetRange(rangeButton.dataset.portfolioRange);
+                return;
+            }
+
+            const tradeTab = event.target.closest('[data-portfolio-trade-tab]');
+            if (tradeTab) {
+                event.preventDefault();
+                this.pfSwitchTradeTab(tradeTab.dataset.portfolioTradeTab);
+                return;
+            }
+
+            const actionButton = event.target.closest('[data-portfolio-action]');
+            if (!actionButton) return;
+            event.preventDefault();
+
+            const actions = {
+                'panic-cancel-all': () => this.panicCancelAll(),
+                'export-csv': () => this.pfExportCSV(),
+                'load-history': () => this.pfLoadHistory(),
+                'close-modal': () => this.pfCloseModal(),
+                'partial-modal': () => this.pfPartialModal(),
+                'sltp-modal': () => this.pfSltpModal(),
+                'save-sltp': () => this.pfSaveSltp(),
+            };
+            actions[actionButton.dataset.portfolioAction]?.();
+        });
+    },
+
     async loadPortfolio(shared) {
+        this._bindPortfolioActions();
         if (this._pfLoading) return;
         this._pfLoading = true;
         const refreshBtn = null;

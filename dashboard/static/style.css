@@ -378,9 +378,8 @@ body.sidebar-collapsed .content { margin-left: var(--sidebar-collapsed-w); }
 .skip-link:focus { top: 16px; }
 
 @media (min-width: 1400px) {
-    .content { margin-left: auto; margin-right: auto; padding-left: 24px; padding-right: 24px; }
-    .content::before { content: ''; display: block; width: var(--sidebar-w); float: left; height: 0; transition: width var(--transition); }
-    body.sidebar-collapsed .content::before { width: var(--sidebar-collapsed-w); }
+    .content { margin-left: var(--sidebar-w); margin-right: auto; padding-left: 24px; padding-right: 24px; }
+    body.sidebar-collapsed .content { margin-left: var(--sidebar-collapsed-w); }
 }
 
 .page-header {

@@ -79,6 +79,40 @@ const App = {
         sim: 'paper',          // 模拟 复用模拟盘面板
     },
 
+    _uiActionPending: {},
+    _degradedUiState: {
+        dedupeKeys: {},
+    },
+    _runtimeErrorState: {
+        lastSignature: '',
+        lastAt: 0,
+    },
+
+    _tagLegacyActionButtons() {
+        const overviewRefresh = document.querySelector('#tab-overview > .page-header .btn.btn-sm');
+        if (overviewRefresh) overviewRefresh.dataset.appRole = 'overview-refresh';
+
+        const alphaActionGroup = document.getElementById('alpha-model')?.parentElement;
+        const alphaButtons = alphaActionGroup ? [...alphaActionGroup.querySelectorAll('button.btn')] : [];
+        if (alphaButtons[0]) alphaButtons[0].dataset.appRole = 'alpha-analyze';
+        if (alphaButtons[1]) alphaButtons[1].dataset.appRole = 'alpha-optimize';
+
+        const factorActionGroup = document.getElementById('factor-select')?.parentElement;
+        const factorButtons = factorActionGroup ? [...factorActionGroup.querySelectorAll('button.btn.btn-sm')] : [];
+        if (factorButtons[0]) factorButtons[0].dataset.appRole = 'factor-analyze';
+        if (factorButtons[1]) factorButtons[1].dataset.appRole = 'factor-correlation';
+
+        const portoptPanel = document.getElementById('portopt-codes')?.closest('.card');
+        const portoptButtons = portoptPanel ? [...portoptPanel.querySelectorAll('button.btn')] : [];
+        const optimizeButton = portoptButtons.find(btn => btn.textContent.includes('执行优化'));
+        if (optimizeButton) optimizeButton.dataset.appRole = 'portopt-optimize';
+    },
+
+    _getLegacyActionButton(role) {
+        this._tagLegacyActionButtons();
+        return document.querySelector(`[data-app-role="${role}"]`);
+    },
+
     escapeHTML(str) {
         if (str == null) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
@@ -212,51 +246,552 @@ const App = {
 
         window.addEventListener('online', () => {
             update();
-            this.toast('网络已恢复', 'success');
         });
         window.addEventListener('offline', () => {
             update();
-            this.toast('网络已断开，部分功能不可用', 'warning');
         });
         update();
     },
 
-    /** 统一加入自选股：即时更新表格 + 延迟 enrichment 刷新 */
-    async addToWatchlist(code) {
-        if (!code) return false;
-        try {
-            const data = await this.fetchJSON('/api/watchlist', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }), label: '加入自选股',
+    _initDegradedMode() {
+        const manager = globalThis.DegradedModeManager;
+        const intentBus = globalThis.IntentBus;
+        if (!manager || typeof manager.init !== 'function' || !intentBus || typeof intentBus.on !== 'function') {
+            return;
+        }
+
+        manager.init();
+
+        intentBus.on('degraded:toast', (payload) => {
+            this._handleDegradedToast(payload);
+        });
+        intentBus.on('degraded:ui-dim', (payload) => {
+            this._applyDegradedUiState(payload);
+        });
+        intentBus.on('degraded:state-changed', (payload) => {
+            this._syncDegradedOfflineBar(payload);
+            this._syncDegradedStatusBar(payload);
+        });
+        intentBus.on('degraded:actions-updated', () => {
+            this._refreshCommandPaletteForDegradedState();
+        });
+
+        if (typeof manager.emitUiSignals === 'function') {
+            manager.emitUiSignals({
+                includeToast: false,
+                includeBadge: true,
+                includeOverlay: true,
             });
-            if (!data.success) {
-                this.toast(data.error || data.message || '添加失败', 'error');
-                return false;
+        }
+    },
+
+    _handleDegradedToast(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return;
+        }
+
+        const dedupeKey = typeof payload.dedupeKey === 'string' ? payload.dedupeKey.trim() : '';
+        if (dedupeKey) {
+            if (this._degradedUiState.dedupeKeys[dedupeKey] === true) {
+                return;
             }
-            // 即时追加到本地缓存
-            const existing = (this.watchlistCache || []).find(s => s.code === code);
-            if (!existing) {
-                const item = {
-                    code,
-                    name: data.name || code,
-                    industry: '', sector: '', concepts: [],
-                    price: data.price || null,
-                    change_pct: data.change_pct != null ? data.change_pct : null,
-                };
-                this.watchlistCache = [...(this.watchlistCache || []), item];
+            this._degradedUiState = {
+                ...this._degradedUiState,
+                dedupeKeys: {
+                    ...this._degradedUiState.dedupeKeys,
+                    [dedupeKey]: true,
+                },
+            };
+        }
+
+        const message = typeof payload.message === 'string' && payload.message.trim()
+            ? payload.message.trim()
+            : '系统状态已变更';
+        const tone = payload.tone === 'danger'
+            ? 'error'
+            : (payload.tone === 'warning' ? 'warning' : 'info');
+        this.toast(message, tone);
+    },
+
+    _syncDegradedOfflineBar(payload) {
+        const bar = document.getElementById('offline-bar');
+        if (!bar || !payload || typeof payload !== 'object' || !payload.snapshot) {
+            return;
+        }
+
+        const snapshot = payload.snapshot;
+        const activeStates = snapshot.activeStates && typeof snapshot.activeStates === 'object'
+            ? snapshot.activeStates
+            : {};
+        const offlineState = activeStates['network-offline'];
+        if (offlineState && typeof offlineState.reason === 'string' && offlineState.reason.trim()) {
+            bar.innerHTML = `<span>${this.escapeHTML(offlineState.reason.trim())}</span>`;
+            bar.classList.remove('hidden');
+            return;
+        }
+
+        bar.innerHTML = '<span>📡 网络已断开，部分功能可能不可用</span>';
+        if (snapshot.network && snapshot.network.online === true) {
+            bar.classList.add('hidden');
+        }
+    },
+
+    _syncDegradedStatusBar(payload) {
+        const bar = document.getElementById('degraded-status-bar');
+        const text = document.getElementById('degraded-status-text');
+        if (!bar || !text || !payload || typeof payload !== 'object' || !payload.snapshot) {
+            return;
+        }
+
+        const snapshot = payload.snapshot;
+        const highestSeverity = typeof payload.highestSeverity === 'string' && payload.highestSeverity.trim()
+            ? payload.highestSeverity.trim()
+            : null;
+        const changedKeys = Array.isArray(payload.changedStateKeys) ? payload.changedStateKeys : [];
+        const activeStates = snapshot.activeStates && typeof snapshot.activeStates === 'object'
+            ? snapshot.activeStates
+            : {};
+        const activeRecords = Object.values(activeStates).filter((record) => record && typeof record.reason === 'string' && record.reason.trim());
+
+        if (activeRecords.length === 0) {
+            bar.classList.add('hidden');
+            bar.dataset.severity = 'info';
+            text.textContent = '系统已恢复正常';
+            return;
+        }
+
+        const changedReasons = changedKeys
+            .map((stateKey) => activeStates[stateKey])
+            .filter((record) => record && typeof record.reason === 'string' && record.reason.trim())
+            .map((record) => record.reason.trim());
+        const message = changedReasons.length > 0
+            ? changedReasons.join('；')
+            : activeRecords.map((record) => record.reason.trim()).join('；');
+
+        text.textContent = message;
+        bar.dataset.severity = highestSeverity || 'warning';
+        bar.classList.remove('hidden');
+    },
+
+    _applyDegradedUiState(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return;
+        }
+
+        const scope = typeof payload.scope === 'string' ? payload.scope.trim() : '';
+        const target = this._resolveDegradedScopeTarget(scope);
+        if (!target) {
+            return;
+        }
+
+        const isActive = payload.active === true;
+        target.dataset.degradedScope = scope || 'global';
+        target.dataset.degradedActive = isActive ? 'true' : 'false';
+        target.dataset.degradedMode = isActive && typeof payload.mode === 'string' && payload.mode.trim()
+            ? payload.mode.trim()
+            : 'dim';
+        target.dataset.degradedLevel = isActive && typeof payload.level === 'string' && payload.level.trim()
+            ? payload.level.trim()
+            : 'info';
+        target.dataset.degradedReason = isActive && typeof payload.reason === 'string' && payload.reason.trim()
+            ? payload.reason.trim()
+            : '';
+        if (!isActive) {
+            delete target.dataset.degradedReason;
+        }
+    },
+
+    _resolveDegradedScopeTarget(scope) {
+        if (scope === 'global') {
+            return document.querySelector('main.content');
+        }
+        if (scope === 'market') {
+            return document.getElementById('tab-overview') || document.getElementById('tab-stock');
+        }
+        if (scope === 'trade') {
+            return document.getElementById('tab-trade') || document.getElementById('trade-panel-portfolio') || document.getElementById('tab-paper');
+        }
+        if (scope === 'portfolio') {
+            return document.getElementById('trade-panel-portfolio') || document.getElementById('tab-trade');
+        }
+        if (scope === 'panel') {
+            return document.getElementById('stock-offcanvas');
+        }
+        return null;
+    },
+
+    _refreshCommandPaletteForDegradedState() {
+        const palette = globalThis.CommandPalette;
+        if (!palette || typeof palette.getState !== 'function' || typeof palette.refreshResults !== 'function') {
+            return;
+        }
+
+        const state = palette.getState();
+        if (!state || state.isOpen !== true) {
+            return;
+        }
+
+        void palette.refreshResults({
+            source: 'app:degraded-actions-updated',
+        });
+    },
+
+    _installGlobalRuntimeErrorHandlers() {
+        if (this._runtimeErrorHandlersInstalled === true) {
+            return;
+        }
+        this._runtimeErrorHandlersInstalled = true;
+
+        window.addEventListener('error', (event) => {
+            if (!(event instanceof ErrorEvent)) {
+                return;
             }
-            // 即时重渲染自选股表格
-            Watchlist.render(this.watchlistCache);
-            this._watchlistRowMap = null;
-            RealtimeQuotes.subscribe([code]);
-            this.toast(`${code} ${data.name || ''} 已加入自选股`, 'success');
-            // 延迟刷新获取 enrichment（行业/板块/概念/实时行情）
-            this._scheduleWatchlistRefresh();
-            return true;
-        } catch (e) {
-            this.toast('加入自选股失败', 'error');
+            if (!event.error && !(typeof event.message === 'string' && event.message.trim())) {
+                return;
+            }
+
+            this._reportRuntimeError('error', {
+                message: event?.message,
+                source: event?.filename,
+                line: event?.lineno,
+                column: event?.colno,
+                error: event?.error,
+            });
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            this._reportRuntimeError('unhandledrejection', {
+                reason: event?.reason,
+            });
+        });
+    },
+
+    _reportRuntimeError(type, detail = {}) {
+        const normalized = this._normalizeRuntimeErrorDetail(type, detail);
+        const signature = `${normalized.type}|${normalized.message}|${normalized.source}|${normalized.line}|${normalized.column}`;
+        const now = Date.now();
+        if (
+            this._runtimeErrorState.lastSignature === signature
+            && now - this._runtimeErrorState.lastAt < 5000
+        ) {
+            return;
+        }
+
+        this._runtimeErrorState = {
+            lastSignature: signature,
+            lastAt: now,
+        };
+
+        if (globalThis.console && typeof globalThis.console.error === 'function') {
+            globalThis.console.error('[RuntimeError]', normalized);
+        }
+
+        const isInitPhase = document.readyState !== 'complete';
+        const message = isInitPhase
+            ? '页面初始化异常，请刷新后重试'
+            : '页面运行异常，请稍后重试';
+        this.toast(message, 'error');
+    },
+
+    _normalizeRuntimeErrorDetail(type, detail = {}) {
+        const sourceError = detail.error ?? detail.reason;
+        const source = typeof detail.source === 'string' && detail.source.trim()
+            ? detail.source.trim()
+            : '';
+        const line = Number.isFinite(Number(detail.line)) ? Number(detail.line) : null;
+        const column = Number.isFinite(Number(detail.column)) ? Number(detail.column) : null;
+
+        let message = '';
+        if (typeof detail.message === 'string' && detail.message.trim()) {
+            message = detail.message.trim();
+        } else if (sourceError instanceof Error && typeof sourceError.message === 'string' && sourceError.message.trim()) {
+            message = sourceError.message.trim();
+        } else if (typeof sourceError === 'string' && sourceError.trim()) {
+            message = sourceError.trim();
+        } else {
+            message = 'Unknown runtime error';
+        }
+
+        return {
+            type,
+            message,
+            source,
+            line,
+            column,
+            stack: sourceError instanceof Error && typeof sourceError.stack === 'string'
+                ? sourceError.stack
+                : '',
+        };
+    },
+
+    async openStockDetail(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+
+        const source = typeof options.source === 'string' && options.source.trim()
+            ? options.source.trim()
+            : 'app:open-stock-detail';
+
+        return this._invokeStockActionWithFallback({
+            toolId: 'open_stock_detail',
+            input: { code: normalizedCode },
+            source,
+            actionKey: `open_stock_detail:${normalizedCode}`,
+        });
+    },
+
+    /** 统一加入自选股：对外入口统一走 LocalMCP */
+    async addToWatchlist(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+
+        const safeOptions = options && typeof options === 'object' ? options : {};
+        const source = typeof safeOptions.source === 'string' && safeOptions.source.trim()
+            ? safeOptions.source.trim()
+            : 'app:add-watchlist';
+
+        return this.invokeStockAction({
+            toolId: 'add_to_watchlist',
+            input: { code: normalizedCode },
+            source,
+            traceId: typeof safeOptions.traceId === 'string' && safeOptions.traceId.trim() ? safeOptions.traceId.trim() : null,
+            requestId: typeof safeOptions.requestId === 'string' && safeOptions.requestId.trim() ? safeOptions.requestId.trim() : null,
+            metadata: safeOptions.metadata && typeof safeOptions.metadata === 'object' ? { ...safeOptions.metadata } : null,
+            actionKey: `add_to_watchlist:${normalizedCode}`,
+            suppressFailureToast: safeOptions.suppressFailureToast === true,
+        });
+    },
+
+    async removeFromWatchlist(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+
+        const safeOptions = options && typeof options === 'object' ? options : {};
+        const source = typeof safeOptions.source === 'string' && safeOptions.source.trim()
+            ? safeOptions.source.trim()
+            : 'app:remove-watchlist';
+
+        return this.invokeStockAction({
+            toolId: 'remove_from_watchlist',
+            input: { code: normalizedCode },
+            source,
+            traceId: typeof safeOptions.traceId === 'string' && safeOptions.traceId.trim() ? safeOptions.traceId.trim() : null,
+            requestId: typeof safeOptions.requestId === 'string' && safeOptions.requestId.trim() ? safeOptions.requestId.trim() : null,
+            metadata: safeOptions.metadata && typeof safeOptions.metadata === 'object' ? { ...safeOptions.metadata } : null,
+            actionKey: `remove_from_watchlist:${normalizedCode}`,
+            suppressFailureToast: safeOptions.suppressFailureToast === true,
+        });
+    },
+
+    async _commitWatchlistAdd(code) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            throw new Error('STOCK_CODE_REQUIRED');
+        }
+
+        const data = await this.fetchJSON('/api/watchlist', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: normalizedCode }), label: '加入自选股',
+        });
+        if (!data.success) {
+            throw new Error(data.error || data.message || '添加失败');
+        }
+
+        const existing = (this.watchlistCache || []).find((stock) => stock.code === normalizedCode);
+        if (!existing) {
+            const item = {
+                code: normalizedCode,
+                name: data.name || normalizedCode,
+                industry: '', sector: '', concepts: [],
+                price: data.price || null,
+                change_pct: data.change_pct != null ? data.change_pct : null,
+            };
+            this.watchlistCache = [...(this.watchlistCache || []), item];
+        }
+
+        Watchlist.render(this.watchlistCache || []);
+        this._watchlistRowMap = null;
+        RealtimeQuotes.subscribe([normalizedCode]);
+        this.toast(`${normalizedCode} ${data.name || ''} 已加入自选股`, 'success');
+        this._scheduleWatchlistRefresh();
+
+        return {
+            ok: true,
+            code: normalizedCode,
+            data,
+        };
+    },
+
+    async _commitWatchlistRemove(code) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            throw new Error('STOCK_CODE_REQUIRED');
+        }
+
+        await this.fetchJSON(`/api/watchlist/${encodeURIComponent(normalizedCode)}`, {
+            method: 'DELETE',
+            label: '移除自选股',
+        });
+
+        this.watchlistCache = (this.watchlistCache || []).filter((stock) => stock.code !== normalizedCode);
+        Watchlist.render(this.watchlistCache || []);
+        this._watchlistRowMap = null;
+        RealtimeQuotes.unsubscribe([normalizedCode]);
+        this.toast(`已移除 ${normalizedCode}`, 'success');
+
+        return {
+            ok: true,
+            code: normalizedCode,
+        };
+    },
+
+    _createActionTraceId(prefix) {
+        if (globalThis.LocalMCP && typeof globalThis.LocalMCP.createTraceId === 'function') {
+            return globalThis.LocalMCP.createTraceId(prefix);
+        }
+        const safePrefix = typeof prefix === 'string' && prefix.trim() ? prefix.trim() : 'app-action';
+        return `${safePrefix}-${Date.now()}`;
+    },
+
+    _setActionPending(actionKey, isPending) {
+        if (!actionKey) {
             return false;
         }
+
+        if (isPending) {
+            if (this._uiActionPending[actionKey] === true) {
+                return false;
+            }
+            this._uiActionPending = {
+                ...this._uiActionPending,
+                [actionKey]: true,
+            };
+            return true;
+        }
+
+        if (this._uiActionPending[actionKey] !== true) {
+            return true;
+        }
+
+        const nextPending = {
+            ...this._uiActionPending,
+        };
+        delete nextPending[actionKey];
+        this._uiActionPending = nextPending;
+        return true;
+    },
+
+    async invokeStockAction(params) {
+        const safeParams = params && typeof params === 'object' ? params : {};
+        const shouldToastFailure = safeParams.suppressFailureToast !== true;
+        const localMCP = globalThis.LocalMCP;
+        if (!localMCP || typeof localMCP.invoke !== 'function') {
+            if (shouldToastFailure) {
+                this.toast('统一动作入口不可用', 'error');
+            }
+            return {
+                ok: false,
+                status: 'failed',
+                code: 'LOCAL_MCP_UNAVAILABLE',
+            };
+        }
+
+        const toolId = typeof safeParams.toolId === 'string' ? safeParams.toolId.trim() : '';
+        const input = safeParams.input && typeof safeParams.input === 'object' ? { ...safeParams.input } : null;
+        const source = typeof safeParams.source === 'string' && safeParams.source.trim() ? safeParams.source.trim() : 'app';
+        const traceId = typeof safeParams.traceId === 'string' && safeParams.traceId.trim()
+            ? safeParams.traceId.trim()
+            : this._createActionTraceId(source);
+        const actionKey = typeof safeParams.actionKey === 'string' && safeParams.actionKey.trim() ? safeParams.actionKey.trim() : null;
+
+        if (!toolId) {
+            if (shouldToastFailure) {
+                this.toast('动作标识缺失', 'error');
+            }
+            return {
+                ok: false,
+                status: 'failed',
+                code: 'ACTION_ID_REQUIRED',
+            };
+        }
+
+        if (actionKey && this._setActionPending(actionKey, true) !== true) {
+            return {
+                ok: false,
+                status: 'blocked',
+                code: 'ACTION_ALREADY_PENDING',
+            };
+        }
+
+        try {
+            const result = await localMCP.invoke({
+                toolId,
+                input,
+                source,
+                traceId,
+                requestId: typeof safeParams.requestId === 'string' && safeParams.requestId.trim() ? safeParams.requestId.trim() : null,
+                metadata: safeParams.metadata && typeof safeParams.metadata === 'object' ? { ...safeParams.metadata } : null,
+            });
+
+            if (!result.ok && shouldToastFailure) {
+                this.toast(this._resolveActionFailureMessage(result), 'error');
+            }
+
+            return result;
+        } catch (error) {
+            if (shouldToastFailure) {
+                this.toast(this._resolveActionFailureMessage({ error }), 'error');
+            }
+            return {
+                ok: false,
+                status: 'failed',
+                code: error && typeof error.code === 'string' ? error.code : 'LOCAL_MCP_INVOKE_FAILED',
+                error,
+            };
+        } finally {
+            if (actionKey) {
+                this._setActionPending(actionKey, false);
+            }
+        }
+    },
+
+    _resolveActionFailureMessage(result) {
+        const errorMessage = result && result.error && typeof result.error.message === 'string' && result.error.message.trim()
+            ? result.error.message.trim()
+            : '';
+
+        if (errorMessage) {
+            return errorMessage;
+        }
+
+        if (result && result.code === 'ACTION_ID_REQUIRED') {
+            return '动作标识缺失';
+        }
+
+        if (result && result.code === 'ACTION_ALREADY_PENDING') {
+            return '操作进行中，请稍候';
+        }
+
+        if (result && result.status === 'blocked') {
+            return '当前操作暂不可执行';
+        }
+
+        if (result && result.status === 'not_found') {
+            return '未找到可执行动作';
+        }
+
+        return '操作执行失败';
+    },
+
+    async _invokeStockActionWithFallback(params) {
+        const safeParams = params && typeof params === 'object' ? params : {};
+        return this.invokeStockAction(safeParams);
     },
 
     /** 批量加入自选股 */
@@ -265,7 +800,7 @@ const App = {
         let ok = 0, fail = 0;
         for (const code of codes) {
             const result = await this.addToWatchlist(code);
-            if (result) ok++; else fail++;
+            if (result && result.ok) ok++; else fail++;
         }
         if (codes.length > 1) {
             this.toast(`自选股: 成功 ${ok}，失败 ${fail}`, ok > 0 ? 'success' : 'error');
@@ -282,6 +817,7 @@ const App = {
     },
 
     init() {
+        this._installGlobalRuntimeErrorHandlers();
         this._initTheme();
         this._initV2();
         this.bindTabs();
@@ -314,17 +850,79 @@ const App = {
         });
 
         document.addEventListener('click', (e) => {
+            const detailActionButton = e.target.closest('[data-stock-action]');
+            if (detailActionButton) {
+                const actionType = detailActionButton.dataset.stockAction;
+                const code = typeof detailActionButton.dataset.code === 'string' ? detailActionButton.dataset.code.trim() : '';
+                if (!code) {
+                    return;
+                }
+
+                e.preventDefault();
+
+                if (actionType === 'open-detail') {
+                    this._invokeStockActionWithFallback({
+                        toolId: 'open_stock_detail',
+                        input: { code },
+                        source: 'app:offcanvas:open-detail',
+                        actionKey: `open_stock_detail:${code}`,
+                    }).then((result) => {
+                        if (result && result.ok) {
+                            this.closeOffcanvas();
+                        }
+                    });
+                    return;
+                }
+
+                if (actionType === 'add-watchlist') {
+                    this._invokeStockActionWithFallback({
+                        toolId: 'add_to_watchlist',
+                        input: { code },
+                        source: 'app:offcanvas:add-watchlist',
+                        actionKey: `add_to_watchlist:${code}`,
+                    });
+                    return;
+                }
+            }
+
+            const activeOrderButton = e.target.closest('[data-app-action="cancel-active-order"]');
+            if (activeOrderButton) {
+                const orderId = typeof activeOrderButton.dataset.orderId === 'string' ? activeOrderButton.dataset.orderId.trim() : '';
+                if (!orderId) {
+                    return;
+                }
+
+                e.preventDefault();
+                this.cancelActiveOrder(orderId);
+                return;
+            }
+
+            const deleteSimSnapshotButton = e.target.closest('[data-app-action="delete-sim-snapshot"]');
+            if (deleteSimSnapshotButton) {
+                const snapshotId = typeof deleteSimSnapshotButton.dataset.snapshotId === 'string' ? deleteSimSnapshotButton.dataset.snapshotId.trim() : '';
+                if (!snapshotId) {
+                    return;
+                }
+
+                e.preventDefault();
+                this.deleteSimSnapshot(snapshotId);
+                return;
+            }
+
             const link = e.target.closest('.stock-link');
             if (!link) return;
             e.preventDefault();
             const code = link.dataset.code;
             if (code) {
-                StockDetail.open(code);
-                this.switchTab('stock');
+                this.syncActiveStockContext(code, null, 'app:stock-link', 'stock-link');
+                this.openStockDetail(code, {
+                    source: 'app:stock-link',
+                });
             }
         });
 
         this._initTableSorting();
+        this._initCommandPalette();
         this._initGlobalShortcuts();
         this._initPWA();
 
@@ -350,7 +948,8 @@ const App = {
         this._requestNotifyPermission();
         // PWA 离线状态指示
         this._initNetworkStatus();
-        console.log('[V2] 5+1导航模式已启用');
+        // 初始化 degraded mode 生产链路
+        this._initDegradedMode();
     },
 
     // ── V2: Offcanvas 行情速览抽屉 ──
@@ -358,11 +957,70 @@ const App = {
     _initOffcanvas() {
         const overlay = document.getElementById('offcanvas-overlay');
         const closeBtn = document.getElementById('offcanvas-close');
+        const panel = document.getElementById('stock-offcanvas');
+        const panelLifecycle = globalThis.PanelLifecycle;
+
+        if (panelLifecycle && typeof panelLifecycle.has === 'function' && typeof panelLifecycle.register === 'function' && !panelLifecycle.has('stock-offcanvas')) {
+            panelLifecycle.register({
+                id: 'stock-offcanvas',
+                title: '行情速览',
+                keywords: ['stock', 'offcanvas', 'quote', 'detail', '行情', '速览'],
+                mount() {
+                    return {};
+                },
+            });
+        }
+
+        if (panel && panelLifecycle && typeof panelLifecycle.mountRoot === 'function') {
+            panelLifecycle.mountRoot({ root: panel });
+        }
+
         if (overlay) overlay.addEventListener('click', () => this.closeOffcanvas());
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeOffcanvas());
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.closeOffcanvas();
+            if (e.key !== 'Escape') {
+                return;
+            }
+            const paletteRoot = document.getElementById('cmd-palette');
+            const isPaletteOpen = !!paletteRoot && paletteRoot.hidden !== true && !paletteRoot.classList.contains('hidden');
+            if (isPaletteOpen) {
+                return;
+            }
+            this.closeOffcanvas();
         });
+    },
+
+    syncActiveStockContext(code, stock, source, requestPrefix) {
+        const safeCode = typeof code === 'string' ? code.trim() : '';
+        if (!safeCode) {
+            return false;
+        }
+
+        const safeStock = stock && typeof stock === 'object' ? stock : {};
+        const stockStore = globalThis.GlobalStockStore;
+        if (stockStore && typeof stockStore.setActiveStock === 'function') {
+            stockStore.setActiveStock({
+                identity: {
+                    code: safeCode,
+                    name: typeof safeStock.name === 'string' && safeStock.name.trim() ? safeStock.name.trim() : null,
+                    market: typeof safeStock.market === 'string' && safeStock.market.trim() ? safeStock.market.trim() : null,
+                    exchange: typeof safeStock.exchange === 'string' && safeStock.exchange.trim() ? safeStock.exchange.trim() : null,
+                },
+                source,
+                requestId: typeof stockStore.createRequestId === 'function'
+                    ? stockStore.createRequestId(requestPrefix || source || 'stock-sync')
+                    : null,
+            });
+        }
+
+        const rightRail = globalThis.RightRailController;
+        if (rightRail && typeof rightRail.syncStockContext === 'function') {
+            rightRail.syncStockContext({
+                source,
+            });
+        }
+
+        return true;
     },
 
     async openOffcanvas(code) {
@@ -375,20 +1033,40 @@ const App = {
         const title = document.getElementById('offcanvas-title');
         if (!panel || !body) return;
 
+        const rightRail = globalThis.RightRailController;
+        const safeCode = typeof code === 'string' ? code.trim() : '';
+        if (!safeCode) return;
+
         panel.classList.add('active');
         if (overlay) overlay.classList.add('active');
         panel.setAttribute('aria-hidden', 'false');
         body.innerHTML = '<div class="text-center" style="padding:40px"><span class="spinner"></span> 加载中...</div>';
 
         try {
-            const data = await this.fetchJSON(`/api/stock/detail/${code}`);
-            if (!data.success) {
-                body.innerHTML = `<div class="text-muted text-center">${this.escapeHTML(data.error || '加载失败')}</div>`;
+            const response = await this.fetchJSON(`/api/stock/detail/${safeCode}`);
+            const data = response && typeof response === 'object' && response.quote && response.success !== undefined
+                ? response.quote
+                : response;
+            if (!data || typeof data !== 'object') {
+                body.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                 return;
             }
-            const q = data.quote || {};
-            const name = q.name || code;
+            const q = data;
+            const name = q.name || safeCode;
             if (title) title.textContent = `${name} 行情速览`;
+
+            this.syncActiveStockContext(safeCode, q, 'app:offcanvas', 'offcanvas');
+            if (rightRail && typeof rightRail.activatePanel === 'function') {
+                rightRail.activatePanel({
+                    panelId: 'stock-offcanvas',
+                    panelParams: {
+                        code: safeCode,
+                        name,
+                    },
+                    autoOpen: true,
+                    source: 'app:offcanvas',
+                });
+            }
 
             const changePct = q.change_pct ?? 0;
             const changeAbs = q.change ?? 0;
@@ -411,7 +1089,7 @@ const App = {
             body.innerHTML = `
                 <div class="oc-quote-header">
                     <span class="oc-quote-name">${this.escapeHTML(name)}</span>
-                    <span class="oc-quote-code">${this.escapeHTML(code)}</span>
+                    <span class="oc-quote-code">${this.escapeHTML(safeCode)}</span>
                 </div>
                 <div class="oc-quote-price ${cls}">¥${q.price != null ? q.price.toFixed(2) : '--'}</div>
                 <div class="oc-quote-change ${cls}">${sign}${changeAbs.toFixed(2)} (${sign}${changePct.toFixed(2)}%)</div>
@@ -419,8 +1097,8 @@ const App = {
                     ${metrics.map(([l, v]) => `<div class="oc-metric"><span class="label">${l}</span><span class="value">${v}</span></div>`).join('')}
                 </div>
                 <div class="oc-actions">
-                    <button class="btn btn-sm btn-primary" onclick="App.switchTab('stock'); StockDetail.open('${this.escapeHTML(code)}'); App.closeOffcanvas();">查看详情</button>
-                    <button class="btn btn-sm" onclick="App.addToWatchlist('${this.escapeHTML(code)}')">加自选</button>
+                    <button class="btn btn-sm btn-primary" data-stock-action="open-detail" data-code="${this.escapeHTML(safeCode)}">查看详情</button>
+                    <button class="btn btn-sm" data-stock-action="add-watchlist" data-code="${this.escapeHTML(safeCode)}">加自选</button>
                 </div>
             `;
         } catch (e) {
@@ -436,6 +1114,14 @@ const App = {
             panel.setAttribute('aria-hidden', 'true');
         }
         if (overlay) overlay.classList.remove('active');
+
+        const rightRail = globalThis.RightRailController;
+        if (rightRail && typeof rightRail.deactivatePanel === 'function') {
+            rightRail.deactivatePanel({
+                closeRail: false,
+                source: 'app:offcanvas',
+            });
+        }
     },
 
     _fmtVol(v) {
@@ -511,6 +1197,52 @@ const App = {
     // ── V2: EventBus 联动 ──
 
     _initV2Events() {
+        const rightRail = globalThis.RightRailController;
+        const stockStore = globalThis.GlobalStockStore;
+
+        if (rightRail && typeof rightRail.subscribe === 'function' && stockStore && typeof stockStore.patchUI === 'function') {
+            rightRail.subscribe((state) => {
+                const nextActivePanel = state && typeof state.activePanelId === 'string' ? state.activePanelId : null;
+                const nextIsOpen = state && state.isOpen === true;
+                const nextDisplayMode = state && typeof state.displayMode === 'string' ? state.displayMode : 'hidden';
+                const nextWidth = state && state.ui && Number.isFinite(Number(state.ui.width)) ? Number(state.ui.width) : null;
+                const nextPanelParams = state && state.panelParams && typeof state.panelParams === 'object'
+                    ? state.panelParams
+                    : null;
+                const currentStore = typeof stockStore.getState === 'function' ? stockStore.getState() : null;
+                const currentUi = currentStore && currentStore.ui ? currentStore.ui : null;
+                const currentActivePanel = currentUi && typeof currentUi.activePanel === 'string' ? currentUi.activePanel : null;
+                const currentIsOpen = currentUi && currentUi.isOpen === true;
+                const currentDisplayMode = currentUi && typeof currentUi.displayMode === 'string' ? currentUi.displayMode : 'hidden';
+                const currentWidth = currentUi && Number.isFinite(Number(currentUi.width)) ? Number(currentUi.width) : null;
+                const currentPanelParams = currentUi && currentUi.panelParams && typeof currentUi.panelParams === 'object'
+                    ? currentUi.panelParams
+                    : null;
+                const currentPanelParamsKey = currentPanelParams ? JSON.stringify(currentPanelParams) : '';
+                const nextPanelParamsKey = nextPanelParams ? JSON.stringify(nextPanelParams) : '';
+                const hasChanged = currentActivePanel !== nextActivePanel
+                    || currentIsOpen !== nextIsOpen
+                    || currentDisplayMode !== nextDisplayMode
+                    || currentWidth !== nextWidth
+                    || currentPanelParamsKey !== nextPanelParamsKey;
+
+                if (!hasChanged) {
+                    return;
+                }
+
+                stockStore.patchUI({
+                    patch: {
+                        activePanel: nextActivePanel,
+                        isOpen: nextIsOpen,
+                        displayMode: nextDisplayMode,
+                        width: nextWidth,
+                        panelParams: nextPanelParams,
+                    },
+                    source: 'app:right-rail-sync',
+                });
+            });
+        }
+
         // 新闻→行情抽屉
         this.on('news:open-stock', ({ code }) => {
             if (code) this.openOffcanvas(code);
@@ -555,7 +1287,7 @@ const App = {
 
         // 模拟交易下单/撤单后自动刷新持仓数据
         this.on('data:portfolio-updated', ({ source } = {}) => {
-            const active = this._activeTab;
+            const active = this.currentTab;
             if (active === 'overview') {
                 this.loadOverview();
             } else if (active === 'trade') {
@@ -753,13 +1485,17 @@ const App = {
         // 风控已作为交易子Tab，无需DOM移动
     },
 
+    _getResearchHeaderActionButton(role) {
+        return this._getLegacyActionButton(role);
+    },
+
     _onResearchSubTabActivate(subtab) {
         // 共享头部按需显示 + 控件精准切换
         const alphaHeader = document.querySelector('#tab-research > .page-header');
         const alphaStats = document.getElementById('alpha-perf-stats');
         const modelSel = document.getElementById('alpha-model');
-        const analyzeBtn = document.querySelector('button[onclick="App.loadAlpha()"]');
-        const optimizeBtn = document.querySelector('button[onclick="App.optimizeAlpha()"]');
+        const analyzeBtn = this._getResearchHeaderActionButton('alpha-analyze');
+        const optimizeBtn = this._getResearchHeaderActionButton('alpha-optimize');
         const needsHeader = ['factor', 'model', 'mining'].includes(subtab);
 
         if (alphaHeader) alphaHeader.style.display = needsHeader ? '' : 'none';
@@ -936,8 +1672,8 @@ const App = {
                 e.preventDefault();
                 const activeTab = document.querySelector('.nav-link.active')?.dataset.tab;
                 if (activeTab === 'overview') this.loadOverview();
-                else if (activeTab === 'paper') PaperTrading?.refresh?.();
-                else if (activeTab === 'portfolio') App.Portfolio?.refresh?.();
+                else if (activeTab === 'sim' || activeTab === 'paper') PaperTrading?.refreshAll?.();
+                else if (activeTab === 'trade') this.loadTradeTab?.();
                 return;
             }
 
@@ -948,19 +1684,70 @@ const App = {
                 return;
             }
 
-            // Alt+P: Command Palette
-            if (e.altKey && e.key === 'p') {
-                e.preventDefault();
-                this._toggleCommandPalette();
-                return;
-            }
-
             // Alt+H: 隐私模式
             if (e.altKey && e.key === 'h') {
                 e.preventDefault();
                 this.togglePrivacy();
                 return;
             }
+        });
+    },
+
+    _initCommandPalette() {
+        const palette = globalThis.CommandPalette;
+        const root = document.getElementById('cmd-palette');
+        const input = document.getElementById('cmd-palette-input');
+        const list = document.getElementById('cmd-palette-list');
+
+        if (!palette || typeof palette.mount !== 'function' || !root || !input || !list) {
+            return;
+        }
+
+        palette.mount({ root, input, list });
+        palette.attachKeyboardShortcuts({ target: document });
+        palette.subscribe((state) => {
+            root.hidden = state.isOpen !== true;
+            root.classList.toggle('hidden', state.isOpen !== true);
+            root.setAttribute('aria-hidden', state.isOpen === true ? 'false' : 'true');
+            input.setAttribute('aria-expanded', state.isOpen === true ? 'true' : 'false');
+
+            if (state.isLoading) {
+                list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">搜索中...</span></div>';
+                return;
+            }
+
+            if (state.error) {
+                const message = typeof state.error.message === 'string' && state.error.message.trim()
+                    ? state.error.message.trim()
+                    : '命令面板加载失败';
+                list.innerHTML = `<div class="cmd-palette-item"><span class="cmd-palette-label">${this.escapeHTML(message)}</span></div>`;
+                return;
+            }
+
+            if (!Array.isArray(state.mergedResults) || state.mergedResults.length === 0) {
+                list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">暂无可执行结果</span></div>';
+                return;
+            }
+
+            list.innerHTML = state.mergedResults.map((item, index) => {
+                const isActive = index === state.selectedIndex;
+                const isDisabled = item.kind === 'action' && item.enabled !== true;
+                const title = item.kind === 'stock'
+                    ? `${item.code} ${item.name || ''}`.trim()
+                    : (item.title || item.id || '未命名动作');
+                const description = item.kind === 'stock'
+                    ? (item.market || item.exchange || '股票')
+                    : (item.description || item.category || '动作');
+                const icon = item.kind === 'stock' ? '📈' : '⚡';
+                const metaLabel = isDisabled ? '不可执行' : description;
+                return `
+                    <div class="cmd-palette-item ${isActive ? 'active' : ''} ${isDisabled ? 'is-disabled' : ''}" data-command-palette-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}" aria-disabled="${isDisabled ? 'true' : 'false'}">
+                        <span class="cmd-palette-icon">${icon}</span>
+                        <span class="cmd-palette-label">${this.escapeHTML(title)}</span>
+                        <span class="cmd-palette-desc">${this.escapeHTML(metaLabel)}</span>
+                    </div>
+                `;
+            }).join('');
         });
     },
 
@@ -990,6 +1777,15 @@ const App = {
 
     /** Command Palette (Alt+P) */
     _toggleCommandPalette() {
+        const palette = globalThis.CommandPalette;
+        if (palette && typeof palette.toggle === 'function') {
+            void palette.toggle({
+                source: 'app:shortcut',
+                mode: 'mixed',
+            });
+            return;
+        }
+
         let el = document.getElementById('cmd-palette');
         if (el) {
             el.classList.toggle('hidden');
@@ -1238,10 +2034,17 @@ const App = {
         document.title = (titles[tab] || '监控') + ' - AI 量化交易系统';
         history.replaceState(null, '', '#' + tab);
 
-        if (tab === 'overview') this._startMarketRefresh();
+        if (tab === 'overview') {
+            if (typeof this._registerOverviewTimers === 'function') {
+                this._registerOverviewTimers();
+            }
+            this._startMarketRefresh();
+        }
         else {
             this._stopMarketRefresh();
-            if (App._quoteStatusTimer) { clearInterval(App._quoteStatusTimer); App._quoteStatusTimer = null; }
+            if (typeof this._unregisterOverviewTimers === 'function') {
+                this._unregisterOverviewTimers();
+            }
         }
 
         // 风控内容在交易Tab，切换到交易时启动风控轮询
@@ -1249,6 +2052,11 @@ const App = {
             this._rkStartPolling && this._rkStartPolling();
         } else {
             this._rkStopPolling && this._rkStopPolling();
+        }
+
+        // 模拟盘轮询仅在 sim tab 运行
+        if (tab !== 'sim' && tab !== 'paper') {
+            Paper._stopPolling && Paper._stopPolling();
         }
 
         // 缓存策略：首次切换必加载，后续30秒内不重复加载
@@ -1265,7 +2073,7 @@ const App = {
         else if (tab === 'research') {
             this._initResearchSubTabs();
         }
-        else if (tab === 'paper' || tab === 'sim') { if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
+        else if (tab === 'paper' || tab === 'sim') { Paper._startPolling && Paper._startPolling(); if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
         else if (tab === 'stock') { StockDetail.refresh(); }
         else if (tab === 'intelligence') { if (typeof Intelligence !== 'undefined') Intelligence.load(); }
 
@@ -1321,6 +2129,7 @@ const App = {
 
             this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', { maxResults: 30 });
             this.btMultiSearch.setDataSource(fullMarketFilter);
+            this._bindBacktestSnapshotInvalidation?.();
 
             const alphaSearch = new SearchBox('alpha-code', 'alpha-code-dropdown', {
                 maxResults: 30,
@@ -1584,7 +2393,7 @@ const App = {
                 <td>${o.price ? '¥' + o.price.toFixed(2) : '市价'}</td>
                 <td>${o.volume}</td>
                 <td><span class="badge badge-warning">待撮合</span></td>
-                <td><button class="btn btn-sm btn-danger" onclick="App.cancelActiveOrder('${o.order_id}')">撤销</button></td>
+                <td><button class="btn btn-sm btn-danger" data-app-action="cancel-active-order" data-order-id="${this.escapeHTML(o.order_id)}">撤销</button></td>
             </tr>`;
         }).join('');
     },
@@ -1826,7 +2635,7 @@ const App = {
                 <td>${s.maxDD}</td>
                 <td>${s.sharpe}</td>
                 <td>${s.winRate}</td>
-                <td><button class="btn btn-sm" onclick="App.deleteSimSnapshot('${s.id}')">删除</button></td>
+                <td><button class="btn btn-sm" data-app-action="delete-sim-snapshot" data-snapshot-id="${this.escapeHTML(s.id)}">删除</button></td>
             </tr>`;
         }).join('');
     },
@@ -1894,5 +2703,7 @@ const App = {
         this.toast(this._privacyMode ? '隐私模式已开启' : '隐私模式已关闭', 'info');
     },
 };
+
+globalThis.App = App;
 
 document.addEventListener('DOMContentLoaded', () => App.init());

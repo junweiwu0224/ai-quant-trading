@@ -39,7 +39,18 @@ const StockDetail = {
                 (s.name && s.name.toLowerCase().includes(kw))
             );
         });
-        this._searchBox.onSelect((item) => this.open(item.code));
+        this._searchBox.onSelect((item) => {
+            if (!item || !item.code) {
+                return;
+            }
+            void App.invokeStockAction({
+                toolId: 'open_stock_detail',
+                input: { code: item.code },
+                source: 'stock-detail:search-box',
+                traceId: App._createActionTraceId ? App._createActionTraceId('stock-detail') : null,
+                actionKey: `open_stock_detail:${item.code}`,
+            });
+        });
         this._bindChartTabs();
         this._bindIndicatorSelector();
         this._bindDrawingToolbar();
@@ -65,6 +76,11 @@ const StockDetail = {
     async open(code) {
         const gen = ++this._openGeneration;
         this._currentCode = code;
+
+        if (globalThis.App && typeof globalThis.App.syncActiveStockContext === 'function') {
+            const matchedStock = (App.watchlistCache || []).find((item) => item.code === code) || null;
+            globalThis.App.syncActiveStockContext(code, matchedStock, 'stock-detail:open', 'stock-detail');
+        }
         // 连接 L2 十档行情
         this._connectL2(code);
         const content = document.getElementById('sd-content');
@@ -95,6 +111,11 @@ const StockDetail = {
         if (stale()) return;
         this._setLoading(false);
 
+        const newsContainer = document.getElementById('sd-news');
+        if (newsContainer) {
+            newsContainer.innerHTML = '<p class="text-muted">新闻加载中...</p>';
+        }
+
         // 第二屏（非关键）：后台加载，不阻塞 loading 状态
         const deferred = [
             this._loadCapitalFlow(code, stale),
@@ -109,6 +130,7 @@ const StockDetail = {
             this._loadDragonTiger(code, stale),
             this._loadReports(code, stale),
             this._loadAlphaSignals(code, stale),
+            this._loadNews(code, stale),
         ];
         Promise.allSettled(deferred);
 
@@ -449,6 +471,52 @@ const StockDetail = {
             `).join('');
         } catch (e) {
             console.error('加载公告失败:', e);
+        }
+    },
+
+    /** 加载个股新闻 */
+    async _loadNews(code, stale) {
+        try {
+            const data = await App.fetchJSON(`/api/stock/news/${code}?limit=15`);
+            if (!data || stale()) return;
+            const news = data.news || [];
+            const sentiment = data.sentiment || {};
+            const container = document.getElementById('sd-news');
+            if (!container) return;
+
+            if (!news.length) {
+                container.innerHTML = '<p class="text-muted">暂无新闻</p>';
+                return;
+            }
+
+            // 情绪摘要
+            const score = sentiment.sentiment_score || 0;
+            const sentCls = score >= 0.1 ? 'text-up' : score <= -0.1 ? 'text-down' : 'text-muted';
+            const sentLabel = score >= 0.1 ? '偏多' : score <= -0.1 ? '偏空' : '中性';
+            const kw = (sentiment.hot_keywords || []).slice(0, 5);
+
+            container.innerHTML = `
+                <div class="sd-news-summary">
+                    <span class="sd-news-sentiment ${sentCls}">情绪：${sentLabel} (${score.toFixed(2)})</span>
+                    ${kw.length ? `<span class="sd-news-keywords">关键词：${kw.map(k => App.escapeHTML(k)).join('、')}</span>` : ''}
+                </div>
+                ${news.map(n => {
+                    const sCls = n.sentiment > 0.2 ? 'text-up' : n.sentiment < -0.2 ? 'text-down' : 'text-muted';
+                    const icon = n.sentiment > 0.2 ? '▲' : n.sentiment < -0.2 ? '▼' : '●';
+                    return `<div class="sd-news-item">
+                        <span class="sd-news-icon ${sCls}">${icon}</span>
+                        <span class="sd-news-title">${App.escapeHTML(n.title || '')}</span>
+                        <span class="sd-news-source text-muted">${App.escapeHTML(n.source || '')} ${App.escapeHTML(n.time || '')}</span>
+                    </div>`;
+                }).join('')}
+            `;
+        } catch (e) {
+            console.error('加载新闻失败:', e);
+            if (stale()) return;
+            const container = document.getElementById('sd-news');
+            if (container) {
+                container.innerHTML = '<p class="text-muted">新闻加载失败</p>';
+            }
         }
     },
 
@@ -988,7 +1056,7 @@ const StockDetail = {
             figures: [{
                 key: 'vol', title: 'VOL: ', type: 'bar', baseValue: 0,
                 styles: ({ data }) => {
-                    const cur = data.current;
+                    const cur = data && (data.current || data);
                     if (!cur) return {};
                     const pc = cur.preClose;
                     if (pc == null) return {};
@@ -1304,9 +1372,16 @@ const StockDetail = {
         });
 
         // Y轴自动缩放（放大后线始终可见）
-        chart.setAutoScale(true);
+        if (typeof chart.setAutoScale === 'function') {
+            chart.setAutoScale(true);
+        }
 
-        chart.timeScale().fitContent();
+        if (chart.timeScale && typeof chart.timeScale === 'function') {
+            const timeScale = chart.timeScale();
+            if (timeScale && typeof timeScale.fitContent === 'function') {
+                timeScale.fitContent();
+            }
+        }
 
         // 自适应宽度
         this._klineResizeObs = new ResizeObserver(() => chart.resize());
@@ -2528,3 +2603,5 @@ const StockDetail = {
         `;
     },
 };
+
+globalThis.StockDetail = StockDetail;

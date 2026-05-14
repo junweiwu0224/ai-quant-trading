@@ -79,82 +79,42 @@ const Watchlist = {
     },
 
     async _addToWatchlist(code) {
-        try {
-            const res = await fetch('/api/watchlist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-            this._watchlistCodes.add(code);
-            RealtimeQuotes.subscribe([code]);
+        const result = await App.addToWatchlist(code, {
+            source: 'watchlist:multi-search:add',
+            suppressFailureToast: false,
+        });
 
-            // 局部更新：追加到本地数据和表格（使用 API 返回的 name/price）
-            const existing = this._lastData.find(s => s.code === code);
-            if (!existing) {
-                const item = {
-                    code,
-                    name: data.name || code,
-                    industry: '', sector: '', concepts: [],
-                    price: data.price || null,
-                    change_pct: data.change_pct != null ? data.change_pct : null,
-                };
-                this._lastData.push(item);
-                App.watchlistCache = [...this._lastData];
-            }
-            const stockBody = document.querySelector('#ov-stocks-table tbody');
-            const hintEl = document.getElementById('ov-stock-hint');
-            this._renderRows(this._lastData, stockBody, hintEl);
-            App._watchlistRowMap = null; // 重建索引，让 WebSocket 更新能命中新行
+        if (!result || result.ok !== true) {
+            return;
+        }
 
-            // 更新 tags
-            if (this._multiSearch) {
-                const items = this._lastData.filter(s => this._watchlistCodes.has(s.code));
-                this._multiSearch.setSelected(items);
-            }
+        this._watchlistCodes = new Set([...(this._watchlistCodes || []), code]);
+        this._lastData = Array.isArray(App.watchlistCache) ? [...App.watchlistCache] : [];
 
-            App.toast(`已添加 ${code}`, 'success');
-
-            // 延迟刷新自选股表格，等行业/板块/概念 enrichment 完成
-            // 不清除已有定时器，避免快速连续添加时互相取消
-            if (!this._refreshTimer) {
-                this._refreshTimer = setTimeout(() => {
-                    this._refreshTimer = null;
-                    this._refreshWatchlistTable();
-                }, 3000);
-            }
-        } catch (e) {
-            App.toast('添加失败: ' + e.message, 'error');
+        if (this._multiSearch) {
+            const items = this._lastData.filter((stock) => this._watchlistCodes.has(stock.code));
+            this._multiSearch.setSelected(items);
         }
     },
 
     async _removeFromWatchlist(code) {
-        try {
-            const res = await fetch(`/api/watchlist/${code}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            this._watchlistCodes.delete(code);
+        const result = await App.removeFromWatchlist(code, {
+            source: 'watchlist:multi-search:remove',
+            suppressFailureToast: false,
+        });
 
-            // 局部更新：从本地数据移除
-            this._lastData = this._lastData.filter(s => s.code !== code);
-            App.watchlistCache = [...this._lastData];
+        if (!result || result.ok !== true) {
+            return;
+        }
 
-            // 同步清除 MultiSearchBox 内部选中状态
-            if (this._multiSearch) {
-                this._multiSearch._selected = this._multiSearch._selected.filter(s => s.code !== code);
-                this._multiSearch._renderTags();
-            }
+        this._watchlistCodes = new Set(
+            [...(this._watchlistCodes || [])].filter((itemCode) => itemCode !== code)
+        );
+        this._lastData = Array.isArray(App.watchlistCache) ? [...App.watchlistCache] : [];
 
-            RealtimeQuotes.unsubscribe([code]);
-
-            // 重新渲染表格
-            const stockBody = document.querySelector('#ov-stocks-table tbody');
-            const hintEl = document.getElementById('ov-stock-hint');
-            this._renderRows(this._lastData, stockBody, hintEl);
-
-            App.toast(`已移除 ${code}`, 'success');
-        } catch (e) {
-            App.toast('移除失败: ' + e.message, 'error');
+        if (this._multiSearch) {
+            this._multiSearch._selected = this._multiSearch._selected.filter((stock) => stock.code !== code);
+            this._multiSearch._renderTags();
         }
     },
 

@@ -49,3 +49,16 @@ data/strategies.json
 
 # Docker
 docker-compose.override.yml
+
+# Node / frontend artifacts
+node_modules/
+test-results/
+
+# Local runtime data
+data/db/
+data/qlib/
+models/
+
+# Claude local workspace artifacts
+.claude/worktrees/
+.claude/plan/*.md

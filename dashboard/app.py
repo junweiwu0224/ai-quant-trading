@@ -105,6 +105,12 @@ async def service_worker():
     return ""
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse(BASE_DIR / "static" / "icons" / "icon-192.svg", media_type="image/svg+xml")
+
+
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402

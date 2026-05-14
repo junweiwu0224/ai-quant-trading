@@ -1043,13 +1043,13 @@ async def market_benchmark(count: int = 60):
             if len(parts) >= 3:
                 parsed.append({"date": parts[0], "close": float(parts[2])})
     except Exception as e:
-        logger.warning(f"push2his 基准数据失败，尝试腾讯回退: {e}")
+        logger.debug(f"push2his 基准数据失败，尝试腾讯回退: {e}")
 
     # 腾讯回退：沪深300 = sh000300
     if not parsed:
         try:
             turl = (
-                f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
                 f"?param=sh000300,day,,,{count},qfq"
             )
             tdata = await _fetch_async(turl)

@@ -274,7 +274,6 @@ Object.assign(App, {
         const renderList = (el, items) => {
             if (!el || !Array.isArray(items) || items.length === 0) {
                 if (el) el.innerHTML = '<div class="text-muted">暂无数据</div>';
-                if (el) console.warn('热门板块渲染: 无数据', { el: el?.id, items });
                 return;
             }
             const maxPct = Math.max(...items.map(s => Math.abs(s.change_pct)), 0.01);

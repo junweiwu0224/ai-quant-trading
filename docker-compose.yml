@@ -12,9 +12,9 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - TZ=Asia/Shanghai
-      - MIMO_API_KEY=${MIMO_API_KEY:-}
-      - MIMO_BASE_URL=${MIMO_BASE_URL:-https://token-plan-cn.xiaomimimo.com/v1}
-      - MIMO_MODEL=${MIMO_MODEL:-mimo-v2.5}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://cpa.junwei.fun/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.5}
     restart: unless-stopped
 
   paper:

@@ -1,6 +1,6 @@
-"""mimo-v2.5 LLM 客户端封装
+"""OpenAI 兼容 LLM 客户端封装
 
-使用 OpenAI SDK 调用小米 mimo 模型（OpenAI 兼容接口）。
+使用 OpenAI SDK 调用兼容接口。
 提供同步/异步两种调用方式，全局单例复用连接池。
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from loguru import logger
 from openai import AsyncOpenAI
 
-from config.settings import MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL
+from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 
 _client: AsyncOpenAI | None = None
 
@@ -20,11 +20,11 @@ def get_llm_client() -> AsyncOpenAI:
     """获取全局 AsyncOpenAI 单例"""
     global _client
     if _client is None:
-        if not MIMO_API_KEY:
-            raise ValueError("MIMO_API_KEY 未配置，请在 .env 或环境变量中设置")
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY 未配置，请在 .env 或环境变量中设置")
         _client = AsyncOpenAI(
-            api_key=MIMO_API_KEY,
-            base_url=MIMO_BASE_URL,
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL,
         )
     return _client
 
@@ -37,7 +37,7 @@ async def chat_completion(
     """单次对话完成（非流式）"""
     client = get_llm_client()
     resp = await client.chat.completions.create(
-        model=MIMO_MODEL,
+        model=OPENAI_MODEL,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -53,7 +53,7 @@ async def chat_completion_stream(
     """流式对话完成，逐 token 返回"""
     client = get_llm_client()
     stream = await client.chat.completions.create(
-        model=MIMO_MODEL,
+        model=OPENAI_MODEL,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,

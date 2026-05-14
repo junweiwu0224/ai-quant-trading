@@ -31,10 +31,10 @@ SYNC_MINUTE = 30
 # 数据采集配置
 DEFAULT_START_DATE = "20200101"  # 默认数据起始日期
 
-# LLM 配置（mimo-v2.5，OpenAI 兼容接口）
-MIMO_API_KEY = os.getenv("MIMO_API_KEY", "")
-MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
-MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5")
+# LLM 配置（OpenAI 兼容接口）
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://cpa.junwei.fun/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
 
 # ── 数据源迁移配置 ──
 # 数据源模式: "legacy"=旧源(东方财富) | "new"=新源(mootdx+腾讯+AKShare) | "shadow"=新源返回+备用源后台对比

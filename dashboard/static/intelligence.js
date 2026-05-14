@@ -387,7 +387,7 @@
                 }).join('')}</tr>`).join('')}</tbody>
             </table></div>`;
 
-            // 操作栏：发送至选股器 / 交给MiMo分析 / 加入自选
+            // 操作栏：发送至选股器 / 交给AI分析 / 加入自选
             const codes = data.map(r => r['代码'] || r['code'] || r['股票代码']).filter(Boolean);
             _iwencaiActionState = {
                 pool: codes.slice(0, 50),
@@ -397,7 +397,7 @@
             const actionsHtml = `<div class="iwencai-actions">
                 <span class="text-muted text-xs">共 ${resp.total || data.length} 条，显示前 ${displayRows.length} 条</span>
                 <button class="btn btn-sm" data-intel-action="iwencai-send-screener">发送至选股器</button>
-                <button class="btn btn-sm" data-intel-action="iwencai-analyze">交给 MiMo 分析</button>
+                <button class="btn btn-sm" data-intel-action="iwencai-analyze">交给 AI 分析</button>
                 <button class="btn btn-sm" data-intel-action="iwencai-add-watchlist">加入自选</button>
             </div>`;
 
@@ -411,7 +411,7 @@
         return _iwencaiResult;
     }
 
-    // ── AI 预测池 (v2: 热度可视化 + Pipeline + MiMo) ──
+    // ── AI 预测池 (v2: 热度可视化 + Pipeline + AI 分析) ──
 
     async function loadMLPredictions() {
         const el = document.getElementById('intel-ml-pred');
@@ -489,7 +489,7 @@
                     </td>
                     <td class="qlib-td qlib-td-ic">${icAdjStr}</td>
                     <td class="qlib-td qlib-td-actions">
-                        <button class="qlib-btn qlib-btn-mimo" data-code="${code}" data-name="${name}" data-score="${p.score.toFixed(3)}" data-industry="${App.escapeHTML(p.industry || '--')}" title="问 MiMo">🤖</button>
+                        <button class="qlib-btn qlib-btn-mimo" data-code="${code}" data-name="${name}" data-score="${p.score.toFixed(3)}" data-industry="${App.escapeHTML(p.industry || '--')}" title="问 AI">🤖</button>
                     </td>
                 </tr>`;
             }).join('');

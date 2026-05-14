@@ -29,7 +29,7 @@
 | **风控模块** | 单票仓位上限、行业集中度、最大回撤止损、日亏损限额、ATR 止损、跟踪止损 |
 | **模拟盘** | PaperEngine 模拟盘、市价/限价/止损/止盈单、实时行情接入、Dashboard 控制面板 |
 | **持仓管理** | 持仓监控、风险指标（VaR/Sharpe/Sortino/Calmar）、行业分布、相关性矩阵、导出 |
-| **LLM 集成** | mimo-v2.5 大模型、自然语言策略生成、AI 结果解读、流式对话 |
+| **LLM 集成** | gpt-5.5 大模型、自然语言策略生成、AI 结果解读、流式对话 |
 | **多股对比** | 最多 5 只股票归一化收益率对比，支持缩放/滚动/区间标注 |
 | **画线工具** | 趋势线/水平线/斐波那契回撤线，保存/加载/删除 |
 | **多周期切换** | 1m/5m/15m/30m/60m/日/周/月 K 线 |
@@ -72,7 +72,7 @@
 | 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
 | 数据库 | SQLite |
 | AI/ML | LightGBM, XGBoost, Optuna, SHAP |
-| NLP | SnowNLP, mimo-v2.5 (LLM) |
+| NLP | SnowNLP, gpt-5.5 (LLM) |
 | Web 框架 | FastAPI + Jinja2 |
 | 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
 | 任务调度 | APScheduler |
@@ -108,7 +108,7 @@ quant-trading-system/
 │   ├── cross_sectional.py   # 跨截面选股模型
 │   ├── backtest.py          # 组合回测引擎
 │   ├── screener.py          # 条件选股引擎
-│   ├── llm_client.py        # LLM 客户端（mimo-v2.5）
+│   ├── llm_client.py        # LLM 客户端（OpenAI 兼容）
 │   ├── nl_strategy.py       # 自然语言策略生成
 │   └── factor_scheduler.py  # 因子动态更新调度器
 ├── risk/                    # 风控层（仓位/止损/监控）

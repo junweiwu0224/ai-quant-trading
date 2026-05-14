@@ -1,7 +1,7 @@
 /**
  * LLM AI 助手模块
  * 双容器模式：Alpha子Tab (v1) + 全局Copilot侧边栏 (v2)
- * 基于 mimo-v2.5 大模型的量化对话界面
+ * 基于 gpt-5.5 大模型的量化对话界面
  */
 (function () {
     'use strict';
@@ -453,7 +453,7 @@
             <div class="llm-welcome">
                 <div class="llm-welcome-icon">🤖</div>
                 <div class="llm-welcome-text">
-                    <strong>你好！我是 MiMo 量化助手</strong>
+                    <strong>你好！我是 OpenAI 量化助手</strong>
                     <p>我可以帮你：</p>
                     <ul>
                         <li>用自然语言描述选股条件，自动生成筛选规则</li>

@@ -1,4 +1,4 @@
-"""AI 助手 API — mimo-v2.5 大模型接入
+"""AI 助手 API — OpenAI 兼容大模型接入
 
 端点：
 - POST /api/llm/chat         — 通用对话（流式 SSE）

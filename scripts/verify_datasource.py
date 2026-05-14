@@ -136,8 +136,9 @@ def compare_sources():
 
     # 获取旧源数据
     old_result = _fetch_batch_quotes_push2(TEST_CODES)
+    stock_info = {code: {"name": quote.name} for code, quote in old_result.items() if quote.name}
     # 获取新源数据
-    new_result = _fetch_batch_quotes_mootdx(TEST_CODES)
+    new_result = _fetch_batch_quotes_mootdx(TEST_CODES, stock_info=stock_info)
 
     if not old_result:
         print("❌ 旧数据源获取失败")

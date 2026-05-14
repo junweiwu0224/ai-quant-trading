@@ -85,6 +85,29 @@ _industry_cache = TTLCache(max_size=2000)
 
 # ── 高频降级日志节流 ──
 _last_mootdx_fallback_log = 0.0
+_stock_info_cache: dict[str, dict] | None = None
+
+
+def _load_stock_info_map() -> dict[str, dict]:
+    """从 DB 加载股票名称和行业信息（模块级补全用）"""
+    global _stock_info_cache
+    if _stock_info_cache is not None:
+        return _stock_info_cache
+    try:
+        from data.storage.storage import DataStorage
+        df = DataStorage().get_stock_list()
+        if df.empty:
+            _stock_info_cache = {}
+            return _stock_info_cache
+        _stock_info_cache = {
+            normalize_stock_code(row["code"]): {"name": row.get("name", ""), "industry": row.get("industry", "")}
+            for _, row in df.iterrows()
+            if normalize_stock_code(row["code"])
+        }
+    except Exception as e:
+        logger.warning(f"加载股票信息失败: {e}")
+        _stock_info_cache = {}
+    return _stock_info_cache
 
 
 def _log_mootdx_fallback(count: int) -> None:
@@ -147,8 +170,9 @@ def _fetch_batch_quotes_mootdx(codes: list[str], stock_info: dict[str, dict] | N
             if mapped.get("price") is None:
                 continue
 
-            # 从 stock_info 补充名称和行业
-            info = (stock_info or {}).get(code, {})
+            # 从 stock_info 或股票基础信息补充名称和行业
+            stock_info_map = stock_info or _load_stock_info_map()
+            info = stock_info_map.get(code, {})
             name = mapped.get("name") or info.get("name", "")
             industry = info.get("industry", "")
 

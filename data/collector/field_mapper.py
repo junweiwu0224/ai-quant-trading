@@ -35,8 +35,16 @@ def _clean_volume(val: Any) -> float | None:
         return None
 
 
+def _clean_volume_share_to_lot(val: Any) -> float | None:
+    """成交量字段（股→手）：系统 QuoteData.volume 统一使用手"""
+    v = _clean_volume(val)
+    if v is not None:
+        return v / 100
+    return None
+
+
 def _clean_volume_lot_to_share(val: Any) -> float | None:
-    """成交量字段（手→股）：mootdx 返回手数，需乘 100 转为股数"""
+    """成交量字段（手→股）：保留给需要股数语义的调用方"""
     v = _clean_volume(val)
     if v is not None:
         return v * 100
@@ -79,7 +87,7 @@ def _clean_amount(val: Any) -> float | None:
 # ── mootdx 字段映射 ──
 
 # mootdx quotes() 返回的字段 → 系统标准字段 + 清洗函数
-# 注意：mootdx 的 vol 字段返回的是"手"（1手=100股），需要转换
+# 注意：系统 QuoteData.volume 统一使用“手”；mootdx quote vol 返回股数，需除以 100
 MOOTDX_QUOTE_MAP: dict[str, tuple[str, Callable]] = {
     "code":        ("code",          _clean_string),
     "name":        ("name",          _clean_string),
@@ -88,7 +96,7 @@ MOOTDX_QUOTE_MAP: dict[str, tuple[str, Callable]] = {
     "high":        ("high",          _clean_price),
     "low":         ("low",           _clean_price),
     "last_close":  ("pre_close",     _clean_price),
-    "vol":         ("volume",        _clean_volume),  # 保留手为单位
+    "vol":         ("volume",        _clean_volume_share_to_lot),
     "amount":      ("amount",        _clean_amount),
     "bid1":        ("bid1",          _clean_price),
     "ask1":        ("ask1",          _clean_price),

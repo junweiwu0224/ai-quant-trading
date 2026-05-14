@@ -485,6 +485,20 @@ class TestStorage:
         assert calls["tencent_codes"] == ["000001", "600519"]
         assert calls["industry_codes"] == ["000001", "600519"]
 
+    def test_fetch_batch_quotes_mootdx_fills_name_from_stock_info(self, monkeypatch):
+        class FakeManager:
+            async def quotes(self, codes):
+                return pd.DataFrame([
+                    {"code": "000001", "name": "", "price": 11.0, "open": 10.9, "high": 11.1, "low": 10.8, "last_close": 10.95, "vol": 1200.0, "amount": 132.0},
+                ])
+
+        monkeypatch.setattr("data.collector.mootdx_client.get_mootdx_manager", lambda: FakeManager())
+        result = quote_service._fetch_batch_quotes_mootdx(["000001"], stock_info={"000001": {"name": "平安银行", "industry": "银行"}})
+
+        assert result["000001"].name == "平安银行"
+        assert result["000001"].industry == "银行"
+        assert result["000001"].volume == 12.0
+
     def test_fetch_single_quote_merges_financial_fields(self, monkeypatch):
         quote = self._make_quote("000001", 10.0)
 

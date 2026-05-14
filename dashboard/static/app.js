@@ -862,6 +862,7 @@ const App = {
             this._initV2();
         }
         this.bindTabs();
+        this.bindStaticActions();
         this.bindBacktest();
         this.bindOptimize();
         this.bindSensitivity();
@@ -1418,6 +1419,7 @@ const App = {
     _initTradeSubTabs() {
         if (this._tradeTabsInited) return;
         this._tradeTabsInited = true;
+        this._bindBrokerConfig();
         const tabs = document.querySelectorAll('.trade-sub-tab');
         if (!tabs.length) return;
         tabs.forEach(tab => {
@@ -1437,6 +1439,27 @@ const App = {
                 // 触发resize让图表重新计算
                 requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
             });
+        });
+    },
+
+    _bindBrokerConfig() {
+        if (this._brokerConfigBound) return;
+        this._brokerConfigBound = true;
+
+        const brokerType = document.getElementById('br-type');
+        const saveButton = document.getElementById('br-save-btn');
+        const testButton = document.getElementById('br-test-btn');
+
+        brokerType?.addEventListener('change', (event) => {
+            this.onBrokerTypeChange(event.target.value);
+        });
+        saveButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            this.saveBrokerConfig();
+        });
+        testButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            this.testBrokerConn();
         });
     },
 
@@ -2039,6 +2062,31 @@ const App = {
         localStorage.setItem('sidebar-collapsed', collapsed);
         const btn = sidebar.querySelector('.sidebar-toggle');
         if (btn) btn.setAttribute('aria-label', collapsed ? '展开导航' : '折叠导航');
+    },
+
+    bindStaticActions() {
+        if (this._staticActionsBound) return;
+        this._staticActionsBound = true;
+
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-app-action]');
+            if (!button) return;
+
+            const actions = {
+                'toggle-sidebar': () => this.toggleSidebar(),
+                'refresh-overview': () => this.loadOverview(),
+                'save-sim-snapshot': () => this.saveSimSnapshot(),
+                'delete-sim-snapshot': () => {
+                    const snapshotId = typeof button.dataset.snapshotId === 'string' ? button.dataset.snapshotId.trim() : '';
+                    if (snapshotId) this.deleteSimSnapshot(snapshotId);
+                },
+            };
+            const action = actions[button.dataset.appAction];
+            if (!action) return;
+
+            e.preventDefault();
+            action();
+        });
     },
 
     bindTabs() {

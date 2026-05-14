@@ -57,17 +57,12 @@ const Strategy = {
             return;
         }
 
-        const strategyPanel = document.getElementById('research-panel-strategy') || document.getElementById('tab-strategy');
-        const headerActions = strategyPanel?.querySelector('.page-header > div');
-        const buttons = headerActions ? [...headerActions.querySelectorAll('button')] : [];
-        const findButtonByText = (text) => buttons.find((btn) => btn.textContent.trim() === text) || null;
-        const exportBtn = findButtonByText('导出策略');
-        const createBtn = findButtonByText('新增策略');
-        const codeBtn = findButtonByText('代码编辑器');
-        const ensembleBtn = findButtonByText('聚合回测');
-        const aiBtn = findButtonByText('AI 策略');
-        const importLabel = headerActions?.querySelector('label[title="从JSON文件导入策略"]') || null;
-        const importInput = importLabel?.querySelector('input[type="file"][accept=".json"]');
+        const exportBtn = document.getElementById('strategy-export-btn');
+        const createBtn = document.getElementById('strategy-create-btn');
+        const codeBtn = document.getElementById('strategy-code-editor-btn');
+        const ensembleBtn = document.getElementById('strategy-ensemble-btn');
+        const aiBtn = document.getElementById('strategy-ai-btn');
+        const importInput = document.getElementById('strategy-import-input');
         const ensemble = typeof Ensemble !== 'undefined' ? Ensemble : null;
 
         if (!exportBtn || !importInput || !createBtn || !codeBtn || !ensembleBtn || !aiBtn) {

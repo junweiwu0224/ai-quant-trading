@@ -32,6 +32,33 @@ Object.assign(App, {
         document.querySelectorAll('#alpha-sub-tabs .alpha-sub-tab').forEach(btn => {
             btn.addEventListener('click', () => this.switchAlphaTab(btn.dataset.tab));
         });
+        document.addEventListener('click', (event) => {
+            const actionButton = event.target.closest('[data-alpha-action]');
+            if (!actionButton) return;
+            event.preventDefault();
+
+            const actions = {
+                'load-alpha': () => this.loadAlpha(),
+                'optimize-alpha': () => this.optimizeAlpha(),
+                'load-shap': () => this.loadShap(),
+                'load-factor-eval': () => this.loadFactorEval(),
+                'load-factor-decay': () => this.loadFactorDecay(),
+                'load-factor-correlation': () => this.loadFactorCorrelation(),
+                'factor-analyze': () => {
+                    if (typeof Factor !== 'undefined') Factor.analyze();
+                },
+                'factor-correlation': () => {
+                    if (typeof Factor !== 'undefined') Factor.loadCorrelation();
+                },
+                'load-compare': () => this.loadCompare(),
+                'load-walk-forward': () => this.loadWalkForward(),
+                'load-mine': () => this.loadMine(),
+                'portopt-optimize': () => {
+                    if (typeof PortfolioOpt !== 'undefined') PortfolioOpt.optimize();
+                },
+            };
+            actions[actionButton.dataset.alphaAction]?.();
+        });
     },
 
     // ── 主分析入口 ──
@@ -580,3 +607,9 @@ Object.assign(App, {
         }
     },
 });
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => App.initAlpha());
+} else {
+    App.initAlpha();
+}

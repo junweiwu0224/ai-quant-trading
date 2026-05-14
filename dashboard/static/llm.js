@@ -591,7 +591,25 @@
                 if (prompt) {
                     App.LLM.sendQuick(prompt, 'copilot');
                 }
+                return;
             }
+
+            if (action === 'new-conversation') {
+                newConversation();
+                return;
+            }
+
+            if (action === 'delete-selected') {
+                _deleteSelected();
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            const select = e.target.closest('[data-llm-conversation-select]');
+            if (!select) {
+                return;
+            }
+            loadConversation(select.value);
         });
     }
 
@@ -631,6 +649,15 @@
         // Copilot 关闭按钮
         const closeBtn = $('copilot-close');
         if (closeBtn) closeBtn.addEventListener('click', closeCopilot);
+
+        const copilotFab = $('copilot-fab');
+        if (copilotFab && copilotFab.dataset.bound !== 'true') {
+            copilotFab.dataset.bound = 'true';
+            copilotFab.addEventListener('click', (e) => {
+                e.preventDefault();
+                toggleCopilot();
+            });
+        }
 
         // 全局快捷键 Ctrl+K / Cmd+K
         document.addEventListener('keydown', (e) => {

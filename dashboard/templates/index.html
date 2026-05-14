@@ -29,7 +29,7 @@
     <nav class="sidebar" id="sidebar" aria-label="主导航">
         <div class="sidebar-header">
             <div class="logo" role="heading" aria-level="1">AI Quant</div>
-            <button class="sidebar-toggle" onclick="App.toggleSidebar()" aria-label="折叠导航">
+            <button class="sidebar-toggle" data-app-action="toggle-sidebar" aria-label="折叠导航">
                 <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
             </button>
             <button class="theme-toggle" id="theme-toggle" aria-label="切换深色模式" title="切换深色模式">
@@ -99,7 +99,7 @@
                         <span class="market-phase-dot"></span>
                         <span class="market-phase-text">--</span>
                     </div>
-                    <button class="btn btn-sm" onclick="App.loadOverview()">刷新</button>
+                    <button class="btn btn-sm" data-app-action="refresh-overview">刷新</button>
                 </div>
             </div>
 
@@ -1387,7 +1387,7 @@
                     <form id="broker-form" class="form-row">
                         <div class="form-group">
                             <label for="br-type">券商类型</label>
-                            <select id="br-type" onchange="App.onBrokerTypeChange(this.value)">
+                            <select id="br-type">
                                 <option value="simulated">模拟盘（内置撮合）</option>
                                 <option value="ctp">CTP（期货）— 桩代码</option>
                                 <option value="xtp">XTP（股票）— 桩代码</option>
@@ -1412,8 +1412,8 @@
                         <div class="form-group">
                             <span></span>
                             <div class="flex-center">
-                                <button type="button" class="btn btn-primary btn-sm" onclick="App.saveBrokerConfig()">保存配置</button>
-                                <button type="button" class="btn btn-sm" onclick="App.testBrokerConn()">测试连接</button>
+                                <button type="button" class="btn btn-primary btn-sm" id="br-save-btn">保存配置</button>
+                                <button type="button" class="btn btn-sm" id="br-test-btn">测试连接</button>
                             </div>
                         </div>
                     </form>
@@ -1495,8 +1495,8 @@
                         <option value="xgboost">XGBoost</option>
                         <option value="ensemble">集成模型</option>
                     </select>
-                    <button class="btn btn-primary btn-sm" onclick="App.loadAlpha()">运行分析</button>
-                    <button class="btn btn-ghost btn-sm" onclick="App.optimizeAlpha()">超参优化</button>
+                    <button class="btn btn-primary btn-sm" data-alpha-action="load-alpha" data-app-role="alpha-analyze">运行分析</button>
+                    <button class="btn btn-ghost btn-sm" data-alpha-action="optimize-alpha" data-app-role="alpha-optimize">超参优化</button>
                 </div>
             </div>
 
@@ -1549,7 +1549,7 @@
                 <div class="alpha-sub-panel hidden" id="alpha-panel-factor" role="tabpanel" aria-labelledby="alpha-tab-factor">
                     <div class="chart-row">
                         <div class="card">
-                            <h2>SHAP 可解释性 <button class="btn btn-sm" onclick="App.loadShap()">运行 SHAP</button></h2>
+                            <h2>SHAP 可解释性 <button class="btn btn-sm" data-alpha-action="load-shap">运行 SHAP</button></h2>
                             <div class="chart-container chart-h-xl"><canvas id="alpha-shap-chart" aria-label="SHAP 特征重要性"></canvas></div>
                         </div>
                         <div class="card">
@@ -1558,7 +1558,7 @@
                         </div>
                     </div>
                     <div class="card">
-                        <h2>因子评价 (IC/IR/换手率) <button class="btn btn-sm" onclick="App.loadFactorEval()">运行评价</button></h2>
+                        <h2>因子评价 (IC/IR/换手率) <button class="btn btn-sm" data-alpha-action="load-factor-eval">运行评价</button></h2>
                         <div class="table-wrap">
                             <table id="alpha-factor-eval-table" class="sortable">
                                 <thead><tr><th>因子</th><th>IC</th><th>|IC|</th><th>换手率</th></tr></thead>
@@ -1572,12 +1572,12 @@
                             <div class="chart-container chart-h-md"><canvas id="alpha-quantile-chart" aria-label="分层收益图"></canvas></div>
                         </div>
                         <div class="card">
-                            <h2>因子衰减分析 <button class="btn btn-sm" onclick="App.loadFactorDecay()">分析</button></h2>
+                            <h2>因子衰减分析 <button class="btn btn-sm" data-alpha-action="load-factor-decay">分析</button></h2>
                             <div class="chart-container chart-h-md"><canvas id="alpha-decay-chart" aria-label="因子衰减图"></canvas></div>
                         </div>
                     </div>
                     <div class="card">
-                        <h2>因子相关性 <button class="btn btn-sm" onclick="App.loadFactorCorrelation()">分析</button></h2>
+                        <h2>因子相关性 <button class="btn btn-sm" data-alpha-action="load-factor-correlation">分析</button></h2>
                         <div class="chart-row">
                             <div>
                                 <div class="table-wrap">
@@ -1605,8 +1605,8 @@
                             <option value="ret_20d">20日收益率</option>
                             <option value="volume_ratio_5">5日量比</option>
                         </select>
-                        <button class="btn btn-sm" onclick="Factor.analyze()">运行分析</button>
-                        <button class="btn btn-sm" onclick="Factor.loadCorrelation()">分析相关性</button></h2>
+                        <button class="btn btn-sm" data-alpha-action="factor-analyze" data-app-role="factor-analyze">运行分析</button>
+                        <button class="btn btn-sm" data-alpha-action="factor-correlation" data-app-role="factor-correlation">分析相关性</button></h2>
                         <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
                             <div class="stat-card"><div class="stat-label">平均 IC</div><div class="stat-value" id="factor-avg-ic">--</div></div>
                             <div class="stat-card"><div class="stat-label">IC 标准差</div><div class="stat-value" id="factor-ic-std">--</div></div>
@@ -1660,7 +1660,7 @@
                 <!-- 子Tab 4: 模型对比 -->
                 <div class="alpha-sub-panel hidden" id="alpha-panel-compare" role="tabpanel" aria-labelledby="alpha-tab-compare">
                     <div class="card">
-                        <h2>多模型对比 <button class="btn btn-sm" onclick="App.loadCompare()">运行对比</button></h2>
+                        <h2>多模型对比 <button class="btn btn-sm" data-alpha-action="load-compare">运行对比</button></h2>
                         <div class="table-wrap">
                             <table id="alpha-compare-table">
                                 <thead><tr><th>模型</th><th>AUC</th><th>准确率</th><th>状态</th></tr></thead>
@@ -1677,7 +1677,7 @@
                 <!-- 子Tab 5: Walk-forward -->
                 <div class="alpha-sub-panel hidden" id="alpha-panel-wf" role="tabpanel" aria-labelledby="alpha-tab-wf">
                     <div class="card">
-                        <h2>Walk-forward 滚动验证 <button class="btn btn-sm" onclick="App.loadWalkForward()">运行验证</button></h2>
+                        <h2>Walk-forward 滚动验证 <button class="btn btn-sm" data-alpha-action="load-walk-forward">运行验证</button></h2>
                         <div class="stats-grid stats-grid-6" style="margin-bottom:1rem">
                             <div class="stat-card"><div class="stat-label">平均 AUC</div><div class="stat-value" id="alpha-wf-mean">--</div></div>
                             <div class="stat-card"><div class="stat-label">标准差</div><div class="stat-value" id="alpha-wf-std">--</div></div>
@@ -1693,7 +1693,7 @@
                 <!-- 子Tab 6: 因子挖掘 -->
                 <div class="alpha-sub-panel hidden" id="alpha-panel-mine" role="tabpanel" aria-labelledby="alpha-tab-mine">
                     <div class="card">
-                        <h2>自动因子挖掘 <button class="btn btn-sm" onclick="App.loadMine()">开始挖掘</button></h2>
+                        <h2>自动因子挖掘 <button class="btn btn-sm" data-alpha-action="load-mine">开始挖掘</button></h2>
                         <p class="text-muted text-sm">自动组合现有因子（差值/比值/乘积），按 IC 筛选有效的新因子</p>
                         <div class="table-wrap">
                             <table id="alpha-mine-table" class="sortable">
@@ -1731,7 +1731,7 @@
                                 <input type="date" id="portopt-end" value="2024-12-31" style="width:100%;padding:6px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)">
                             </div>
                         </div>
-                        <button class="btn btn-primary btn-sm" onclick="PortfolioOpt.optimize()">执行优化</button>
+                        <button class="btn btn-primary btn-sm" data-alpha-action="portopt-optimize" data-app-role="portopt-optimize">执行优化</button>
                     </div>
                     <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
                         <div class="stat-card"><div class="stat-label">预期收益</div><div class="stat-value" id="portopt-return">--</div></div>
@@ -1760,11 +1760,11 @@
                                     <span class="text-muted text-sm">基于 mimo-v2.5 大模型 · 支持策略生成、因子解读、量化问答</span>
                                 </div>
                                 <div style="display:flex;gap:6px;align-items:center">
-                                    <select id="llm-conv-select" class="form-control form-control-sm" style="max-width:200px;font-size:12px" onchange="App.LLM.loadConversation(this.value)">
+                                    <select id="llm-conv-select" class="form-control form-control-sm" style="max-width:200px;font-size:12px" data-llm-conversation-select="alpha">
                                         <option value="">选择历史对话...</option>
                                     </select>
-                                    <button class="btn btn-sm" onclick="App.LLM.newConversation()" title="新对话">+</button>
-                                    <button class="btn btn-sm btn-danger" onclick="App.LLM._deleteSelected()" title="删除选中对话" style="font-size:11px">🗑</button>
+                                    <button class="btn btn-sm" data-llm-action="new-conversation" title="新对话">+</button>
+                                    <button class="btn btn-sm btn-danger" data-llm-action="delete-selected" title="删除选中对话" style="font-size:11px">🗑</button>
                                 </div>
                             </div>
                         </div>
@@ -2070,7 +2070,7 @@
                     <div class="card">
                         <div class="card-header-row">
                             <h2>策略对比</h2>
-                            <button class="btn btn-sm" onclick="App.saveSimSnapshot()">保存当前快照</button>
+                            <button class="btn btn-sm" data-app-action="save-sim-snapshot">保存当前快照</button>
                         </div>
                         <div class="table-wrap">
                             <table id="sim-compare-table" class="sortable">
@@ -2093,8 +2093,8 @@
                                 <option value="buy">买入</option>
                                 <option value="sell">卖出</option>
                             </select>
-                            <button class="btn btn-sm" onclick="PaperTrading.exportTrades('csv')">导出CSV</button>
-                            <button class="btn btn-sm" onclick="PaperTrading.exportTrades('json')">导出JSON</button>
+                            <button class="btn btn-sm" data-paper-action="export-trades" data-format="csv">导出CSV</button>
+                            <button class="btn btn-sm" data-paper-action="export-trades" data-format="json">导出JSON</button>
                         </div>
                         <div class="table-wrap">
                             <table id="pt-trades-table">
@@ -2127,15 +2127,15 @@
             <div class="page-header">
                 <h1>策略管理</h1>
                 <div style="display:flex;gap:0.5rem">
-                    <button class="btn btn-sm" onclick="Strategy.exportAll()" title="导出所有策略为JSON文件">导出策略</button>
+                    <button class="btn btn-sm" id="strategy-export-btn" title="导出所有策略为JSON文件">导出策略</button>
                     <label class="btn btn-sm" title="从JSON文件导入策略" style="cursor:pointer">
                         导入策略
-                        <input type="file" accept=".json" onchange="Strategy.importFromFile(event)" style="display:none">
+                        <input id="strategy-import-input" type="file" accept=".json" style="display:none">
                     </label>
-                    <button class="btn btn-primary btn-sm" onclick="Strategy.showCreateModal()">新增策略</button>
-                    <button class="btn btn-sm" onclick="Strategy.showCodeEditor()">代码编辑器</button>
-                    <button class="btn btn-sm" onclick="Ensemble.showEnsembleModal()" title="多策略信号聚合回测">聚合回测</button>
-                    <button class="btn btn-sm" onclick="Ensemble.showAIModal()" title="AI 生成策略代码">AI 策略</button>
+                    <button class="btn btn-primary btn-sm" id="strategy-create-btn">新增策略</button>
+                    <button class="btn btn-sm" id="strategy-code-editor-btn">代码编辑器</button>
+                    <button class="btn btn-sm" id="strategy-ensemble-btn" title="多策略信号聚合回测">聚合回测</button>
+                    <button class="btn btn-sm" id="strategy-ai-btn" title="AI 生成策略代码">AI 策略</button>
                 </div>
             </div>
             <div id="st-filter" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
@@ -2167,10 +2167,10 @@
                 <span class="copilot-badge">mimo-v2.5</span>
             </div>
             <div class="copilot-actions">
-                <select id="copilot-conv-select" class="form-control form-control-sm" onchange="App.LLM.loadConversation(this.value)" style="max-width:140px;font-size:11px">
+                <select id="copilot-conv-select" class="form-control form-control-sm" data-llm-conversation-select="copilot" style="max-width:140px;font-size:11px">
                     <option value="">历史对话...</option>
                 </select>
-                <button class="btn btn-sm" onclick="App.LLM.newConversation()" title="新对话">+</button>
+                <button class="btn btn-sm" data-llm-action="new-conversation" title="新对话">+</button>
                 <button class="btn btn-sm copilot-close" id="copilot-close" aria-label="关闭">&times;</button>
             </div>
         </div>
@@ -2187,9 +2187,9 @@
                         <li>分析股票技术面和基本面</li>
                     </ul>
                     <div class="llm-quick-actions" style="margin-top:12px">
-                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('帮我选出PE低于20、ROE大于15%的股票')">低PE高ROE</button>
-                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('选出近5日涨幅超过10%的股票')">近期强势</button>
-                        <button class="btn btn-sm" onclick="App.LLM.sendQuick('/问财 今日涨停的股票')">问财涨停</button>
+                        <button class="btn btn-sm" data-llm-action="send-quick" data-llm-prompt="帮我选出PE低于20、ROE大于15%的股票">低PE高ROE</button>
+                        <button class="btn btn-sm" data-llm-action="send-quick" data-llm-prompt="选出近5日涨幅超过10%的股票">近期强势</button>
+                        <button class="btn btn-sm" data-llm-action="send-quick" data-llm-prompt="/问财 今日涨停的股票">问财涨停</button>
                     </div>
                     <p class="text-muted text-sm" style="margin-top:8px">快捷键: <kbd>Ctrl+K</kbd> 唤出/关闭</p>
                 </div>
@@ -2204,7 +2204,7 @@
     </aside>
 
     <!-- V2: AI 助手浮动触发按钮 -->
-    <button class="copilot-fab" id="copilot-fab" onclick="App.toggleCopilot()" title="AI 助手 (Ctrl+K)" aria-label="打开 AI 助手">
+    <button class="copilot-fab" id="copilot-fab" title="AI 助手 (Ctrl+K)" aria-label="打开 AI 助手">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
     </button>
 

@@ -281,6 +281,12 @@ const PaperTrading = {
                 if (Number.isFinite(page) && page > 0) {
                     this.loadTrades(page);
                 }
+                return;
+            }
+
+            if (action === 'export-trades') {
+                const format = button.dataset.format === 'json' ? 'json' : 'csv';
+                this.exportTrades(format);
             }
         });
 

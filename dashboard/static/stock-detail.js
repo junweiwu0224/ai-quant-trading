@@ -1887,6 +1887,15 @@ const StockDetail = {
         if (this._chartTabsBound) return;
         this._chartTabsBound = true;
         document.addEventListener('click', (e) => {
+            const orderBookButton = e.target.closest('#tab-stock .sd-ob-btn[data-levels]');
+            if (orderBookButton) {
+                const levels = Number(orderBookButton.dataset.levels);
+                if (Number.isFinite(levels)) {
+                    this.setOrderBookLevels(levels);
+                }
+                return;
+            }
+
             const tab = e.target.closest('#tab-stock .sd-chart-tabs .sd-tab');
             if (!tab || !this._currentCode) return;
             const period = tab.dataset.period;

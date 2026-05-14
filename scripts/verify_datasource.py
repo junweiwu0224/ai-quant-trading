@@ -127,7 +127,7 @@ def test_financial(mode: str):
 
 def compare_sources():
     """对比新旧数据源一致性"""
-    from data.collector.quote_service import _fetch_batch_quotes_xueqiu, _fetch_batch_quotes_mootdx
+    from data.collector.quote_service import _fetch_batch_quotes_push2, _fetch_batch_quotes_mootdx
     from data.collector.shadow_validator import validate_quote_consistency
 
     print(f"\n{'='*60}")
@@ -135,7 +135,7 @@ def compare_sources():
     print(f"{'='*60}")
 
     # 获取旧源数据
-    old_result = _fetch_batch_quotes_xueqiu(TEST_CODES)
+    old_result = _fetch_batch_quotes_push2(TEST_CODES)
     # 获取新源数据
     new_result = _fetch_batch_quotes_mootdx(TEST_CODES)
 

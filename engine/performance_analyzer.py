@@ -1,5 +1,4 @@
 """绩效分析器"""
-import sqlite3
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional
 
@@ -10,6 +9,7 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 from engine.models import (
     Direction, EquityCurvePoint, PaperTrade, PerformanceMetrics
 )
+from utils.db import get_connection
 
 DEFAULT_DB_PATH = str(PROJECT_ROOT / "data" / "paper_trading.db")
 
@@ -20,11 +20,9 @@ class PerformanceAnalyzer:
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.db_path = db_path
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _get_conn(self):
+        """获取数据库连接（已配置 WAL + busy_timeout）"""
+        return get_connection(self.db_path)
 
     def calculate_metrics(
         self,
@@ -254,7 +252,7 @@ class PerformanceAnalyzer:
                     trade_id=row["trade_id"],
                     order_id=row["order_id"],
                     code=row["code"],
-                    direction=Direction(row["direction"]),
+                    direction=Direction.from_value(row["direction"]),
                     price=row["price"],
                     volume=row["volume"],
                     entry_price=row["entry_price"] or 0,

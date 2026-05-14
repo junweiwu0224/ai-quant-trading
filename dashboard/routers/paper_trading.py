@@ -1,5 +1,4 @@
 """模拟盘完整API路由"""
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
@@ -16,6 +15,7 @@ from engine.models import (
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
+from utils.db import get_connection
 
 router = APIRouter(tags=["模拟盘完整功能"])
 
@@ -29,9 +29,8 @@ _risk_manager = RiskManager(_config, _config.db_path)
 
 @contextmanager
 def _get_db():
-    """获取数据库连接的上下文管理器（自动关闭）"""
-    conn = sqlite3.connect(_config.db_path)
-    conn.row_factory = sqlite3.Row
+    """获取数据库连接的上下文管理器（自动关闭，已配置 WAL + busy_timeout）"""
+    conn = get_connection(_config.db_path)
     try:
         yield conn
     finally:
@@ -71,7 +70,7 @@ class UpdateRiskRulesRequest(BaseModel):
 async def create_order(req: CreateOrderRequest):
     """创建订单（市价/限价/止损/止盈）"""
     try:
-        direction = Direction(req.direction)
+        direction = Direction.from_value(req.direction)
         order_type = OrderType(req.order_type)
 
         order = _order_manager.create_order(
@@ -103,7 +102,7 @@ async def get_orders(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """获取订单列表"""
     try:
@@ -420,7 +419,7 @@ async def get_trades_v2(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """获取交易历史"""
     try:

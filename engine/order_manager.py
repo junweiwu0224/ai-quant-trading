@@ -1,5 +1,4 @@
 """订单管理器"""
-import sqlite3
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -12,6 +11,7 @@ from engine.models import (
     Direction, OrderStatus, OrderType,
     PaperConfig, PaperOrder, PaperTrade
 )
+from utils.db import get_connection
 
 DEFAULT_DB_PATH = str(PROJECT_ROOT / "data" / "paper_trading.db")
 
@@ -28,11 +28,9 @@ class OrderManager:
         from engine.migrate import init_database
         init_database(self.db_path)
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _get_conn(self):
+        """获取数据库连接（已配置 WAL + busy_timeout）"""
+        return get_connection(self.db_path)
 
     def create_order(
         self,
@@ -204,7 +202,12 @@ class OrderManager:
             conn.close()
 
     def match_orders(self, quotes: dict, config: PaperConfig) -> List[PaperTrade]:
-        """撮合订单"""
+        """撮合订单
+
+        注意: 此方法未被 PaperEngine 主流程调用。
+        PaperEngine 使用内置的 _match_orders() 进行撮合。
+        保留此方法供未来扩展或独立测试使用。
+        """
         pending = self.get_pending_orders()
         trades = []
 
@@ -396,7 +399,7 @@ class OrderManager:
         return PaperOrder(
             order_id=row["order_id"],
             code=row["code"],
-            direction=Direction(row["direction"]),
+            direction=Direction.from_value(row["direction"]),
             order_type=OrderType(row["order_type"]),
             price=row["price"],
             volume=row["volume"],

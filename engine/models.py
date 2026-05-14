@@ -14,6 +14,23 @@ class Direction(Enum):
     LONG = "buy"
     SHORT = "sell"
 
+    @classmethod
+    def from_value(cls, value: "Direction | str") -> "Direction":
+        if isinstance(value, cls):
+            return value
+
+        normalized = str(value).strip().lower()
+        aliases = {
+            "buy": cls.LONG,
+            "long": cls.LONG,
+            "sell": cls.SHORT,
+            "short": cls.SHORT,
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+
+        raise ValueError(f"{value!r} is not a valid Direction")
+
 
 class OrderType(Enum):
     """订单类型"""

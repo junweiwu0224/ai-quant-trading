@@ -87,6 +87,16 @@ test('V2.1 stock action contracts are invokable without writes', async ({ page }
     expect(result.activeStockCode).toBe(TEST_STOCK_CODE);
 });
 
+test('V2.1 conditional order section is available without writes', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await expect(page.locator('#conditional-order-section')).toBeVisible();
+    await expect(page.locator('#cond-alert-rule')).toBeVisible();
+    await expect(page.locator('#cond-rules-table')).toBeVisible();
+    await expect(page.locator('#cond-events')).toBeVisible();
+});
+
 test('V2.1 right rail offcanvas switches stock context without lifecycle residue', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);

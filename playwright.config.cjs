@@ -12,6 +12,7 @@ module.exports = {
     use: {
         baseURL: dashboardBaseUrl,
         headless: true,
+        serviceWorkers: 'block',
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
         video: 'retain-on-failure',

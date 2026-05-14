@@ -202,6 +202,39 @@
                 </div>
                 <h3 style="margin-top:14px;font-size:var(--font-size-sm)">触发记录</h3>
                 <div id="alert-history" class="alert-history"></div>
+
+                <div class="conditional-order-section" id="conditional-order-section" style="margin-top:16px;border-top:1px solid var(--color-border,#e5e7eb);padding-top:14px">
+                    <h3 style="font-size:var(--font-size-sm);margin-bottom:10px">条件单（模拟盘）</h3>
+                    <div class="alert-add-row">
+                        <select id="cond-alert-rule" aria-label="关联预警规则" style="max-width:180px">
+                            <option value="">选择预警规则</option>
+                        </select>
+                        <select id="cond-direction" aria-label="下单方向" style="max-width:90px">
+                            <option value="buy">买入</option>
+                            <option value="sell">卖出</option>
+                        </select>
+                        <select id="cond-order-type" aria-label="订单类型" style="max-width:100px">
+                            <option value="market">市价</option>
+                            <option value="limit">限价</option>
+                        </select>
+                        <input type="number" id="cond-price" class="search-input" placeholder="限价" aria-label="限价" step="0.01" style="max-width:90px">
+                        <input type="number" id="cond-volume" class="search-input" placeholder="数量" aria-label="数量" min="100" step="100" style="max-width:90px">
+                        <input type="number" id="cond-max-amount" class="search-input" placeholder="最大金额" aria-label="最大下单金额" min="0" step="100" style="max-width:110px">
+                        <input type="number" id="cond-cooldown" class="search-input" value="300" aria-label="冷却秒数" min="0" step="30" style="max-width:90px">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:var(--font-size-sm)">
+                            <input type="checkbox" id="cond-enabled"> 启用
+                        </label>
+                        <button class="btn btn-primary btn-sm" id="cond-add-btn">创建条件单</button>
+                    </div>
+                    <div class="table-wrap" style="margin-top:10px">
+                        <table id="cond-rules-table">
+                            <thead><tr><th>预警</th><th>代码</th><th>方向</th><th>类型</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
+                            <tbody><tr><td colspan="7" class="text-muted text-center">加载中...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <h3 style="margin-top:14px;font-size:var(--font-size-sm)">条件单执行历史</h3>
+                    <div id="cond-events" class="alert-history"></div>
+                </div>
             </div>
 
             <!-- Row 4: 自选股管理 -->

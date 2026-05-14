@@ -20,6 +20,7 @@
 | **条件选股** | 条件过滤引擎（字段+运算符+值）、6 预设策略、CSV 导出、一键加入自选股 |
 | **AI 选股** | 跨截面模型训练→TOP N 推荐、风险评分、SHAP 因子贡献、策略收益曲线 |
 | **预警系统** | 7 种条件（价格/涨跌幅/量比/换手率/振幅）、防重复触发、WebSocket 实时推送 |
+| **条件单** | 预警触发后自动创建模拟盘订单，支持启停、冷却幂等、最大下单金额/持仓风控和执行审计 |
 | **筹码分布** | 基于 K 线成交量+换手率估算、获利比例/平均成本/90% 集中度 |
 | **多周期共振** | 日/周/月三周期 MA/RSI/MACD 信号共振分析、强度评分 |
 | **龙虎榜分析** | 东方财富龙虎榜接入、营业部画像 TOP15、上榜后收益统计 |
@@ -50,17 +51,23 @@
 | 策略导入导出 | 通达信公式社区 | ✅ JSON 导入导出、版本对比、覆盖/跳过同名 |
 | 研报整合+LLM解读 | 东方财富 Choice | ✅ 东方财富研报接入、AI 自动解读核心观点+风险 |
 
-### 待开发
+### 待开发 / 待真实接入
 
-| 功能 | 对标 | 说明 |
-|------|------|------|
-| 公式系统 | 通达信 | 类通达信语法公式引擎，支持自定义指标/选股公式 |
-| 条件单 | QMT/PTrade | 预警触发后自动下单（止盈止损/拐点/回落卖出） |
-| 篮子交易 | QMT/PTrade | AI 选股 TOP20 一键组合买入，按等权/风险平价分配 |
-| 移动端 PWA | 涨乐财富通 | PWA + 离线缓存 + 推送通知 |
-| Tick 级回测 | QMT | 分钟级/Tick 级回测引擎，支持日内策略 |
-| L2 十档行情 | QMT/PTrade | 十档买卖盘、逐笔成交、委托队列 |
-| 实盘交易 | QMT/PTrade | CTP/XTP BrokerGateway 对接真实券商 |
+| 功能 | 对标 | 当前状态 |
+|------|------|---------|
+| 公式系统 | 通达信 | 未完成：类通达信语法公式引擎，支持自定义指标/选股公式 |
+| 篮子交易 | QMT/PTrade | 未完成：AI 选股 TOP20 一键组合买入，按等权/风险平价分配 |
+| 移动端 PWA | 涨乐财富通 | 基础完成：manifest、Service Worker、离线缓存；待移动端安装/通知/Lighthouse 验收 |
+| Tick 级回测 | QMT | 基础完成：Tick/分钟聚合与回测引擎已实现；真实 Tick/分钟数据源接入待完成 |
+| L2 十档行情 | QMT/PTrade | 骨架完成：OrderBook 模型与模拟器已实现；真实 L2 数据源待接入 |
+| 实盘交易 | QMT/PTrade | 桩代码完成：BrokerGateway、CTP/XTP 接口骨架已实现；真实券商 SDK 尚未接入 |
+
+### 当前验收基线
+
+| 检查项 | 命令 | 结果 |
+|-------|------|------|
+| 后端/API/核心测试 | `PYTHONPATH=/home/ubuntu/quant-trading-system /home/ubuntu/quant-trading-system/.venv/bin/python -m pytest -q /home/ubuntu/quant-trading-system/tests` | 通过：195 passed, 1 warning |
+| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm --prefix /home/ubuntu/quant-trading-system run e2e:docker` | 通过：4 passed |
 
 ## 技术栈
 

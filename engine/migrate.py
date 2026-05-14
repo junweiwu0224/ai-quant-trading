@@ -140,6 +140,40 @@ def init_database(db_path: str = None):
             )
         """)
 
+        # 条件单规则表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conditional_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_rule_id INTEGER NOT NULL,
+                code TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                order_type TEXT NOT NULL DEFAULT 'market',
+                price REAL,
+                volume INTEGER NOT NULL,
+                max_amount REAL DEFAULT 0,
+                enabled INTEGER DEFAULT 0,
+                cooldown INTEGER DEFAULT 300,
+                last_triggered_at TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+
+        # 条件单执行审计表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conditional_order_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conditional_order_id INTEGER,
+                alert_rule_id INTEGER,
+                code TEXT NOT NULL,
+                action TEXT NOT NULL,
+                order_id TEXT,
+                reason TEXT NOT NULL,
+                quote_price REAL,
+                created_at TEXT
+            )
+        """)
+
         # 创建索引
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_code ON paper_orders(code)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON paper_orders(status)")
@@ -150,6 +184,10 @@ def init_database(db_path: str = None):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_performance_date ON paper_performance(date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_risk_events_type ON paper_risk_events(event_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_risk_events_created ON paper_risk_events(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_orders_alert_rule_id ON conditional_orders(alert_rule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_orders_enabled ON conditional_orders(enabled)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_events_created ON conditional_order_events(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_events_order_id ON conditional_order_events(order_id)")
 
         # 增量迁移：alert_rules 表添加 webhook_url 列（如果表存在）
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert_rules'")

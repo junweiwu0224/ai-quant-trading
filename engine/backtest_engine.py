@@ -181,11 +181,6 @@ class BacktestEngine:
         # 验证预热期是否足够
         if len(warmup_dates) < warmup_periods:
             logger.warning(f"预热期不足: 需要 {warmup_periods} 个交易日，实际 {len(warmup_dates)} 个")
-            # 如果预热期不足，尝试从数据库中获取更多历史数据
-            if len(warmup_dates) < warmup_periods:
-                return BacktestResult(
-                    error=f"数据库中没有足够的历史数据来初始化策略（需要 {warmup_periods} 个交易日的预热期，实际只有 {len(warmup_dates)} 个）。请选择更晚的开始日期。"
-                )
 
         # 验证最小回测期
         if len(backtest_dates) < min_trading_days:

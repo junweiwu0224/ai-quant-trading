@@ -50,6 +50,7 @@ quant-trading-system/
 │   ├── paper_engine.py      # 模拟盘引擎
 │   ├── live_engine.py       # 实盘引擎
 │   ├── alert_engine.py      # 预警引擎
+│   ├── conditional_order.py # 条件单引擎（预警→模拟盘订单）
 │   ├── broker.py            # BrokerGateway 抽象接口
 │   ├── report_generator.py  # PDF 报告生成
 │   └── performance_analyzer.py  # 绩效分析（Brinson归因/Monte Carlo）
@@ -237,7 +238,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | `stock-detail.js` | 行情详情（K线/分时/五档/筹码/财务/行业对比） |
 | `compare.js` | 多股对比（归一化收益率、缩放/滚动） |
 | `screener.js` | 条件选股 + AI 选股 |
-| `alerts.js` | 预警管理（规则 CRUD、触发历史、Toast 通知） |
+| `alerts.js` | 预警管理与条件单（规则 CRUD、触发历史、模拟盘条件单、执行审计） |
 | `overview-radar.js` | 市场雷达（TOP10、板块轮动、北向资金） |
 | `backtest.js` | 回测（Monte Carlo、Walk-Forward、归因） |
 | `portfolio.js` | 持仓管理（风险指标、相关性矩阵） |
@@ -262,6 +263,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | `/api/alpha/*` | 15+ | 因子评估、SHAP、模型对比、因子挖掘、跨截面训练/预测、组合回测 |
 | `/api/screener/*` | 4 | 条件选股、预设策略、字段列表 |
 | `/api/alerts/*` | 6 | 预警规则 CRUD、触发历史、条件类型 |
+| `/api/conditional-orders/*` | 5 | 条件单规则 CRUD、启停、执行审计 |
 | `/api/market/*` | 4 | 市场雷达、板块轮动、板块热力图、北向资金 |
 | `/api/paper/*` | 25+ | 模拟盘控制、订单/持仓管理、绩效/统计、风控 |
 | `/api/strategy/*` | 6 | 策略 CRUD、代码验证 |
@@ -334,6 +336,12 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 - [x] WebSocket 推送（实时预警广播）
 - [x] 预警管理 API + 前端（CRUD、触发历史）
 
+### 4.1 条件单系统 — 已完成
+- [x] ConditionalOrderEngine（预警触发后创建模拟盘订单）
+- [x] 冷却期幂等、最大下单金额、持仓校验和执行审计
+- [x] 条件单 API + 前端（创建、启停、删除、执行历史）
+- [x] 实时行情预警链路接入条件单执行，保持仅模拟盘边界
+
 ### Phase 5: 筹码分布 + 市场雷达 — 已完成
 - [x] 筹码分布图（获利比例/平均成本/集中度）
 - [x] 市场雷达（涨幅/跌幅/振幅/换手率/量比 TOP10）
@@ -382,17 +390,23 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 5 | 研报整合+LLM解读 | 东方财富 Choice | 东方财富研报接入、AI 自动解读核心观点/风险/建议 | ✅ 已完成 |
 | 6 | 策略导入导出 | 通达信公式社区 | JSON 导入导出、版本对比、覆盖/跳过同名策略 | ✅ 已完成 |
 
-### 待开发
+### 待开发 / 待真实接入
 
-| # | 功能 | 对标竞品 | 说明 | 难度 |
-|---|------|---------|------|------|
-| 1 | 公式系统 | 通达信 | 类通达信语法公式引擎，支持自定义指标/选股公式 | ★★★ |
-| 2 | 条件单 | QMT/PTrade | 预警触发后自动下单（止盈止损/拐点/回落卖出） | ★★ |
-| 3 | 篮子交易 | QMT/PTrade | AI 选股 TOP20 一键组合买入，等权/风险平价分配 | ★★ |
-| 4 | 移动端 PWA | 涨乐财富通 | PWA + 离线缓存 + 推送通知 | ★★★ |
-| 5 | Tick 级回测 | QMT | 分钟级/Tick 级回测引擎，支持日内策略 | ★★★★ |
-| 6 | L2 十档行情 | QMT/PTrade | 十档买卖盘、逐笔成交、委托队列 | ★★★ |
-| 7 | 实盘交易 | QMT/PTrade | CTP/XTP BrokerGateway 对接真实券商 | ★★★★★ |
+| # | 功能 | 对标竞品 | 当前状态 | 难度 |
+|---|------|---------|---------|------|
+| 1 | 公式系统 | 通达信 | 未完成：类通达信语法公式引擎，支持自定义指标/选股公式 | ★★★ |
+| 2 | 篮子交易 | QMT/PTrade | 未完成：AI 选股 TOP20 一键组合买入，等权/风险平价分配 | ★★ |
+| 3 | 移动端 PWA | 涨乐财富通 | 基础完成：manifest、Service Worker、离线缓存；待移动端安装/通知/Lighthouse 验收 | ★★★ |
+| 4 | Tick 级回测 | QMT | 基础完成：Tick/分钟聚合与回测引擎已实现；真实 Tick/分钟数据源接入待完成 | ★★★★ |
+| 5 | L2 十档行情 | QMT/PTrade | 骨架完成：OrderBook 模型与模拟器已实现；真实 L2 数据源待接入 | ★★★ |
+| 6 | 实盘交易 | QMT/PTrade | 桩代码完成：BrokerGateway、CTP/XTP 接口骨架已实现；真实券商 SDK 尚未接入 | ★★★★★ |
+
+### 当前验收基线
+
+| 检查项 | 命令 | 结果 |
+|-------|------|------|
+| 后端/API/核心测试 | `PYTHONPATH=/home/ubuntu/quant-trading-system /home/ubuntu/quant-trading-system/.venv/bin/python -m pytest -q /home/ubuntu/quant-trading-system/tests` | 通过：195 passed, 1 warning |
+| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm --prefix /home/ubuntu/quant-trading-system run e2e:docker` | 通过：4 passed |
 
 ---
 
@@ -401,7 +415,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 维度 | 通达信 | QMT | PTrade | AI涨乐 | **本系统** |
 |------|--------|-----|--------|--------|-----------|
 | 公式系统 | ✅ 成熟 | ❌ | ❌ | ❌ | ❌ 待开发 |
-| 条件单 | ✅ | ✅ | ✅ | ✅ | ❌ 待开发 |
+| 条件单 | ✅ | ✅ | ✅ | ✅ | ✅ 模拟盘条件单 |
 | 篮子交易 | ❌ | ✅ | ✅ | ❌ | ❌ 待开发 |
 | 板块热力图 | ❌ | ❌ | ❌ | ❌ | ✅ treemap 色块 |
 | 多周期共振 | ✅ | ❌ | ❌ | ❌ | ✅ 三周期信号 |
@@ -417,7 +431,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 实盘交易 | ✅ | ✅ | ✅ | ✅ | ❌ 待对接 |
 
 **核心优势：** AI 可解释性（SHAP）、因子研究深度、LLM 集成、回测分析深度、策略版本管理、可视化工具（热力图/共振/龙虎榜）
-**核心短板：** 公式系统、条件单、篮子交易、实盘对接
+**核心短板：** 公式系统、篮子交易、真实数据源接入（Tick/L2）、实盘券商对接
 
 ---
 

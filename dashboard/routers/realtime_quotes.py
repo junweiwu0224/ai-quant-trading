@@ -17,6 +17,7 @@ _ws_lock = asyncio.Lock()
 
 # 预警引擎（全局单例）
 _alert_engine = None
+_conditional_order_engine = None
 
 
 def _get_alert_engine():
@@ -26,6 +27,14 @@ def _get_alert_engine():
         _alert_engine = AlertEngine()
         _load_alert_rules()
     return _alert_engine
+
+
+def _get_conditional_order_engine():
+    global _conditional_order_engine
+    if _conditional_order_engine is None:
+        from engine.conditional_order import ConditionalOrderEngine
+        _conditional_order_engine = ConditionalOrderEngine()
+    return _conditional_order_engine
 
 
 def _load_alert_rules():
@@ -132,6 +141,10 @@ def _sync_broadcast(quotes: dict[str, QuoteData]):
             engine = _get_alert_engine()
             alerts = engine.check(quotes)
             if alerts:
+                try:
+                    _get_conditional_order_engine().handle_alerts(alerts, quotes)
+                except Exception as e:
+                    logger.warning(f"条件单执行异常: {e}")
                 loop.create_task(_broadcast_alerts(alerts))
         except Exception as e:
             logger.debug(f"预警检查异常: {e}")

@@ -2258,7 +2258,7 @@ const App = {
         this.toast('CSV导出成功', 'success');
     },
 
-    async exportPDF() {
+    async exportPDF(event) {
         const data = this._lastBacktestData;
         if (!data) { this.toast('请先运行回测', 'error'); return; }
 

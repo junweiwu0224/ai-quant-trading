@@ -95,9 +95,20 @@ test('V2.1 right rail offcanvas switches stock context without lifecycle residue
         const firstCode = '600519';
         const secondCode = '000001';
 
+        async function waitForRailCode(code) {
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                const state = window.RightRailController.getState();
+                if (state.context && state.context.stock && state.context.stock.code === code) {
+                    return state;
+                }
+                await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            }
+            return window.RightRailController.getState();
+        }
+
         await window.App.openOffcanvas(firstCode);
         await window.PanelLifecycle.syncWithRail({ source: 'playwright:first-open' });
-        const firstRail = window.RightRailController.getState();
+        const firstRail = await waitForRailCode(firstCode);
         const firstLifecycle = window.PanelLifecycle.getState();
         const firstStore = window.GlobalStockStore.getState();
         const firstPanel = document.getElementById('stock-offcanvas');
@@ -106,7 +117,7 @@ test('V2.1 right rail offcanvas switches stock context without lifecycle residue
 
         await window.App.openOffcanvas(secondCode);
         await window.PanelLifecycle.syncWithRail({ source: 'playwright:second-open' });
-        const secondRail = window.RightRailController.getState();
+        const secondRail = await waitForRailCode(secondCode);
         const secondLifecycle = window.PanelLifecycle.getState();
         const secondStore = window.GlobalStockStore.getState();
         const secondPanel = document.getElementById('stock-offcanvas');

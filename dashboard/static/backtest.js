@@ -74,6 +74,22 @@ Object.assign(App, {
             strategySelect.removeAttribute('onchange');
         }
 
+        const exportCsvBtn = document.getElementById('bt-export-csv-btn');
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.exportCSV();
+            });
+        }
+
+        const exportPdfBtn = document.getElementById('bt-export-pdf-btn');
+        if (exportPdfBtn) {
+            exportPdfBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.exportPDF(e);
+            });
+        }
+
         const diagnoseBtn = document.getElementById('ensemble-diagnose-btn')
             || document.querySelector('#bt-results button[title="AI 回测诊断"]');
         if (diagnoseBtn) {
@@ -87,6 +103,14 @@ Object.assign(App, {
                 }
                 Ensemble?.diagnoseBacktest?.(this._lastBacktestData);
             };
+        }
+
+        const monteCarloBtn = document.getElementById('mc-run-btn');
+        if (monteCarloBtn) {
+            monteCarloBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.runMonteCarlo();
+            });
         }
 
         this._bindBacktestSnapshotInvalidation();

@@ -832,7 +832,7 @@
                 <form id="backtest-form" class="form-row">
                     <div class="form-group">
                         <label for="bt-strategy">策略</label>
-                        <select id="bt-strategy" onchange="Backtest._onStrategyChange()">
+                        <select id="bt-strategy">
                             <option value="">加载中...</option>
                         </select>
                     </div>
@@ -923,9 +923,9 @@
                     <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value" id="bt-trades">--</div></div>
                 </div>
                 <div class="flex-wrap mt-md">
-                    <button class="btn btn-sm" onclick="App.exportCSV()">导出CSV</button>
-                    <button class="btn btn-sm btn-primary" onclick="App.exportPDF(event)">导出PDF报告</button>
-                    <button class="btn btn-sm" onclick="Ensemble.diagnoseBacktest(App._lastBacktestData || {})" title="AI 回测诊断">AI 诊断</button>
+                    <button class="btn btn-sm" id="bt-export-csv-btn">导出CSV</button>
+                    <button class="btn btn-sm btn-primary" id="bt-export-pdf-btn">导出PDF报告</button>
+                    <button class="btn btn-sm" id="ensemble-diagnose-btn" title="AI 回测诊断">AI 诊断</button>
                 </div>
 
                 <div class="card">
@@ -1109,7 +1109,7 @@
                 <div class="card">
                     <h2>蒙特卡洛模拟</h2>
                     <div class="mb-md">
-                        <button class="btn btn-sm" id="mc-run-btn" onclick="App.runMonteCarlo()">运行模拟</button>
+                        <button class="btn btn-sm" id="mc-run-btn">运行模拟</button>
                         <span class="text-muted ml-sm text-xs">随机打乱交易顺序，评估策略稳健性</span>
                     </div>
                     <div id="mc-result" style="display:none">

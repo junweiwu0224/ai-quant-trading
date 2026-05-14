@@ -337,26 +337,6 @@ const PaperTrading = {
                 this.onTradeFilterChange();
             });
         }
-
-        const historyPanel = document.getElementById('paper-panel-history');
-        const historyButtons = historyPanel ? [...historyPanel.querySelectorAll('.flex-wrap.mb-md .btn.btn-sm')] : [];
-        const exportCsvButton = historyButtons.find(btn => btn.textContent.trim() === '导出CSV') || null;
-        if (exportCsvButton) {
-            exportCsvButton.removeAttribute('onclick');
-            exportCsvButton.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.exportTrades('csv');
-            });
-        }
-
-        const exportJsonButton = historyButtons.find(btn => btn.textContent.trim() === '导出JSON') || null;
-        if (exportJsonButton) {
-            exportJsonButton.removeAttribute('onclick');
-            exportJsonButton.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.exportTrades('json');
-            });
-        }
     },
 
     _updateEstimatedCost() {

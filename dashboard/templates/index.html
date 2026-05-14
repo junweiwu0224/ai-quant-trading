@@ -1786,7 +1786,7 @@
                         </div>
                         <div class="llm-input-area">
                             <textarea id="llm-input" class="llm-input" placeholder="输入你的问题或选股需求..." rows="2" aria-label="AI 助手输入"></textarea>
-                            <button class="btn btn-primary llm-send-btn" id="llm-send-btn" onclick="App.LLM.send()" aria-label="发送">
+                            <button class="btn btn-primary llm-send-btn" id="llm-send-btn" aria-label="发送">
                                 <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                             </button>
                         </div>
@@ -1862,10 +1862,10 @@
                             <div class="form-group">
                                 <span></span>
                                 <div class="flex-center">
-                                    <button type="button" class="btn btn-primary" id="pp-start-btn" onclick="Paper.start()">启动</button>
-                                    <button type="button" class="btn btn-danger" id="pp-stop-btn" onclick="Paper.stop()" disabled>停止</button>
-                                    <button type="button" class="btn btn-sm" onclick="Paper.reset()">重置</button>
-                                    <button type="button" class="btn btn-sm btn-outline" id="pp-train-btn" onclick="Paper.trainQlib()" title="重新训练 qlib ML 模型">训练ML</button>
+                                    <button type="button" class="btn btn-primary" id="pp-start-btn">启动</button>
+                                    <button type="button" class="btn btn-danger" id="pp-stop-btn" disabled>停止</button>
+                                    <button type="button" class="btn btn-sm">重置</button>
+                                    <button type="button" class="btn btn-sm btn-outline" id="pp-train-btn" title="重新训练 qlib ML 模型">训练ML</button>
                                 </div>
                             </div>
                         </form>
@@ -1975,7 +1975,7 @@
                     <div class="card">
                         <h2>持仓明细</h2>
                         <div class="flex-wrap mb-md">
-                            <button class="btn btn-sm btn-danger" id="pt-close-all-btn" onclick="PaperTrading.closeAllPositions()">一键清仓</button>
+                            <button class="btn btn-sm btn-danger" id="pt-close-all-btn">一键清仓</button>
                         </div>
                         <div class="table-wrap">
                             <table id="pt-positions-table">
@@ -2087,8 +2087,8 @@
                     <div class="card">
                         <h2>交易历史</h2>
                         <div class="flex-wrap mb-md" style="gap:0.5rem;align-items:center">
-                            <input type="text" id="pt-filter-code" class="form-control form-control-sm" placeholder="筛选代码" style="width:120px" oninput="PaperTrading.onTradeFilterChange()">
-                            <select id="pt-filter-direction" class="form-control form-control-sm" style="width:90px" onchange="PaperTrading.onTradeFilterChange()">
+                            <input type="text" id="pt-filter-code" class="form-control form-control-sm" placeholder="筛选代码" style="width:120px">
+                            <select id="pt-filter-direction" class="form-control form-control-sm" style="width:90px">
                                 <option value="">全部</option>
                                 <option value="buy">买入</option>
                                 <option value="sell">卖出</option>
@@ -2197,7 +2197,7 @@
         </div>
         <div class="copilot-input-area">
             <textarea id="copilot-input" class="copilot-input" placeholder="输入问题或选股需求... (Ctrl+K 聚焦)" rows="2" aria-label="AI 助手输入"></textarea>
-            <button class="btn btn-primary copilot-send-btn" id="copilot-send-btn" onclick="App.LLM.send()" aria-label="发送">
+            <button class="btn btn-primary copilot-send-btn" id="copilot-send-btn" aria-label="发送">
                 <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             </button>
         </div>

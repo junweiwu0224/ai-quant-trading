@@ -21,9 +21,12 @@ Object.assign(App, {
     },
 
     _pfLoaded: false,
+    _pfLoading: false,
 
     async loadPortfolio(shared) {
-        const refreshBtn = document.querySelector('button[onclick="App.loadPortfolio()"]');
+        if (this._pfLoading) return;
+        this._pfLoading = true;
+        const refreshBtn = null;
         if (refreshBtn) refreshBtn.disabled = true;
 
         if (!this._pfLoaded) {
@@ -63,6 +66,7 @@ Object.assign(App, {
         } catch (e) {
             this.toast('持仓数据加载失败', 'error');
         } finally {
+            this._pfLoading = false;
             this._pfLoaded = true;
             if (refreshBtn) refreshBtn.disabled = false;
         }

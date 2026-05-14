@@ -6,7 +6,7 @@ Object.assign(App, {
     async loadOverview() {
         if (this._loadingOverview) return;
         this._loadingOverview = true;
-        const refreshBtn = document.querySelector('button[onclick="App.loadOverview()"]');
+        const refreshBtn = this._getLegacyActionButton ? this._getLegacyActionButton('overview-refresh') : null;
         if (refreshBtn) refreshBtn.disabled = true;
         const loadStartTime = Date.now();
 
@@ -61,15 +61,7 @@ Object.assign(App, {
 
             this._updateQuoteStatus();
             this._updateMarketPhase();
-            if (!this._phaseTimer) {
-                this._phaseTimer = setInterval(() => this._updateMarketPhase(), 60000);
-            }
-            if (!this._freshnessTimer) {
-                this._freshnessTimer = setInterval(() => this._updateDataFreshness(), 30000);
-            }
-            if (!this._quoteStatusTimer) {
-                this._quoteStatusTimer = setInterval(() => this._updateQuoteStatus(), 1000);
-            }
+            this._registerOverviewTimers();
 
             // 自选股
             this.watchlistCache = watchlist || [];
@@ -295,6 +287,29 @@ Object.assign(App, {
 
         renderList(industriesEl, data.industries);
         renderList(conceptsEl, data.concepts);
+    },
+
+    _registerOverviewTimers() {
+        if (this.currentTab !== 'overview') {
+            return;
+        }
+        if (typeof PollManager === 'undefined' || !PollManager || typeof PollManager.register !== 'function') {
+            return;
+        }
+
+        PollManager.register('overview:market-phase', () => this._updateMarketPhase(), 60000);
+        PollManager.register('overview:data-freshness', () => this._updateDataFreshness(), 30000);
+        PollManager.register('overview:quote-status', () => this._updateQuoteStatus(), 1000);
+    },
+
+    _unregisterOverviewTimers() {
+        if (typeof PollManager === 'undefined' || !PollManager || typeof PollManager.cancel !== 'function') {
+            return;
+        }
+
+        PollManager.cancel('overview:market-phase');
+        PollManager.cancel('overview:data-freshness');
+        PollManager.cancel('overview:quote-status');
     },
 
     /** Qlib 心跳检查 */

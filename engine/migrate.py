@@ -1,22 +1,19 @@
 """数据库迁移脚本 - 初始化模拟盘数据库"""
-import sqlite3
 from pathlib import Path
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
+from utils.db import get_connection as _get_conn
 
 
 # 数据库路径
 DB_PATH = PROJECT_ROOT / "data" / "paper_trading.db"
 
 
-def get_connection(db_path: str = None) -> sqlite3.Connection:
-    """获取数据库连接"""
+def get_connection(db_path: str = None):
+    """获取数据库连接（已配置 WAL + busy_timeout）"""
     path = Path(db_path) if db_path else DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    return conn
+    return _get_conn(path)
 
 
 def init_database(db_path: str = None):

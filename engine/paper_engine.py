@@ -10,6 +10,7 @@ from loguru import logger
 
 from config.settings import LOG_DIR, PROJECT_ROOT
 from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from utils.db import get_connection
 
 
 def _is_trading_hours() -> bool:
@@ -40,6 +41,7 @@ class PaperConfig:
     slippage: float = 0.002           # 0.2% 滑点
     state_dir: str = str(LOG_DIR / "paper")  # 状态持久化目录
     enable_risk: bool = True          # 启用风控
+    db_path: Optional[str] = None      # 模拟盘数据库路径
 
 
 class PaperTradeLog:
@@ -136,6 +138,7 @@ class PaperEngine:
         self._trade_log = PaperTradeLog(self._config.state_dir)
         self._state_mgr = PaperStateManager(self._config.state_dir)
         self._running = False
+        self._order_lock = __import__('threading').Lock()
 
         # 风控
         self._position_mgr = PositionManager() if self._config.enable_risk else None
@@ -150,6 +153,7 @@ class PaperEngine:
             stamp_tax_rate=self._config.stamp_tax_rate,
             slippage=self._config.slippage,
             state_dir=self._config.state_dir,
+            db_path=self._config.db_path or NewPaperConfig.db_path,
         )
         self._order_manager = OrderManager(new_config.db_path)
         self._performance_analyzer = PerformanceAnalyzer(new_config.db_path)
@@ -264,7 +268,7 @@ class PaperEngine:
             self._trade_log.record(trade, equity)
 
         # 8. 同步状态到 DB（持仓 + 交易 + 订单）
-        self._sync_to_db(new_trades)
+        self._sync_to_db(new_trades, quotes)
 
         # 9. 保存状态文件（含 T+1 数据）
         self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
@@ -351,10 +355,8 @@ class PaperEngine:
     def _load_position_stop_prices(self) -> dict[str, dict]:
         """从 DB 加载每个持仓的止损止盈价"""
         result = {}
+        conn = get_connection(self._order_manager.db_path)
         try:
-            import sqlite3
-            conn = sqlite3.connect(self._order_manager.db_path)
-            conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT code, stop_loss_price, take_profit_price FROM paper_positions "
                 "WHERE stop_loss_price IS NOT NULL OR take_profit_price IS NOT NULL"
@@ -364,9 +366,10 @@ class PaperEngine:
                     "stop_loss": row["stop_loss_price"],
                     "take_profit": row["take_profit_price"],
                 }
-            conn.close()
         except Exception as e:
             logger.debug(f"加载止损止盈价失败: {e}")
+        finally:
+            conn.close()
         return result
 
     def _check_stoploss(self, quotes: dict[str, QuoteData], equity: float):
@@ -553,30 +556,26 @@ class PaperEngine:
 
     def _update_db_order_status(self, db_order_id: str, status: str):
         """更新 DB 中订单状态"""
+        conn = get_connection(self._order_manager.db_path)
         try:
-            import sqlite3
-            conn = sqlite3.connect(self._order_manager.db_path)
             conn.execute(
                 "UPDATE paper_orders SET status=?, updated_at=? WHERE order_id=?",
                 (status, now_beijing_iso(), db_order_id),
             )
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.debug(f"更新 DB 订单状态失败: {e}")
+        finally:
+            conn.close()
 
     def _load_db_orders(self):
         """从 DB 加载手动提交的待处理订单到引擎队列"""
+        conn = get_connection(self._order_manager.db_path)
         try:
-            import sqlite3
-            from engine.models import Direction as ModelDirection
-            conn = sqlite3.connect(self._order_manager.db_path)
-            conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM paper_orders WHERE status = 'pending' ORDER BY created_at ASC"
             )
             rows = cursor.fetchall()
-            conn.close()
 
             for row in rows:
                 # 转换为引擎内部 Order
@@ -590,18 +589,20 @@ class PaperEngine:
                 )
                 # 附带 DB order_id 用于后续状态更新
                 order._db_order_id = row["order_id"]
-                self._strategy._pending_orders.append(order)
+                with self._order_lock:
+                    self._strategy._pending_orders.append(order)
 
             if rows:
                 logger.debug(f"从 DB 加载 {len(rows)} 笔手动订单")
         except Exception as e:
             logger.debug(f"加载 DB 订单失败: {e}")
+        finally:
+            conn.close()
 
-    def _sync_to_db(self, new_trades: list[Trade]):
+    def _sync_to_db(self, new_trades: list[Trade], quotes: dict[str, QuoteData]):
         """同步引擎状态到 DB（持仓 + 交易 + 订单状态）"""
+        conn = get_connection(self._order_manager.db_path)
         try:
-            import sqlite3
-            conn = sqlite3.connect(self._order_manager.db_path)
             now_str = now_beijing_iso()
 
             # 1. 同步持仓到 paper_positions 表
@@ -627,7 +628,6 @@ class PaperEngine:
                 conn.execute("DELETE FROM paper_positions")
 
             # 获取当前价格
-            quotes = self._quote_service.get_all_quotes()
             prices = {c: q.price for c, q in quotes.items()} if quotes else {}
 
             # 更新/插入持仓
@@ -704,6 +704,7 @@ class PaperEngine:
                     )
 
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.error(f"同步到 DB 失败: {e}")
+        finally:
+            conn.close()

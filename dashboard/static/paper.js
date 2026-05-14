@@ -2,12 +2,58 @@
 
 const Paper = {
     _inited: false,
+    _controlsBound: false,
 
     init() {
         if (this._inited) return;
         this._inited = true;
+        this._bindControls();
         if (typeof PaperTrading !== 'undefined' && PaperTrading.init) {
             PaperTrading.init();
+        }
+    },
+
+    _bindControls() {
+        if (this._controlsBound) return;
+        this._controlsBound = true;
+
+        const startBtn = document.getElementById('pp-start-btn');
+        if (startBtn) {
+            startBtn.removeAttribute('onclick');
+            startBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.start();
+            });
+        }
+
+        const stopBtn = document.getElementById('pp-stop-btn');
+        if (stopBtn) {
+            stopBtn.removeAttribute('onclick');
+            stopBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.stop();
+            });
+        }
+
+        const panel = document.getElementById('paper-panel-console');
+        const resetBtn = panel
+            ? [...panel.querySelectorAll('.flex-center > button.btn')].find(btn => btn.textContent.trim() === '重置') || null
+            : null;
+        if (resetBtn) {
+            resetBtn.removeAttribute('onclick');
+            resetBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.reset();
+            });
+        }
+
+        const trainBtn = document.getElementById('pp-train-btn');
+        if (trainBtn) {
+            trainBtn.removeAttribute('onclick');
+            trainBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.trainQlib();
+            });
         }
     },
 
@@ -16,10 +62,6 @@ const Paper = {
         let codes = [];
         if (App.paperMultiSearch) {
             codes = App.paperMultiSearch.getSelectedCodes();
-        }
-        if (codes.length === 0) {
-            const codesRaw = document.getElementById('pp-codes').value.trim();
-            if (codesRaw) codes = codesRaw.split(/[,，\s]+/).filter(Boolean);
         }
         if (codes.length === 0) { App.toast('请选择至少一只股票', 'error'); return; }
 
@@ -82,6 +124,40 @@ const Paper = {
         } catch (e) {
             App.toast('重置失败: ' + e.message, 'error');
         }
+    },
+
+    async trainQlib() {
+        if (!confirm('开始训练 qlib ML 模型？\n这需要几分钟时间，训练期间不影响其他功能。')) return;
+        const btn = document.getElementById('pp-train-btn');
+        try {
+            if (btn) { btn.disabled = true; btn.textContent = '训练中...'; }
+            const data = await App.fetchJSON('/api/qlib/train', { method: 'POST' });
+            if (data.success) {
+                App.toast('qlib 训练已启动，请稍后查看预测结果', 'success');
+                // 轮询训练状态
+                this._pollTrainStatus();
+            } else {
+                App.toast(data.message || '训练启动失败', 'error');
+            }
+        } catch (e) {
+            App.toast('训练请求失败: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '训练ML'; }
+        }
+    },
+
+    async _pollTrainStatus() {
+        const check = async () => {
+            try {
+                const data = await App.fetchJSON('/api/qlib/train/status');
+                if (data.training) {
+                    setTimeout(check, 10000);
+                } else {
+                    App.toast('qlib 训练完成！', 'success');
+                }
+            } catch { /* ignore */ }
+        };
+        setTimeout(check, 10000);
     },
 
     async loadStatus() {

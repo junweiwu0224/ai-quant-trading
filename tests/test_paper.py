@@ -7,7 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from config.settings import QLIB_SERVICE_URL
 from data.collector.quote_service import QuoteData
+from dashboard.routers.paper_control import _create_builtin_strategy
 from engine.paper_engine import PaperConfig, PaperEngine, PaperStateManager, PaperTradeLog
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 
@@ -138,14 +140,43 @@ class TestPaperStateManager:
 # ── PaperEngine 测试 ──
 
 class TestPaperEngine:
+    def test_create_builtin_qlib_strategy_uses_configured_service_url(self, monkeypatch):
+        called = {}
+
+        class StubQlibSignalStrategy:
+            def __init__(self, buy_threshold=0.5, top_n=3):
+                self.buy_threshold = buy_threshold
+                self.top_n = top_n
+
+            @classmethod
+            def from_service(cls, service_url, **kwargs):
+                called["service_url"] = service_url
+                called["kwargs"] = kwargs
+                return "stub-strategy"
+
+        monkeypatch.setattr("strategy.qlib_signal.QlibSignalStrategy", StubQlibSignalStrategy)
+
+        strategy = _create_builtin_strategy(
+            "qlib_signal",
+            StubQlibSignalStrategy,
+            {"buy_threshold": 0.6, "top_n": 5},
+        )
+
+        assert strategy == "stub-strategy"
+        assert called["service_url"] == QLIB_SERVICE_URL
+        assert called["kwargs"]["buy_threshold"] == 0.6
+        assert called["kwargs"]["top_n"] == 5
+
     def _make_engine(self, strategy=None, codes=None, tmpdir=None):
         """创建测试引擎"""
         codes = codes or ["000001"]
         strategy = strategy or BuyOnceStrategy(codes[0])
+        state_dir = tmpdir or tempfile.mkdtemp()
         config = PaperConfig(
             interval_seconds=1,
-            state_dir=tmpdir or tempfile.mkdtemp(),
+            state_dir=state_dir,
             enable_risk=False,
+            db_path=str(Path(state_dir) / "paper_trading_test.db"),
         )
         return PaperEngine(strategy=strategy, codes=codes, config=config)
 
@@ -242,7 +273,7 @@ class TestPaperEngine:
         engine.run_once()
 
         # 现金应减少（含佣金和滑点）
-        spent = 1_000_000 - engine.portfolio.cash
+        spent = engine._config.initial_cash - engine.portfolio.cash
         # 1000 * 10 * (1 + 0.002 slippage) = 10020 + commission
         assert spent > 10_020
         assert spent < 10_100  # 不应太多

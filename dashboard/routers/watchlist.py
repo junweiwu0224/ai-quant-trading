@@ -3,10 +3,11 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 import threading
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 from pydantic import BaseModel
 
-from data.storage.storage import DataStorage
+from data.storage.storage import DataStorage, _normalize_storage_code
 from data.collector.quote_service import get_quote_service
 from data.collector.http_client import fetch_industry_batch
 
@@ -73,41 +74,47 @@ async def get_watchlist():
                     s["sector"] = q.sector
                 if q.concepts:
                     s["concepts"] = q.concepts.split(",")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"合并自选股实时行情失败: {e}")
     return stocks
 
 
 @router.post("")
 async def add_to_watchlist(req: AddWatchlistRequest):
     """添加自选股"""
-    code = req.code.strip()
-    if not code:
+    raw_code = req.code.strip()
+    if not raw_code:
         raise HTTPException(400, "股票代码不能为空")
 
-    # 检查股票是否在数据库中（快速路径：DB 查询）
+    _, plain_code = _normalize_storage_code(raw_code)
+    if not plain_code:
+        raise HTTPException(400, "股票代码格式非法")
+
+    code = plain_code
+
     stock_list = storage.get_stock_list()
     if stock_list.empty or code not in stock_list["code"].values:
-        # 股票不在 DB，后台异步采集（不阻塞响应）
-        def _bg_discover():
-            try:
-                from data.collector.collector import StockCollector
+        try:
+            from data.collector import StockCollector
+
+            def _load_stock_match():
                 collector = StockCollector()
                 all_stocks = collector.get_stock_list()
-                match = all_stocks[all_stocks["code"] == code]
-                if not match.empty:
-                    storage.save_stock_info(match)
-                    logger.info(f"后台发现股票 {code}，已保存")
-                else:
-                    logger.warning(f"股票 {code} 不存在")
-            except Exception as e:
-                logger.warning(f"后台发现股票 {code} 失败: {e}")
+                return all_stocks[all_stocks["code"] == code]
 
-        threading.Thread(target=_bg_discover, daemon=True, name=f"discover-{code}").start()
+            match = await run_in_threadpool(_load_stock_match)
+        except Exception as e:
+            logger.warning(f"同步校验股票 {code} 失败: {e}")
+            raise HTTPException(502, "股票校验失败")
+
+        if match.empty:
+            raise HTTPException(404, f"股票 {code} 不存在")
+
+        storage.save_stock_info(match)
+        stock_list = storage.get_stock_list()
 
     added = storage.add_to_watchlist(code)
 
-    # 获取股票名称和实时行情（同步，不依赖后台采集）
     stock_list = storage.get_stock_list()
     stock_name = ""
     if not stock_list.empty:
@@ -117,8 +124,8 @@ async def add_to_watchlist(req: AddWatchlistRequest):
     quote = None
     try:
         quote = get_quote_service().get_quote(code)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"获取股票 {code} 实时行情失败: {e}")
 
     if not added:
         return {
@@ -128,16 +135,14 @@ async def add_to_watchlist(req: AddWatchlistRequest):
             "change_pct": quote.change_pct if quote else None,
         }
 
-    # 更新行情订阅（立即，不阻塞响应）
     try:
         get_quote_service().subscribe([code])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"订阅股票 {code} 实时行情失败: {e}")
 
-    # 后台采集历史数据（不阻塞响应）
     def _bg_collect():
         try:
-            from data.collector.collector import StockCollector
+            from data.collector import StockCollector
             collector = StockCollector()
             latest = storage.get_latest_date(code)
             start = str(latest) if latest else "20200101"
@@ -162,24 +167,27 @@ async def add_to_watchlist(req: AddWatchlistRequest):
 @router.delete("/{code}")
 async def remove_from_watchlist(code: str):
     """删除自选股"""
-    removed = storage.remove_from_watchlist(code)
+    _, plain_code = _normalize_storage_code(code)
+    if not plain_code:
+        raise HTTPException(400, "股票代码格式非法")
+
+    removed = storage.remove_from_watchlist(plain_code)
     if not removed:
-        raise HTTPException(404, f"自选股 {code} 不存在")
+        raise HTTPException(404, f"自选股 {plain_code} 不存在")
 
-    # 更新行情订阅
     try:
-        get_quote_service().unsubscribe([code])
-    except Exception:
-        pass
+        get_quote_service().unsubscribe([plain_code])
+    except Exception as e:
+        logger.warning(f"退订股票 {plain_code} 实时行情失败: {e}")
 
-    return {"message": "删除成功", "code": code}
+    return {"message": "删除成功", "code": plain_code}
 
 
 @router.post("/sync")
 async def sync_watchlist():
     """手动触发自选股数据同步"""
     from datetime import datetime
-    from data.collector.collector import StockCollector
+    from data.collector import StockCollector
     from loguru import logger
 
     codes = storage.get_watchlist()

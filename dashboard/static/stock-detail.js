@@ -43,12 +43,8 @@ const StockDetail = {
             if (!item || !item.code) {
                 return;
             }
-            void App.invokeStockAction({
-                toolId: 'open_stock_detail',
-                input: { code: item.code },
+            void App.openStockDetail(item.code, {
                 source: 'stock-detail:search-box',
-                traceId: App._createActionTraceId ? App._createActionTraceId('stock-detail') : null,
-                actionKey: `open_stock_detail:${item.code}`,
             });
         });
         this._bindChartTabs();

@@ -3,9 +3,12 @@ services:
     build: .
     ports:
       - "8001:8001"
+      - "8002:8002"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./dashboard/templates:/app/dashboard/templates
+      - ./dashboard/static:/app/dashboard/static
     environment:
       - LOG_LEVEL=INFO
       - TZ=Asia/Shanghai

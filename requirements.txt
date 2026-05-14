@@ -1,5 +1,7 @@
 # Core
 akshare>=1.14.0
+mootdx>=0.11.0
+pywencai>=0.13.0
 
 # Database
 sqlalchemy>=2.0
@@ -12,6 +14,7 @@ optuna>=3.4.0
 shap>=0.43.0
 pandas>=2.0.0
 numpy>=1.24.0
+pyqlib>=0.9.0
 
 # Web Dashboard
 fastapi>=0.104.0

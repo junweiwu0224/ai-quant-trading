@@ -16,17 +16,51 @@
     };
 
     let _rules = [];
+    let _delegatedActionsBound = false;
 
     // ── 初始化 ──
 
     async function init() {
         bindEvents();
+        bindActionDelegation();
         await loadRules();
         loadHistory();
     }
 
     function bindEvents() {
         document.getElementById('alert-add-btn')?.addEventListener('click', addRule);
+    }
+
+    function bindActionDelegation() {
+        if (_delegatedActionsBound) {
+            return;
+        }
+
+        _delegatedActionsBound = true;
+        document.addEventListener('click', (e) => {
+            const actionEl = e.target.closest('[data-alert-action]');
+            if (!actionEl) {
+                return;
+            }
+
+            const action = actionEl.dataset.alertAction;
+            const id = parseInt(actionEl.dataset.id || '', 10);
+            if (!Number.isFinite(id)) {
+                return;
+            }
+
+            e.preventDefault();
+
+            if (action === 'toggle-rule') {
+                const enabled = actionEl.dataset.enabled === 'true';
+                toggleRule(id, enabled);
+                return;
+            }
+
+            if (action === 'delete-rule') {
+                deleteRule(id);
+            }
+        });
     }
 
     // ── 规则 CRUD ──
@@ -128,8 +162,8 @@
                 <td>${App.escapeHTML(r.code)}${webhookBadge}</td>
                 <td>${App.escapeHTML(label)}</td>
                 <td>${r.threshold}</td>
-                <td><span class="${statusClass}" style="cursor:pointer" onclick="App.Alerts.toggleRule(${r.id}, ${r.enabled})">${statusText}</span></td>
-                <td><button class="btn btn-sm" onclick="App.Alerts.deleteRule(${r.id})">删除</button></td>
+                <td><span class="${statusClass}" style="cursor:pointer" data-alert-action="toggle-rule" data-id="${r.id}" data-enabled="${r.enabled ? 'true' : 'false'}">${statusText}</span></td>
+                <td><button class="btn btn-sm" data-alert-action="delete-rule" data-id="${r.id}">删除</button></td>
             </tr>`;
         }).join('');
     }

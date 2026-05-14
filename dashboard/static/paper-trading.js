@@ -25,6 +25,8 @@ const PaperTrading = {
 
     // ────────────── 股票名称缓存 ──────────────
     _stockNameCache: {},
+    _delegatedActionsBound: false,
+    _historyControlsBound: false,
 
     // ────────────── 轮询管理 ──────────────
     polling: {
@@ -39,6 +41,8 @@ const PaperTrading = {
 
     init() {
         this.bindEvents();
+        this.bindActionDelegation();
+        this.bindHistoryControls();
         this.initSubTabs();
         this.loadStrategyList();
         if (!this._loaded) this._showSkeletons();
@@ -81,7 +85,8 @@ const PaperTrading = {
             this.loadTradeFrequency();
         } else if (tabName === 'trade') {
             this.loadTrades();
-        } else if (tabName === 'risk') {
+        } else if (tabName === 'history') {
+            this.loadTrades();
             this.loadRiskEvents();
         }
     },
@@ -201,16 +206,16 @@ const PaperTrading = {
                 formatItem: (s) => `${s.code} ${s.name}`,
                 maxResults: 15,
             });
-            // 数据源：自选股列表
-            const watchlistSource = (query) => {
-                const list = App.watchlistCache || [];
-                if (!query) return list.map(s => ({ code: s.code, name: s.name || s.code }));
+            // 数据源：全市场股票（与Console子Tab一致）
+            const fullMarketSource = (query) => {
+                const list = App._allStocks || [];
+                if (!query) return list.slice(0, 50).map(s => ({ code: s.code, name: s.name || s.code }));
                 const q = query.toLowerCase();
                 return list.filter(s =>
                     (s.code && s.code.includes(q)) || (s.name && s.name.toLowerCase().includes(q))
-                ).map(s => ({ code: s.code, name: s.name || s.code }));
+                ).slice(0, 50).map(s => ({ code: s.code, name: s.name || s.code }));
             };
-            this._codeSearch.setDataSource(watchlistSource);
+            this._codeSearch.setDataSource(fullMarketSource);
             this._codeSearch.onSelect((item) => {
                 codeInput.value = item.code;
                 this._loadQuotePreview(item.code);
@@ -230,6 +235,122 @@ const PaperTrading = {
         const updateEstCost = () => this._updateEstimatedCost();
         if (volumeInput) volumeInput.addEventListener('input', updateEstCost);
         if (priceInput) priceInput.addEventListener('input', updateEstCost);
+    },
+
+    bindActionDelegation() {
+        if (this._delegatedActionsBound) {
+            return;
+        }
+
+        this._delegatedActionsBound = true;
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-paper-action]');
+            if (!button) {
+                return;
+            }
+
+            const action = button.dataset.paperAction;
+            e.preventDefault();
+
+            if (action === 'cancel-order') {
+                const orderId = typeof button.dataset.orderId === 'string' ? button.dataset.orderId.trim() : '';
+                if (orderId) {
+                    this.cancelOrder(orderId);
+                }
+                return;
+            }
+
+            if (action === 'partial-close') {
+                const code = typeof button.dataset.code === 'string' ? button.dataset.code.trim() : '';
+                if (code) {
+                    this.partialClose(code);
+                }
+                return;
+            }
+
+            if (action === 'close-position') {
+                const code = typeof button.dataset.code === 'string' ? button.dataset.code.trim() : '';
+                if (code) {
+                    this.closePosition(code);
+                }
+                return;
+            }
+
+            if (action === 'load-trades-page') {
+                const page = parseInt(button.dataset.page || '', 10);
+                if (Number.isFinite(page) && page > 0) {
+                    this.loadTrades(page);
+                }
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            const input = e.target.closest('[data-paper-action="update-stop-loss"]');
+            if (!input) {
+                return;
+            }
+
+            const code = typeof input.dataset.code === 'string' ? input.dataset.code.trim() : '';
+            const type = typeof input.dataset.stopType === 'string' ? input.dataset.stopType.trim() : '';
+            if (!code || !type) {
+                return;
+            }
+
+            this.updateStopLoss(code, input.value, type);
+        });
+    },
+
+    bindHistoryControls() {
+        if (this._historyControlsBound) {
+            return;
+        }
+
+        this._historyControlsBound = true;
+
+        const closeAllBtn = document.getElementById('pt-close-all-btn');
+        if (closeAllBtn) {
+            closeAllBtn.removeAttribute('onclick');
+            closeAllBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.closeAllPositions();
+            });
+        }
+
+        const filterCodeInput = document.getElementById('pt-filter-code');
+        if (filterCodeInput) {
+            filterCodeInput.removeAttribute('oninput');
+            filterCodeInput.addEventListener('input', () => {
+                this.onTradeFilterChange();
+            });
+        }
+
+        const filterDirectionSelect = document.getElementById('pt-filter-direction');
+        if (filterDirectionSelect) {
+            filterDirectionSelect.removeAttribute('onchange');
+            filterDirectionSelect.addEventListener('change', () => {
+                this.onTradeFilterChange();
+            });
+        }
+
+        const historyPanel = document.getElementById('paper-panel-history');
+        const historyButtons = historyPanel ? [...historyPanel.querySelectorAll('.flex-wrap.mb-md .btn.btn-sm')] : [];
+        const exportCsvButton = historyButtons.find(btn => btn.textContent.trim() === '导出CSV') || null;
+        if (exportCsvButton) {
+            exportCsvButton.removeAttribute('onclick');
+            exportCsvButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.exportTrades('csv');
+            });
+        }
+
+        const exportJsonButton = historyButtons.find(btn => btn.textContent.trim() === '导出JSON') || null;
+        if (exportJsonButton) {
+            exportJsonButton.removeAttribute('onclick');
+            exportJsonButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.exportTrades('json');
+            });
+        }
     },
 
     _updateEstimatedCost() {
@@ -430,7 +551,7 @@ const PaperTrading = {
                 <td>${order.volume}</td>
                 <td><span class="badge badge-warning">待撮合</span></td>
                 <td>
-                    <button class="btn btn-sm btn-danger" onclick="PaperTrading.cancelOrder('${order.order_id}')">
+                    <button class="btn btn-sm btn-danger" data-paper-action="cancel-order" data-order-id="${App.escapeHTML(order.order_id)}">
                         撤销
                     </button>
                 </td>
@@ -566,14 +687,18 @@ const PaperTrading = {
                             <input type="number" class="form-control form-control-sm" step="0.01"
                                    value="${pos.stop_loss_price || ''}"
                                    placeholder="${(avg * 0.95).toFixed(2)}"
-                                   onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'stop_loss')">
+                                   data-paper-action="update-stop-loss"
+                                   data-code="${App.escapeHTML(pos.code)}"
+                                   data-stop-type="stop_loss">
                             ${slDist !== null ? `<span class="sl-tp-dist text-down">-${slDist.toFixed(1)}%</span>` : ''}
                         </label>
                         <label class="sl-tp-label">止盈
                             <input type="number" class="form-control form-control-sm" step="0.01"
                                    value="${pos.take_profit_price || ''}"
                                    placeholder="${(avg * 1.10).toFixed(2)}"
-                                   onchange="PaperTrading.updateStopLoss('${pos.code}', this.value, 'take_profit')">
+                                   data-paper-action="update-stop-loss"
+                                   data-code="${App.escapeHTML(pos.code)}"
+                                   data-stop-type="take_profit">
                             ${tpDist !== null ? `<span class="sl-tp-dist text-up">+${tpDist.toFixed(1)}%</span>` : ''}
                         </label>
                     </div>
@@ -583,8 +708,8 @@ const PaperTrading = {
                         <input type="number" class="form-control form-control-sm" id="pt-partial-${pos.code}"
                                min="100" step="100" max="${pos.volume}" placeholder="${pos.volume}"
                                style="width:70px;font-size:12px">
-                        <button class="btn btn-sm btn-warning" onclick="PaperTrading.partialClose('${pos.code}')" title="部分平仓">部分</button>
-                        <button class="btn btn-sm btn-danger" onclick="PaperTrading.closePosition('${pos.code}')" title="全部平仓">平仓</button>
+                        <button class="btn btn-sm btn-warning" data-paper-action="partial-close" data-code="${App.escapeHTML(pos.code)}" title="部分平仓">部分</button>
+                        <button class="btn btn-sm btn-danger" data-paper-action="close-position" data-code="${App.escapeHTML(pos.code)}" title="全部平仓">平仓</button>
                     </div>
                 </td>
             </tr>`;
@@ -657,8 +782,7 @@ const PaperTrading = {
         try {
             const results = await Promise.allSettled(
                 this.state.positions.map(pos =>
-                    fetch(`/api/paper/positions/${pos.code}/close`, { method: 'POST' })
-                        .then(res => res.json())
+                    App.fetchJSON(`/api/paper/positions/${pos.code}/close`, { method: 'POST' })
                         .then(data => {
                             if (!data.success) throw new Error(data.detail || data.message);
                             return { code: pos.code, success: true };
@@ -699,24 +823,27 @@ const PaperTrading = {
 
     renderPerformance() {
         const perf = this.state.performance;
+        const fmt = (v, decimals = 2) => v != null && v !== 0 ? v.toFixed(decimals) : '--';
+        const fmtPct = (v) => v != null && v !== 0 ? (v * 100).toFixed(2) + '%' : '--';
+        const fmtYen = (v) => v != null && v !== 0 ? '¥' + v.toFixed(2) : '--';
 
         // 更新绩效统计卡片
         const elements = {
             'pt-total-equity': perf.total_equity ? App.fmt(perf.total_equity) : '--',
-            'pt-daily-return': perf.daily_return ? (perf.daily_return * 100).toFixed(2) + '%' : '--',
-            'pt-cumulative-return': perf.cumulative_return ? (perf.cumulative_return * 100).toFixed(2) + '%' : '--',
-            'pt-max-drawdown': perf.max_drawdown ? (perf.max_drawdown * 100).toFixed(2) + '%' : '--',
-            'pt-sharpe-ratio': perf.sharpe_ratio ? perf.sharpe_ratio.toFixed(4) : '--',
-            'pt-sortino-ratio': perf.sortino_ratio ? perf.sortino_ratio.toFixed(4) : '--',
-            'pt-calmar-ratio': perf.calmar_ratio ? perf.calmar_ratio.toFixed(4) : '--',
-            'pt-win-rate': perf.win_rate ? (perf.win_rate * 100).toFixed(2) + '%' : '--',
-            'pt-win-rate-perf': perf.win_rate ? (perf.win_rate * 100).toFixed(2) + '%' : '--',
-            'pt-profit-loss-ratio': perf.profit_loss_ratio ? perf.profit_loss_ratio.toFixed(4) : '--',
-            'pt-total-trades': perf.total_trades || '--',
-            'pt-winning-trades': perf.winning_trades || '--',
-            'pt-losing-trades': perf.losing_trades || '--',
-            'pt-avg-win': perf.avg_win ? '¥' + perf.avg_win.toFixed(2) : '--',
-            'pt-avg-loss': perf.avg_loss ? '¥' + perf.avg_loss.toFixed(2) : '--',
+            'pt-daily-return': fmtPct(perf.daily_return),
+            'pt-cumulative-return': fmtPct(perf.cumulative_return),
+            'pt-max-drawdown': fmtPct(perf.max_drawdown),
+            'pt-sharpe-ratio': fmt(perf.sharpe_ratio, 4),
+            'pt-sortino-ratio': fmt(perf.sortino_ratio, 4),
+            'pt-calmar-ratio': fmt(perf.calmar_ratio, 4),
+            'pt-win-rate': fmtPct(perf.win_rate),
+            'pt-win-rate-perf': fmtPct(perf.win_rate),
+            'pt-profit-loss-ratio': fmt(perf.profit_loss_ratio, 4),
+            'pt-total-trades': perf.total_trades ?? '--',
+            'pt-winning-trades': perf.winning_trades ?? '--',
+            'pt-losing-trades': perf.losing_trades ?? '--',
+            'pt-avg-win': fmtYen(perf.avg_win),
+            'pt-avg-loss': fmtYen(perf.avg_loss),
             'pt-max-consecutive-wins': perf.max_consecutive_wins || '--',
             'pt-max-consecutive-losses': perf.max_consecutive_losses || '--',
         };
@@ -1205,9 +1332,9 @@ const PaperTrading = {
         let html = '';
 
         if (total_pages > 1) {
-            html += `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="PaperTrading.loadTrades(${page - 1})">上一页</button>`;
+            html += `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} data-paper-action="load-trades-page" data-page="${page - 1}">上一页</button>`;
             html += `<span class="mx-sm">第 ${page} / ${total_pages} 页</span>`;
-            html += `<button class="btn btn-sm" ${page >= total_pages ? 'disabled' : ''} onclick="PaperTrading.loadTrades(${page + 1})">下一页</button>`;
+            html += `<button class="btn btn-sm" ${page >= total_pages ? 'disabled' : ''} data-paper-action="load-trades-page" data-page="${page + 1}">下一页</button>`;
         }
 
         container.innerHTML = html;
@@ -1552,12 +1679,21 @@ const PaperTrading = {
             statusEl.className = 'stat-value ' + (this.state.isRunning ? 'text-up' : '');
         }
 
-        if (equityEl) equityEl.textContent = this.state.performance.total_equity
-            ? App.fmt(this.state.performance.total_equity) : '--';
+        if (equityEl) {
+            const eq = this.state.performance.total_equity;
+            equityEl.textContent = eq != null && eq !== 0 ? App.fmt(eq) : '--';
+        }
 
         if (posCountEl) posCountEl.textContent = this.state.positions.length;
 
         if (tradeCountEl) tradeCountEl.textContent = this.state.performance.total_trades || 0;
+
+        // 更新胜率卡片
+        const winRateEl = document.getElementById('pt-win-rate');
+        if (winRateEl) {
+            const wr = this.state.performance.win_rate;
+            winRateEl.textContent = wr != null ? (wr * 100).toFixed(2) + '%' : '--';
+        }
 
         // P1 #4: 更新可用资金
         const cashEl = document.getElementById('pt-available-cash');

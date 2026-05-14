@@ -414,15 +414,15 @@ def _calc_benchmark_comparison_from_closes_sync(history: list[dict], bm_closes: 
 
 
 async def _load_paper_state(state_dir: str = str(LOG_DIR / "paper")) -> Optional[dict]:
-    """加载模拟盘状态"""
+    """加载模拟盘状态，文件不存在时返回默认初始状态"""
     state_file = Path(state_dir) / "portfolio_state.json"
     if not state_file.exists():
-        return None
+        return {"cash": 50000.0, "positions": {}, "avg_prices": {}, "trade_count": 0, "entry_dates": {}}
     try:
         content = await asyncio.to_thread(state_file.read_text)
         return json.loads(content)
     except (json.JSONDecodeError, OSError):
-        return None
+        return {"cash": 50000.0, "positions": {}, "avg_prices": {}, "trade_count": 0, "entry_dates": {}}
 
 
 async def _load_trades_today(state_dir: str = str(LOG_DIR / "paper")) -> list[dict]:

@@ -3,7 +3,7 @@
 - 北向资金因子：持股比例变化、连续 N 日净买入、持仓市值变化
 - 龙虎榜因子：机构净买入、游资动向
 
-数据源：东方财富 datacenter API
+数据源：东方财富 datacenter API + AKShare 回退
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import pandas as pd
 from loguru import logger
 
 from data.collector.http_client import fetch_json
+from data.collector.http_client import run_sync
 
 
 # ── 北向资金因子 ──
@@ -152,3 +153,69 @@ def compute_flow_factors(code: str, northbound_days: int = 30, dragon_days: int 
     nb = fetch_northbound_factors(code, northbound_days)
     dt = fetch_dragon_tiger_factors(code, dragon_days)
     return {**nb, **dt}
+
+
+# ── AKShare 回退 ──
+
+def fetch_northbound_factors_akshare(code: str, days: int = 30) -> dict[str, float]:
+    """通过 AKShare 获取北向资金因子（回退方案）"""
+    try:
+        import akshare as ak
+        # 获取北向持股数据
+        df = ak.stock_hsgt_hold_stock_em(market="北向", indicator="今日排行")
+        if df is None or df.empty:
+            return {"nb_hold_ratio": 0, "nb_hold_ratio_change": 0, "nb_consecutive_buy": 0, "nb_net_buy_sum": 0}
+
+        row = df[df["代码"] == code]
+        if row.empty:
+            return {"nb_hold_ratio": 0, "nb_hold_ratio_change": 0, "nb_consecutive_buy": 0, "nb_net_buy_sum": 0}
+
+        row = row.iloc[0]
+        hold_ratio = float(row.get("持股占比", 0) or 0)
+
+        return {
+            "nb_hold_ratio": round(hold_ratio, 4),
+            "nb_hold_ratio_change": 0,  # AKShare 单日数据无法计算变化
+            "nb_consecutive_buy": 0,
+            "nb_net_buy_sum": 0,
+        }
+    except Exception as e:
+        logger.warning(f"AKShare 北向因子失败({code}): {e}")
+        return {"nb_hold_ratio": 0, "nb_hold_ratio_change": 0, "nb_consecutive_buy": 0, "nb_net_buy_sum": 0}
+
+
+def fetch_dragon_tiger_factors_akshare(code: str, days: int = 30) -> dict[str, float]:
+    """通过 AKShare 获取龙虎榜因子（回退方案）"""
+    try:
+        import akshare as ak
+        from datetime import datetime, timedelta
+
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+
+        df = ak.stock_lhb_detail_em(
+            start_date=start_date,
+            end_date=end_date,
+            symbol="近一月",
+        )
+        if df is None or df.empty:
+            return {"dt_count": 0, "dt_net_buy": 0, "dt_hot_score": 0}
+
+        stock_df = df[df["代码"] == code]
+        if stock_df.empty:
+            return {"dt_count": 0, "dt_net_buy": 0, "dt_hot_score": 0}
+
+        count = len(stock_df["上榜日期"].unique())
+        total_net = float(stock_df["净买额"].sum()) if "净买额" in stock_df.columns else 0
+        net_buy = round(total_net / 1e8, 4)
+
+        hot_score = count * (1 if total_net > 0 else -1)
+
+        return {
+            "dt_count": count,
+            "dt_net_buy": net_buy,
+            "dt_hot_score": hot_score,
+        }
+    except Exception as e:
+        logger.warning(f"AKShare 龙虎榜因子失败({code}): {e}")
+        return {"dt_count": 0, "dt_net_buy": 0, "dt_hot_score": 0}

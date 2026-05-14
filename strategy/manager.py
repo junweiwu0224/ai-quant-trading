@@ -5,6 +5,7 @@ from typing import Optional
 
 from loguru import logger
 
+from config.datetime_utils import now_beijing_iso
 from config.settings import PROJECT_ROOT
 
 STRATEGIES_FILE = PROJECT_ROOT / "data" / "strategies.json"
@@ -33,7 +34,7 @@ BUILTIN_STRATEGIES = [
         "label": "动量策略",
         "type": "趋势",
         "description": "基于 N 日收益率动量信号交易。",
-        "params": {"lookback": 20, "threshold": 0.05},
+        "params": {"lookback": 20, "entry_threshold": 0.05},
         "tags": ["动量", "趋势"],
         "builtin": True,
     },
@@ -62,6 +63,15 @@ BUILTIN_STRATEGIES = [
         "description": "K 线上穿 D 线且 J 值超卖时买入，反之卖出。",
         "params": {"period": 9, "k_period": 3, "d_period": 3, "oversold": 20, "overbought": 80},
         "tags": ["KDJ", "反转"],
+        "builtin": True,
+    },
+    {
+        "name": "qlib_signal",
+        "label": "ML 信号策略",
+        "type": "机器学习",
+        "description": "基于 qlib LightGBM 预测分数的量化信号策略。支持绝对阈值和截面排名两种模式。",
+        "params": {"mode": "absolute", "top_n": 3, "buy_threshold": 0.5, "sell_threshold": -0.3, "position_pct": 0.9, "score_normalize": True},
+        "tags": ["ML", "qlib", "机器学习"],
         "builtin": True,
     },
 ]
@@ -193,7 +203,7 @@ class StrategyManager:
         """导出所有策略（内置+自定义）为 JSON"""
         return {
             "version": "1.0",
-            "exported_at": __import__("datetime").datetime.now().isoformat(),
+            "exported_at": now_beijing_iso(),
             "builtin": [self._merge_builtin(s) for s in BUILTIN_STRATEGIES],
             "custom": list(self._custom),
             "overrides": dict(self._overrides),
@@ -206,7 +216,7 @@ class StrategyManager:
             return None
         return {
             "version": "1.0",
-            "exported_at": __import__("datetime").datetime.now().isoformat(),
+            "exported_at": now_beijing_iso(),
             "strategy": s,
         }
 

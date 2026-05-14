@@ -104,6 +104,56 @@ class OptimizeRequest(BaseModel):
     top_n: int = 5
 
 
+class EnsembleBacktestRequest(BaseModel):
+    strategies: list[dict]  # [{"name": "dual_ma", "weight": 1.0, "params": {}}]
+    aggregation: str = "weighted_average"
+    buy_threshold: float = 0.3
+    sell_threshold: float = -0.3
+    codes: list[str] = ["000001"]
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    initial_cash: float = 1_000_000
+    position_pct: float = 0.9
+
+
+@router.post("/ensemble-backtest")
+async def ensemble_backtest(req: EnsembleBacktestRequest):
+    """多策略聚合回测"""
+    from strategy.strategies import STRATEGIES
+    from strategy.ensemble import EnsembleStrategy
+    from engine.backtest_engine import BacktestEngine, BacktestConfig
+
+    specs = []
+    for s in req.strategies:
+        name = s.get("name", "")
+        if name not in STRATEGIES:
+            raise HTTPException(400, f"策略 {name} 不存在")
+        weight = s.get("weight", 1.0)
+        specs.append((STRATEGIES[name], weight))
+
+    config = BacktestConfig(initial_cash=req.initial_cash)
+    strategy = EnsembleStrategy(
+        strategies=specs,
+        aggregation=req.aggregation,
+        buy_threshold=req.buy_threshold,
+        sell_threshold=req.sell_threshold,
+        position_pct=req.position_pct,
+    )
+    engine = BacktestEngine(config=config)
+    result = engine.run(strategy, req.codes, req.start_date, req.end_date)
+
+    return {
+        "success": True,
+        "total_return": round(result.total_return, 4),
+        "annual_return": round(result.annual_return, 4),
+        "max_drawdown": round(result.max_drawdown, 4),
+        "sharpe_ratio": round(result.sharpe_ratio, 2),
+        "win_rate": round(result.win_rate, 4),
+        "total_trades": result.total_trades,
+        "equity_curve": result.equity_curve[-200:],
+    }
+
+
 @router.post("/optimize")
 async def optimize_strategy(req: OptimizeRequest):
     """参数网格搜索优化"""

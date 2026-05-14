@@ -1,5 +1,20 @@
 /* ── 持仓模块：交易记录 ── */
 
+document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-pf-history-page]');
+    if (!button) {
+        return;
+    }
+
+    const page = parseInt(button.dataset.pfHistoryPage || '', 10);
+    if (!Number.isFinite(page) || page <= 0) {
+        return;
+    }
+
+    e.preventDefault();
+    App.pfLoadHistory(page);
+});
+
 Object.assign(App, {
     _pfRenderTrades() {
         const trades = this._pf.trades || [];
@@ -103,15 +118,15 @@ Object.assign(App, {
         }
 
         let html = '';
-        html += `<button ${page <= 1 ? 'disabled' : ''} onclick="App.pfLoadHistory(${page - 1})">上一页</button>`;
+        html += `<button ${page <= 1 ? 'disabled' : ''} data-pf-history-page="${page - 1}">上一页</button>`;
 
         const start = Math.max(1, page - 2);
         const end = Math.min(totalPages, page + 2);
         for (let i = start; i <= end; i++) {
-            html += `<button class="${i === page ? 'active' : ''}" onclick="App.pfLoadHistory(${i})">${i}</button>`;
+            html += `<button class="${i === page ? 'active' : ''}" data-pf-history-page="${i}">${i}</button>`;
         }
 
-        html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="App.pfLoadHistory(${page + 1})">下一页</button>`;
+        html += `<button ${page >= totalPages ? 'disabled' : ''} data-pf-history-page="${page + 1}">下一页</button>`;
         container.innerHTML = html;
     },
 });

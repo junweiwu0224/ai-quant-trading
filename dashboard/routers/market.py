@@ -254,3 +254,61 @@ async def get_northbound():
         if _last_northbound:
             return {**_last_northbound, "stale": True}
         return {"success": False, "error": str(e), "today_net": 0, "flow": []}
+
+
+# ── 热点归因 ──
+
+_TTL_HOTSPOT = 120  # 2 分钟缓存
+_last_hotspot: dict | None = None
+
+
+@router.get("/hotspot")
+async def get_hotspot():
+    """热点归因分析（概念板块+行业+资金流向）"""
+    global _last_hotspot
+    cache_key = "hotspot"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        from alpha.hotspot_attribution import get_hotspot_attribution
+        data = await get_hotspot_attribution()
+        result = {"success": True, **data}
+        _cache.set(cache_key, result, _TTL_HOTSPOT)
+        _last_hotspot = result
+        return result
+    except Exception as e:
+        logger.error(f"热点归因失败: {e}")
+        if _last_hotspot:
+            return {**_last_hotspot, "stale": True}
+        return {"success": False, "error": str(e)}
+
+
+# ── 市场新闻 ──
+
+_TTL_NEWS = 300  # 5 分钟缓存
+_last_news: dict | None = None
+
+
+@router.get("/news")
+async def get_market_news():
+    """市场新闻快讯 + 情绪分析"""
+    global _last_news
+    cache_key = "market_news"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        from alpha.news_collector import fetch_market_news_summary
+        data = await fetch_market_news_summary()
+        result = {"success": True, **data}
+        _cache.set(cache_key, result, _TTL_NEWS)
+        _last_news = result
+        return result
+    except Exception as e:
+        logger.error(f"市场新闻获取失败: {e}")
+        if _last_news:
+            return {**_last_news, "stale": True}
+        return {"success": False, "error": str(e)}

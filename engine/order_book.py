@@ -15,6 +15,8 @@ from typing import Callable, Optional
 
 from loguru import logger
 
+from config.datetime_utils import now_beijing
+
 
 @dataclass(frozen=True)
 class OrderBookLevel:
@@ -187,7 +189,7 @@ class OrderBookSimulator:
         return OrderBook(
             code=code,
             name="",
-            datetime=datetime.now(),
+            datetime=now_beijing(),
             last_price=last_price,
             last_volume=last_vol,
             bids=bids,

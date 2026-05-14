@@ -1,5 +1,9 @@
 /* ── AI 量化交易系统 — 核心入口 ── */
 
+if (typeof globalThis.ENABLE_WORKSPACE_V2 === 'undefined') {
+    globalThis.ENABLE_WORKSPACE_V2 = true;
+}
+
 /* 轮询协调器：统一管理所有定时器 */
 const PollManager = {
     _timers: {},
@@ -534,6 +538,15 @@ const App = {
             ? options.source.trim()
             : 'app:open-stock-detail';
 
+        if (globalThis.ENABLE_WORKSPACE_V2 === false) {
+            if (globalThis.StockDetail && typeof globalThis.StockDetail.open === 'function') {
+                await globalThis.StockDetail.open(normalizedCode);
+                return { ok: true, status: 'legacy', code: normalizedCode, source };
+            }
+
+            return { ok: false, status: 'unavailable', code: 'LEGACY_STOCK_DETAIL_UNAVAILABLE' };
+        }
+
         return this._invokeStockActionWithFallback({
             toolId: 'open_stock_detail',
             input: { code: normalizedCode },
@@ -585,6 +598,32 @@ const App = {
             requestId: typeof safeOptions.requestId === 'string' && safeOptions.requestId.trim() ? safeOptions.requestId.trim() : null,
             metadata: safeOptions.metadata && typeof safeOptions.metadata === 'object' ? { ...safeOptions.metadata } : null,
             actionKey: `remove_from_watchlist:${normalizedCode}`,
+            suppressFailureToast: safeOptions.suppressFailureToast === true,
+        });
+    },
+
+    async openPaperBuy(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+
+        const safeOptions = options && typeof options === 'object' ? options : {};
+        const source = typeof safeOptions.source === 'string' && safeOptions.source.trim()
+            ? safeOptions.source.trim()
+            : 'app:open-paper-buy';
+        const input = safeOptions.input && typeof safeOptions.input === 'object'
+            ? { ...safeOptions.input, code: normalizedCode }
+            : { code: normalizedCode };
+
+        return this.invokeStockAction({
+            toolId: 'open_paper_buy',
+            input,
+            source,
+            traceId: typeof safeOptions.traceId === 'string' && safeOptions.traceId.trim() ? safeOptions.traceId.trim() : null,
+            requestId: typeof safeOptions.requestId === 'string' && safeOptions.requestId.trim() ? safeOptions.requestId.trim() : null,
+            metadata: safeOptions.metadata && typeof safeOptions.metadata === 'object' ? { ...safeOptions.metadata } : null,
+            actionKey: `open_paper_buy:${normalizedCode}`,
             suppressFailureToast: safeOptions.suppressFailureToast === true,
         });
     },
@@ -819,7 +858,9 @@ const App = {
     init() {
         this._installGlobalRuntimeErrorHandlers();
         this._initTheme();
-        this._initV2();
+        if (globalThis.ENABLE_WORKSPACE_V2 !== false) {
+            this._initV2();
+        }
         this.bindTabs();
         this.bindBacktest();
         this.bindOptimize();
@@ -861,11 +902,8 @@ const App = {
                 e.preventDefault();
 
                 if (actionType === 'open-detail') {
-                    this._invokeStockActionWithFallback({
-                        toolId: 'open_stock_detail',
-                        input: { code },
+                    this.openStockDetail(code, {
                         source: 'app:offcanvas:open-detail',
-                        actionKey: `open_stock_detail:${code}`,
                     }).then((result) => {
                         if (result && result.ok) {
                             this.closeOffcanvas();
@@ -875,11 +913,8 @@ const App = {
                 }
 
                 if (actionType === 'add-watchlist') {
-                    this._invokeStockActionWithFallback({
-                        toolId: 'add_to_watchlist',
-                        input: { code },
+                    this.addToWatchlist(code, {
                         source: 'app:offcanvas:add-watchlist',
-                        actionKey: `add_to_watchlist:${code}`,
                     });
                     return;
                 }
@@ -906,6 +941,18 @@ const App = {
 
                 e.preventDefault();
                 this.deleteSimSnapshot(snapshotId);
+                return;
+            }
+
+            const tabActionLink = e.target.closest('[data-app-action="switch-tab"]');
+            if (tabActionLink) {
+                const tab = typeof tabActionLink.dataset.tab === 'string' ? tabActionLink.dataset.tab.trim() : '';
+                if (!tab) {
+                    return;
+                }
+
+                e.preventDefault();
+                this.switchTab(tab);
                 return;
             }
 
@@ -1243,9 +1290,13 @@ const App = {
             });
         }
 
-        // 新闻→行情抽屉
+        // 兼容旧新闻事件，统一转入股票详情 facade
         this.on('news:open-stock', ({ code }) => {
-            if (code) this.openOffcanvas(code);
+            if (code) {
+                this.openStockDetail(code, {
+                    source: 'app:news-open-stock',
+                });
+            }
         });
 
         // 问财→选股器：切换到研发Tab并传递股票池
@@ -1694,6 +1745,10 @@ const App = {
     },
 
     _initCommandPalette() {
+        if (globalThis.ENABLE_WORKSPACE_V2 === false) {
+            return;
+        }
+
         const palette = globalThis.CommandPalette;
         const root = document.getElementById('cmd-palette');
         const input = document.getElementById('cmd-palette-input');

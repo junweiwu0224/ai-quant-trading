@@ -7,8 +7,17 @@
 
     let _currentTab = 'gainers';
 
+    function createActionTraceId(prefix) {
+        if (window.LocalMCP && typeof window.LocalMCP.createTraceId === 'function') {
+            return window.LocalMCP.createTraceId(prefix);
+        }
+        const safePrefix = typeof prefix === 'string' && prefix.trim() ? prefix.trim() : 'overview-radar';
+        return `${safePrefix}-${Date.now()}`;
+    }
+
     async function init() {
         bindTabs();
+        bindActions();
         _updateRadarStatus();
         loadRadar();
     }
@@ -53,9 +62,27 @@
         });
     }
 
+    function bindActions() {
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-overview-radar-action="add-watchlist"]');
+            if (!button) {
+                return;
+            }
+
+            e.preventDefault();
+            const code = typeof button.dataset.code === 'string' ? button.dataset.code.trim() : '';
+            if (code) {
+                addToWatchlist(code);
+            }
+        });
+    }
+
     async function loadRadar() {
         const container = document.getElementById('radar-content');
         if (!container) return;
+        // Tab守卫：仅在总览/监控Tab激活时加载，防止幽灵请求
+        const overviewPanel = document.getElementById('tab-overview');
+        if (overviewPanel && !overviewPanel.classList.contains('active')) return;
         container.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
 
         try {
@@ -65,6 +92,10 @@
                 await loadHeatmap(container);
             } else if (_currentTab === 'northbound') {
                 await loadNorthbound(container);
+            } else if (_currentTab === 'hotspot') {
+                await loadHotspot(container);
+            } else if (_currentTab === 'news') {
+                await loadNews(container);
             } else {
                 await loadTopStocks(container);
             }
@@ -102,7 +133,7 @@
                             <td><a href="#" class="stock-link" data-code="${App.escapeHTML(s.code || '')}">${App.escapeHTML(s.code || '')}</a></td>
                             <td>${App.escapeHTML(s.name || '')}</td>
                             <td class="${cls}">${val}</td>
-                            <td><button class="btn btn-sm" onclick="App.OverviewRadar.addToWatchlist('${App.escapeHTML(s.code || '')}')">加自选</button></td>
+                            <td><button class="btn btn-sm" data-overview-radar-action="add-watchlist" data-code="${App.escapeHTML(s.code || '')}">加自选</button></td>
                         </tr>`;
                     }).join('')}</tbody>
                 </table>
@@ -280,8 +311,107 @@
         `;
     }
 
+    // ── 热点归因 ──
+
+    async function loadHotspot(container) {
+        const data = await App.fetchJSON('/api/market/hotspot');
+        if (!data.success) {
+            container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
+            return;
+        }
+
+        const concepts = data.hot_concepts || [];
+        const industries = data.hot_industries || [];
+        const flow = data.fund_flow || [];
+
+        container.innerHTML = _staleBanner(data) + `
+            <div class="hotspot-summary">${App.escapeHTML(data.summary || '')}</div>
+            <div class="hotspot-sections">
+                <div class="hotspot-section">
+                    <h4>热门概念 TOP 10</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>概念</th><th>涨跌幅</th><th>领涨股</th><th>上涨/下跌</th></tr></thead>
+                            <tbody>${concepts.map(c => {
+                                const cls = c.change_pct >= 0 ? 'text-up' : 'text-down';
+                                return `<tr>
+                                    <td>${App.escapeHTML(c.name || '--')}</td>
+                                    <td class="${cls}">${c.change_pct >= 0 ? '+' : ''}${c.change_pct.toFixed(2)}%</td>
+                                    <td>${App.escapeHTML(c.leader || '--')}</td>
+                                    <td><span class="text-up">${c.up_count}</span>/<span class="text-down">${c.down_count}</span></td>
+                                </tr>`;
+                            }).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="hotspot-section">
+                    <h4>资金流向 TOP 10</h4>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>行业</th><th>涨跌幅</th><th>主力净流入(亿)</th><th>净占比</th></tr></thead>
+                            <tbody>${flow.map(f => {
+                                const cls = f.main_net_inflow >= 0 ? 'text-up' : 'text-down';
+                                return `<tr>
+                                    <td>${App.escapeHTML(f.name || '--')}</td>
+                                    <td class="${f.change_pct >= 0 ? 'text-up' : 'text-down'}">${f.change_pct >= 0 ? '+' : ''}${f.change_pct.toFixed(2)}%</td>
+                                    <td class="${cls}">${f.main_net_inflow >= 0 ? '+' : ''}${f.main_net_inflow.toFixed(2)}</td>
+                                    <td>${f.main_net_inflow_pct.toFixed(2)}%</td>
+                                </tr>`;
+                            }).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ── 市场新闻 ──
+
+    async function loadNews(container) {
+        const data = await App.fetchJSON('/api/market/news');
+        if (!data.success) {
+            container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
+            return;
+        }
+
+        const news = data.news || [];
+        const sentiment = data.overall_sentiment || 0;
+        const sentCls = sentiment >= 0.1 ? 'text-up' : sentiment <= -0.1 ? 'text-down' : 'text-muted';
+        const sentLabel = sentiment >= 0.1 ? '偏多' : sentiment <= -0.1 ? '偏空' : '中性';
+
+        container.innerHTML = _staleBanner(data) + `
+            <div class="news-header">
+                <span class="news-sentiment ${sentCls}">市场情绪：${sentLabel} (${sentiment.toFixed(2)})</span>
+                <span class="text-muted" style="font-size:var(--font-size-xs)">${data.timestamp || ''}</span>
+            </div>
+            <div class="news-list">
+                ${news.length === 0 ? '<div class="text-muted text-center">暂无新闻</div>' :
+                    news.map(n => {
+                        const sCls = n.sentiment > 0.2 ? 'text-up' : n.sentiment < -0.2 ? 'text-down' : 'text-muted';
+                        const icon = n.sentiment > 0.2 ? '▲' : n.sentiment < -0.2 ? '▼' : '●';
+                        return `<div class="news-item">
+                            <span class="news-icon ${sCls}">${icon}</span>
+                            <span class="news-title">${App.escapeHTML(n.title || '')}</span>
+                            <span class="news-time text-muted">${App.escapeHTML(n.time || '')}</span>
+                        </div>`;
+                    }).join('')}
+            </div>
+        `;
+    }
+
     async function addToWatchlist(code) {
-        await App.addToWatchlist(code);
+        if (!code) {
+            return {
+                ok: false,
+                status: 'failed',
+                code: 'STOCK_CODE_REQUIRED',
+            };
+        }
+
+        return App.addToWatchlist(code, {
+            source: 'overview-radar:add-watchlist',
+            traceId: createActionTraceId('overview-radar'),
+        });
     }
 
     App.OverviewRadar = { init, loadRadar, addToWatchlist };

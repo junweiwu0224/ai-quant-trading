@@ -39,6 +39,22 @@ STRATEGY_PARAM_RANGES = {
         "stop_loss": {"min": -0.1, "max": -0.03, "step": 0.02, "type": "float"},
         "take_profit": {"min": 0.1, "max": 0.4, "step": 0.1, "type": "float"},
     },
+    "rsi": {
+        "period": {"min": 6, "max": 24, "step": 2, "type": "int"},
+        "oversold": {"min": 20, "max": 35, "step": 5, "type": "int"},
+        "overbought": {"min": 65, "max": 80, "step": 5, "type": "int"},
+    },
+    "macd": {
+        "fast_period": {"min": 8, "max": 16, "step": 2, "type": "int"},
+        "slow_period": {"min": 20, "max": 32, "step": 2, "type": "int"},
+        "signal_period": {"min": 6, "max": 12, "step": 1, "type": "int"},
+    },
+    "kdj": {
+        "k_period": {"min": 7, "max": 15, "step": 2, "type": "int"},
+        "d_period": {"min": 2, "max": 5, "step": 1, "type": "int"},
+        "j_oversold": {"min": 15, "max": 30, "step": 5, "type": "int"},
+        "j_overbought": {"min": 70, "max": 85, "step": 5, "type": "int"},
+    },
 }
 
 METRICS = {

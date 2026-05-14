@@ -40,9 +40,26 @@ Object.assign(App, {
                 <strong>${count > 1 ? `${count} 条告警` : '告警'}</strong>: ${this.escapeHTML(latest.message)}
                 ${count > 1 ? `<span class="rk-alert-more">（还有 ${count - 1} 条）</span>` : ''}
             </span>
-            <button class="btn btn-sm btn-ghost" onclick="App._rkScrollToEvents()">查看详情</button>
-            <button class="btn btn-sm btn-ghost" onclick="App._rkDismissAlerts()">忽略</button>
+            <button class="btn btn-sm btn-ghost" data-risk-alert-action="view-details">查看详情</button>
+            <button class="btn btn-sm btn-ghost" data-risk-alert-action="dismiss-alerts">忽略</button>
         `;
+
+        if (!this._rk._alertBannerBound) {
+            banner.addEventListener('click', (e) => {
+                const button = e.target.closest('[data-risk-alert-action]');
+                if (!button) return;
+                e.preventDefault();
+                const action = button.dataset.riskAlertAction;
+                if (action === 'view-details') {
+                    this._rkScrollToEvents();
+                    return;
+                }
+                if (action === 'dismiss-alerts') {
+                    this._rkDismissAlerts();
+                }
+            });
+            this._rk._alertBannerBound = true;
+        }
     },
 
     _rkScrollToEvents() {

@@ -9,6 +9,8 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
+from config.datetime_utils import now_beijing_str
+
 from data.collector.cache import TTLCache
 from data.collector.http_client import code_to_secid, fetch_json, fetch_kline as _fetch_kline_shared
 
@@ -34,7 +36,7 @@ async def _fetch_async(url: str) -> dict:
 async def sync_all_stocks():
     """同步全量A股列表到数据库"""
     try:
-        from data.collector.collector import StockCollector
+        from data.collector import StockCollector
         from data.storage.storage import DataStorage
 
         collector = StockCollector()
@@ -55,16 +57,39 @@ async def sync_all_stocks():
 
 _stock_list_cache: dict = {"df": None, "ts": 0}
 
+
+def _normalize_search_query(q: str) -> str:
+    return q.strip() if isinstance(q, str) else ""
+
+
+def _stock_search_rank(record: dict, query: str, index: int) -> tuple:
+    code = str(record.get("code") or "").strip()
+    name = str(record.get("name") or "").strip()
+    normalized_query = query.lower()
+    normalized_code = code.lower()
+    normalized_name = name.lower()
+
+    exact_code = 0 if normalized_query and normalized_code == normalized_query else 1
+    code_prefix = 0 if normalized_query and normalized_code.startswith(normalized_query) else 1
+    exact_name = 0 if normalized_query and normalized_name == normalized_query else 1
+    name_contains = 0 if normalized_query and normalized_query in normalized_name else 1
+    code_contains = 0 if normalized_query and normalized_query in normalized_code else 1
+
+    return (exact_code, code_prefix, exact_name, name_contains, code_contains, index)
+
+
 @router.get("/search")
 async def search_stocks(
     q: str = Query("", description="搜索关键词"),
-    limit: int = Query(50, description="返回数量限制"),
+    limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
 ):
     """搜索股票（支持全量列表，带内存缓存）"""
     import time
+    query = _normalize_search_query(q)
     try:
         now = time.time()
-        if _stock_list_cache["df"] is None or now - _stock_list_cache["ts"] > 300:
+        source = "cache" if _stock_list_cache["df"] is not None and now - _stock_list_cache["ts"] <= 300 else "storage"
+        if source == "storage":
             from data.storage.storage import DataStorage
             storage = DataStorage()
             df = storage.get_stock_list()
@@ -72,14 +97,49 @@ async def search_stocks(
             _stock_list_cache["ts"] = now
         else:
             df = _stock_list_cache["df"]
+
         if df.empty:
-            return []
-        if q:
-            df = df[df["code"].str.contains(q, na=False) | df["name"].str.contains(q, na=False)]
-        return df.head(limit).to_dict("records")
+            return {
+                "success": True,
+                "query": query,
+                "source": source,
+                "degraded": False,
+                "results": [],
+            }
+
+        records = df.to_dict("records")
+        if query:
+            lowered = query.lower()
+            records = [
+                record for record in records
+                if lowered in str(record.get("code") or "").lower()
+                or lowered in str(record.get("name") or "").lower()
+            ]
+            records = sorted(
+                enumerate(records),
+                key=lambda item: _stock_search_rank(item[1], query, item[0]),
+            )
+            results = [record for _, record in records[:limit]]
+        else:
+            results = records[:limit]
+
+        return {
+            "success": True,
+            "query": query,
+            "source": source,
+            "degraded": False,
+            "results": results,
+        }
     except Exception as e:
         logger.error(f"搜索股票失败: {e}")
-        return []
+        return {
+            "success": False,
+            "query": query,
+            "source": "storage",
+            "degraded": True,
+            "results": [],
+            "error": "搜索股票失败",
+        }
 
 
 def _validate_code(code: str) -> str:
@@ -185,7 +245,7 @@ async def get_timeline(code: str):
                     "close": float(parts[2]),
                     "high": float(parts[3]),
                     "low": float(parts[4]),
-                    "volume": float(parts[5]),
+                    "volume": float(parts[5]) / 100,  # 股→手
                     "amount": float(parts[6]) if len(parts) > 6 else 0,
                     "avg_price": float(parts[7]) if len(parts) > 7 else 0,
                 })
@@ -243,7 +303,7 @@ async def get_timeline_multi(code: str, days: int = 5):
                             "close": float(parts[2]),
                             "high": float(parts[3]),
                             "low": float(parts[4]),
-                            "volume": float(parts[5]),
+                            "volume": float(parts[5]) / 100,  # 股→手
                             "amount": float(parts[6]) if len(parts) > 6 else 0,
                             "avg_price": float(parts[7]) if len(parts) > 7 else 0,
                         })
@@ -1189,7 +1249,7 @@ async def save_drawing(code: str, body: DrawingCreate):
     """保存一条画线"""
     code = _validate_code(code)
     try:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = now_beijing_str()
         drawing_id = _drawing_storage.save_drawing(
             code=code,
             overlay_name=body.overlay_name,
@@ -1793,3 +1853,33 @@ async def get_dragon_tiger(code: str, days: int = Query(90, ge=1, le=365)):
     except Exception as e:
         logger.error(f"龙虎榜分析失败 {code}: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── 个股新闻 ──
+
+@router.get("/news/{code}")
+async def get_stock_news(code: str, limit: int = 20):
+    """获取个股新闻 + 情绪分析"""
+    code = _validate_code(code)
+    cache_key = f"news:{code}:{limit}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        from alpha.news_collector import fetch_stock_news, compute_news_sentiment
+        news, sentiment = await asyncio.gather(
+            fetch_stock_news(code, limit),
+            compute_news_sentiment(code, limit),
+        )
+        result = {
+            "success": True,
+            "code": code,
+            "news": news,
+            "sentiment": sentiment,
+        }
+        _cache.set(cache_key, result, _TTL_QUOTE)
+        return result
+    except Exception as e:
+        logger.error(f"个股新闻获取失败 {code}: {e}")
+        return {"success": False, "error": str(e), "news": []}

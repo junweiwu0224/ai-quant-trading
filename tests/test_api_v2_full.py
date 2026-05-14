@@ -281,7 +281,7 @@ class TestWatchlist:
                 return pd.DataFrame({"code": ["000001"], "name": ["平安银行"]})
 
         monkeypatch.setattr(
-            "data.collector.collector.StockCollector",
+            "data.collector.StockCollector",
             lambda: FakeCollector(),
         )
         monkeypatch.setattr(watchlist_router.storage, "get_stock_list", lambda: pd.DataFrame())
@@ -323,7 +323,58 @@ class TestStockDetail:
     def test_stock_search(self, client):
         """GET /api/stock/search — 股票搜索"""
         resp = client.get("/api/stock/search")
-        assert resp.status_code in (200, 422)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["query"] == ""
+        assert "source" in data
+        assert data["degraded"] is False
+        assert isinstance(data["results"], list)
+
+    def test_stock_search_prioritizes_exact_code(self, client, monkeypatch):
+        """GET /api/stock/search?q=600519 — 精确代码优先"""
+        import time
+
+        import pandas as pd
+        from dashboard.routers import stock_detail as stock_detail_router
+
+        monkeypatch.setattr(
+            stock_detail_router,
+            "_stock_list_cache",
+            {"df": pd.DataFrame([
+                {"code": "000001", "name": "平安银行"},
+                {"code": "600519", "name": "贵州茅台"},
+                {"code": "600520", "name": "三六零"},
+            ]), "ts": time.time()},
+        )
+
+        resp = client.get("/api/stock/search", params={"q": "600519", "limit": 10})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["results"][0]["code"] == "600519"
+
+    def test_stock_search_prioritizes_name_match(self, client, monkeypatch):
+        """GET /api/stock/search?q=茅台 — 名称匹配排序"""
+        import time
+
+        import pandas as pd
+        from dashboard.routers import stock_detail as stock_detail_router
+
+        monkeypatch.setattr(
+            stock_detail_router,
+            "_stock_list_cache",
+            {"df": pd.DataFrame([
+                {"code": "600000", "name": "浦发银行"},
+                {"code": "600519", "name": "贵州茅台"},
+                {"code": "000568", "name": "泸州老窖"},
+            ]), "ts": time.time()},
+        )
+
+        resp = client.get("/api/stock/search", params={"q": "茅台", "limit": 10})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"][0]["name"] == "贵州茅台"
 
     def test_stock_detail_missing_code(self, client):
         """GET /api/stock/detail/ — 缺少 code 参数"""

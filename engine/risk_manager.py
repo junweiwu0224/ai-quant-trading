@@ -1,6 +1,7 @@
 """风险管理器"""
-import sqlite3
+import json
 from datetime import datetime, date
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from loguru import logger
@@ -10,21 +11,23 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 from engine.models import (
     Direction, OrderStatus, PaperConfig, PaperOrder, PaperPosition, RiskEvent
 )
+from utils.db import get_connection
 
 
 class RiskManager:
     """风险管理器"""
 
+    _RISK_CONFIG_FILE = PROJECT_ROOT / "logs" / "paper" / "risk_config.json"
+
     def __init__(self, config: PaperConfig, db_path: str = None):
         self.config = config
         self.db_path = db_path or config.db_path
         self.events: List[RiskEvent] = []
+        self._load_persisted_rules()
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _get_conn(self):
+        """获取数据库连接（已配置 WAL + busy_timeout）"""
+        return get_connection(self.db_path)
 
     def check_buy_order(
         self,
@@ -245,6 +248,33 @@ class RiskManager:
             "slippage": self.config.slippage,
         }
 
+    def _load_persisted_rules(self):
+        """从文件加载持久化的风控规则"""
+        if not self._RISK_CONFIG_FILE.exists():
+            return
+        try:
+            data = json.loads(self._RISK_CONFIG_FILE.read_text())
+            for key in ("max_position_pct", "max_positions", "max_drawdown", "max_daily_loss"):
+                if key in data:
+                    setattr(self.config, key, data[key])
+            logger.info(f"从文件恢复风控规则: {data}")
+        except Exception as e:
+            logger.warning(f"加载风控配置文件失败: {e}")
+
+    def _persist_rules(self):
+        """将风控规则持久化到文件"""
+        try:
+            self._RISK_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            rules = {
+                "max_position_pct": self.config.max_position_pct,
+                "max_positions": self.config.max_positions,
+                "max_drawdown": self.config.max_drawdown,
+                "max_daily_loss": self.config.max_daily_loss,
+            }
+            self._RISK_CONFIG_FILE.write_text(json.dumps(rules, indent=2))
+        except Exception as e:
+            logger.warning(f"持久化风控配置失败: {e}")
+
     def update_risk_rules(self, rules: dict):
         """更新风控规则"""
         if "max_position_pct" in rules:
@@ -256,6 +286,7 @@ class RiskManager:
         if "max_daily_loss" in rules:
             self.config.max_daily_loss = rules["max_daily_loss"]
 
+        self._persist_rules()
         logger.info(f"风控规则已更新: {rules}")
 
     def _save_risk_event(self, event: RiskEvent):

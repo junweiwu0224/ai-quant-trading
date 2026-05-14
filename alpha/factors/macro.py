@@ -1,6 +1,6 @@
 """宏观指标因子
 
-数据源：东方财富宏观数据 API
+数据源：东方财富宏观数据 API + AKShare 回退
 因子：
 - shibor: 上海银行间同业拆借利率
 - treasury_10y: 10 年期国债收益率
@@ -91,5 +91,42 @@ def fetch_macro_factors() -> dict[str, float]:
             result["social_financing"] = round(float(latest.get("CURRENT_VALUE", 0) or 0), 4)
     except Exception as e:
         logger.warning(f"获取社融数据失败: {e}")
+
+    return result
+
+
+def fetch_macro_factors_akshare() -> dict[str, float]:
+    """通过 AKShare 获取宏观指标（回退方案）"""
+    result = {
+        "shibor_1w": 0, "shibor_1m": 0,
+        "treasury_10y": 0, "treasury_1y": 0,
+        "m2_growth": 0, "social_financing": 0,
+    }
+
+    try:
+        import akshare as ak
+        # SHIBOR
+        df = ak.rate_interbank(symbol="上海银行同业拆借市场", indicator="1周")
+        if df is not None and not df.empty:
+            latest = df.iloc[-1]
+            result["shibor_1w"] = round(float(latest.get("利率", 0) or 0), 4)
+
+        df = ak.rate_interbank(symbol="上海银行同业拆借市场", indicator="1月")
+        if df is not None and not df.empty:
+            latest = df.iloc[-1]
+            result["shibor_1m"] = round(float(latest.get("利率", 0) or 0), 4)
+    except Exception as e:
+        logger.warning(f"AKShare SHIBOR 失败: {e}")
+
+    try:
+        import akshare as ak
+        # 国债收益率
+        df = ak.bond_china_yield(start_date="20260101", end_date="20261231")
+        if df is not None and not df.empty:
+            latest = df.iloc[-1]
+            result["treasury_10y"] = round(float(latest.get("10年", 0) or 0), 4)
+            result["treasury_1y"] = round(float(latest.get("1年", 0) or 0), 4)
+    except Exception as e:
+        logger.warning(f"AKShare 国债收益率失败: {e}")
 
     return result

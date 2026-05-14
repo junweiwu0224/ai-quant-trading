@@ -51,13 +51,19 @@ Object.assign(App, {
                 </div>`;
             }).join('')}
         </div>
-        ${filtered.length > paged.length ? `<div class="text-center mt-md"><button class="btn btn-sm" onclick="App._rkLoadMoreEvents()">加载更多 (${paged.length}/${filtered.length})</button></div>` : ''}`;
+        ${filtered.length > paged.length ? `<div class="text-center mt-md"><button class="btn btn-sm" data-risk-events-action="load-more">加载更多 (${paged.length}/${filtered.length})</button></div>` : ''}`;
 
         if (!this._rk._eventsBound) {
             const filterType = document.getElementById('rk-filter-type');
             const filterCode = document.getElementById('rk-filter-code');
             if (filterType) filterType.addEventListener('change', () => { this._rk._eventsPage = 1; this._rkRenderEvents(); });
             if (filterCode) filterCode.addEventListener('input', () => { this._rk._eventsPage = 1; this._rkRenderEvents(); });
+            container.addEventListener('click', (e) => {
+                const button = e.target.closest('[data-risk-events-action="load-more"]');
+                if (!button) return;
+                e.preventDefault();
+                this._rkLoadMoreEvents();
+            });
             this._rk._eventsBound = true;
         }
     },

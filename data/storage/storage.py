@@ -1,5 +1,6 @@
 """SQLite 数据库存储层"""
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -7,9 +8,44 @@ from loguru import logger
 from sqlalchemy import Column, Date, Float, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-from config.settings import DB_DIR, DB_PATH, DB_URL
+from config.settings import DB_PATH, DB_URL
+from utils.db import get_connection
 
 Base = declarative_base()
+
+
+def _to_prefix_code(code: str) -> str:
+    """统一代码格式为 sh/sz 前缀: 600519 → sh600519, 000001 → sz000001
+
+    已有前缀的原样返回。指数代码 (000xxx/399xxx) 不加前缀。
+    """
+    if not code:
+        return code
+    if code[:2] in ("sh", "sz", "SH", "SZ"):
+        return code.lower()
+    # 纯数字：根据规则加前缀
+    if code.startswith(("6", "9")):
+        return f"sh{code}"
+    if code.startswith(("0", "3")):
+        return f"sz{code}"
+    return code
+
+
+def _to_plain_code(code: str) -> str:
+    """去掉 sh/sz 前缀，统一为 6 位代码"""
+    if not code:
+        return code
+    if code[:2] in ("sh", "sz", "SH", "SZ"):
+        return code[2:]
+    return code
+
+
+def _normalize_storage_code(code: str) -> tuple[str | None, str | None]:
+    """校验并规范化存储层股票代码，非法输入返回 (None, None)"""
+    plain_code = _to_plain_code(str(code).strip())
+    if len(plain_code) != 6 or not plain_code.isdigit():
+        return None, None
+    return _to_prefix_code(plain_code), plain_code
 
 
 class StockDaily(Base):
@@ -25,6 +61,7 @@ class StockDaily(Base):
     close = Column(Float)
     volume = Column(Float)
     amount = Column(Float)
+    adj_factor = Column(Float, default=1.0)  # 复权因子: 不复权价 / 前复权价
 
     __table_args__ = (
         UniqueConstraint("code", "date", name="uq_stock_daily_code_date"),
@@ -39,6 +76,7 @@ class StockInfo(Base):
     name = Column(String(50))
     industry = Column(String(50))
     list_date = Column(String(10))
+    status = Column(String(20), default="active")  # active/suspended/delisted/st
 
 
 class UserWatchlist(Base):
@@ -133,23 +171,42 @@ class DataStorage:
     """数据存储管理"""
 
     def __init__(self, db_url: str = DB_URL):
-        self._engine = create_engine(db_url, echo=False)
+        from utils.db import create_sqlite_engine
+
+        self._db_url = db_url
+        self._db_path: Path | None = None
+
+        if db_url == "sqlite:///:memory:":
+            self._engine = create_engine(
+                db_url,
+                echo=False,
+                connect_args={"check_same_thread": False},
+            )
+        else:
+            if db_url.startswith("sqlite:///"):
+                self._db_path = Path(db_url.removeprefix("sqlite:///"))
+            else:
+                self._db_path = Path("data/db/quant.db")
+            self._engine = create_sqlite_engine(self._db_path)
+
         self._Session = sessionmaker(bind=self._engine)
         self.init_db()
 
     def init_db(self):
         """创建所有表"""
-        DB_DIR.mkdir(parents=True, exist_ok=True)
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
         Base.metadata.create_all(self._engine)
-        self._migrate_columns()
-        logger.info(f"数据库初始化完成: {DB_PATH}")
+        if self._db_path is not None:
+            self._migrate_columns()
+        logger.info(f"数据库初始化完成: {self._db_url}")
 
     def _migrate_columns(self):
         """增量迁移：为已有表添加新列"""
-        import sqlite3
+        conn = get_connection(self._db_path)
         try:
-            conn = sqlite3.connect(str(DB_PATH))
             cursor = conn.cursor()
+
             # alert_rules.webhook_url
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert_rules'")
             if cursor.fetchone():
@@ -158,10 +215,30 @@ class DataStorage:
                 if "webhook_url" not in cols:
                     cursor.execute("ALTER TABLE alert_rules ADD COLUMN webhook_url TEXT DEFAULT ''")
                     logger.info("迁移: alert_rules 添加 webhook_url 列")
+
+            # stock_daily.adj_factor
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_daily'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(stock_daily)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "adj_factor" not in cols:
+                    cursor.execute("ALTER TABLE stock_daily ADD COLUMN adj_factor REAL DEFAULT 1.0")
+                    logger.info("迁移: stock_daily 添加 adj_factor 列")
+
+            # stock_info.status
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_info'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(stock_info)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "status" not in cols:
+                    cursor.execute("ALTER TABLE stock_info ADD COLUMN status TEXT DEFAULT 'active'")
+                    logger.info("迁移: stock_info 添加 status 列")
+
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.warning(f"列迁移跳过: {e}")
+        finally:
+            conn.close()
 
     def _get_session(self) -> Session:
         return self._Session()
@@ -170,23 +247,38 @@ class DataStorage:
         """保存日K线数据，跳过已存在的记录"""
         if df.empty:
             return 0
+        prefixed_code, plain_code = _normalize_storage_code(code)
+        if not prefixed_code or not plain_code:
+            return 0
 
         session = self._get_session()
         try:
-            existing = (
-                session.query(StockDaily.date)
-                .filter(StockDaily.code == code)
+            existing_rows = (
+                session.query(StockDaily)
+                .filter(StockDaily.code.in_([prefixed_code, plain_code]))
                 .all()
             )
-            existing_dates = {r.date for r in existing}
+            canonical_dates = set()
+            for row in existing_rows:
+                if row.code != prefixed_code:
+                    duplicate = (
+                        session.query(StockDaily)
+                        .filter(StockDaily.code == prefixed_code, StockDaily.date == row.date)
+                        .first()
+                    )
+                    if duplicate:
+                        session.delete(row)
+                        continue
+                    row.code = prefixed_code
+                canonical_dates.add(row.date)
 
             new_rows = []
             for _, row in df.iterrows():
                 row_date = pd.Timestamp(row["date"]).date()
-                if row_date not in existing_dates:
+                if row_date not in canonical_dates:
                     new_rows.append(
                         StockDaily(
-                            code=code,
+                            code=prefixed_code,
                             date=row_date,
                             open=row.get("open"),
                             high=row.get("high"),
@@ -194,17 +286,19 @@ class DataStorage:
                             close=row.get("close"),
                             volume=row.get("volume"),
                             amount=row.get("amount"),
+                            adj_factor=row.get("adj_factor", 1.0),
                         )
                     )
 
             if new_rows:
                 session.add_all(new_rows)
-                session.commit()
-                logger.info(f"[{code}] 写入 {len(new_rows)} 条日K数据")
+            session.commit()
+            if new_rows:
+                logger.info(f"[{prefixed_code}] 写入 {len(new_rows)} 条日K数据")
             return len(new_rows)
         except Exception as e:
             session.rollback()
-            logger.error(f"[{code}] 保存日K数据失败: {e}")
+            logger.error(f"[{prefixed_code}] 保存日K数据失败: {e}")
             raise
         finally:
             session.close()
@@ -218,16 +312,35 @@ class DataStorage:
         try:
             count = 0
             for _, row in df.iterrows():
-                code = row["code"]
-                existing = session.get(StockInfo, code)
+                prefixed_code = _to_prefix_code(row["code"])
+                plain_code = _to_plain_code(row["code"])
+                existing_rows = (
+                    session.query(StockInfo)
+                    .filter(StockInfo.code.in_([prefixed_code, plain_code]))
+                    .all()
+                )
+                existing = next((item for item in existing_rows if item.code == prefixed_code), None)
+                if existing is None and existing_rows:
+                    existing = existing_rows[0]
+                    existing.code = prefixed_code
                 if existing:
                     existing.name = row.get("name", existing.name)
                     existing.industry = row.get("industry", existing.industry)
                     existing.list_date = row.get("list_date", existing.list_date)
+                    for duplicate in existing_rows:
+                        if duplicate is existing:
+                            continue
+                        if not existing.name and duplicate.name:
+                            existing.name = duplicate.name
+                        if not existing.industry and duplicate.industry:
+                            existing.industry = duplicate.industry
+                        if not existing.list_date and duplicate.list_date:
+                            existing.list_date = duplicate.list_date
+                        session.delete(duplicate)
                 else:
                     session.add(
                         StockInfo(
-                            code=code,
+                            code=prefixed_code,
                             name=row.get("name"),
                             industry=row.get("industry"),
                             list_date=row.get("list_date"),
@@ -252,13 +365,30 @@ class DataStorage:
         try:
             count = 0
             for code, industry in industry_map.items():
-                existing = session.get(StockInfo, code)
+                prefixed_code = _to_prefix_code(code)
+                plain_code = _to_plain_code(code)
+                existing_rows = (
+                    session.query(StockInfo)
+                    .filter(StockInfo.code.in_([prefixed_code, plain_code]))
+                    .all()
+                )
+                existing = next((row for row in existing_rows if row.code == prefixed_code), None)
+                if existing is None and existing_rows:
+                    existing = existing_rows[0]
+                    existing.code = prefixed_code
                 if existing:
                     existing.industry = industry
-                    count += 1
+                    for duplicate in existing_rows:
+                        if duplicate is existing:
+                            continue
+                        if not existing.name and duplicate.name:
+                            existing.name = duplicate.name
+                        if not existing.list_date and duplicate.list_date:
+                            existing.list_date = duplicate.list_date
+                        session.delete(duplicate)
                 else:
-                    session.add(StockInfo(code=code, name="", industry=industry, list_date=""))
-                    count += 1
+                    session.add(StockInfo(code=prefixed_code, name="", industry=industry, list_date=""))
+                count += 1
             session.commit()
             logger.info(f"更新 {count} 条行业数据")
             return count
@@ -276,32 +406,38 @@ class DataStorage:
         end_date: Optional[date] = None,
     ) -> pd.DataFrame:
         """查询日K线数据，返回 DataFrame"""
+        prefixed_code = _to_prefix_code(code)
+        plain_code = _to_plain_code(code)
         session = self._get_session()
         try:
-            query = session.query(StockDaily).filter(StockDaily.code == code)
+            query = session.query(StockDaily).filter(StockDaily.code.in_([prefixed_code, plain_code]))
             if start_date:
                 query = query.filter(StockDaily.date >= start_date)
             if end_date:
                 query = query.filter(StockDaily.date <= end_date)
-            query = query.order_by(StockDaily.date)
-
-            rows = query.all()
+            rows = query.order_by(StockDaily.date, StockDaily.code.desc()).all()
             if not rows:
                 return pd.DataFrame()
+
+            rows_by_date: dict[date, StockDaily] = {}
+            for row in rows:
+                existing = rows_by_date.get(row.date)
+                if existing is None or (existing.code != prefixed_code and row.code == prefixed_code):
+                    rows_by_date[row.date] = row
 
             return pd.DataFrame(
                 [
                     {
-                        "code": r.code,
-                        "date": r.date,
-                        "open": r.open,
-                        "high": r.high,
-                        "low": r.low,
-                        "close": r.close,
-                        "volume": r.volume,
-                        "amount": r.amount,
+                        "code": plain_code,
+                        "date": row_date,
+                        "open": row.open,
+                        "high": row.high,
+                        "low": row.low,
+                        "close": row.close,
+                        "volume": row.volume,
+                        "amount": row.amount,
                     }
-                    for r in rows
+                    for row_date, row in sorted(rows_by_date.items())
                 ]
             )
         finally:
@@ -312,7 +448,15 @@ class DataStorage:
         session = self._get_session()
         try:
             rows = session.query(StockInfo.code).all()
-            return [r.code for r in rows]
+            codes = []
+            seen = set()
+            for row in rows:
+                plain_code = _to_plain_code(row.code)
+                if plain_code in seen:
+                    continue
+                seen.add(plain_code)
+                codes.append(plain_code)
+            return codes
         finally:
             session.close()
 
@@ -323,26 +467,37 @@ class DataStorage:
             rows = session.query(StockInfo).all()
             if not rows:
                 return pd.DataFrame()
-            return pd.DataFrame(
-                [
-                    {
-                        "code": r.code,
-                        "name": r.name or "",
-                        "industry": r.industry or "",
-                    }
-                    for r in rows
-                ]
-            )
+
+            info_map = {}
+            for row in rows:
+                plain_code = _to_plain_code(row.code)
+                existing = info_map.get(plain_code)
+                merged = {
+                    "code": plain_code,
+                    "name": row.name or "",
+                    "industry": row.industry or "",
+                }
+                if existing is None:
+                    info_map[plain_code] = merged
+                    continue
+                if not existing["name"] and merged["name"]:
+                    existing["name"] = merged["name"]
+                if not existing["industry"] and merged["industry"]:
+                    existing["industry"] = merged["industry"]
+
+            return pd.DataFrame(list(info_map.values()))
         finally:
             session.close()
 
     def get_latest_date(self, code: str) -> Optional[date]:
         """获取某只股票最新数据日期"""
+        prefixed_code = _to_prefix_code(code)
+        plain_code = _to_plain_code(code)
         session = self._get_session()
         try:
             result = (
                 session.query(StockDaily.date)
-                .filter(StockDaily.code == code)
+                .filter(StockDaily.code.in_([prefixed_code, plain_code]))
                 .order_by(StockDaily.date.desc())
                 .first()
             )
@@ -354,14 +509,30 @@ class DataStorage:
 
     def add_to_watchlist(self, code: str) -> bool:
         """添加自选股，返回是否新增（False=已存在）"""
+        prefixed_code, plain_code = _normalize_storage_code(code)
+        if not prefixed_code or not plain_code:
+            return False
         session = self._get_session()
         try:
-            existing = session.get(UserWatchlist, code)
+            existing_rows = (
+                session.query(UserWatchlist)
+                .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
+                .all()
+            )
+            existing = next((row for row in existing_rows if row.code == prefixed_code), None)
+            if existing is None and existing_rows:
+                existing = existing_rows[0]
+                existing.code = prefixed_code
             if existing:
+                for duplicate in existing_rows:
+                    if duplicate is existing:
+                        continue
+                    session.delete(duplicate)
+                session.commit()
                 return False
-            session.add(UserWatchlist(code=code, added_at=str(pd.Timestamp.now())))
+            session.add(UserWatchlist(code=prefixed_code, added_at=str(pd.Timestamp.now())))
             session.commit()
-            logger.info(f"自选股添加: {code}")
+            logger.info(f"自选股添加: {prefixed_code}")
             return True
         except Exception as e:
             session.rollback()
@@ -372,14 +543,21 @@ class DataStorage:
 
     def remove_from_watchlist(self, code: str) -> bool:
         """删除自选股，返回是否存在"""
+        prefixed_code = _to_prefix_code(code)
+        plain_code = _to_plain_code(code)
         session = self._get_session()
         try:
-            row = session.get(UserWatchlist, code)
-            if not row:
+            rows = (
+                session.query(UserWatchlist)
+                .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
+                .all()
+            )
+            if not rows:
                 return False
-            session.delete(row)
+            for row in rows:
+                session.delete(row)
             session.commit()
-            logger.info(f"自选股删除: {code}")
+            logger.info(f"自选股删除: {prefixed_code}")
             return True
         except Exception as e:
             session.rollback()
@@ -392,8 +570,16 @@ class DataStorage:
         """获取自选股代码列表"""
         session = self._get_session()
         try:
-            rows = session.query(UserWatchlist.code).all()
-            return [r.code for r in rows]
+            rows = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at).all()
+            codes = []
+            seen = set()
+            for row in rows:
+                plain_code = _to_plain_code(row.code)
+                if plain_code in seen:
+                    continue
+                seen.add(plain_code)
+                codes.append(plain_code)
+            return codes
         finally:
             session.close()
 
@@ -401,39 +587,71 @@ class DataStorage:
         """获取自选股列表（含名称、行业、最新价、数据日期）"""
         session = self._get_session()
         try:
-            # 单次 JOIN 查询获取自选股 + 股票信息
-            rows = (
-                session.query(
-                    UserWatchlist.code,
-                    StockInfo.name,
-                    StockInfo.industry,
-                )
-                .outerjoin(StockInfo, UserWatchlist.code == StockInfo.code)
-                .all()
-            )
+            rows = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at).all()
             if not rows:
                 return []
 
-            # 批量获取最新价格（每个 code 一次查询，但避免了 N*2 次）
-            codes = [r.code for r in rows]
-            latest_prices = {}
-            for code in codes:
-                latest = (
-                    session.query(StockDaily.close, StockDaily.date)
-                    .filter(StockDaily.code == code)
-                    .order_by(StockDaily.date.desc())
-                    .first()
-                )
-                if latest:
-                    latest_prices[code] = {"price": latest.close, "date": str(latest.date)}
+            ordered_codes = []
+            seen_codes = set()
+            for row in rows:
+                plain_code = _to_plain_code(row.code)
+                if plain_code in seen_codes:
+                    continue
+                seen_codes.add(plain_code)
+                ordered_codes.append(plain_code)
 
-            return [{
-                "code": r.code,
-                "name": r.name or "",
-                "industry": r.industry or "",
-                "latest_price": latest_prices.get(r.code, {}).get("price"),
-                "latest_date": latest_prices.get(r.code, {}).get("date"),
-            } for r in rows]
+            candidate_codes = set(ordered_codes) | {_to_prefix_code(code) for code in ordered_codes}
+            info_rows = (
+                session.query(StockInfo)
+                .filter(StockInfo.code.in_(candidate_codes))
+                .all()
+            )
+            info_map = {}
+            for row in info_rows:
+                plain_code = _to_plain_code(row.code)
+                existing = info_map.get(plain_code)
+                merged = {
+                    "name": row.name or "",
+                    "industry": row.industry or "",
+                }
+                if existing is None:
+                    info_map[plain_code] = merged
+                    continue
+                if not existing["name"] and merged["name"]:
+                    existing["name"] = merged["name"]
+                if not existing["industry"] and merged["industry"]:
+                    existing["industry"] = merged["industry"]
+
+            latest_rows = (
+                session.query(StockDaily.code, StockDaily.close, StockDaily.date)
+                .filter(StockDaily.code.in_(candidate_codes))
+                .order_by(StockDaily.date.desc())
+                .all()
+            )
+            latest_prices = {}
+            latest_prefixed = {}
+            for row in latest_rows:
+                plain_code = _to_plain_code(row.code)
+                row_is_prefixed = row.code == _to_prefix_code(plain_code)
+                existing_date = latest_prices.get(plain_code, {}).get("date")
+                if existing_date is None or row.date > existing_date:
+                    latest_prices[plain_code] = {"price": row.close, "date": row.date}
+                    latest_prefixed[plain_code] = row_is_prefixed
+                    continue
+                if row.date == existing_date and row_is_prefixed and not latest_prefixed.get(plain_code, False):
+                    latest_prices[plain_code] = {"price": row.close, "date": row.date}
+                    latest_prefixed[plain_code] = True
+
+            return [
+                {
+                    "code": plain_code,
+                    "name": info_map.get(plain_code, {}).get("name", ""),
+                    "industry": info_map.get(plain_code, {}).get("industry", ""),
+                    "latest_price": latest_prices.get(plain_code, {}).get("price"),
+                    "latest_date": str(latest_prices[plain_code]["date"]) if plain_code in latest_prices else None,
+                }
+                for plain_code in ordered_codes
+            ]
         finally:
             session.close()
 

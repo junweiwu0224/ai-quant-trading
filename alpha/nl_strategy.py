@@ -197,3 +197,107 @@ async def chat_sync(
     messages.append({"role": "user", "content": user_message})
 
     return await chat_completion(messages, temperature=0.7)
+
+
+# ── 策略代码生成 + 回测诊断 ──
+
+_SYSTEM_STRATEGY_GEN = """你是A股量化策略代码生成器。根据用户的自然语言描述，生成可直接运行的 Python 策略代码。
+
+策略代码规范：
+- 继承 BaseStrategy
+- 实现 on_init(self) 和 on_bar(self, bar: Bar) 方法
+- bar 对象属性：code, open, high, low, close, volume, date
+- 买入：self.buy(code, price, volume)  volume 为100的整数
+- 卖出：self.sell(code, price, volume)
+- 查询持仓：self.portfolio.get_position(code)
+- 可用资金：self.portfolio.cash
+- 获取历史数据：self.get_bars(code, count) 返回最近 N 根 Bar 列表
+
+可用技术指标库（通过 self._indicators 或自行计算）：
+- MA(close, period) → 移动平均
+- EMA(close, period) → 指数移动平均
+- RSI(close, period) → 相对强弱指数
+- MACD(close) → 返回 (dif, dea, macd_hist)
+- BOLL(close, period, num_std) → 返回 (upper, middle, lower)
+- ATR(high, low, close, period) → 平均真实波幅
+- KDJ(high, low, close) → 返回 (k, d, j)
+
+输出格式：仅输出 Python 代码，不要任何解释文字。代码要完整可运行。"""
+
+
+_SYSTEM_STRATEGY_DIAG = """你是A股量化回测分析师。根据回测结果数据，给出专业的诊断报告。
+
+分析维度：
+1. 收益评估：总收益、年化收益是否跑赢基准
+2. 风险评估：最大回撤、波动率是否可控
+3. 效率评估：夏普比率、Calmar 比率是否优秀
+4. 交易评估：胜率、盈亏比、交易频率是否合理
+5. 问题诊断：识别策略潜在缺陷（过拟合、信号稀疏、持仓集中等）
+6. 改进建议：具体的参数调整或逻辑优化方向
+
+输出格式（Markdown）：
+## 回测诊断
+
+### 综合评级：[A/B/C/D]
+
+### 核心指标
+| 指标 | 值 | 评价 |
+|------|-----|------|
+
+### 问题诊断
+- ...
+
+### 改进建议
+1. ...
+
+语言简洁专业，建议具体可操作。"""
+
+
+async def generate_strategy_code(description: str) -> str:
+    """自然语言 → 策略代码
+
+    Args:
+        description: 用户描述的策略逻辑
+
+    Returns:
+        Python 策略代码字符串
+    """
+    if not description or not description.strip():
+        raise ValueError("策略描述不能为空")
+
+    messages = [
+        {"role": "system", "content": _SYSTEM_STRATEGY_GEN},
+        {"role": "user", "content": description},
+    ]
+    code = await chat_completion(messages, temperature=0.3)
+
+    # 清理 markdown 代码块标记
+    code = code.strip()
+    if code.startswith("```python"):
+        code = code[9:]
+    elif code.startswith("```"):
+        code = code[3:]
+    if code.endswith("```"):
+        code = code[:-3]
+    return code.strip()
+
+
+async def diagnose_backtest(result_json: dict) -> str:
+    """回测结果 → AI 诊断报告
+
+    Args:
+        result_json: 回测结果指标字典
+
+    Returns:
+        Markdown 格式的诊断报告
+    """
+    context = "回测结果数据：\n```json\n"
+    import json
+    context += json.dumps(result_json, ensure_ascii=False, indent=2)
+    context += "\n```"
+
+    messages = [
+        {"role": "system", "content": _SYSTEM_STRATEGY_DIAG},
+        {"role": "user", "content": context},
+    ]
+    return await chat_completion(messages, temperature=0.5)

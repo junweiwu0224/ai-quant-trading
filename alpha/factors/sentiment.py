@@ -55,9 +55,9 @@ def _analyze_text(text: str) -> float:
 
 
 def fetch_news_sentiment(code: str, days: int = 7) -> dict[str, float]:
-    """获取新闻/公告情绪因子"""
+    """获取新闻/公告情绪因子（东财公告 + AKShare 巨潮回退）"""
     try:
-        # 获取公告
+        # 优先获取东财公告
         ann_url = (
             f"https://datacenter.eastmoney.com/securities/api/data/get"
             f"?type=RPT_F10_ANNOUNCEMENT&sty=ALL"
@@ -78,6 +78,10 @@ def fetch_news_sentiment(code: str, days: int = 7) -> dict[str, float]:
                 score = _analyze_text(text)
                 if score != 0:
                     scores.append(score)
+
+        # 东财无数据时回退到 AKShare 巨潮公告
+        if not scores:
+            scores = _fetch_cninfo_sentiment(code)
 
         if not scores:
             return {
@@ -104,3 +108,23 @@ def fetch_news_sentiment(code: str, days: int = 7) -> dict[str, float]:
             "sentiment_score": 0, "sentiment_avg_3d": 0,
             "sentiment_avg_5d": 0, "sentiment_change": 0,
         }
+
+
+def _fetch_cninfo_sentiment(code: str) -> list[float]:
+    """通过 AKShare 巨潮资讯获取公告情绪（回退方案）"""
+    try:
+        import akshare as ak
+        df = ak.stock_notice_cninfo(symbol=code)
+        if df is None or df.empty:
+            return []
+
+        scores = []
+        for _, row in df.head(20).iterrows():
+            title = str(row.get("公告标题", "") or "")
+            score = _analyze_text(title)
+            if score != 0:
+                scores.append(score)
+        return scores
+    except Exception as e:
+        logger.warning(f"AKShare 巨潮公告失败({code}): {e}")
+        return []

@@ -35,3 +35,34 @@ DEFAULT_START_DATE = "20200101"  # 默认数据起始日期
 MIMO_API_KEY = os.getenv("MIMO_API_KEY", "")
 MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
 MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5")
+
+# ── 数据源迁移配置 ──
+# 数据源模式: "legacy"=旧源(东方财富) | "new"=新源(mootdx+腾讯+AKShare) | "shadow"=新源返回+备用源后台对比
+DATA_SOURCE_MODE = os.getenv("DATA_SOURCE_MODE", "new")
+
+
+def _get_float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+
+# mootdx 服务器（逗号分隔，留空则自动选择）
+MOOTDX_SERVERS = os.getenv("MOOTDX_SERVERS", "")
+
+# iwencai Cookie（问财自然语言查询需要登录态）
+IWENCAI_COOKIE = os.getenv("IWENCAI_COOKIE", "")
+
+# 影子流量采样率（0.0-1.0，shadow模式下生效）
+SHADOW_SAMPLE_RATE = _get_float_env("SHADOW_SAMPLE_RATE", 0.1)
+
+# ── qlib ML 集成配置 ──
+QLIB_DATA_DIR = PROJECT_ROOT / "data" / "qlib" / "cn_data"
+QLIB_MODEL_DIR = PROJECT_ROOT / "data" / "qlib" / "models"
+QLIB_SERVICE_URL = os.getenv("QLIB_SERVICE_URL", "http://localhost:8002")
+QLIB_PRED_CACHE = PROJECT_ROOT / "data" / "qlib" / "predictions_cache.json"

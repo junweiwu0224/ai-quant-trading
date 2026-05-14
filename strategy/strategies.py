@@ -5,6 +5,7 @@ from strategy.momentum import MomentumStrategy
 from strategy.rsi import RSIStrategy
 from strategy.macd import MACDStrategy
 from strategy.kdj import KDJStrategy
+from strategy.qlib_signal import QlibSignalStrategy
 
 STRATEGIES = {
     "dual_ma": DualMAStrategy,
@@ -13,4 +14,5 @@ STRATEGIES = {
     "rsi": RSIStrategy,
     "macd": MACDStrategy,
     "kdj": KDJStrategy,
+    "qlib_signal": QlibSignalStrategy,
 }

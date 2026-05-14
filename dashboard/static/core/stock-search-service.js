@@ -634,7 +634,15 @@
             const query = params.query ? `q=${encodeURIComponent(params.query)}` : 'q=';
             const limit = Number.isFinite(params.limit) && params.limit > 0 ? params.limit : DEFAULT_LIMIT;
             const response = await global.App.fetchJSON(`/api/stock/search?${query}&limit=${limit}`, { silent: true });
-            return Array.isArray(response) ? response : [];
+            if (Array.isArray(response)) {
+                return response;
+            }
+
+            if (isPlainObject(response) && Array.isArray(response.results)) {
+                return response.results;
+            }
+
+            return [];
         }
 
         _normalizeSearchResults(rawResults) {

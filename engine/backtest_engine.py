@@ -22,6 +22,12 @@ class BacktestConfig:
     stamp_tax_rate: float = 0.001  # 千一印花税（卖出收取）
     slippage: float = 0.002  # 0.2% 滑点
     enable_risk: bool = False  # 是否启用风控
+    # 风控参数
+    stop_loss_pct: float = 0.05
+    take_profit_pct: float = 0.20
+    max_drawdown_pct: float = 0.15
+    max_single_position_pct: float = 0.20
+    daily_loss_pct: float = 0.03
 
 
 @dataclass
@@ -51,6 +57,13 @@ class BacktestResult:
     risk_alerts: list = field(default_factory=list)
     warmup_days: int = 0
     error: Optional[str] = None
+    # 增强指标
+    monthly_returns: dict = field(default_factory=dict)
+    rolling_sharpe: list = field(default_factory=list)
+    rolling_drawdown: list = field(default_factory=list)
+    per_stock_pnl: list = field(default_factory=list)
+    holding_period_stats: dict = field(default_factory=dict)
+    turnover_rate: float = 0.0
 
     def summary(self) -> dict:
         return {
@@ -78,9 +91,53 @@ class BacktestEngine:
     ):
         self._config = config or BacktestConfig()
         self._storage = DataStorage()
-        self._position_mgr = position_manager or (PositionManager() if self._config.enable_risk else None)
-        self._stoploss_mgr = stoploss_manager or (StopLossManager() if self._config.enable_risk else None)
-        self._risk_monitor = risk_monitor or (RiskMonitor() if self._config.enable_risk else None)
+        self._industry_map: dict[str, str] = {}
+        if self._config.enable_risk:
+            from risk.stoploss import StopLossConfig
+            from risk.position import PositionLimit
+            sl_config = StopLossConfig(
+                fixed_stop_pct=self._config.stop_loss_pct,
+                take_profit_pct=self._config.take_profit_pct,
+                max_drawdown_pct=self._config.max_drawdown_pct,
+                daily_loss_limit_pct=self._config.daily_loss_pct,
+            )
+            pos_limit = PositionLimit(
+                max_single_pct=self._config.max_single_position_pct,
+            )
+            self._position_mgr = position_manager or PositionManager(limit=pos_limit)
+            self._stoploss_mgr = stoploss_manager or StopLossManager(config=sl_config)
+            self._risk_monitor = risk_monitor or RiskMonitor()
+        else:
+            self._position_mgr = position_manager
+            self._stoploss_mgr = stoploss_manager
+            self._risk_monitor = risk_monitor
+
+    def _build_industry_map(self, codes: list[str]) -> dict[str, str]:
+        """从 StockInfo 表构建 code→industry 映射"""
+        try:
+            stock_df = self._storage.get_stock_list()
+            if stock_df.empty:
+                return {}
+            return dict(zip(stock_df["code"], stock_df["industry"].fillna("未知")))
+        except Exception:
+            return {}
+
+    def _calc_drawdown_scale(self, equity: float) -> float:
+        """根据回撤程度缩放仓位: 回撤越大，仓位越小"""
+        if not self._risk_monitor:
+            return 1.0
+        peak = getattr(self._risk_monitor, "_peak_equity", 0)
+        if peak <= 0:
+            return 1.0
+        dd = (peak - equity) / peak
+        if dd < 0.05:
+            return 1.0
+        elif dd < 0.10:
+            return 0.75
+        elif dd < 0.15:
+            return 0.50
+        else:
+            return 0.25
 
     def run(
         self,
@@ -95,6 +152,9 @@ class BacktestEngine:
     ) -> BacktestResult:
         """运行回测"""
         logger.info(f"回测开始: {start_date} ~ {end_date}, 标的: {codes}")
+
+        # 构建行业映射（风控用）
+        self._industry_map = self._build_industry_map(codes)
 
         # 验证日期范围
         start = pd.Timestamp(start_date).date()
@@ -196,7 +256,7 @@ class BacktestEngine:
 
             # 7. 风控监控：记录风险快照
             if self._risk_monitor:
-                self._risk_monitor.snapshot(current_date, portfolio, prices)
+                self._risk_monitor.snapshot(current_date, portfolio, prices, industry_map=self._industry_map)
 
             # 记录权益曲线
             equity = portfolio.get_total_equity(prices)
@@ -207,6 +267,10 @@ class BacktestEngine:
                 day_idx = len(portfolio.equity_curve)
                 progress = day_idx / len(backtest_dates)
                 progress_callback(progress, str(current_date), day_idx, len(backtest_dates))
+
+        # flush 策略（ranking 模式处理最后一天的排名）
+        if hasattr(strategy, "flush"):
+            strategy.flush()
 
         # 加载基准数据
         benchmark_curve = []
@@ -315,6 +379,10 @@ class BacktestEngine:
         if not self._position_mgr:
             return
 
+        # 回撤缩放因子
+        equity = portfolio.get_total_equity(prices)
+        dd_scale = self._calc_drawdown_scale(equity)
+
         pending = strategy.get_pending_orders()
         kept = []
         for order in pending:
@@ -325,17 +393,19 @@ class BacktestEngine:
                     volume=order.volume,
                     portfolio=portfolio,
                     prices=prices,
+                    industry_map=self._industry_map,
                 )
                 if not passed:
-                    # 自动调整仓位大小以符合风控配置
                     max_volume = self._position_mgr.calc_max_volume(
                         code=order.code,
                         price=order.price,
                         portfolio=portfolio,
                         prices=prices,
                     )
-                    if max_volume >= 100:  # 至少1手
-                        original_volume = order.volume  # 保存原始值
+                    # 应用回撤缩放
+                    max_volume = int(max_volume * dd_scale / 100) * 100
+                    if max_volume >= 100:
+                        original_volume = order.volume
                         order.volume = max_volume
                         logger.info(f"[仓位] 调整买入 {order.code}: {order.volume} 股（原 {original_volume} 股）")
                     else:
@@ -557,6 +627,10 @@ class BacktestEngine:
             avg_loss = total_loss / loss_count if loss_count > 0 else 0.0
             profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 0.0
 
+        # 增强指标
+        from engine.metrics import calc_all_metrics
+        extra = calc_all_metrics(curve, trades, initial)
+
         return BacktestResult(
             start_date=dates[0],
             end_date=dates[-1],
@@ -580,6 +654,12 @@ class BacktestEngine:
             benchmark_curve=benchmark_curve or [],
             trades=[t for t in trades],
             risk_alerts=self._risk_monitor.alerts if self._risk_monitor else [],
+            monthly_returns=extra["monthly_returns"],
+            rolling_sharpe=extra["rolling_sharpe"],
+            rolling_drawdown=extra["rolling_drawdown"],
+            per_stock_pnl=extra["per_stock_pnl"],
+            holding_period_stats=extra["holding_period_stats"],
+            turnover_rate=extra["turnover_rate"],
         )
 
 

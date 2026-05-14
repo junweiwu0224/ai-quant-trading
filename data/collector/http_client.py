@@ -3,11 +3,24 @@
 集中所有 HTTP 请求逻辑，使用 httpx 连接池。
 供 quote_service.py 和 stock_detail.py 共用。
 """
+import asyncio
 import time
+import re
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
+
+# ── 异步包装器（防止 mootdx/akshare 阻塞 FastAPI 事件循环）──
+_sync_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="datasource")
+
+
+async def run_sync(func, *args, **kwargs):
+    """将同步阻塞调用包装为异步"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_sync_executor, lambda: func(*args, **kwargs))
 
 # ── 连接池客户端 ──
 _client: httpx.Client | None = None
@@ -24,7 +37,6 @@ def get_client() -> httpx.Client:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://quote.eastmoney.com",
             },
-            follow_redirects=True,
         )
     return _client
 
@@ -39,6 +51,7 @@ def close_client():
 def fetch_json(url: str, params: dict | None = None, timeout: float = 8.0,
                headers: dict | None = None) -> dict:
     """统一 JSON 请求，返回解析后的 dict"""
+    _validate_request_url(url)
     client = get_client()
     resp = client.get(url, params=params, timeout=timeout, headers=headers)
     resp.raise_for_status()
@@ -47,6 +60,7 @@ def fetch_json(url: str, params: dict | None = None, timeout: float = 8.0,
 
 def fetch_json_tencent(url: str, timeout: float = 8.0) -> dict:
     """腾讯 API 专用（HTTP，不同 Referer）"""
+    _validate_request_url(url)
     client = get_client()
     resp = client.get(url, timeout=timeout, headers={
         "User-Agent": "Mozilla/5.0",
@@ -58,32 +72,108 @@ def fetch_json_tencent(url: str, timeout: float = 8.0) -> dict:
 
 # ── 股票代码转换 ──
 
+_STOCK_CODE_RE = re.compile(r"^(?:[sS][hH]|[sS][zZ])?(\d{6})$")
+
+
+def _validate_request_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"unsupported url scheme: {parsed.scheme!r}")
+    host = parsed.hostname or ""
+    if not host.endswith((".eastmoney.com", ".gtimg.cn")):
+        raise ValueError(f"unsupported request host: {host!r}")
+
+
+def normalize_stock_code(code: str) -> str | None:
+    """规范化股票代码，非法输入返回 None"""
+    normalized = str(code).strip()
+    match = _STOCK_CODE_RE.fullmatch(normalized)
+    return match.group(1) if match else None
+
+
 def code_to_secid(code: str) -> str:
     """股票代码 → 东方财富 secid（沪市 1.x，深市 0.x）"""
-    return f"1.{code}" if code.startswith("6") else f"0.{code}"
-
-
-def code_to_xueqiu_symbol(code: str) -> str:
-    """股票代码 → 雪球 symbol（SH600519 / SZ000001）"""
-    return f"SH{code}" if code.startswith("6") else f"SZ{code}"
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        raise ValueError(f"invalid stock code: {code!r}")
+    return f"1.{normalized}" if normalized.startswith(("6", "9")) else f"0.{normalized}"
 
 
 def calculate_limit_prices(code: str, pre_close: float) -> tuple[float, float]:
     """计算涨跌停价（主板 ±10%，创业板/科创板 ±20%）"""
     if pre_close <= 0:
         return 0.0, 0.0
-    limit_pct = 0.20 if code.startswith("300") or code.startswith("688") else 0.10
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return 0.0, 0.0
+    limit_pct = 0.20 if normalized.startswith(("300", "301", "688")) else 0.10
     return round(pre_close * (1 + limit_pct), 2), round(pre_close * (1 - limit_pct), 2)
 
 
-# ── K 线数据（push2his + 腾讯回退）──
+# ── K 线数据（mootdx + push2his + 腾讯回退）──
+
+def fetch_kline_mootdx(code: str, count: int = 250, frequency: int = 9) -> dict | None:
+    """通过 mootdx 获取 K 线数据（新数据源路径）
+
+    返回 {highs, lows, volumes, klines_raw, name}
+    """
+    try:
+        from data.collector.mootdx_client import get_mootdx_manager
+        manager = get_mootdx_manager()
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            df = loop.run_until_complete(manager.get_kline_full(code, frequency=frequency, total=count))
+        finally:
+            loop.close()
+
+        if df is None or df.empty:
+            return None
+
+        klines_raw = []
+        for _, row in df.iterrows():
+            # 标准化格式：[date, open, close, high, low, volume]
+            klines_raw.append([
+                str(row.get("datetime", "")),
+                str(row.get("open", 0)),
+                str(row.get("close", 0)),
+                str(row.get("high", 0)),
+                str(row.get("low", 0)),
+                str(row.get("vol", 0)),
+            ])
+        return {"klines_raw": klines_raw, "name": ""}
+    except Exception as e:
+        logger.warning(f"mootdx K线失败({code}): {e}")
+        return None
+
 
 def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None:
     """获取 K 线原始数据，返回 {highs, lows, volumes, klines_raw}
 
-    优先 push2his，失败回退腾讯 API。
+    根据 DATA_SOURCE_MODE 选择数据源：
+    - new: mootdx 为主，push2his/腾讯回退
+    - legacy: push2his 为主，腾讯回退
     用于 52 周高低计算和 stock_detail K 线展示。
     """
+    from config.settings import DATA_SOURCE_MODE
+
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return None
+    code = normalized
+
+    freq_map = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60,
+                "day": 9, "daily": 9, "week": 10, "weekly": 10,
+                "month": 11, "monthly": 11}
+    freq = freq_map.get(period, 9)
+
+    if DATA_SOURCE_MODE == "new":
+        # 新数据源：mootdx 为主
+        result = fetch_kline_mootdx(code, count, freq)
+        if result:
+            return result
+        # mootdx 失败，回退 push2his
+        logger.info(f"mootdx K线为空({code})，回退push2his")
     secid = code_to_secid(code)
     klt_map = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60,
                "day": 101, "daily": 101, "week": 102, "weekly": 102,
@@ -108,6 +198,8 @@ def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None
         for k in d.get("klines", []):
             parts = k.split(",")
             if len(parts) >= 6:
+                # push2his 成交量单位是股，统一转为手（÷100）
+                parts[5] = str(float(parts[5]) / 100)
                 klines_raw.append(parts)
     except Exception as e:
         logger.warning(f"push2his K线失败({code}): {e}")
@@ -115,18 +207,19 @@ def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None
     # 腾讯回退
     if not klines_raw:
         try:
-            prefix = "sz" if not code.startswith("6") else "sh"
+            prefix = "sh" if code.startswith(("6", "9")) else "sz"
             period_map = {"day": "day", "daily": "day", "week": "week",
                           "weekly": "week", "month": "month", "monthly": "month"}
             tp = period_map.get(period, "day")
-            turl = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},{tp},,,{count},qfq"
+            turl = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},{tp},,,{count},qfq"
             tdata = fetch_json_tencent(turl, timeout=8)
             stock_data = (tdata.get("data") or {}).get(f"{prefix}{code}", {})
             klines = stock_data.get(f"qfq{tp}") or stock_data.get(tp) or []
             for k in klines:
                 if len(k) >= 6:
+                    # 腾讯K线成交量单位是股，统一转为手（÷100）
                     klines_raw.append([str(k[0]), str(k[1]), str(k[2]),
-                                       str(k[3]), str(k[4]), str(k[5])])
+                                       str(k[3]), str(k[4]), str(float(k[5]) / 100)])
         except Exception as e:
             logger.warning(f"腾讯K线回退失败({code}): {e}")
 
@@ -150,15 +243,16 @@ def fetch_industry_batch(codes: list[str]) -> dict[str, dict[str, str]]:
 
     返回 {code: {industry, sector, concepts}}
     """
-    if not codes:
+    valid_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
+    if not valid_codes:
         return {}
     try:
-        code_list = ",".join(f'"{c}"' for c in codes)
+        code_list = ",".join(f'"{c}"' for c in valid_codes)
         params = {
             "reportName": "RPT_F10_BASIC_ORGINFO",
             "columns": "SECURITY_CODE,INDUSTRYCSRC1,BOARD_NAME_LEVEL",
             "filter": f"(SECURITY_CODE in ({code_list}))",
-            "pageSize": len(codes),
+            "pageSize": len(valid_codes),
             "pageNumber": 1,
             "source": "HSF10",
             "client": "PC",

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -9,7 +10,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from data.storage import DataStorage
-from data.collector.collector import StockCollector
+from data.collector import StockCollector
 from engine.backtest_engine import BacktestConfig, BacktestEngine
 from engine.backtest_cache import get_backtest_cache
 from engine.report_generator import generate_backtest_report
@@ -19,6 +20,60 @@ router = APIRouter()
 
 storage = DataStorage()
 collector = StockCollector()
+
+# qlib 预测缓存路径
+_QLIB_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "qlib" / "predictions_cache.json"
+
+
+def _load_qlib_predictions(start_date: str, end_date: str) -> dict[str, dict[str, float]]:
+    """加载 qlib 预测缓存，返回指定日期范围内的全部预测（多日格式）"""
+    if not _QLIB_CACHE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_QLIB_CACHE_PATH.read_text(encoding="utf-8"))
+        # 兼容两种格式
+        preds = data.get("predictions", data) if isinstance(data, dict) else data
+        # 筛选日期范围
+        result = {}
+        for date_str, scores in preds.items():
+            if start_date <= date_str <= end_date:
+                result[date_str] = scores
+        if not result and preds:
+            logger.warning(f"预测缓存无 {start_date}~{end_date} 的数据，可用范围: {min(preds)}~{max(preds)}")
+        return result
+    except Exception:
+        return {}
+
+
+def _filter_params(cls: type, params: dict) -> dict:
+    """只保留策略构造函数接受的参数"""
+    import inspect
+    sig = inspect.signature(cls.__init__)
+    valid = {p for p in sig.parameters if p != "self"}
+    accepted = {k: v for k, v in params.items() if k in valid}
+    dropped = set(params) - valid
+    if dropped:
+        logger.debug(f"过滤不支持的参数: {dropped}")
+    return accepted
+
+
+def _create_strategy(name: str, params: dict | None = None, start_date: str = "", end_date: str = ""):
+    """创建策略实例，qlib_signal 自动加载预测缓存"""
+    params = params or {}
+    if name == "qlib_signal" and "predictions" not in params:
+        predictions = _load_qlib_predictions(start_date, end_date)
+        if predictions:
+            params = {**params, "predictions": predictions}
+    cls = STRATEGIES[name]
+    return cls(**_filter_params(cls, params))
+
+
+class RiskConfig(BaseModel):
+    stop_loss_pct: float = 0.05
+    take_profit_pct: float = 0.20
+    max_drawdown_pct: float = 0.15
+    max_single_position_pct: float = 0.20
+    daily_loss_pct: float = 0.03
 
 
 class BacktestRequest(BaseModel):
@@ -32,7 +87,16 @@ class BacktestRequest(BaseModel):
     slippage: float = 0.002
     benchmark: str = ""
     enable_risk: bool = False
+    risk_config: Optional[RiskConfig] = None
     period: str = "daily"  # daily / 1m / 5m / 15m / 30m / 60m
+    params: Optional[dict] = None  # 策略特定参数
+
+    def model_post_init(self, __context):
+        if not self.codes:
+            raise ValueError("codes 不能为空列表")
+        from strategy.strategies import STRATEGIES
+        if self.strategy not in STRATEGIES:
+            raise ValueError(f"不支持的策略: {self.strategy}, 可选: {list(STRATEGIES.keys())}")
 
 
 def _get_cached_backtest_result(req: BacktestRequest) -> dict:
@@ -65,14 +129,24 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
         if req.strategy not in STRATEGIES:
             return {"error": "未知策略"}
 
+        risk_kw = {}
+        if req.risk_config:
+            risk_kw = {
+                "stop_loss_pct": req.risk_config.stop_loss_pct,
+                "take_profit_pct": req.risk_config.take_profit_pct,
+                "max_drawdown_pct": req.risk_config.max_drawdown_pct,
+                "max_single_position_pct": req.risk_config.max_single_position_pct,
+                "daily_loss_pct": req.risk_config.daily_loss_pct,
+            }
         config = BacktestConfig(
             initial_cash=req.initial_cash,
             commission_rate=req.commission_rate,
             stamp_tax_rate=req.stamp_tax_rate,
             slippage=req.slippage,
             enable_risk=req.enable_risk,
+            **risk_kw,
         )
-        strategy = STRATEGIES[req.strategy]()
+        strategy = _create_strategy(req.strategy, req.params, req.start_date, req.end_date)
 
         # 根据 period 选择引擎
         from engine.tick_engine import BarPeriod, TickBacktestEngine
@@ -145,6 +219,12 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
             ],
             "warmup_days": result.warmup_days,
             "error": result.error,
+            "monthly_returns": result.monthly_returns,
+            "rolling_sharpe": result.rolling_sharpe,
+            "rolling_drawdown": result.rolling_drawdown,
+            "per_stock_pnl": result.per_stock_pnl,
+            "holding_period_stats": result.holding_period_stats,
+            "turnover_rate": round(result.turnover_rate, 4),
         }
 
     return cache.get_or_run(cache_params, run_backtest)
@@ -202,6 +282,12 @@ class BacktestResponse(BaseModel):
     risk_alerts: list[dict] = []
     warmup_days: int = 0
     error: Optional[str] = None
+    monthly_returns: Optional[dict] = None
+    rolling_sharpe: Optional[list] = None
+    rolling_drawdown: Optional[list] = None
+    per_stock_pnl: Optional[list] = None
+    holding_period_stats: Optional[dict] = None
+    turnover_rate: Optional[float] = None
 
 
 @router.post("/run", response_model=BacktestResponse)
@@ -217,7 +303,7 @@ async def run_backtest(req: BacktestRequest):
         slippage=req.slippage,
         enable_risk=req.enable_risk,
     )
-    strategy = STRATEGIES[req.strategy]()
+    strategy = _create_strategy(req.strategy, req.params, req.start_date, req.end_date)
 
     # 根据 period 选择引擎
     from engine.tick_engine import BarPeriod, TickBacktestEngine
@@ -289,6 +375,12 @@ async def run_backtest(req: BacktestRequest):
         warmup_days=result.warmup_days,
         error=result.error,
         period=req.period,
+        monthly_returns=result.monthly_returns,
+        rolling_sharpe=result.rolling_sharpe,
+        rolling_drawdown=result.rolling_drawdown,
+        per_stock_pnl=result.per_stock_pnl,
+        holding_period_stats=result.holding_period_stats,
+        turnover_rate=round(result.turnover_rate, 4) if result.turnover_rate else None,
     )
 
 
@@ -298,12 +390,12 @@ async def list_strategies():
     from strategy.manager import StrategyManager
     manager = StrategyManager()
     strategies = manager.list_all()
-    # 只返回 name, label, type 字段
     return [
         {
             "name": s["name"],
             "label": s.get("label", s["name"]),
             "type": s.get("type", "自定义"),
+            "params": s.get("params", {}),
         }
         for s in strategies
     ]
@@ -1007,7 +1099,26 @@ async def ws_backtest(ws: WebSocket):
             slippage=req.get("slippage", 0.002),
             enable_risk=req.get("enable_risk", False),
         )
-        strategy = STRATEGIES[strategy_name]()
+        # qlib_signal 策略：加载预测缓存并检查日期范围
+        raw_params = req.get("params") or {}
+        if strategy_name == "qlib_signal":
+            predictions = _load_qlib_predictions(req.get("start_date", ""), req.get("end_date", ""))
+            if predictions:
+                raw_params = {**raw_params, "predictions": predictions}
+            if not _QLIB_CACHE_PATH.exists():
+                await ws.send_json({"type": "warning", "message": "qlib 预测缓存不存在，请先运行 qlib 训练"})
+            elif not predictions:
+                try:
+                    cache_data = json.loads(_QLIB_CACHE_PATH.read_text(encoding="utf-8"))
+                    preds = cache_data.get("predictions", cache_data) if isinstance(cache_data, dict) else cache_data
+                    if preds:
+                        dates = sorted(preds.keys())
+                        await ws.send_json({"type": "warning", "message": f"预测缓存日期范围 {dates[0]}~{dates[-1]}，与回测日期不匹配，0 笔交易"})
+                except Exception:
+                    pass
+
+        cls = STRATEGIES[strategy_name]
+        strategy = cls(**_filter_params(cls, raw_params))
 
         # 根据 period 选择引擎
         from engine.tick_engine import BarPeriod, TickBacktestEngine
@@ -1347,8 +1458,7 @@ async def generate_report_pdf(req: BacktestRequest):
     if req.strategy not in STRATEGIES:
         return {"error": "未知策略"}
 
-    strategy_cls = STRATEGIES[req.strategy]
-    strategy = strategy_cls()
+    strategy = _create_strategy(req.strategy, req.params or {}, req.start_date, req.end_date)
 
     config = BacktestConfig(
         initial_cash=req.initial_cash,

@@ -66,6 +66,14 @@ function makeElement() {
 
 function createWindowObject() {
     const listeners = {};
+    const elementsById = new Map();
+    function getElementById(id) {
+        if (!elementsById.has(id)) {
+            elementsById.set(id, makeElement());
+        }
+        return elementsById.get(id);
+    }
+
     const windowObject = {
         console,
         setTimeout,
@@ -100,10 +108,20 @@ function createWindowObject() {
     windowObject.document = {
         documentElement: makeElement(),
         body: makeElement(),
-        getElementById() {
-            return makeElement();
-        },
-        querySelector() {
+        getElementById,
+        querySelector(selector) {
+            if (selector === '#pt-code') {
+                return getElementById('pt-code');
+            }
+            if (selector === '#pt-direction') {
+                return getElementById('pt-direction');
+            }
+            if (selector === '#pt-order-type') {
+                return getElementById('pt-order-type');
+            }
+            if (selector === '#pt-price') {
+                return getElementById('pt-price');
+            }
             return null;
         },
         querySelectorAll() {
@@ -551,6 +569,66 @@ async function auditTracePropagation(windowObject, recorder, traceProbe) {
     }
 }
 
+async function auditIntentRollback(windowObject, recorder) {
+    const bus = windowObject.IntentBus;
+    const traceId = bus.createTraceId('v2-rollback');
+    const events = [];
+    const rollbackContexts = [];
+    const intentType = 'v2:acceptance:rollback';
+    const cleanupHandlers = [
+        bus.on('intent:fail', (payload) => events.push({ phase: 'fail', traceId: payload.traceId, type: payload.type })),
+        bus.on('intent:rollback:start', (payload) => events.push({ phase: 'rollback:start', traceId: payload.traceId, type: payload.type, reason: payload.reason })),
+        bus.on('intent:rollback:success', (payload) => events.push({ phase: 'rollback:success', traceId: payload.traceId, type: payload.type, reason: payload.reason })),
+        bus.on('intent:settled', (payload) => events.push({ phase: 'settled', traceId: payload.traceId, type: payload.type, status: payload.status })),
+        bus.on(intentType, async () => {
+            throw new Error('V2 acceptance rollback probe failure');
+        }),
+    ];
+
+    try {
+        const result = await bus.dispatch({
+            type: intentType,
+            payload: { code: AUDIT_STOCK_CODE },
+            traceId,
+            timeoutMs: 1000,
+            source: SUITE_SOURCE,
+            target: 'rollback-probe',
+            onFail: {
+                label: 'rollback-probe-cleanup',
+                rollback(context) {
+                    rollbackContexts.push({
+                        traceId: context.traceId,
+                        type: context.type,
+                        reason: context.reason,
+                        code: context.payload.code,
+                    });
+                },
+            },
+        });
+        const phases = events.filter((event) => event.traceId === traceId).map((event) => event.phase);
+        const expectedPhases = ['fail', 'rollback:start', 'rollback:success', 'settled'];
+        const hasExpectedOrder = expectedPhases.every((phase, index) => phases[index] === phase);
+        const rollbackContext = rollbackContexts[0];
+
+        if (
+            result.status === 'failed'
+            && result.rollback.attempted === true
+            && result.rollback.ok === true
+            && hasExpectedOrder
+            && rollbackContext
+            && rollbackContext.traceId === traceId
+            && rollbackContext.code === AUDIT_STOCK_CODE
+            && bus.hasPending(traceId) === false
+        ) {
+            recorder.pass('IntentBus failed handler triggers rollback and clears pending');
+        } else {
+            recorder.fail('IntentBus failed handler triggers rollback and clears pending', JSON.stringify({ result, events, rollbackContexts, pending: bus.getPending(traceId) }));
+        }
+    } finally {
+        cleanupHandlers.forEach((cleanup) => cleanup());
+    }
+}
+
 async function auditCommandPaletteActionFlow(windowObject, recorder, paletteProbe) {
     const palette = windowObject.CommandPalette;
     const traceId = 'v2-palette-trace';
@@ -764,6 +842,60 @@ async function auditDegradedWriteProtection(windowObject, recorder) {
     } else {
         recorder.fail('offline recovery restores watchlist writes', 'actions not restored');
     }
+
+    windowObject.DegradedModeManager.setDegradedState('trade-api-down', {
+        domain: 'trade',
+        level: 'critical',
+        mode: 'blocked',
+        reason: 'V2 acceptance trade outage simulation',
+        source: 'manual',
+    });
+
+    const blockedPaperBuy = await windowObject.LocalMCP.canInvoke({
+        toolId: 'open_paper_buy',
+        input: { code: AUDIT_STOCK_CODE },
+        source: SUITE_SOURCE,
+        traceId: windowObject.LocalMCP.createTraceId(SUITE_SOURCE),
+        requestId: 'v2-acceptance-paper-buy-blocked',
+    });
+    if (blockedPaperBuy.ok === true && blockedPaperBuy.callable === false && blockedPaperBuy.reason === 'action_disabled') {
+        recorder.pass('trade-api-down blocks open_paper_buy canInvoke');
+    } else {
+        recorder.fail('trade-api-down blocks open_paper_buy canInvoke', JSON.stringify(blockedPaperBuy));
+    }
+
+    windowObject.DegradedModeManager.recoverState('trade-api-down', {
+        source: 'manual',
+        reason: 'V2 acceptance trade recovery',
+        silent: true,
+    });
+
+    const recoveredPaperBuy = await windowObject.LocalMCP.canInvoke({
+        toolId: 'open_paper_buy',
+        input: { code: AUDIT_STOCK_CODE },
+        source: SUITE_SOURCE,
+        traceId: windowObject.LocalMCP.createTraceId(SUITE_SOURCE),
+        requestId: 'v2-acceptance-paper-buy-recovered',
+    });
+    const invokedPaperBuy = await windowObject.LocalMCP.invoke({
+        toolId: 'open_paper_buy',
+        input: { code: AUDIT_STOCK_CODE, price: 1888.88 },
+        source: SUITE_SOURCE,
+        traceId: windowObject.LocalMCP.createTraceId(SUITE_SOURCE),
+        requestId: 'v2-acceptance-paper-buy-recovered-invoke',
+    });
+    const paperBuyAction = windowObject.ActionRegistry.get('open_paper_buy');
+    if (
+        paperBuyAction
+        && paperBuyAction.enabled === true
+        && recoveredPaperBuy.ok === true
+        && recoveredPaperBuy.callable === true
+        && invokedPaperBuy.status === 'success'
+    ) {
+        recorder.pass('trade recovery restores open_paper_buy canInvoke and invoke');
+    } else {
+        recorder.fail('trade recovery restores open_paper_buy canInvoke and invoke', JSON.stringify({ action: paperBuyAction, canInvoke: recoveredPaperBuy, invoke: invokedPaperBuy }));
+    }
 }
 
 function createPanelLifecycleProbe(panelId, sink) {
@@ -801,6 +933,10 @@ function hasLifecycleEvent(events, panelId, phase, code) {
             && event.phase === phase
             && (code === undefined || event.code === code);
     });
+}
+
+function countLifecycleEvents(events, panelId, phase) {
+    return events.filter((event) => event.panelId === panelId && event.phase === phase).length;
 }
 
 async function auditRightRailPanelLifecycle(windowObject, recorder) {
@@ -904,6 +1040,232 @@ async function auditRightRailPanelLifecycle(windowObject, recorder) {
     }
 }
 
+async function auditRightRailLifecycleStress(windowObject, recorder) {
+    const rail = windowObject.RightRailController;
+    const lifecycle = windowObject.PanelLifecycle;
+    const events = [];
+    const root = makeElement();
+    const panelIds = ['stress-detail-panel', 'stress-order-panel'];
+
+    rail.reset();
+    await lifecycle.reset();
+    lifecycle.mountRoot({ root, source: SUITE_SOURCE, traceId: lifecycle.createTraceId(SUITE_SOURCE) });
+    lifecycle.registerMany(panelIds.map((panelId) => createPanelLifecycleProbe(panelId, events)));
+
+    for (let index = 0; index < 8; index += 1) {
+        const panelId = panelIds[index % panelIds.length];
+        const code = index % 2 === 0 ? '600519' : '000001';
+        windowObject.GlobalStockStore.setActiveStock({
+            identity: { code, name: `stress-${index}` },
+            source: SUITE_SOURCE,
+            traceId: `v2-panel-stress-stock-${index}`,
+        });
+        rail.activatePanel({
+            panelId,
+            panelParams: { code },
+            source: SUITE_SOURCE,
+            traceId: `v2-panel-stress-open-${index}`,
+        });
+        await lifecycle.syncWithRail({
+            source: SUITE_SOURCE,
+            traceId: `v2-panel-stress-sync-${index}`,
+        });
+    }
+
+    rail.deactivatePanel({ closeRail: true, source: SUITE_SOURCE, traceId: 'v2-panel-stress-close' });
+    await lifecycle.syncWithRail({ source: SUITE_SOURCE, traceId: 'v2-panel-stress-sync-close' });
+
+    const state = lifecycle.getState();
+    const counts = panelIds.map((panelId) => ({
+        panelId,
+        mount: countLifecycleEvents(events, panelId, 'mount'),
+        activate: countLifecycleEvents(events, panelId, 'activate'),
+        deactivate: countLifecycleEvents(events, panelId, 'deactivate'),
+        unmount: countLifecycleEvents(events, panelId, 'unmount'),
+    }));
+    const isBalanced = counts.every((count) => {
+        return count.mount > 0
+            && count.mount === count.unmount
+            && count.activate === count.deactivate;
+    });
+
+    if (rail.getState().isOpen === false && state.activePanelId === null && state.mountedPanelId === null && isBalanced) {
+        recorder.pass('right rail repeated switches leave no mounted panel leaks');
+    } else {
+        recorder.fail('right rail repeated switches leave no mounted panel leaks', JSON.stringify({ rail: rail.getState(), state, counts, events }));
+    }
+}
+
+function installFacadeProbe(windowObject) {
+    windowObject.App._uiActionPending = {};
+    windowObject.App._facadeInvokeCalls = [];
+    windowObject.App._lastCommitAddCode = null;
+    windowObject.App._lastCommitRemoveCode = null;
+    windowObject.App._commitWatchlistAdd = async function commitWatchlistAdd(code) {
+        this._lastCommitAddCode = code;
+        return { ok: true, code };
+    };
+    windowObject.App._commitWatchlistRemove = async function commitWatchlistRemove(code) {
+        this._lastCommitRemoveCode = code;
+        return { ok: true, code };
+    };
+    windowObject.App._createActionTraceId = function createActionTraceId(prefix) {
+        return windowObject.LocalMCP.createTraceId(prefix);
+    };
+    windowObject.App._setActionPending = function setActionPending(actionKey, isPending) {
+        if (!actionKey) {
+            return false;
+        }
+        if (isPending) {
+            if (this._uiActionPending[actionKey] === true) {
+                return false;
+            }
+            this._uiActionPending = { ...this._uiActionPending, [actionKey]: true };
+            return true;
+        }
+        if (this._uiActionPending[actionKey] !== true) {
+            return true;
+        }
+        const nextPending = { ...this._uiActionPending };
+        delete nextPending[actionKey];
+        this._uiActionPending = nextPending;
+        return true;
+    };
+    windowObject.App.invokeStockAction = async function invokeStockAction(params) {
+        const safeParams = params && typeof params === 'object' ? params : {};
+        const localMCP = windowObject.LocalMCP;
+        const toolId = typeof safeParams.toolId === 'string' ? safeParams.toolId.trim() : '';
+        const input = safeParams.input && typeof safeParams.input === 'object' ? { ...safeParams.input } : null;
+        const source = typeof safeParams.source === 'string' && safeParams.source.trim() ? safeParams.source.trim() : 'app';
+        const traceId = typeof safeParams.traceId === 'string' && safeParams.traceId.trim()
+            ? safeParams.traceId.trim()
+            : this._createActionTraceId(source);
+        const actionKey = typeof safeParams.actionKey === 'string' && safeParams.actionKey.trim() ? safeParams.actionKey.trim() : null;
+
+        if (actionKey && this._setActionPending(actionKey, true) !== true) {
+            return { ok: false, status: 'blocked', code: 'ACTION_ALREADY_PENDING' };
+        }
+
+        const invocation = {
+            toolId,
+            input,
+            source,
+            traceId,
+            requestId: typeof safeParams.requestId === 'string' && safeParams.requestId.trim() ? safeParams.requestId.trim() : null,
+            metadata: safeParams.metadata && typeof safeParams.metadata === 'object' ? { ...safeParams.metadata } : null,
+        };
+        this._facadeInvokeCalls = [...this._facadeInvokeCalls, cloneValue(invocation)];
+
+        try {
+            return await localMCP.invoke(invocation);
+        } finally {
+            if (actionKey) {
+                this._setActionPending(actionKey, false);
+            }
+        }
+    };
+    windowObject.App.openStockDetail = async function openStockDetail(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+        const source = typeof options.source === 'string' && options.source.trim() ? options.source.trim() : 'app:open-stock-detail';
+        if (windowObject.ENABLE_WORKSPACE_V2 === false) {
+            if (windowObject.StockDetail && typeof windowObject.StockDetail.open === 'function') {
+                await windowObject.StockDetail.open(normalizedCode);
+                return { ok: true, status: 'legacy', code: normalizedCode, source };
+            }
+
+            return { ok: false, status: 'unavailable', code: 'LEGACY_STOCK_DETAIL_UNAVAILABLE' };
+        }
+
+        return this.invokeStockAction({
+            toolId: 'open_stock_detail',
+            input: { code: normalizedCode },
+            source,
+            actionKey: `open_stock_detail:${normalizedCode}`,
+        });
+    };
+    windowObject.App.addToWatchlist = async function addToWatchlist(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+        const source = typeof options.source === 'string' && options.source.trim() ? options.source.trim() : 'app:add-watchlist';
+        return this.invokeStockAction({
+            toolId: 'add_to_watchlist',
+            input: { code: normalizedCode },
+            source,
+            traceId: typeof options.traceId === 'string' && options.traceId.trim() ? options.traceId.trim() : null,
+            actionKey: `add_to_watchlist:${normalizedCode}`,
+        });
+    };
+    windowObject.App.openPaperBuy = async function openPaperBuy(code, options = {}) {
+        const normalizedCode = typeof code === 'string' ? code.trim() : '';
+        if (!normalizedCode) {
+            return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
+        }
+        const source = typeof options.source === 'string' && options.source.trim() ? options.source.trim() : 'app:open-paper-buy';
+        const input = options.input && typeof options.input === 'object' ? { ...options.input, code: normalizedCode } : { code: normalizedCode };
+        return this.invokeStockAction({
+            toolId: 'open_paper_buy',
+            input,
+            source,
+            traceId: typeof options.traceId === 'string' && options.traceId.trim() ? options.traceId.trim() : null,
+            actionKey: `open_paper_buy:${normalizedCode}`,
+        });
+    };
+}
+
+async function auditAppFacadeEntrypoints(windowObject, recorder) {
+    installFacadeProbe(windowObject);
+    windowObject.ENABLE_WORKSPACE_V2 = true;
+
+    const openDetail = await windowObject.App.openStockDetail(AUDIT_STOCK_CODE, { source: 'facade:test-detail' });
+    const addWatchlist = await windowObject.App.addToWatchlist(AUDIT_STOCK_CODE, { source: 'facade:test-watchlist' });
+    const openPaperBuy = await windowObject.App.openPaperBuy(AUDIT_STOCK_CODE, { source: 'facade:test-paper', input: { price: 1888.88 } });
+
+    const calls = windowObject.App._facadeInvokeCalls;
+    const expected = [
+        { name: 'App.openStockDetail facade invokes LocalMCP', toolId: 'open_stock_detail', source: 'facade:test-detail', result: openDetail },
+        { name: 'App.addToWatchlist facade invokes LocalMCP', toolId: 'add_to_watchlist', source: 'facade:test-watchlist', result: addWatchlist },
+        { name: 'App.openPaperBuy facade invokes LocalMCP', toolId: 'open_paper_buy', source: 'facade:test-paper', result: openPaperBuy },
+    ];
+
+    expected.forEach((entry) => {
+        const matchedCall = calls.find((call) => call.toolId === entry.toolId && call.source === entry.source && call.input && call.input.code === AUDIT_STOCK_CODE);
+        if (entry.result && entry.result.ok === true && matchedCall) {
+            recorder.pass(entry.name);
+        } else {
+            recorder.fail(entry.name, JSON.stringify({ result: entry.result, matchedCall, calls }));
+        }
+    });
+}
+
+async function auditFeatureFlagLegacyFallback(windowObject, recorder) {
+    installFacadeProbe(windowObject);
+    windowObject.ENABLE_WORKSPACE_V2 = false;
+    windowObject.StockDetail = {
+        openedCodes: [],
+        async open(code) {
+            this.openedCodes = [...this.openedCodes, code];
+            return { ok: true, code };
+        },
+    };
+
+    const result = await windowObject.App.openStockDetail(AUDIT_STOCK_CODE, { source: 'facade:test-legacy' });
+    const invokedLocalMCP = windowObject.App._facadeInvokeCalls.some((call) => call.toolId === 'open_stock_detail');
+    const openedLegacy = windowObject.StockDetail.openedCodes.includes(AUDIT_STOCK_CODE);
+
+    if (result && result.ok === true && result.status === 'legacy' && openedLegacy && !invokedLocalMCP) {
+        recorder.pass('ENABLE_WORKSPACE_V2=false routes App.openStockDetail to StockDetail.open');
+    } else {
+        recorder.fail('ENABLE_WORKSPACE_V2=false routes App.openStockDetail to StockDetail.open', JSON.stringify({ result, invokedLocalMCP, openedCodes: windowObject.StockDetail.openedCodes }));
+    }
+
+    windowObject.ENABLE_WORKSPACE_V2 = true;
+}
+
 function listStaticFiles(directory, prefix = '') {
     return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
         if (entry.name === 'dev' || entry.name === '.claude') {
@@ -982,9 +1344,13 @@ async function runAcceptanceSuite() {
     await auditCoreMounts(windowObject, recorder);
     await auditActionContracts(windowObject, recorder);
     await auditTracePropagation(windowObject, recorder, traceProbe);
+    await auditIntentRollback(windowObject, recorder);
     await auditCommandPaletteActionFlow(windowObject, recorder, paletteProbe);
     await auditDegradedWriteProtection(windowObject, recorder);
     await auditRightRailPanelLifecycle(windowObject, recorder);
+    await auditRightRailLifecycleStress(windowObject, recorder);
+    await auditAppFacadeEntrypoints(windowObject, recorder);
+    await auditFeatureFlagLegacyFallback(windowObject, recorder);
     auditWatchlistWriteEntrypoints(recorder);
     auditLegacyFallbacks(windowObject, recorder);
 

@@ -1,0 +1,21 @@
+{
+  "name": "quant-trading-system",
+  "version": "1.0.0",
+  "description": "基于 vnpy 深度定制的 A股量化交易系统，覆盖 **数据采集 → 因子研究 → 策略回测 → 模拟交易 → AI 自学习优化** 全流程。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "e2e": "playwright test --config=playwright.config.cjs tests/e2e/v2-smoke.spec.cjs",
+    "e2e:docker": "bash scripts/e2e.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}

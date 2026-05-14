@@ -111,6 +111,76 @@ async def llm_interpret(req: InterpretRequest):
         return {"success": False, "error": "AI 解读失败，请稍后重试"}
 
 
+# ── 策略代码生成 + 回测诊断 ──
+
+
+class GenerateStrategyRequest(BaseModel):
+    description: str
+
+
+class DiagnoseBacktestRequest(BaseModel):
+    result: dict
+
+
+@router.post("/generate-strategy")
+async def generate_strategy(req: GenerateStrategyRequest):
+    """自然语言 → 策略代码"""
+    if not req.description.strip():
+        raise HTTPException(400, "策略描述不能为空")
+    try:
+        code = await nl_strategy.generate_strategy_code(req.description)
+        return {"success": True, "code": code}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"策略生成异常: {e}")
+        return {"success": False, "error": "AI 生成失败，请稍后重试"}
+
+
+@router.post("/diagnose-backtest")
+async def diagnose_backtest(req: DiagnoseBacktestRequest):
+    """回测结果 → AI 诊断报告"""
+    if not req.result:
+        raise HTTPException(400, "回测结果不能为空")
+    try:
+        report = await nl_strategy.diagnose_backtest(req.result)
+        return {"success": True, "report": report}
+    except Exception as e:
+        logger.error(f"回测诊断异常: {e}")
+        return {"success": False, "error": "AI 诊断失败，请稍后重试"}
+
+
+# ── 问财自然语言查询 ──
+
+class IwencaiRequest(BaseModel):
+    query: str
+    cookie: str = ""
+
+
+@router.post("/iwencai")
+async def iwencai_query(req: IwencaiRequest):
+    """问财自然语言股票查询"""
+    if not req.query.strip():
+        raise HTTPException(400, "查询语句不能为空")
+    try:
+        from alpha.iwencai_client import query_iwencai
+        df = await query_iwencai(req.query, cookie=req.cookie)
+        if df.empty:
+            return {"success": True, "data": [], "message": "无匹配结果"}
+
+        # DataFrame → list[dict]
+        records = df.head(50).to_dict(orient="records")
+        # 清理 NaN
+        for r in records:
+            for k, v in r.items():
+                if v is None or (isinstance(v, float) and v != v):
+                    r[k] = ""
+        return {"success": True, "data": records, "total": len(df)}
+    except Exception as e:
+        logger.error(f"问财查询异常: {e}")
+        return {"success": False, "error": "问财查询失败，请稍后重试", "data": []}
+
+
 # ── 研报整合 + LLM 解读 ──
 
 class ReportAnalyzeRequest(BaseModel):

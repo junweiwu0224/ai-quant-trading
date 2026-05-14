@@ -25,11 +25,15 @@ class TestBacktestAPI:
         res = client.get("/api/backtest/strategies")
         assert res.status_code == 200
         strategies = res.json()
-        assert len(strategies) == 3
+        assert len(strategies) == 7
         names = [s["name"] for s in strategies]
         assert "dual_ma" in names
         assert "bollinger" in names
         assert "momentum" in names
+        assert "rsi" in names
+        assert "macd" in names
+        assert "kdj" in names
+        assert "qlib_signal" in names
 
     def test_search_stocks(self):
         res = client.get("/api/backtest/stocks")
@@ -42,9 +46,7 @@ class TestBacktestAPI:
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
         })
-        assert res.status_code == 200
-        data = res.json()
-        assert data["total_trades"] == 0
+        assert res.status_code == 422
 
     def test_run_backtest_no_data(self):
         """无数据时回测应返回空结果"""
@@ -64,7 +66,7 @@ class TestPortfolioAPI:
         res = client.get("/api/portfolio/snapshot")
         assert res.status_code == 200
         data = res.json()
-        assert data["cash"] == 0
+        assert data["cash"] == 50000.0
         assert data["positions"] == []
 
     def test_trades_no_data(self):
@@ -90,7 +92,7 @@ class TestSystemAPI:
         res = client.get("/api/system/strategies")
         assert res.status_code == 200
         data = res.json()
-        assert len(data) == 3
+        assert len(data) == 7
         for s in data:
             assert "name" in s
             assert "label" in s

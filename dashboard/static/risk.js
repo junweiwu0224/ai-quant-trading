@@ -16,9 +16,12 @@ Object.assign(App, {
     },
 
     _rkLoaded: false,
+    _rkLoading: false,
 
     async loadRisk(shared) {
-        const refreshBtn = document.querySelector('button[onclick="App.loadRisk()"]');
+        if (this._rkLoading) return;
+        this._rkLoading = true;
+        const refreshBtn = null;
         if (refreshBtn) refreshBtn.disabled = true;
 
         if (!this._rkLoaded) {
@@ -70,6 +73,7 @@ Object.assign(App, {
         } catch (e) {
             this.toast('风控数据加载失败: ' + e.message, 'error');
         } finally {
+            this._rkLoading = false;
             this._rkLoaded = true;
             if (refreshBtn) refreshBtn.disabled = false;
         }

@@ -10,6 +10,58 @@ from loguru import logger
 
 router = APIRouter()
 
+# ── 内置策略类映射（name → 类） ──
+# 新增内置策略只需在此添加一行，无需修改其他代码
+_BUILTIN_STRATEGY_CLASSES: dict[str, type] = {}
+
+
+def _get_builtin_classes() -> dict[str, type]:
+    """延迟加载所有内置策略类"""
+    if _BUILTIN_STRATEGY_CLASSES:
+        return _BUILTIN_STRATEGY_CLASSES
+
+    from strategy.dual_ma import DualMAStrategy
+    from strategy.bollinger import BollingerStrategy
+    from strategy.momentum import MomentumStrategy
+    from strategy.rsi import RSIStrategy
+    from strategy.macd import MACDStrategy
+    from strategy.kdj import KDJStrategy
+    from strategy.qlib_signal import QlibSignalStrategy
+
+    _BUILTIN_STRATEGY_CLASSES.update({
+        "dual_ma": DualMAStrategy,
+        "bollinger": BollingerStrategy,
+        "momentum": MomentumStrategy,
+        "rsi": RSIStrategy,
+        "macd": MACDStrategy,
+        "kdj": KDJStrategy,
+        "qlib_signal": QlibSignalStrategy,
+    })
+    return _BUILTIN_STRATEGY_CLASSES
+
+
+def _filter_params(cls: type, params: dict) -> dict:
+    """只保留策略构造函数接受的参数"""
+    import inspect
+    sig = inspect.signature(cls.__init__)
+    valid = {p for p in sig.parameters if p != "self"}
+    return {k: v for k, v in params.items() if k in valid}
+
+
+def _create_builtin_strategy(name: str, cls: type, params: dict):
+    """创建内置策略实例，特殊策略需要额外初始化"""
+    from config.settings import QLIB_SERVICE_URL
+    from strategy.qlib_signal import QlibSignalStrategy
+
+    filtered = _filter_params(cls, params)
+    # qlib_signal 需要从 qlib 服务加载预测分数
+    if name == "qlib_signal":
+        return QlibSignalStrategy.from_service(
+            service_url=QLIB_SERVICE_URL,
+            **filtered,
+        )
+    return cls(**filtered)
+
 
 class StartRequest(BaseModel):
     strategy: str = "dual_ma"
@@ -39,20 +91,11 @@ class PaperManager:
             raise RuntimeError("模拟盘已在运行中")
 
         from engine.paper_engine import PaperEngine, PaperConfig
-        from strategy.dual_ma import DualMAStrategy
-        from strategy.bollinger import BollingerStrategy
-        from strategy.momentum import MomentumStrategy
         from strategy.loader import load_strategy_from_code
         from strategy.manager import StrategyManager
         from config.settings import LOG_DIR
 
-        # 内置策略类映射
-        _builtin_classes = {
-            "dual_ma": DualMAStrategy,
-            "bollinger": BollingerStrategy,
-            "momentum": MomentumStrategy,
-        }
-
+        builtin_classes = _get_builtin_classes()
         strategy_mgr = StrategyManager()
 
         # 优先使用自定义代码
@@ -74,12 +117,12 @@ class PaperManager:
                     raise ValueError(f"自定义策略 {req.strategy} 代码加载失败")
             else:
                 # 内置策略：使用管理系统保存的参数覆盖 + 请求参数
-                cls = _builtin_classes.get(req.strategy)
+                cls = builtin_classes.get(req.strategy)
                 if not cls:
                     raise ValueError(f"未找到策略类: {req.strategy}")
                 # 参数优先级：请求参数 > 管理系统覆盖 > 默认值
                 merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
-                strategy = cls(**merged_params)
+                strategy = _create_builtin_strategy(req.strategy, cls, merged_params)
 
         config = PaperConfig(
             interval_seconds=req.interval,
@@ -126,10 +169,19 @@ class PaperManager:
 
     def reset(self):
         self.stop()
+        import json
         from config.settings import LOG_DIR
         state_file = LOG_DIR / "paper" / "portfolio_state.json"
-        if state_file.exists():
-            state_file.unlink()
+        # 写入干净的初始状态（5万现金，无持仓）
+        clean_state = {
+            "cash": 50000.0,
+            "positions": {},
+            "avg_prices": {},
+            "trade_count": 0,
+            "entry_dates": {},
+        }
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(json.dumps(clean_state, indent=2, ensure_ascii=False))
         self._engine = None
         self._config = None
         self._start_time = None

@@ -1,12 +1,103 @@
 /* ── 回测模块 ── */
 
 Object.assign(App, {
+    _setBacktestDiagnoseEnabled(isEnabled) {
+        const diagnoseBtn = document.getElementById('ensemble-diagnose-btn')
+            || document.querySelector('#bt-results button[title="AI 回测诊断"]');
+        if (!diagnoseBtn) return;
+        diagnoseBtn.disabled = !isEnabled;
+    },
+
+    _clearBacktestSnapshot() {
+        this._lastBacktestData = null;
+        this._lastBacktestBody = null;
+        this._setBacktestDiagnoseEnabled(false);
+    },
+
+    _bindBacktestSnapshotInvalidation() {
+        const invalidateSnapshot = () => {
+            this._clearBacktestSnapshot();
+        };
+        const snapshotFieldIds = [
+            'bt-strategy',
+            'bt-start',
+            'bt-end',
+            'bt-cash',
+            'bt-commission',
+            'bt-stamp-tax',
+            'bt-slippage',
+            'bt-benchmark',
+            'bt-risk',
+            'bt-period',
+        ];
+        snapshotFieldIds.forEach((fieldId) => {
+            const field = document.getElementById(fieldId);
+            if (!field) {
+                return;
+            }
+            field.onchange = (e) => {
+                invalidateSnapshot();
+                if (e.target?.id === 'bt-strategy') {
+                    this._onStrategyChange();
+                }
+            };
+        });
+        const paramsContainer = document.getElementById('bt-params-fields');
+        if (paramsContainer) {
+            paramsContainer.onchange = () => {
+                invalidateSnapshot();
+            };
+            paramsContainer.oninput = () => {
+                invalidateSnapshot();
+            };
+        }
+        if (this.btMultiSearch) {
+            this.btMultiSearch.onToggle = () => {
+                invalidateSnapshot();
+            };
+        }
+        const btCodeInput = document.getElementById('bt-code');
+        if (btCodeInput && !this.btMultiSearch) {
+            btCodeInput.onchange = () => {
+                invalidateSnapshot();
+            };
+        }
+        this._setBacktestDiagnoseEnabled(Boolean(this._lastBacktestData));
+    },
+
     bindBacktest() {
         const form = document.getElementById('backtest-form');
         if (!form) return;
 
+        const strategySelect = document.getElementById('bt-strategy');
+        if (strategySelect) {
+            strategySelect.removeAttribute('onchange');
+        }
+
+        const diagnoseBtn = document.getElementById('ensemble-diagnose-btn')
+            || document.querySelector('#bt-results button[title="AI 回测诊断"]');
+        if (diagnoseBtn) {
+            diagnoseBtn.removeAttribute('onclick');
+            diagnoseBtn.id = diagnoseBtn.id || 'ensemble-diagnose-btn';
+            diagnoseBtn.onclick = (e) => {
+                e.preventDefault();
+                if (!this._lastBacktestData) {
+                    this.toast('请先运行回测', 'error');
+                    return;
+                }
+                Ensemble?.diagnoseBacktest?.(this._lastBacktestData);
+            };
+        }
+
+        this._bindBacktestSnapshotInvalidation();
+
         // 动态加载策略列表
         this._loadStrategies();
+
+        if (form.dataset.backtestSubmitBound === 'true') {
+            return;
+        }
+        form.dataset.backtestSubmitBound = 'true';
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const codes = this.btMultiSearch
@@ -49,6 +140,7 @@ Object.assign(App, {
                 benchmark: document.getElementById('bt-benchmark').value || '',
                 enable_risk: document.getElementById('bt-risk').value === 'true',
                 period: document.getElementById('bt-period').value || 'daily',
+                params: this._collectStrategyParams(),
             };
 
             try {
@@ -68,6 +160,8 @@ Object.assign(App, {
                         const msg = JSON.parse(evt.data);
                         if (msg.type === 'progress') {
                             this._showProgress(msg.progress, msg.current_date, msg.elapsed, msg.remaining);
+                        } else if (msg.type === 'warning') {
+                            this.toast(msg.message, 'warning');
                         } else if (msg.type === 'complete') {
                             resolve(msg.data);
                         } else if (msg.type === 'cancelled') {
@@ -88,6 +182,7 @@ Object.assign(App, {
                     }, 300000);
                 });
 
+                this._clearBacktestSnapshot();
                 this.showBacktestResults(result, body);
                 this.toast('回测完成', 'success');
                 this.compareStrategies();
@@ -141,6 +236,7 @@ Object.assign(App, {
 
     showBacktestResults(data, reqBody) {
         if (data.error) {
+            this._clearBacktestSnapshot();
             this.toast(data.error, 'error');
             document.getElementById('bt-results').style.display = 'none';
             return;
@@ -183,6 +279,7 @@ Object.assign(App, {
 
         this._lastBacktestData = data;
         this._lastBacktestBody = reqBody;
+        this._setBacktestDiagnoseEnabled(true);
 
         const curve = data.equity_curve || [];
         const benchmarkCurve = data.benchmark_curve || [];
@@ -546,12 +643,82 @@ Object.assign(App, {
 
         try {
             const strategies = await this.fetchJSON('/api/backtest/strategies');
+            this._strategiesData = strategies;
             select.innerHTML = strategies.map(s =>
                 `<option value="${this.escapeHTML(s.name)}">${this.escapeHTML(s.label)}</option>`
             ).join('');
+            this._onStrategyChange();
+            this._bindBacktestSnapshotInvalidation();
         } catch (e) {
             console.error('加载策略列表失败:', e);
             select.innerHTML = '<option value="dual_ma">双均线策略</option>';
         }
+    },
+
+    _onStrategyChange() {
+        const name = document.getElementById('bt-strategy')?.value;
+        const container = document.getElementById('bt-params-fields');
+        const wrapper = document.getElementById('bt-strategy-params');
+        if (!container || !wrapper) return;
+
+        const strategy = (this._strategiesData || []).find(s => s.name === name);
+        const params = strategy?.params || {};
+        const entries = Object.entries(params);
+
+        if (entries.length === 0) {
+            wrapper.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+
+        wrapper.style.display = '';
+        const labelMap = {
+            short_window: '短均线周期', long_window: '长均线周期',
+            window: '窗口周期', num_std: '标准差倍数',
+            lookback: '回看周期', entry_threshold: '动量阈值',
+            period: 'RSI周期', oversold: '超卖线', overbought: '超买线',
+            fast: '快线周期', slow: '慢线周期', signal: '信号线周期',
+            k_period: 'K周期', d_period: 'D周期',
+            buy_threshold: '买入阈值', sell_threshold: '卖出阈值',
+            position_pct: '仓位比例', score_normalize: '分数归一化',
+            mode: '信号模式', top_n: '排名买入数',
+        };
+        const selectMap = {
+            mode: [['absolute', '绝对阈值'], ['ranking', '截面排名']],
+        };
+        container.innerHTML = entries.map(([k, v]) => {
+            const label = labelMap[k] || k;
+            const isBool = typeof v === 'boolean';
+            const isFloat = typeof v === 'number' && !Number.isInteger(v);
+            let inputType;
+            if (selectMap[k]) {
+                inputType = `<select data-param="${k}" style="width:100%;padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)">${selectMap[k].map(([val, lbl]) => `<option value="${val}"${v === val ? ' selected' : ''}>${lbl}</option>`).join('')}</select>`;
+            } else if (isBool) {
+                inputType = `<select data-param="${k}"><option value="false"${!v ? ' selected' : ''}>否</option><option value="true"${v ? ' selected' : ''}>是</option></select>`;
+            } else {
+                inputType = `<input type="number" data-param="${k}" value="${v}" step="${isFloat ? 0.01 : 1}" style="width:100%;padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)">`;
+            }
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-size:13px;color:var(--text-secondary);min-width:80px">${label}</label>${inputType}</div>`;
+        }).join('');
+    },
+
+    _collectStrategyParams() {
+        const container = document.getElementById('bt-params-fields');
+        if (!container) return {};
+        const params = {};
+        container.querySelectorAll('[data-param]').forEach(el => {
+            const key = el.dataset.param;
+            if (el.tagName === 'SELECT') {
+                if (el.value === 'true' || el.value === 'false') {
+                    params[key] = el.value === 'true';
+                } else {
+                    params[key] = el.value;
+                }
+            } else {
+                const val = parseFloat(el.value);
+                if (!isNaN(val)) params[key] = val;
+            }
+        });
+        return params;
     },
 });

@@ -1,9 +1,10 @@
 """后台实时行情服务 — 混合数据源架构
 
 数据源分工：
-  - 雪球 API：实时行情（快、稳定、批量）
-  - 东方财富 datacenter：行业分类、财务指标
-  - 东方财富 push2delay：单只行情备用
+  - mootdx（主源）：实时行情、K线、财务、F10
+  - 腾讯财经（补充源）：估值、换手率、52周高低等缺失字段
+  - 东方财富 datacenter（辅源）：行业分类、财务指标
+  - 东方财富 push2delay（备用）：单只/缺失行情补位
 
 后台线程持续轮询，内存缓存，支持回调通知（WebSocket 推送）。
 """
@@ -18,12 +19,13 @@ from data.collector.cache import TTLCache
 from data.collector.http_client import (
     calculate_limit_prices,
     code_to_secid,
-    code_to_xueqiu_symbol,
     fetch_industry_batch,
     fetch_json,
     fetch_kline,
     get_client,
+    normalize_stock_code,
 )
+from config.settings import DATA_SOURCE_MODE
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,18 @@ _financial_cache = TTLCache(max_size=200)
 # ── 行业数据 TTL 缓存（24 小时）──
 _industry_cache = TTLCache(max_size=2000)
 
+# ── 高频降级日志节流 ──
+_last_mootdx_fallback_log = 0.0
+
+
+def _log_mootdx_fallback(count: int) -> None:
+    global _last_mootdx_fallback_log
+    now = time.time()
+    if now - _last_mootdx_fallback_log < 60:
+        return
+    _last_mootdx_fallback_log = now
+    logger.warning(f"mootdx 部分行情缺失，回退 push2delay({count}只)")
+
 
 def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
     """获取内外盘数据（push2delay stock/get，当前 502，优雅降级返回 0）"""
@@ -95,9 +109,139 @@ def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
         d = data.get("data")
         if not d:
             return 0.0, 0.0
-        return float(d.get("f164", 0) or 0), float(d.get("f165", 0) or 0)
+        # push2delay 内外盘成交量单位是股，转为手（÷100）
+        return float(d.get("f164", 0) or 0) / 100, float(d.get("f165", 0) or 0) / 100
     except Exception:
         return 0.0, 0.0
+
+
+def _fetch_batch_quotes_mootdx(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:
+    """通过 mootdx 批量获取行情（新数据源主路径）"""
+    valid_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
+    if not valid_codes:
+        return {}
+    try:
+        from data.collector.mootdx_client import get_mootdx_manager
+        from data.collector.field_mapper import map_mootdx_quote
+
+        manager = get_mootdx_manager()
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            df = loop.run_until_complete(manager.quotes(valid_codes))
+        finally:
+            loop.close()
+
+        if df is None or df.empty:
+            return {}
+
+        result = {}
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            mapped = map_mootdx_quote(row_dict)
+            code = mapped.get("code", "")
+            if not code:
+                continue
+
+            # 过滤无效价格（停牌）
+            if mapped.get("price") is None:
+                continue
+
+            # 从 stock_info 补充名称和行业
+            info = (stock_info or {}).get(code, {})
+            name = mapped.get("name") or info.get("name", "")
+            industry = info.get("industry", "")
+
+            pre_close = mapped.get("pre_close") or 0
+            limit_up, limit_down = calculate_limit_prices(code, pre_close)
+
+            result[code] = QuoteData(
+                code=code,
+                name=name,
+                price=mapped.get("price") or 0,
+                open=mapped.get("open") or 0,
+                high=mapped.get("high") or 0,
+                low=mapped.get("low") or 0,
+                pre_close=pre_close,
+                volume=mapped.get("volume") or 0,
+                amount=mapped.get("amount") or 0,
+                change_pct=mapped.get("change_pct") or 0,
+                timestamp=time.time(),
+                industry=industry,
+                limit_up=limit_up,
+                limit_down=limit_down,
+            )
+        return result
+    except Exception as e:
+        logger.warning(f"mootdx 行情获取失败: {e}")
+        return {}
+
+
+def _fetch_financial_data_mootdx(code: str) -> dict:
+    """通过 mootdx 获取财务数据（新数据源路径）"""
+    hit, cached = _financial_cache.get(f"fin:{code}")
+    if hit:
+        return cached
+
+    result = {}
+    try:
+        from data.collector.mootdx_client import get_mootdx_manager
+        import asyncio
+
+        manager = get_mootdx_manager()
+        loop = asyncio.new_event_loop()
+        try:
+            # K线数据计算 52 周高低
+            df_kline = loop.run_until_complete(manager.get_kline_full(code, frequency=9, total=250))
+            if df_kline is not None and not df_kline.empty:
+                if "high" in df_kline.columns:
+                    result["high_52w"] = float(df_kline["high"].max())
+                    result["low_52w"] = float(df_kline["low"].min())
+                if "vol" in df_kline.columns:
+                    vols = df_kline["vol"].tolist()
+                    result["avg_volume_5d"] = sum(vols[-5:]) / 5 if len(vols) >= 5 else 0.0
+                    result["avg_volume_10d"] = sum(vols[-10:]) / 10 if len(vols) >= 10 else 0.0
+
+            # 财务概况
+            df_fin = loop.run_until_complete(manager.finance(code))
+            if df_fin is not None and not df_fin.empty:
+                row = df_fin.iloc[0]
+                result["total_shares"] = float(row.get("zongguben", 0) or 0)
+                result["circulating_shares"] = float(row.get("liutongguben", 0) or 0)
+                result["revenue"] = float(row.get("zhuyingshouru", 0) or 0)
+                result["net_profit"] = float(row.get("jinglirun", 0) or 0)
+                result["bps"] = float(row.get("meigujingzichan", 0) or 0)
+                result["roe"] = 0  # mootdx finance 不直接提供 ROE
+
+            # F10 财务分析（补充 PE/PS 等估值指标）
+            f10 = loop.run_until_complete(manager.f10(code))
+            if f10 and isinstance(f10, dict):
+                fin_text = f10.get("财务分析", "")
+                # 简单解析：mootdx F10 返回文本格式，后续可增强解析
+                result["f10_text"] = fin_text[:500]  # 存摘要
+
+        finally:
+            loop.close()
+
+    except Exception as e:
+        logger.warning(f"mootdx 财务数据获取失败 {code}: {e}")
+
+    _financial_cache.set(f"fin:{code}", result, ttl=1800)
+    return result
+
+
+def _fetch_batch_quotes_push2(codes: list[str]) -> dict[str, QuoteData]:
+    """通过 push2delay 为缺失股票逐只补位行情（备用）"""
+    if not codes:
+        return {}
+
+    result = {}
+    for code in codes:
+        quote = _fetch_single_quote_push2(code)
+        if quote:
+            result[code] = quote
+    return result
+
 
 
 def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
@@ -137,7 +281,7 @@ def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
             high=price_val(d.get("f44")),
             low=price_val(d.get("f45")),
             pre_close=pre_close_price,
-            volume=float(d.get("f47", 0) or 0),
+            volume=float(d.get("f47", 0) or 0) / 100,
             amount=float(d.get("f48", 0) or 0),
             change_pct=float(d.get("f170", 0) or 0) / 100,
             timestamp=time.time(),
@@ -162,11 +306,28 @@ def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
 
 
 def _fetch_financial_data(code: str) -> dict:
-    """获取股票财务数据（52周高低、财务指标等），带 30 分钟 TTL 缓存"""
-    hit, cached = _financial_cache.get(f"fin:{code}")
+    """获取股票财务数据（根据 DATA_SOURCE_MODE 选择数据源）"""
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return {}
+
+    hit, cached = _financial_cache.get(f"fin:{normalized}")
     if hit:
         return cached
 
+    if DATA_SOURCE_MODE == "new":
+        primary_result = _fetch_financial_data_mootdx(normalized)
+        fallback_result = _fetch_financial_data_legacy(normalized)
+        result = {**fallback_result, **{k: v for k, v in primary_result.items() if v not in (None, "", 0, 0.0)}}
+    else:
+        result = _fetch_financial_data_legacy(normalized)
+
+    _financial_cache.set(f"fin:{normalized}", result, ttl=1800)
+    return result
+
+
+def _fetch_financial_data_legacy(code: str) -> dict:
+    """通过东方财富获取财务数据（legacy 模式）"""
     result = {}
 
     # 1. K线数据计算 52 周高低和平均成交量
@@ -253,7 +414,6 @@ def _fetch_financial_data(code: str) -> dict:
     except Exception as e:
         logger.warning(f"获取 {code} 估值指标失败: {e}")
 
-    _financial_cache.set(f"fin:{code}", result, ttl=1800)
     return result
 
 
@@ -295,137 +455,158 @@ def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
         _industry_cache.set(f"ind:{code}", merged, ttl=86400)
 
 
-def _fetch_batch_quotes_xueqiu(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:
-    """通过雪球 API 批量获取行情"""
+def _enrich_with_tencent(result: dict[str, QuoteData], codes: list[str]):
+    """用腾讯财经数据补充 PE/PB/市值/换手率/涨跌停价（mootdx 不提供这些字段）
+
+    腾讯 API 字段映射（GBK编码，~分隔）：
+      [1]=名称 [2]=代码 [3]=现价 [4]=昨收 [5]=开盘
+      [32]=涨跌幅(%) [33]=最高 [34]=最低
+      [38]=换手率(%) [39]=PE(动) [44]=流通市值(亿) [45]=总市值(亿)
+      [46]=PB [47]=量比 [48]=跌停价 [52]=PE_TTM [53]=PE(静)
+      [67]=52周最高 [68]=52周最低
+    """
     if not codes:
-        return {}
+        return
     try:
-        symbols = ",".join(code_to_xueqiu_symbol(c) for c in codes)
-        url = f"https://stock.xueqiu.com/v5/stock/realtime/quotec.json?symbol={symbols}"
-        client = get_client()
-        resp = client.get(url, timeout=8, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        })
-        resp.raise_for_status()
-        data = resp.json()
+        symbols = []
+        for code in codes:
+            prefix = "sh" if code.startswith(("6", "9")) else "sz"
+            symbols.append(f"{prefix}{code}")
 
-        result = {}
-        for item in data.get("data", []):
-            symbol = item.get("symbol", "")
-            code = symbol[2:] if len(symbol) > 2 else ""
-            if not code:
-                continue
-            current = float(item.get("current", 0) or 0)
-            if current <= 0:
-                continue
+        for batch_start in range(0, len(symbols), 50):
+            batch = symbols[batch_start:batch_start + 50]
+            sym_str = ",".join(batch)
+            url = f"https://qt.gtimg.cn/q={sym_str}"
+            try:
+                client = get_client()
+                resp = client.get(url, timeout=5, headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://web.ifzq.gtimg.cn",
+                })
+                text = resp.content.decode("gbk", errors="ignore")
+                for line in text.strip().split("\n"):
+                    if "=" not in line or "~" not in line:
+                        continue
+                    parts = line.split("~")
+                    if len(parts) < 50:
+                        continue
+                    code = parts[2] if len(parts) > 2 else ""
+                    if code not in result:
+                        continue
+                    q = result[code]
+                    try:
+                        pe = float(parts[39]) if parts[39] else 0
+                        pb = float(parts[46]) if parts[46] else 0
+                        total_cap = float(parts[45]) if parts[45] else 0
+                        float_cap = float(parts[44]) if parts[44] else 0
+                        turnover = float(parts[38]) if parts[38] else 0
+                        limit_down = float(parts[48]) if parts[48] else 0
+                        pe_ttm = float(parts[52]) if parts[52] else 0
+                        high_52w = float(parts[67]) if parts[67] else 0
+                        low_52w = float(parts[68]) if parts[68] else 0
 
-            pre_close = float(item.get("last_close", 0) or 0)
-            limit_up, limit_down = calculate_limit_prices(code, pre_close)
+                        # 涨停价 = 跌停价 + 2*昨收价*涨跌幅比例（主板10%，创业板/科创板20%）
+                        pre_close = q.pre_close
+                        normalized_code = normalize_stock_code(code) or code
+                        if pre_close and limit_down and limit_down > 0:
+                            limit_pct = 0.20 if normalized_code.startswith(("300", "301", "688")) else 0.10
+                            limit_up = round(pre_close * (1 + limit_pct), 2)
+                        else:
+                            limit_up = q.limit_up
 
-            # 从 DB 预加载的 stock_info 填充 name/industry
-            info = (stock_info or {}).get(code, {})
-            name = info.get("name", "")
-            industry = info.get("industry", "")
-
-            result[code] = QuoteData(
-                code=code,
-                name=name,
-                price=current,
-                open=float(item.get("open", 0) or 0),
-                high=float(item.get("high", 0) or 0),
-                low=float(item.get("low", 0) or 0),
-                pre_close=pre_close,
-                volume=float(item.get("volume", 0) or 0),
-                amount=float(item.get("amount", 0) or 0),
-                change_pct=float(item.get("percent", 0) or 0),
-                timestamp=time.time(),
-                industry=industry,
-                market_cap=float(item.get("market_capital", 0) or 0),
-                circulating_cap=float(item.get("float_market_capital", 0) or 0),
-                turnover_rate=float(item.get("turnover_rate", 0) or 0),
-                amplitude=float(item.get("amplitude", 0) or 0),
-                limit_up=limit_up,
-                limit_down=limit_down,
-            )
-        return result
+                        result[code] = QuoteData(
+                            **{**q.__dict__,
+                               "pe_ratio": pe if pe else q.pe_ratio,
+                               "pb_ratio": pb if pb else q.pb_ratio,
+                               "market_cap": total_cap * 10000 if total_cap else q.market_cap,
+                               "circulating_cap": float_cap * 10000 if float_cap else q.circulating_cap,
+                               "turnover_rate": turnover if turnover else q.turnover_rate,
+                               "limit_up": limit_up,
+                               "limit_down": limit_down if limit_down else q.limit_down,
+                               "high_52w": high_52w if high_52w else q.high_52w,
+                               "low_52w": low_52w if low_52w else q.low_52w,
+                               "pe_ttm": pe_ttm if pe_ttm else getattr(q, "pe_ttm", 0),
+                               }
+                        )
+                    except (ValueError, IndexError):
+                        pass
+            except Exception as e:
+                logger.debug(f"腾讯行情补充失败 batch: {e}")
     except Exception as e:
-        logger.warning(f"雪球行情获取失败: {e}")
-        return {}
+        logger.debug(f"腾讯行情补充异常: {e}")
 
 
 def _fetch_batch_quotes(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:
-    """批量获取行情：雪球为主，DB + datacenter 补充行业数据"""
-    if not codes:
+    """批量获取行情（mootdx 主源，腾讯和行业数据补充，push2delay 备用）"""
+    valid_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
+    if not valid_codes:
         return {}
 
-    result = _fetch_batch_quotes_xueqiu(codes, stock_info)
+    result = _fetch_batch_quotes_mootdx(valid_codes, stock_info)
+    missing_codes = [code for code in valid_codes if code not in result]
+    if missing_codes:
+        _log_mootdx_fallback(len(missing_codes))
+        fallback_result = _fetch_batch_quotes_push2(missing_codes)
+        result = {**result, **fallback_result}
 
-    if not result:
-        logger.warning(f"雪球行情为空，跳过本轮({len(codes)}只)")
-        return result
-
-    # 补充行业/板块/概念（DB 预加载 + datacenter 批量，0-1 次 HTTP）
-    _enrich_with_industry(result, [c for c in codes if c in result])
-
+    if result:
+        active_codes = [code for code in valid_codes if code in result]
+        _enrich_with_tencent(result, active_codes)
+        _enrich_with_industry(result, active_codes)
     return result
 
 
-def _fetch_single_quote_xueqiu(code: str) -> Optional[QuoteData]:
-    """通过雪球 API 获取单只股票行情"""
-    result = _fetch_batch_quotes_xueqiu([code])
-    return result.get(code)
-
 
 def _fetch_single_quote(code: str) -> Optional[QuoteData]:
-    """获取单只股票行情：雪球优先，push2 回退，合并行业/板块/概念 + 财务指标"""
-    quote = _fetch_single_quote_xueqiu(code)
-    if quote:
-        if not quote.industry:
-            push2 = _fetch_single_quote_push2(code)
-            if push2:
-                quote = QuoteData(
-                    **{**quote.__dict__,
-                       "industry": push2.industry or quote.industry,
-                       "sector": push2.sector or quote.sector,
-                       "concepts": push2.concepts or quote.concepts,
-                       "market_cap": push2.market_cap or quote.market_cap,
-                       "pe_ratio": push2.pe_ratio if push2.pe_ratio else quote.pe_ratio,
-                       "pb_ratio": push2.pb_ratio if push2.pb_ratio else quote.pb_ratio,
-                       "turnover_rate": push2.turnover_rate or quote.turnover_rate,
-                    }
-                )
-        fin = _fetch_financial_data(code)
-        if fin:
-            quote = QuoteData(
-                **{**quote.__dict__,
-                   "high_52w": fin.get("high_52w", quote.high_52w),
-                   "low_52w": fin.get("low_52w", quote.low_52w),
-                   "avg_volume_5d": fin.get("avg_volume_5d", quote.avg_volume_5d),
-                   "avg_volume_10d": fin.get("avg_volume_10d", quote.avg_volume_10d),
-                   "eps": fin.get("eps", quote.eps),
-                   "bps": fin.get("bps", quote.bps),
-                   "revenue": fin.get("revenue", quote.revenue),
-                   "revenue_growth": fin.get("revenue_growth", quote.revenue_growth),
-                   "net_profit": fin.get("net_profit", quote.net_profit),
-                   "net_profit_growth": fin.get("net_profit_growth", quote.net_profit_growth),
-                   "gross_margin": fin.get("gross_margin", quote.gross_margin),
-                   "net_margin": fin.get("net_margin", quote.net_margin),
-                   "roe": fin.get("roe", quote.roe),
-                   "debt_ratio": fin.get("debt_ratio", quote.debt_ratio),
-                   "total_shares": fin.get("total_shares", quote.total_shares),
-                   "circulating_shares": fin.get("circulating_shares", quote.circulating_shares),
-                   "pe_ttm": fin.get("pe_ttm", quote.pe_ttm),
-                   "ps_ratio": fin.get("ps_ratio", quote.ps_ratio),
-                   "dividend_yield": fin.get("dividend_yield", quote.dividend_yield),
-                }
-            )
-        return quote
-    return _fetch_single_quote_push2(code)
+    """获取单只股票行情（复用批量主路径并补充财务数据）"""
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return None
+
+    result = _fetch_batch_quotes([normalized])
+    quote = result.get(normalized)
+    if not quote:
+        return None
+
+    fin = _fetch_financial_data(normalized)
+    if fin:
+        return _merge_financial(quote, fin)
+    return quote
+
+
+def _merge_financial(quote: QuoteData, fin: dict) -> QuoteData:
+    """合并财务数据到 QuoteData"""
+    return QuoteData(
+        **{**quote.__dict__,
+           "high_52w": fin.get("high_52w", quote.high_52w),
+           "low_52w": fin.get("low_52w", quote.low_52w),
+           "avg_volume_5d": fin.get("avg_volume_5d", quote.avg_volume_5d),
+           "avg_volume_10d": fin.get("avg_volume_10d", quote.avg_volume_10d),
+           "eps": fin.get("eps", quote.eps),
+           "bps": fin.get("bps", quote.bps),
+           "revenue": fin.get("revenue", quote.revenue),
+           "revenue_growth": fin.get("revenue_growth", quote.revenue_growth),
+           "net_profit": fin.get("net_profit", quote.net_profit),
+           "net_profit_growth": fin.get("net_profit_growth", quote.net_profit_growth),
+           "gross_margin": fin.get("gross_margin", quote.gross_margin),
+           "net_margin": fin.get("net_margin", quote.net_margin),
+           "roe": fin.get("roe", quote.roe),
+           "debt_ratio": fin.get("debt_ratio", quote.debt_ratio),
+           "total_shares": fin.get("total_shares", quote.total_shares),
+           "circulating_shares": fin.get("circulating_shares", quote.circulating_shares),
+           "pe_ttm": fin.get("pe_ttm", quote.pe_ttm),
+           "ps_ratio": fin.get("ps_ratio", quote.ps_ratio),
+           "dividend_yield": fin.get("dividend_yield", quote.dividend_yield),
+           }
+    )
 
 
 def get_financial_cache(code: str) -> dict | None:
     """获取预缓存的财务数据（供 stock_detail 等外部模块使用）"""
-    hit, cached = _financial_cache.get(f"fin:{code}")
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return None
+    hit, cached = _financial_cache.get(f"fin:{normalized}")
     return cached if hit else None
 
 
@@ -460,8 +641,9 @@ class QuoteService:
             df = DataStorage().get_stock_list()
             if not df.empty:
                 self._stock_info = {
-                    row["code"]: {"name": row.get("name", ""), "industry": row.get("industry", "")}
+                    normalize_stock_code(row["code"]): {"name": row.get("name", ""), "industry": row.get("industry", "")}
                     for _, row in df.iterrows()
+                    if normalize_stock_code(row["code"])
                 }
                 logger.info(f"加载股票信息: {len(self._stock_info)} 只")
         except Exception as e:
@@ -469,26 +651,29 @@ class QuoteService:
 
     def subscribe(self, codes: list[str]):
         """订阅股票行情"""
+        normalized_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
         with self._lock:
-            self._subscriptions.update(codes)
-        logger.info(f"行情订阅: {codes}, 总计 {len(self._subscriptions)} 只")
+            self._subscriptions.update(normalized_codes)
+        logger.info(f"行情订阅: {normalized_codes}, 总计 {len(self._subscriptions)} 只")
 
     def unsubscribe(self, codes: list[str]):
         """取消订阅"""
+        normalized_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
         with self._lock:
-            for c in codes:
+            for c in normalized_codes:
                 self._subscriptions.discard(c)
                 self._cache.pop(c, None)
-        logger.info(f"取消订阅: {codes}, 剩余 {len(self._subscriptions)} 只")
+        logger.info(f"取消订阅: {normalized_codes}, 剩余 {len(self._subscriptions)} 只")
 
     def set_codes(self, codes: list[str]):
         """设置订阅列表（替换）"""
+        normalized_codes = {code for code in (normalize_stock_code(c) for c in codes) if code}
         with self._lock:
-            self._subscriptions = set(codes)
+            self._subscriptions = set(normalized_codes)
             for c in list(self._cache.keys()):
                 if c not in self._subscriptions:
                     del self._cache[c]
-        logger.info(f"设置行情订阅: {len(codes)} 只股票")
+        logger.info(f"设置行情订阅: {len(normalized_codes)} 只股票")
 
     def on_update(self, callback: Callable[[dict[str, QuoteData]], None]):
         """注册行情更新回调"""
@@ -496,8 +681,11 @@ class QuoteService:
 
     def get_quote(self, code: str) -> Optional[QuoteData]:
         """获取单只股票最新行情"""
+        normalized = normalize_stock_code(code)
+        if not normalized:
+            return None
         with self._lock:
-            return self._cache.get(code)
+            return self._cache.get(normalized)
 
     def get_all_quotes(self) -> dict[str, QuoteData]:
         """获取所有缓存行情"""
@@ -573,7 +761,7 @@ class QuoteService:
             time.sleep(self._interval)
 
     def _poll_once(self):
-        """执行一次行情采集（仅 1 次 HTTP：雪球批量）"""
+        """执行一次行情采集（mootdx 主源，必要时回退 push2delay）"""
         with self._lock:
             codes = list(self._subscriptions)
         if not codes:

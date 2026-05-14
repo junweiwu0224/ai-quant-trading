@@ -42,7 +42,7 @@ Object.assign(App, {
         const modelType = document.getElementById('alpha-model')?.value || 'lightgbm';
         if (!code) { this.toast('请输入股票代码', 'error'); return; }
 
-        const btn = document.querySelector('button[onclick="App.loadAlpha()"]');
+        const btn = this._getResearchHeaderActionButton ? this._getResearchHeaderActionButton('alpha-analyze') : null;
         if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.innerHTML = '<span class="skeleton-pulse" style="display:inline-block;width:1em;height:1em;border-radius:50%;vertical-align:middle;margin-right:4px"></span>分析中...'; }
 
         try {

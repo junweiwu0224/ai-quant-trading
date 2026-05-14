@@ -8,11 +8,18 @@
 
     let _loaded = false;
     let _iwencaiResult = null;
+    let _iwencaiActionState = {
+        pool: [],
+        watchlistCodes: [],
+        query: '',
+    };
+    let _delegatedActionsBound = false;
 
     // ── 初始化 ──
 
     function init() {
         bindIwencai();
+        bindDelegatedActions();
         App.registerContext('intelligence', () => {
             // 截断大型数据，防止 LLM prompt 膨胀
             const summary = _iwencaiResult ? {
@@ -29,7 +36,97 @@
         });
     }
 
-    // ── 加载全部数据 ──
+    function bindDelegatedActions() {
+        if (_delegatedActionsBound) {
+            return;
+        }
+
+        _delegatedActionsBound = true;
+        document.addEventListener('click', (e) => {
+            const newsTag = e.target.closest('[data-intel-action="open-news-stock"]');
+            if (newsTag) {
+                e.preventDefault();
+                const code = typeof newsTag.dataset.code === 'string' ? newsTag.dataset.code.trim() : '';
+                if (code) {
+                    App.openStockDetail(code, {
+                        source: 'intelligence:news-tag',
+                    });
+                }
+                return;
+            }
+
+            const hotspot = e.target.closest('[data-intel-action="query-hotspot"]');
+            if (hotspot) {
+                e.preventDefault();
+                const concept = typeof hotspot.dataset.concept === 'string' ? hotspot.dataset.concept.trim() : '';
+                if (concept) {
+                    App.emit('hotspot:query-iwencai', { concept });
+                }
+                return;
+            }
+
+            const sendToScreenerButton = e.target.closest('[data-intel-action="iwencai-send-screener"]');
+            if (sendToScreenerButton) {
+                e.preventDefault();
+                if (_iwencaiActionState.pool.length > 0) {
+                    App.emit('iwencai:send-to-screener', {
+                        pool: [..._iwencaiActionState.pool],
+                        query: _iwencaiActionState.query,
+                    });
+                }
+                return;
+            }
+
+            const analyzeButton = e.target.closest('[data-intel-action="iwencai-analyze"]');
+            if (analyzeButton) {
+                e.preventDefault();
+                App.emit('iwencai:analyze', {
+                    query: _iwencaiActionState.query,
+                    data: getLastResult(),
+                });
+                return;
+            }
+
+            const addWatchlistButton = e.target.closest('[data-intel-action="iwencai-add-watchlist"]');
+            if (addWatchlistButton) {
+                e.preventDefault();
+                if (_iwencaiActionState.watchlistCodes.length > 0) {
+                    App.addAllToWatchlist([..._iwencaiActionState.watchlistCodes]);
+                }
+                return;
+            }
+
+            const timelineFocusButton = e.target.closest('[data-intel-action="timeline-focus"]');
+            if (timelineFocusButton) {
+                e.preventDefault();
+                const date = typeof timelineFocusButton.dataset.date === 'string' ? timelineFocusButton.dataset.date.trim() : '';
+                if (date) {
+                    App.emit('timeline:focus', { date });
+                }
+                return;
+            }
+
+            const mimoButton = e.target.closest('.qlib-btn-mimo');
+            if (mimoButton) {
+                e.preventDefault();
+                e.stopPropagation();
+                const { code, name, score, industry } = mimoButton.dataset;
+                const msg = `Qlib 模型今天给 ${name}(${code}) 打出了 ${score} 的高分，属于 ${industry} 板块。请帮我分析：\n1. 这只票最近有没有股东减持、负面研报或重大风险？\n2. 当前技术面是否支持介入？\n3. 如果买入，建议的止损位和目标位是多少？`;
+                App.emit('iwencai:analyze', { query: msg, data: null });
+                return;
+            }
+
+            const qlibRow = e.target.closest('.qlib-row');
+            if (qlibRow && !e.target.closest('.qlib-btn')) {
+                const code = typeof qlibRow.dataset.code === 'string' ? qlibRow.dataset.code.trim() : '';
+                if (code) {
+                    App.openStockDetail(code, {
+                        source: 'intelligence:qlib-row',
+                    });
+                }
+            }
+        });
+    }
 
     async function load() {
         if (!_loaded) {
@@ -109,7 +206,7 @@
                 const iconCls = sentVal > 0.2 ? 'text-up' : sentVal < -0.2 ? 'text-down' : 'text-muted';
                 // 提取股票标签
                 const tags = (n.stocks || []).slice(0, 3).map(s =>
-                    `<span class="intel-news-tag ${sentCls}" data-code="${App.escapeHTML(s.code || '')}" onclick="App.emit('news:open-stock', {code:'${App.escapeHTML(s.code || '')}'})">${App.escapeHTML(s.name || s.code || '')}</span>`
+                    `<span class="intel-news-tag ${sentCls}" data-intel-action="open-news-stock" data-code="${App.escapeHTML(s.code || '')}">${App.escapeHTML(s.name || s.code || '')}</span>`
                 ).join('');
                 return `<div class="intel-news-item">
                     <span class="intel-news-icon ${iconCls}">${icon}</span>
@@ -213,7 +310,7 @@
             for (const c of concepts) {
                 const pctCls = c.change_pct >= 0 ? 'up' : 'down';
                 const pctStr = (c.change_pct >= 0 ? '+' : '') + c.change_pct.toFixed(2) + '%';
-                html += `<div class="intel-hotspot-concept" data-concept="${App.escapeHTML(c.name)}" title="领涨: ${App.escapeHTML(c.leader || '--')} | 上涨:${c.up_count} 下跌:${c.down_count}" onclick="App.emit('hotspot:query-iwencai', {concept:'${App.escapeHTML(c.name)}'})">
+                html += `<div class="intel-hotspot-concept" data-intel-action="query-hotspot" data-concept="${App.escapeHTML(c.name)}" title="领涨: ${App.escapeHTML(c.leader || '--')} | 上涨:${c.up_count} 下跌:${c.down_count}">
                     <span>${App.escapeHTML(c.name)}</span>
                     <span class="concept-pct ${pctCls}">${pctStr}</span>
                 </div>`;
@@ -292,11 +389,16 @@
 
             // 操作栏：发送至选股器 / 交给MiMo分析 / 加入自选
             const codes = data.map(r => r['代码'] || r['code'] || r['股票代码']).filter(Boolean);
+            _iwencaiActionState = {
+                pool: codes.slice(0, 50),
+                watchlistCodes: codes.slice(0, 20),
+                query,
+            };
             const actionsHtml = `<div class="iwencai-actions">
                 <span class="text-muted text-xs">共 ${resp.total || data.length} 条，显示前 ${displayRows.length} 条</span>
-                <button class="btn btn-sm" onclick="App.emit('iwencai:send-to-screener', {pool:${JSON.stringify(codes.slice(0, 50))}, query:'${App.escapeHTML(query)}'})">发送至选股器</button>
-                <button class="btn btn-sm" onclick="App.emit('iwencai:analyze', {query:'${App.escapeHTML(query)}', data: window.Intelligence?.getLastResult?.()})">交给 MiMo 分析</button>
-                <button class="btn btn-sm" onclick="App.addAllToWatchlist(${JSON.stringify(codes.slice(0, 20))})">加入自选</button>
+                <button class="btn btn-sm" data-intel-action="iwencai-send-screener">发送至选股器</button>
+                <button class="btn btn-sm" data-intel-action="iwencai-analyze">交给 MiMo 分析</button>
+                <button class="btn btn-sm" data-intel-action="iwencai-add-watchlist">加入自选</button>
             </div>`;
 
             el.innerHTML = tableHtml + actionsHtml;
@@ -396,7 +498,7 @@
             el.innerHTML = `
                 <div class="qlib-header">
                     <div class="qlib-header-left">
-                        <span class="qlib-date" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页" onclick="App.emit('timeline:focus',{date:'${dateStr}'})">预测日期: ${App.escapeHTML(dateStr)}</span>
+                        <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">预测日期: ${App.escapeHTML(dateStr)}</span>
                         <span class="qlib-total">全市场 ${data.total} 只 · Top ${total}</span>
                     </div>
                     <button class="qlib-btn qlib-btn-push" id="qlib-push-screener">
@@ -434,25 +536,6 @@
                     query: `Qlib Top ${total} 预测金股池 (${dateStr})`,
                 });
                 App.toast(`已推送 ${codes.length} 只股票至选股器`, 'success');
-            });
-
-            // 绑定: 整行点击跳转行情详情
-            el.querySelectorAll('.qlib-row').forEach(row => {
-                row.addEventListener('click', e => {
-                    if (e.target.closest('.qlib-btn')) return; // 按钮点击不跳转
-                    const code = row.dataset.code;
-                    if (window.StockDetail?.show) window.StockDetail.show(code);
-                });
-            });
-
-            // 绑定: 问 MiMo 按钮
-            el.querySelectorAll('.qlib-btn-mimo').forEach(btn => {
-                btn.addEventListener('click', e => {
-                    e.stopPropagation();
-                    const { code, name, score, industry } = btn.dataset;
-                    const msg = `Qlib 模型今天给 ${name}(${code}) 打出了 ${score} 的高分，属于 ${industry} 板块。请帮我分析：\n1. 这只票最近有没有股东减持、负面研报或重大风险？\n2. 当前技术面是否支持介入？\n3. 如果买入，建议的止损位和目标位是多少？`;
-                    App.emit('iwencai:analyze', { query: msg, data: null });
-                });
             });
 
         } catch (e) {

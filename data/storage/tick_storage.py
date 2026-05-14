@@ -13,10 +13,11 @@ from typing import Optional
 
 import pandas as pd
 from loguru import logger
-from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine, Index
+from sqlalchemy import Column, DateTime, Float, Integer, String, Index
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from config.settings import DB_PATH
+from utils.db import create_sqlite_engine
 
 Base = declarative_base()
 
@@ -65,7 +66,7 @@ class TickStorage:
 
     def __init__(self, db_path: Optional[str] = None):
         path = db_path or str(DB_PATH)
-        self._engine = create_engine(f"sqlite:///{path}", echo=False)
+        self._engine = create_sqlite_engine(path)
         Base.metadata.create_all(self._engine)
         self._session_factory = sessionmaker(bind=self._engine)
 

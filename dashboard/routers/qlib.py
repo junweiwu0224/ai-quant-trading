@@ -5,16 +5,21 @@
 """
 
 import json
-import sqlite3
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter
 from loguru import logger
+
+from config.settings import QLIB_SERVICE_URL
+from utils.db import get_connection
 
 router = APIRouter()
 
 PRED_CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "qlib" / "predictions_cache.json"
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "db" / "quant.db"
+QLIB_TRAIN_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train"
+QLIB_TRAIN_STATUS_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train/status"
 
 
 def _load_predictions() -> dict:
@@ -32,14 +37,16 @@ def _load_predictions() -> dict:
 
 
 def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
-    """从数据库批量获取股票名称、行业、最新收盘价"""
+    """从数据库批量获取股票名称、行业、最新收盘价
+
+    codes 格式统一为 sh/sz 前缀 (sz002049)。
+    """
     result: dict[str, dict] = {}
     if not DB_PATH.exists() or not codes:
         return result
 
+    conn = get_connection(str(DB_PATH), readonly=True)
     try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
         # 批量查询名称和行业
@@ -51,22 +58,27 @@ def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
         for row in cur.fetchall():
             result[row["code"]] = {"name": row["name"], "industry": row["industry"] or "--"}
 
-        # 批量查询最新收盘价、成交量、成交额
+        # 批量查询每只股票的最新收盘价、成交量、成交额
         cur.execute(
-            f"""SELECT code, close, volume, amount FROM stock_daily
-                WHERE code IN ({placeholders})
-                  AND date = (SELECT MAX(date) FROM stock_daily WHERE code IN ({placeholders}))""",
-            codes + codes,
+            f"""SELECT s.code, s.close, s.volume, s.amount
+                FROM stock_daily s
+                INNER JOIN (
+                    SELECT code, MAX(date) AS max_date
+                    FROM stock_daily
+                    WHERE code IN ({placeholders})
+                    GROUP BY code
+                ) latest ON s.code = latest.code AND s.date = latest.max_date""",
+            codes,
         )
         for row in cur.fetchall():
             if row["code"] in result:
                 result[row["code"]]["price"] = round(row["close"], 2)
                 result[row["code"]]["volume"] = row["volume"]
                 result[row["code"]]["amount"] = row["amount"]
-
-        conn.close()
     except Exception as e:
         logger.warning(f"查询股票信息失败: {e}")
+    finally:
+        conn.close()
 
     return result
 
@@ -254,3 +266,26 @@ async def qlib_health():
     except Exception as e:
         logger.error(f"Qlib 健康检查失败: {e}")
         return {"success": True, "status": "offline", "last_update": None, "cache_age_hours": None}
+
+
+@router.post("/train")
+async def qlib_train():
+    """触发 qlib 模型训练（代理到 qlib 微服务）"""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(QLIB_TRAIN_URL)
+            return resp.json()
+    except Exception as e:
+        logger.error(f"调用 qlib 训练服务失败: {e}")
+        return {"success": False, "message": f"qlib 服务不可用: {e}"}
+
+
+@router.get("/train/status")
+async def qlib_train_status():
+    """查询 qlib 训练状态"""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(QLIB_TRAIN_STATUS_URL)
+            return resp.json()
+    except Exception as e:
+        return {"training": False, "error": str(e)}

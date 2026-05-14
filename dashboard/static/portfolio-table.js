@@ -67,12 +67,12 @@ Object.assign(App, {
                 <td class="pf-right pf-mono ${colorClass(p.pnl_pct)}">${pnlSign}${fmtPct(p.pnl_pct)}</td>
                 <td class="pf-right pf-mono">${fmtPct(p.position_pct)}</td>
                 <td class="pf-right pf-mono pf-col-hide-mobile">${p.holding_days}天</td>
-                <td class="pf-right pf-mono pf-col-hide-mobile ${slClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.stop_loss_price != null ? p.stop_loss_price.toFixed(2) : '--'}</span></td>
-                <td class="pf-right pf-mono pf-col-hide-mobile ${tpClass}"><span class="pf-sl-indicator" onclick="App.pfEditSltp('${this.escapeHTML(p.code)}','${this.escapeHTML(p.name||'')}')" title="点击编辑">${p.take_profit_price != null ? p.take_profit_price.toFixed(2) : '--'}</span></td>
+                <td class="pf-right pf-mono pf-col-hide-mobile ${slClass}"><span class="pf-sl-indicator" data-pf-table-action="edit-sltp" data-code="${this.escapeHTML(p.code)}" data-name="${this.escapeHTML(p.name || '')}" title="点击编辑">${p.stop_loss_price != null ? p.stop_loss_price.toFixed(2) : '--'}</span></td>
+                <td class="pf-right pf-mono pf-col-hide-mobile ${tpClass}"><span class="pf-sl-indicator" data-pf-table-action="edit-sltp" data-code="${this.escapeHTML(p.code)}" data-name="${this.escapeHTML(p.name || '')}" title="点击编辑">${p.take_profit_price != null ? p.take_profit_price.toFixed(2) : '--'}</span></td>
                 <td class="pf-col-hide-mobile"><span class="pf-strategy-tag">${this.escapeHTML(p.strategy_name || '--')}</span></td>
                 <td><div class="pf-row-actions">
-                    <button class="btn" onclick="App.pfPartialClose('${this.escapeHTML(p.code)}',${p.volume})">卖出</button>
-                    <button class="btn btn-danger" onclick="App.pfFullClose('${this.escapeHTML(p.code)}')">清仓</button>
+                    <button class="btn" data-pf-table-action="partial-close" data-code="${this.escapeHTML(p.code)}" data-max-volume="${p.volume}">卖出</button>
+                    <button class="btn btn-danger" data-pf-table-action="full-close" data-code="${this.escapeHTML(p.code)}">清仓</button>
                 </div></td>
             </tr>`;
         }).join('');
@@ -140,6 +140,37 @@ Object.assign(App, {
                 this._pfRenderTable();
             });
         });
+
+        const table = document.getElementById('pf-positions');
+        if (table) {
+            table.addEventListener('click', (e) => {
+                const actionEl = e.target.closest('[data-pf-table-action]');
+                if (!actionEl) return;
+
+                const action = actionEl.dataset.pfTableAction;
+                const code = typeof actionEl.dataset.code === 'string' ? actionEl.dataset.code.trim() : '';
+                if (!code) return;
+
+                e.preventDefault();
+
+                if (action === 'edit-sltp') {
+                    this.pfEditSltp(code, actionEl.dataset.name || '');
+                    return;
+                }
+
+                if (action === 'partial-close') {
+                    const maxVolume = parseInt(actionEl.dataset.maxVolume || '', 10);
+                    if (Number.isFinite(maxVolume)) {
+                        this.pfPartialClose(code, maxVolume);
+                    }
+                    return;
+                }
+
+                if (action === 'full-close') {
+                    this.pfFullClose(code);
+                }
+            });
+        }
 
         this._pfTableEventsBound = true;
     },

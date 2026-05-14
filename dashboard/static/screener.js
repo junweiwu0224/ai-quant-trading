@@ -8,12 +8,22 @@
     let _fields = [];
     let _presets = [];
     let _lastResult = null;
+    let _lastPoolCodes = [];
+
+    function createActionTraceId(prefix) {
+        if (window.LocalMCP && typeof window.LocalMCP.createTraceId === 'function') {
+            return window.LocalMCP.createTraceId(prefix);
+        }
+        const safePrefix = typeof prefix === 'string' && prefix.trim() ? prefix.trim() : 'screener';
+        return `${safePrefix}-${Date.now()}`;
+    }
 
     // ── 初始化 ──
 
     async function init() {
         await Promise.all([loadFields(), loadPresets()]);
         bindEvents();
+        bindActionDelegation();
         addConditionRow();
         initAI();
         // 读取 LLM 降级存储的条件
@@ -53,6 +63,50 @@
         document.getElementById('screener-run-btn')?.addEventListener('click', runCustom);
         document.getElementById('screener-export-btn')?.addEventListener('click', exportCSV);
         document.getElementById('screener-add-watchlist')?.addEventListener('click', addAllToWatchlist);
+    }
+
+    function bindActionDelegation() {
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-screener-action]');
+            if (!button) {
+                return;
+            }
+
+            const action = button.dataset.screenerAction;
+            if (action === 'add-watchlist') {
+                e.preventDefault();
+                const code = typeof button.dataset.code === 'string' ? button.dataset.code.trim() : '';
+                if (code) {
+                    addToWatchlist(code);
+                }
+                return;
+            }
+
+            if (action === 'export-csv') {
+                e.preventDefault();
+                exportCSV();
+                return;
+            }
+
+            if (action === 'add-all-watchlist') {
+                e.preventDefault();
+                addAllToWatchlist();
+                return;
+            }
+
+            if (action === 'add-all-ai-watchlist') {
+                e.preventDefault();
+                addAllAIToWatchlist();
+                return;
+            }
+
+            if (action === 'add-all-pool-watchlist') {
+                e.preventDefault();
+                if (_lastPoolCodes.length > 0) {
+                    App.addAllToWatchlist(_lastPoolCodes.slice());
+                }
+            }
+        });
     }
 
     // ── 预设策略 ──
@@ -299,15 +353,15 @@
                 <td>${pb}</td>
                 <td>${cap}</td>
                 <td>${tr}</td>
-                <td><button class="btn btn-sm" onclick="App.Screener.addToWatchlist('${App.escapeHTML(s.code || '')}')">加自选</button></td>
+                <td><button class="btn btn-sm" data-screener-action="add-watchlist" data-code="${App.escapeHTML(s.code || '')}">加自选</button></td>
             </tr>`;
         });
         container.innerHTML = `
             <div class="screener-result-header">
                 <span class="screener-result-label">${App.escapeHTML(label)} — 共 ${data.total} 只</span>
                 <div class="screener-result-actions">
-                    <button class="btn btn-sm" id="screener-export-btn" onclick="App.Screener.exportCSV()">导出 CSV</button>
-                    <button class="btn btn-sm" id="screener-add-watchlist" onclick="App.Screener.addAllToWatchlist()">全部加自选</button>
+                    <button class="btn btn-sm" id="screener-export-btn" data-screener-action="export-csv">导出 CSV</button>
+                    <button class="btn btn-sm" id="screener-add-watchlist" data-screener-action="add-all-watchlist">全部加自选</button>
                 </div>
             </div>
             <div class="table-wrap">
@@ -351,13 +405,28 @@
     // ── 加入自选股 ──
 
     async function addToWatchlist(code) {
-        await App.addToWatchlist(code);
+        if (!code) {
+            return {
+                ok: false,
+                status: 'failed',
+                code: 'STOCK_CODE_REQUIRED',
+            };
+        }
+
+        return App.addToWatchlist(code, {
+            source: 'screener:add-watchlist',
+            traceId: createActionTraceId('screener'),
+        });
     }
 
     async function addAllToWatchlist() {
         if (!_lastResult?.stocks?.length) return;
         const codes = _lastResult.stocks.map(s => s.code).filter(Boolean);
         await App.addAllToWatchlist(codes);
+    }
+
+    function setLastPoolCodes(codes) {
+        _lastPoolCodes = Array.isArray(codes) ? codes.filter(Boolean) : [];
     }
 
     // ── AI 选股 ──
@@ -476,7 +545,7 @@
                 <td class="text-up">${probPct}%</td>
                 <td>${riskPct}%</td>
                 <td class="text-muted">${App.escapeHTML(factorStr)}</td>
-                <td><button class="btn btn-sm" onclick="App.Screener.addToWatchlist('${App.escapeHTML(s.code || '')}')">加自选</button></td>
+                <td><button class="btn btn-sm" data-screener-action="add-watchlist" data-code="${App.escapeHTML(s.code || '')}">加自选</button></td>
             </tr>`;
         });
 
@@ -484,7 +553,7 @@
             <div class="screener-result-header">
                 <span class="screener-result-label">AI 推荐 TOP ${data.total}</span>
                 <div class="screener-result-actions">
-                    <button class="btn btn-sm" onclick="App.Screener.addAllAIToWatchlist()">全部加自选</button>
+                    <button class="btn btn-sm" data-screener-action="add-all-ai-watchlist">全部加自选</button>
                 </div>
             </div>
             <div class="table-wrap">
@@ -510,9 +579,62 @@
         await App.addAllToWatchlist(codes);
     }
 
+    // ── 从问财股票池渲染 ──
+
+    async function renderFromPool(codes, query) {
+        if (!codes || codes.length === 0) return;
+        setLastPoolCodes(codes.slice(0, 100));
+        // 切换到手动选股子Tab
+        const manualTab = document.querySelector('.screener-tab[data-tab="manual"]');
+        if (manualTab) manualTab.click();
+
+        const resultDiv = document.getElementById('screener-result');
+        if (resultDiv) resultDiv.innerHTML = Utils.skeletonTable(8, 6);
+
+        try {
+            // 尝试用选股器 API 批量查询
+            const data = await App.fetchJSON('/api/screener/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codes: codes.slice(0, 100), page_size: 10000 }),
+            });
+            if (data.success) {
+                _lastResult = data;
+                renderResult(data, `问财: ${query}`);
+                App.toast(`已加载 ${data.total} 只股票`, 'success');
+            } else {
+                _renderCodeList(codes, query);
+            }
+        } catch {
+            _renderCodeList(codes, query);
+        }
+    }
+
+    function _renderCodeList(codes, query) {
+        const container = document.getElementById('screener-result');
+        if (!container) return;
+        setLastPoolCodes(codes.slice(0, 100));
+        const rows = codes.slice(0, 100).map(code =>
+            `<tr><td>${App.escapeHTML(code)}</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td>
+            <td><button class="btn btn-sm" data-screener-action="add-watchlist" data-code="${App.escapeHTML(code)}">加自选</button></td></tr>`
+        );
+        container.innerHTML = `
+            <div class="screener-result-header">
+                <span class="screener-result-label">问财: ${App.escapeHTML(query)} — ${codes.length} 只</span>
+                <div class="screener-result-actions">
+                    <button class="btn btn-sm" data-screener-action="add-all-pool-watchlist">全部加自选</button>
+                </div>
+            </div>
+            <div class="table-wrap"><table>
+                <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>最新价</th><th>涨跌幅</th><th>PE</th><th>PB</th><th>市值(亿)</th><th>换手率</th><th>操作</th></tr></thead>
+                <tbody>${rows.join('')}</tbody>
+            </table></div>`;
+        App.toast(`已加载 ${codes.length} 只股票代码`, 'info');
+    }
+
     // ── 公开接口 ──
 
-    App.Screener = { init, runCustom, runPreset, exportCSV, addToWatchlist, addAllToWatchlist, trainModel, runAIPredict, addAllAIToWatchlist, loadFilters };
+    App.Screener = { init, runCustom, runPreset, exportCSV, addToWatchlist, addAllToWatchlist, trainModel, runAIPredict, addAllAIToWatchlist, loadFilters, renderFromPool };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

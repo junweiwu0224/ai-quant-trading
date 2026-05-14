@@ -38,8 +38,86 @@ const Strategy = {
 
     // 所有标签（从策略列表动态收集）
     _allTags: [],
+    _headerControlsBound: false,
+
+    _removeExistingModal() {
+        const existingOverlay = document.querySelector('.modal-overlay');
+        if (!existingOverlay) {
+            return;
+        }
+        if (typeof existingOverlay.__strategyCleanup === 'function') {
+            existingOverlay.__strategyCleanup();
+            return;
+        }
+        existingOverlay.remove();
+    },
+
+    _bindHeaderControls() {
+        if (this._headerControlsBound) {
+            return;
+        }
+
+        const strategyPanel = document.getElementById('research-panel-strategy') || document.getElementById('tab-strategy');
+        const headerActions = strategyPanel?.querySelector('.page-header > div');
+        const buttons = headerActions ? [...headerActions.querySelectorAll('button')] : [];
+        const findButtonByText = (text) => buttons.find((btn) => btn.textContent.trim() === text) || null;
+        const exportBtn = findButtonByText('导出策略');
+        const createBtn = findButtonByText('新增策略');
+        const codeBtn = findButtonByText('代码编辑器');
+        const ensembleBtn = findButtonByText('聚合回测');
+        const aiBtn = findButtonByText('AI 策略');
+        const importLabel = headerActions?.querySelector('label[title="从JSON文件导入策略"]') || null;
+        const importInput = importLabel?.querySelector('input[type="file"][accept=".json"]');
+        const ensemble = typeof Ensemble !== 'undefined' ? Ensemble : null;
+
+        if (!exportBtn || !importInput || !createBtn || !codeBtn || !ensembleBtn || !aiBtn) {
+            return;
+        }
+
+        exportBtn.removeAttribute('onclick');
+        exportBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.exportAll();
+        });
+
+        importInput.removeAttribute('onchange');
+        importInput.addEventListener('change', (event) => {
+            this.importFromFile(event);
+        });
+
+        createBtn.removeAttribute('onclick');
+        createBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showCreateModal();
+        });
+
+        codeBtn.removeAttribute('onclick');
+        codeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showCodeEditor();
+        });
+
+        if (ensemble?.showEnsembleModal) {
+            ensembleBtn.removeAttribute('onclick');
+            ensembleBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                ensemble.showEnsembleModal();
+            });
+        }
+
+        if (ensemble?.showAIModal) {
+            aiBtn.removeAttribute('onclick');
+            aiBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                ensemble.showAIModal();
+            });
+        }
+
+        this._headerControlsBound = true;
+    },
 
     async load() {
+        this._bindHeaderControls();
         const grid = document.getElementById('st-list');
         if (!grid) return;
         grid.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
@@ -142,7 +220,7 @@ const Strategy = {
 
     async edit(name) {
         try {
-            const s = await App.fetchJSON(`/api/strategy/${name}`);
+            const s = await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             this._showModal({
                 title: s.builtin ? `编辑参数 — ${s.label || s.name}` : `编辑策略 — ${s.label || s.name}`,
@@ -160,7 +238,7 @@ const Strategy = {
 
     async editCode(name) {
         try {
-            const s = await App.fetchJSON(`/api/strategy/${name}`);
+            const s = await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             this._showCodeModal({
                 name: s.name,
@@ -173,7 +251,7 @@ const Strategy = {
     },
 
     _showCodeModal({ name, code, isNew }) {
-        document.querySelector('.modal-overlay')?.remove();
+        this._removeExistingModal();
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -211,6 +289,7 @@ const Strategy = {
         `;
 
         document.body.appendChild(overlay);
+        overlay.__strategyCleanup = () => overlay.remove();
 
         // Focus first interactive element
         const firstInput = overlay.querySelector('input, textarea');
@@ -277,19 +356,23 @@ const Strategy = {
 
         // 保存（防重复提交）
         const saveBtn = overlay.querySelector('#modal-code-save');
+        const resetSaveButton = () => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = '保存';
+        };
         saveBtn.addEventListener('click', async () => {
             if (saveBtn.disabled) return;
             const codeText = editor.value.trim();
             if (!codeText) { App.toast('代码不能为空', 'error'); return; }
-            saveBtn.disabled = true;
-            saveBtn.textContent = '保存中...';
 
             if (isNew) {
                 const newName = overlay.querySelector('#modal-code-name')?.value.trim();
                 if (!newName) { App.toast('策略名称不能为空', 'error'); return; }
                 if (!/^[a-zA-Z_]\w*$/.test(newName)) { App.toast('策略名只能包含字母、数字和下划线', 'error'); return; }
 
-                // 先验证
+                saveBtn.disabled = true;
+                saveBtn.textContent = '保存中...';
+
                 try {
                     const vData = await App.fetchJSON('/api/strategy/validate-code', {
                         method: 'POST',
@@ -297,8 +380,16 @@ const Strategy = {
                         body: JSON.stringify({ code: codeText }),
                         label: '代码验证',
                     });
-                    if (!vData.valid) { App.toast('代码验证失败: ' + vData.error, 'error'); return; }
-                } catch (e) { /* ignore */ }
+                    if (!vData.valid) {
+                        App.toast('代码验证失败: ' + vData.error, 'error');
+                        resetSaveButton();
+                        return;
+                    }
+                } catch (e) {
+                    App.toast('代码验证请求失败: ' + e.message, 'error');
+                    resetSaveButton();
+                    return;
+                }
 
                 try {
                     await App.fetchJSON('/api/strategy', {
@@ -319,12 +410,14 @@ const Strategy = {
                     this.load();
                 } catch (e) {
                     App.toast('创建失败: ' + e.message, 'error');
-                    saveBtn.disabled = false;
-                    saveBtn.textContent = '保存';
+                    resetSaveButton();
                 }
             } else {
+                saveBtn.disabled = true;
+                saveBtn.textContent = '保存中...';
+
                 try {
-                    await App.fetchJSON(`/api/strategy/${name}`, {
+                    await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ code: codeText }),
@@ -335,15 +428,14 @@ const Strategy = {
                     this.load();
                 } catch (e) {
                     App.toast('更新失败: ' + e.message, 'error');
-                    saveBtn.disabled = false;
-                    saveBtn.textContent = '保存';
+                    resetSaveButton();
                 }
             }
         });
     },
 
     _showModal({ title, name, label, description, params, isNew, builtinName }) {
-        document.querySelector('.modal-overlay')?.remove();
+        this._removeExistingModal();
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -381,52 +473,77 @@ const Strategy = {
         `;
 
         document.body.appendChild(overlay);
+        overlay.__strategyCleanup = () => overlay.remove();
 
         // Focus first interactive element
         const firstInput = overlay.querySelector('input, textarea, select');
         if (firstInput) setTimeout(() => firstInput.focus(), 50);
 
-        // 关闭
-        overlay.querySelector('#modal-st-cancel').addEventListener('click', () => overlay.remove());
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-        document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } });
+        const closeOverlay = () => {
+            overlay.remove();
+            document.removeEventListener('keydown', onEscape);
+        };
+        overlay.__strategyCleanup = closeOverlay;
+        const onEscape = (e) => {
+            if (e.key === 'Escape') {
+                closeOverlay();
+            }
+        };
+
+        overlay.querySelector('#modal-st-cancel').addEventListener('click', closeOverlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
+        document.addEventListener('keydown', onEscape);
 
         // 重置默认
         if (builtinName) {
             overlay.querySelector('#modal-st-reset')?.addEventListener('click', async () => {
                 try {
-                    await App.fetchJSON(`/api/strategy/${builtinName}/reset`, { method: 'POST' });
+                    await App.fetchJSON(`/api/strategy/${encodeURIComponent(builtinName)}/reset`, { method: 'POST' });
                     App.toast('参数已重置为默认值', 'success');
-                    overlay.remove();
+                    closeOverlay();
                     this.load();
                 } catch (e) { App.toast('重置失败: ' + e.message, 'error'); }
             });
         }
 
-        // 保存
-        overlay.querySelector('#modal-st-save').addEventListener('click', async () => {
+        const formSaveBtn = overlay.querySelector('#modal-st-save');
+        const resetFormSaveButton = () => {
+            formSaveBtn.disabled = false;
+            formSaveBtn.textContent = '保存';
+        };
+
+        formSaveBtn.addEventListener('click', async () => {
+            if (formSaveBtn.disabled) return;
             const parsedParams = paramDefs
                 ? this._collectStructuredParams(overlay, paramDefs)
                 : this._collectJsonParams(overlay);
             if (parsedParams === null) return;
 
+            formSaveBtn.disabled = true;
+            formSaveBtn.textContent = '保存中...';
+
+            let saved = false;
             if (isNew) {
                 const newName = overlay.querySelector('#modal-st-name')?.value.trim();
                 const newLabel = overlay.querySelector('#modal-st-label')?.value.trim();
                 const newDesc = overlay.querySelector('#modal-st-desc')?.value.trim();
-                if (!newName) { App.toast('策略名称不能为空', 'error'); return; }
-                if (!/^[a-zA-Z_]\w*$/.test(newName)) { App.toast('策略名只能包含字母、数字和下划线', 'error'); return; }
-                if (!newLabel) { App.toast('显示名称不能为空', 'error'); return; }
-                await this._create(newName, newLabel, newDesc, parsedParams);
+                if (!newName) { App.toast('策略名称不能为空', 'error'); resetFormSaveButton(); return; }
+                if (!/^[a-zA-Z_]\w*$/.test(newName)) { App.toast('策略名只能包含字母、数字和下划线', 'error'); resetFormSaveButton(); return; }
+                if (!newLabel) { App.toast('显示名称不能为空', 'error'); resetFormSaveButton(); return; }
+                saved = await this._create(newName, newLabel, newDesc, parsedParams);
             } else if (builtinName) {
-                await this._update(name, null, null, parsedParams);
+                saved = await this._update(name, null, null, parsedParams);
             } else {
                 const newLabel = overlay.querySelector('#modal-st-label')?.value.trim();
                 const newDesc = overlay.querySelector('#modal-st-desc')?.value.trim();
-                if (!newLabel) { App.toast('显示名称不能为空', 'error'); return; }
-                await this._update(name, newLabel, newDesc, parsedParams);
+                if (!newLabel) { App.toast('显示名称不能为空', 'error'); resetFormSaveButton(); return; }
+                saved = await this._update(name, newLabel, newDesc, parsedParams);
             }
-            overlay.remove();
+            if (saved) {
+                closeOverlay();
+                return;
+            }
+            resetFormSaveButton();
         });
     },
 
@@ -434,7 +551,10 @@ const Strategy = {
         return `<div class="param-fields" style="margin-bottom:12px">
             <label style="font-weight:600;margin-bottom:8px;display:block">策略参数</label>
             ${defs.map(d => {
-                const val = current[d.key] ?? d.default;
+                const rawVal = current[d.key];
+                const parsedVal = d.type === 'int' ? parseInt(rawVal, 10) : parseFloat(rawVal);
+                const normalizedVal = Number.isFinite(parsedVal) ? parsedVal : d.default;
+                const val = App.escapeHTML(String(normalizedVal));
                 const step = d.step || (d.type === 'float' ? 0.01 : 1);
                 return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                     <label style="min-width:100px;font-size:13px;color:var(--text-secondary)">${App.escapeHTML(d.label)}</label>
@@ -481,8 +601,10 @@ const Strategy = {
             });
             App.toast(`策略 "${label}" 已创建`, 'success');
             this.load();
+            return true;
         } catch (e) {
             App.toast('创建失败: ' + e.message, 'error');
+            return false;
         }
     },
 
@@ -492,7 +614,7 @@ const Strategy = {
             if (label !== null) body.label = label;
             if (description !== null) body.description = description;
             if (params !== null) body.params = params;
-            await App.fetchJSON(`/api/strategy/${name}`, {
+            await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -500,8 +622,10 @@ const Strategy = {
             });
             App.toast('策略已更新', 'success');
             this.load();
+            return true;
         } catch (e) {
             App.toast('更新失败: ' + e.message, 'error');
+            return false;
         }
     },
 
@@ -569,7 +693,6 @@ const Strategy = {
 
     _confirm(title, message) {
         return new Promise(resolve => {
-            document.querySelector('.modal-overlay')?.remove();
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
             overlay.innerHTML = `
@@ -592,7 +715,7 @@ const Strategy = {
 
     async clone(name) {
         try {
-            const s = await App.fetchJSON(`/api/strategy/${name}`);
+            const s = await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`);
             if (!s) { App.toast('策略不存在', 'error'); return; }
             const newName = name + '_copy';
             await App.fetchJSON('/api/strategy', {
@@ -634,7 +757,7 @@ const Strategy = {
 
         const loadVersions = async () => {
             try {
-                const versions = await App.fetchJSON(`/api/strategy-version/versions/${name}`);
+                const versions = await App.fetchJSON(`/api/strategy-version/versions/${encodeURIComponent(name)}`);
                 const listEl = overlay.querySelector('#ver-list');
                 if (!versions.length) {
                     listEl.innerHTML = '<p class="text-muted">暂无版本记录</p>';
@@ -648,17 +771,22 @@ const Strategy = {
                             <th style="text-align:left;padding:6px">时间</th>
                             <th style="text-align:left;padding:6px">操作</th>
                         </tr></thead>
-                        <tbody>${versions.map(v => `
+                        <tbody>${versions.map(v => {
+                            const versionNumber = Number.parseInt(v.version, 10);
+                            if (!Number.isFinite(versionNumber)) {
+                                return '';
+                            }
+                            return `
                             <tr style="border-bottom:1px solid var(--border-color)">
-                                <td style="padding:6px">v${v.version}${v.is_current ? ' <span class="badge badge-success">当前</span>' : ''}</td>
+                                <td style="padding:6px">v${versionNumber}${v.is_current ? ' <span class="badge badge-success">当前</span>' : ''}</td>
                                 <td style="padding:6px">${App.escapeHTML(v.label || '')}</td>
                                 <td style="padding:6px">${App.escapeHTML(v.created_at || '')}</td>
                                 <td style="padding:6px">
-                                    ${!v.is_current ? `<button class="btn btn-sm" data-ver-action="rollback" data-ver="${v.version}">回滚</button>` : ''}
-                                    <button class="btn btn-sm" data-ver-action="diff" data-ver="${v.version}">对比</button>
+                                    ${!v.is_current ? `<button class="btn btn-sm" data-ver-action="rollback" data-ver="${versionNumber}">回滚</button>` : ''}
+                                    <button class="btn btn-sm" data-ver-action="diff" data-ver="${versionNumber}">对比</button>
                                 </td>
-                            </tr>
-                        `).join('')}</tbody>
+                            </tr>`;
+                        }).join('')}</tbody>
                     </table>`;
 
                 listEl.onclick = async (e) => {
@@ -689,7 +817,7 @@ const Strategy = {
                         const v1 = Math.min(ver, currentVer);
                         const v2 = Math.max(ver, currentVer);
                         try {
-                            const diff = await App.fetchJSON(`/api/strategy-version/versions/${name}/diff?v1=${v1}&v2=${v2}`);
+                            const diff = await App.fetchJSON(`/api/strategy-version/versions/${encodeURIComponent(name)}/diff?v1=${encodeURIComponent(String(v1))}&v2=${encodeURIComponent(String(v2))}`);
                             const diffEl = overlay.querySelector('#ver-diff');
                             let html = `<h3 style="margin-bottom:8px">v${v1} vs v${v2}</h3>`;
 
@@ -730,7 +858,7 @@ const Strategy = {
         loadVersions();
         overlay.querySelector('#ver-save').onclick = async () => {
             try {
-                const s = await App.fetchJSON(`/api/strategy/${name}`);
+                const s = await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`);
                 const result = await App.fetchJSON('/api/strategy-version/versions/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -766,7 +894,7 @@ const Strategy = {
         document.body.appendChild(overlay);
 
         try {
-            const records = await App.fetchJSON(`/api/strategy-version/records?strategy_name=${name}&limit=20`);
+            const records = await App.fetchJSON(`/api/strategy-version/records?strategy_name=${encodeURIComponent(name)}&limit=20`);
             const listEl = overlay.querySelector('#rec-list');
             if (!records.length) {
                 listEl.innerHTML = '<p class="text-muted">暂无回测记录。运行回测后可保存结果。</p>';
@@ -785,9 +913,14 @@ const Strategy = {
                             <th style="text-align:left;padding:6px">时间</th>
                             <th style="text-align:left;padding:6px">操作</th>
                         </tr></thead>
-                        <tbody>${records.map(r => `
+                        <tbody>${records.map(r => {
+                            const recordId = Number.parseInt(r.id, 10);
+                            if (!Number.isFinite(recordId)) {
+                                return '';
+                            }
+                            return `
                             <tr style="border-bottom:1px solid var(--border-color)">
-                                <td style="padding:6px"><input type="checkbox" class="rec-cb" data-rec-id="${r.id}"></td>
+                                <td style="padding:6px"><input type="checkbox" class="rec-cb" data-rec-id="${recordId}"></td>
                                 <td style="padding:6px">${App.escapeHTML(r.label || '')}</td>
                                 <td style="padding:6px;text-align:right;color:${(r.total_return||0)>=0?'var(--success-color)':'var(--error-color)'}">${(r.total_return??0).toFixed(2)}%</td>
                                 <td style="padding:6px;text-align:right">${(r.annual_return??0).toFixed(2)}%</td>
@@ -796,17 +929,19 @@ const Strategy = {
                                 <td style="padding:6px;text-align:right">${(r.win_rate??0).toFixed(1)}%</td>
                                 <td style="padding:6px">${App.escapeHTML(r.created_at||'')}</td>
                                 <td style="padding:6px">
-                                    <button class="btn btn-sm" data-rec-action="detail" data-rec-id="${r.id}">详情</button>
-                                    <button class="btn btn-sm" data-rec-action="delete" data-rec-id="${r.id}">删除</button>
+                                    <button class="btn btn-sm" data-rec-action="detail" data-rec-id="${recordId}">详情</button>
+                                    <button class="btn btn-sm" data-rec-action="delete" data-rec-id="${recordId}">删除</button>
                                 </td>
-                            </tr>
-                        `).join('')}</tbody>
+                            </tr>`;
+                        }).join('')}</tbody>
                     </table>`;
 
                 // 对比选中记录
                 const compareBtn = overlay.querySelector('#rec-compare-btn');
                 const selectAll = overlay.querySelector('#rec-select-all');
-                const getSelected = () => [...overlay.querySelectorAll('.rec-cb:checked')].map(cb => parseInt(cb.dataset.recId));
+                const getSelected = () => [...overlay.querySelectorAll('.rec-cb:checked')]
+                    .map(cb => Number.parseInt(cb.dataset.recId, 10))
+                    .filter(Number.isFinite);
 
                 selectAll.onchange = () => {
                     overlay.querySelectorAll('.rec-cb').forEach(cb => cb.checked = selectAll.checked);
@@ -836,7 +971,7 @@ const Strategy = {
                         html += '</tr></thead><tbody>';
                         for (const m of metrics) {
                             const vals = data.map(r => r[m] ?? 0);
-                            const best = m === 'max_drawdown' ? Math.max(...vals) : Math.min(...vals);
+                            const best = m === 'max_drawdown' ? Math.min(...vals) : Math.max(...vals);
                             html += `<tr style="border-bottom:1px solid var(--border-color)"><td style="padding:6px">${labels[m]}</td>`;
                             for (const r of data) {
                                 const v = r[m] ?? 0;
@@ -854,13 +989,21 @@ const Strategy = {
                 listEl.onclick = async (e) => {
                     const btn = e.target.closest('[data-rec-action]');
                     if (!btn) return;
-                    const recId = btn.dataset.recId;
+                    const recId = Number.parseInt(btn.dataset.recId, 10);
                     const action = btn.dataset.recAction;
+                    if (!Number.isFinite(recId)) return;
 
                     if (action === 'detail') {
                         try {
-                            const d = await App.fetchJSON(`/api/strategy-version/records/${recId}`);
+                            const d = await App.fetchJSON(`/api/strategy-version/records/${encodeURIComponent(String(recId))}`);
                             const detailEl = overlay.querySelector('#rec-detail');
+                            const totalTrades = Number(d.total_trades);
+                            const safeTotalTrades = Number.isFinite(totalTrades) ? totalTrades : 0;
+                            const safeCodes = App.escapeHTML((d.codes || []).join(', '));
+                            const safeStartDate = App.escapeHTML(d.start_date || '');
+                            const safeEndDate = App.escapeHTML(d.end_date || '');
+                            const initialCash = Number(d.initial_cash);
+                            const safeInitialCash = Number.isFinite(initialCash) ? initialCash.toLocaleString() : '--';
                             detailEl.innerHTML = `
                                 <h3>${App.escapeHTML(d.label || '')}</h3>
                                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0">
@@ -869,9 +1012,9 @@ const Strategy = {
                                     <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value">${(d.max_drawdown??0).toFixed(2)}%</div></div>
                                     <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value">${(d.sharpe_ratio??0).toFixed(2)}</div></div>
                                     <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value">${(d.win_rate??0).toFixed(1)}%</div></div>
-                                    <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value">${d.total_trades||0}</div></div>
+                                    <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value">${safeTotalTrades}</div></div>
                                 </div>
-                                <p style="font-size:12px;color:var(--text-tertiary)">股票: ${(d.codes||[]).join(', ')} | 区间: ${d.start_date||''} ~ ${d.end_date||''} | 初始资金: ${(d.initial_cash||0).toLocaleString()}</p>`;
+                                <p style="font-size:12px;color:var(--text-tertiary)">股票: ${safeCodes} | 区间: ${safeStartDate} ~ ${safeEndDate} | 初始资金: ${safeInitialCash}</p>`;
                         } catch (e2) { App.toast('加载详情失败', 'error'); }
                     }
 
@@ -879,9 +1022,12 @@ const Strategy = {
                         const ok = await this._confirm('删除记录', '确定删除这条回测记录？');
                         if (!ok) return;
                         try {
-                            await App.fetchJSON(`/api/strategy-version/records/${recId}`, { method: 'DELETE' });
+                            await App.fetchJSON(`/api/strategy-version/records/${encodeURIComponent(String(recId))}`, { method: 'DELETE' });
                             App.toast('记录已删除', 'success');
-                            this.showRecords(name);
+                            if (overlay.isConnected) {
+                                overlay.remove();
+                                this.showRecords(name);
+                            }
                         } catch (e2) { App.toast('删除失败', 'error'); }
                     }
                 };
@@ -897,7 +1043,7 @@ const Strategy = {
     // ── 参数网格搜索优化 ──
 
     async showOptimize(name) {
-        const s = await App.fetchJSON(`/api/strategy/${name}`).catch(() => null);
+        const s = await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`).catch(() => null);
         if (!s) { App.toast('策略不存在', 'error'); return; }
         const params = s.params || {};
         const paramKeys = Object.keys(params);
@@ -911,7 +1057,7 @@ const Strategy = {
                 <div id="opt-ranges">
                     ${paramKeys.map(k => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                         <label style="min-width:100px;font-size:13px">${App.escapeHTML(k)}</label>
-                        <input type="text" data-opt-key="${App.escapeHTML(k)}" value="${params[k]}" placeholder="如: 3,5,10,15"
+                        <input type="text" data-opt-key="${App.escapeHTML(k)}" value="${App.escapeHTML(String(params[k] ?? ''))}" placeholder="如: 3,5,10,15"
                             style="flex:1;padding:6px 8px;border:1px solid var(--border-color);border-radius:6px;font-size:13px">
                     </div>`).join('')}
                 </div>
@@ -950,7 +1096,8 @@ const Strategy = {
 
             const paramRanges = {};
             for (const k of paramKeys) {
-                const input = overlay.querySelector(`[data-opt-key="${k}"]`);
+                const input = [...overlay.querySelectorAll('[data-opt-key]')]
+                    .find((el) => el.dataset.optKey === k);
                 const vals = input.value.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
                 if (vals.length) paramRanges[k] = vals;
             }
@@ -976,17 +1123,20 @@ const Strategy = {
                     resultEl.innerHTML = '<p class="text-muted">无有效结果</p>';
                 } else {
                     const metricLabels = { sharpe_ratio: '夏普', total_return: '总收益', annual_return: '年化', win_rate: '胜率', max_drawdown: '最大回撤' };
-                    let html = `<h3>最优 Top ${data.best.length}（共 ${data.total_combos} 种组合）</h3>`;
+                    const safeMetricLabel = App.escapeHTML(metricLabels[metric] || metric);
+                    const safeBestCount = Number.isFinite(Number(data.best.length)) ? data.best.length : 0;
+                    const safeTotalCombos = Number.isFinite(Number(data.total_combos)) ? data.total_combos : 0;
+                    let html = `<h3>最优 Top ${safeBestCount}（共 ${safeTotalCombos} 种组合）</h3>`;
                     html += '<table style="width:100%;font-size:13px;border-collapse:collapse;margin-top:8px">';
                     html += '<thead><tr style="border-bottom:1px solid var(--border-color)"><th style="text-align:left;padding:6px">排名</th>';
                     for (const k of paramKeys) html += `<th style="text-align:right;padding:6px">${App.escapeHTML(k)}</th>`;
-                    html += `<th style="text-align:right;padding:6px">${metricLabels[metric] || metric}</th>`;
+                    html += `<th style="text-align:right;padding:6px">${safeMetricLabel}</th>`;
                     html += '<th style="text-align:right;padding:6px">总收益</th><th style="text-align:right;padding:6px">夏普</th>';
                     html += '</tr></thead><tbody>';
                     data.best.forEach((r, i) => {
                         html += `<tr style="border-bottom:1px solid var(--border-color)">
                             <td style="padding:6px">#${i+1}</td>`;
-                        for (const k of paramKeys) html += `<td style="padding:6px;text-align:right">${r.params[k]}</td>`;
+                        for (const k of paramKeys) html += `<td style="padding:6px;text-align:right">${App.escapeHTML(String(r.params[k] ?? '--'))}</td>`;
                         html += `<td style="padding:6px;text-align:right;font-weight:700;color:var(--success-color)">${(r[metric]??0).toFixed(2)}${metric.includes('return')||metric==='win_rate'?'%':''}</td>`;
                         html += `<td style="padding:6px;text-align:right">${(r.total_return??0).toFixed(2)}%</td>`;
                         html += `<td style="padding:6px;text-align:right">${(r.sharpe_ratio??0).toFixed(2)}</td>`;
@@ -1009,7 +1159,7 @@ const Strategy = {
         const ok = await this._confirm(`删除策略 "${name}"`, '删除后不可恢复，确定继续？');
         if (!ok) return;
         try {
-            await App.fetchJSON(`/api/strategy/${name}`, { method: 'DELETE', label: '删除策略' });
+            await App.fetchJSON(`/api/strategy/${encodeURIComponent(name)}`, { method: 'DELETE', label: '删除策略' });
             App.toast('策略已删除', 'success');
             this.load();
         } catch (e) {

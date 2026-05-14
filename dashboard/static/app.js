@@ -1113,6 +1113,9 @@ const App = {
                     autoOpen: true,
                     source: 'app:offcanvas',
                 });
+                if (typeof rightRail.syncStockContext === 'function') {
+                    rightRail.syncStockContext({ source: 'app:offcanvas:activated' });
+                }
             }
 
             const changePct = q.change_pct ?? 0;

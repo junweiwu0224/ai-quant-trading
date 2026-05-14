@@ -178,7 +178,7 @@ test('V2.1 right rail offcanvas switches stock context without lifecycle residue
 
     expect(result.closed.railPanel).toBeNull();
     expect(result.closed.lifecycleActive).toBeNull();
-    expect(result.closed.lifecycleMounted).toBe('stock-offcanvas');
+    expect(result.closed.lifecycleMounted).toBeNull();
     expect(result.closed.lifecycleInstanceActive).toBeFalsy();
     expect(result.closed.domActive).toBeFalsy();
     expect(result.closed.ariaHidden).toBe('true');

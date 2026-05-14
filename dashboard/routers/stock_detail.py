@@ -81,7 +81,7 @@ def _stock_search_rank(record: dict, query: str, index: int) -> tuple:
 @router.get("/search")
 async def search_stocks(
     q: str = Query("", description="搜索关键词"),
-    limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
+    limit: int = Query(50, ge=1, le=6000, description="返回数量限制"),
 ):
     """搜索股票（支持全量列表，带内存缓存）"""
     import time

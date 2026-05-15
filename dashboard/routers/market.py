@@ -28,6 +28,43 @@ _last_sectors: dict | None = None
 _last_heatmap: dict | None = None
 _last_northbound: dict | None = None
 
+_radar_refresh_task: asyncio.Task | None = None
+
+
+def _schedule_radar_refresh() -> None:
+    global _radar_refresh_task
+
+    if _radar_refresh_task is not None and not _radar_refresh_task.done():
+        return
+
+    async def _refresh() -> None:
+        global _last_radar
+        try:
+            stocks = await asyncio.to_thread(_fetch_all_stocks)
+            if not stocks:
+                return
+
+            def pick(field, n=10, desc=True):
+                return [
+                    {"code": s["code"], "name": s.get("name", ""), "value": round(s[field], 2)}
+                    for s in _get_top_n(stocks, field, n, desc)
+                ]
+
+            result = {
+                "success": True,
+                "top_gainers": pick("change_pct"),
+                "top_losers": pick("change_pct", desc=False),
+                "top_amplitude": pick("amplitude"),
+                "top_turnover": pick("turnover_rate"),
+                "total_stocks": len(stocks),
+            }
+            _cache.set("market_radar", result, _TTL_RADAR)
+            _last_radar = result
+        except Exception as e:
+            logger.warning(f"市场雷达后台刷新失败: {e}")
+
+    _radar_refresh_task = asyncio.create_task(_refresh())
+
 
 # ── 全市场行情 TOP N ──
 
@@ -53,11 +90,13 @@ async def get_market_radar():
     if hit:
         return cached
 
+    if _last_radar:
+        _schedule_radar_refresh()
+        return {**_last_radar, "stale": True}
+
     try:
         stocks = await asyncio.to_thread(_fetch_all_stocks)
         if not stocks:
-            if _last_radar:
-                return {**_last_radar, "stale": True}
             return {"success": False, "error": "无法获取行情数据"}
 
         def pick(field, n=10, desc=True):

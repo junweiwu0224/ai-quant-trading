@@ -394,6 +394,40 @@ class TestMarket:
         resp = client.get("/api/market/radar")
         assert resp.status_code == 200
 
+    def test_market_radar_returns_stale_data_during_refresh(self, client, monkeypatch):
+        """GET /api/market/radar — 有上次成功数据时不被慢数据源阻塞"""
+        from dashboard.routers import market as market_router
+
+        previous_last_radar = market_router._last_radar
+        previous_refresh_task = market_router._radar_refresh_task
+        market_router._cache.delete("market_radar")
+        market_router._last_radar = {
+            "success": True,
+            "top_gainers": [],
+            "top_losers": [],
+            "top_amplitude": [],
+            "top_turnover": [],
+            "total_stocks": 0,
+        }
+        market_router._radar_refresh_task = None
+
+        def fail_if_blocking():
+            raise AssertionError("stale radar response should not fetch synchronously")
+
+        monkeypatch.setattr(market_router, "_fetch_all_stocks", fail_if_blocking)
+
+        try:
+            resp = client.get("/api/market/radar")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["success"] is True
+            assert data["stale"] is True
+        finally:
+            market_router._cache.delete("market_radar")
+            market_router._last_radar = previous_last_radar
+            market_router._radar_refresh_task = previous_refresh_task
+
     def test_market_sectors(self, client):
         """GET /api/market/sectors — 板块数据"""
         resp = client.get("/api/market/sectors")

@@ -26,6 +26,65 @@ async def run_sync(func, *args, **kwargs):
 _client: httpx.Client | None = None
 
 
+_TRANSIENT_HTTP_ERRORS = (
+    httpx.TimeoutException,
+    httpx.TransportError,
+    httpx.RemoteProtocolError,
+)
+_WARNING_THROTTLE_SECONDS = 60
+_warning_throttle: dict[str, float] = {}
+
+
+def _should_log_warning(key: str, interval: float = _WARNING_THROTTLE_SECONDS) -> bool:
+    now = time.time()
+    last = _warning_throttle.get(key, 0.0)
+    if now - last < interval:
+        return False
+    _warning_throttle[key] = now
+    return True
+
+
+def _log_throttled_warning(key: str, message: str) -> None:
+    if _should_log_warning(key):
+        logger.warning(message)
+
+
+def _request_json(
+    url: str,
+    params: dict | None = None,
+    timeout: float = 8.0,
+    headers: dict | None = None,
+) -> dict:
+    client = get_client()
+    resp = client.get(url, params=params, timeout=timeout, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _request_json_with_retry(
+    url: str,
+    params: dict | None = None,
+    timeout: float = 8.0,
+    headers: dict | None = None,
+    *,
+    retry_key: str,
+) -> dict:
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            return _request_json(url, params=params, timeout=timeout, headers=headers)
+        except _TRANSIENT_HTTP_ERRORS as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            _log_throttled_warning(retry_key, f"{retry_key}: {exc}")
+        except Exception:
+            raise
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("request failed unexpectedly")
+
+
 def get_client() -> httpx.Client:
     """获取共享 httpx 客户端（懒初始化，连接池复用）"""
     global _client
@@ -52,22 +111,27 @@ def fetch_json(url: str, params: dict | None = None, timeout: float = 8.0,
                headers: dict | None = None) -> dict:
     """统一 JSON 请求，返回解析后的 dict"""
     _validate_request_url(url)
-    client = get_client()
-    resp = client.get(url, params=params, timeout=timeout, headers=headers)
-    resp.raise_for_status()
-    return resp.json()
+    return _request_json_with_retry(
+        url,
+        params=params,
+        timeout=timeout,
+        headers=headers,
+        retry_key=f"http-json:{urlparse(url).netloc}{urlparse(url).path}",
+    )
 
 
 def fetch_json_tencent(url: str, timeout: float = 8.0) -> dict:
     """腾讯 API 专用（HTTP，不同 Referer）"""
     _validate_request_url(url)
-    client = get_client()
-    resp = client.get(url, timeout=timeout, headers={
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://web.ifzq.gtimg.cn",
-    })
-    resp.raise_for_status()
-    return resp.json()
+    return _request_json_with_retry(
+        url,
+        timeout=timeout,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://web.ifzq.gtimg.cn",
+        },
+        retry_key=f"http-json-tencent:{urlparse(url).netloc}{urlparse(url).path}",
+    )
 
 
 # ── 股票代码转换 ──
@@ -173,7 +237,7 @@ def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None
         if result:
             return result
         # mootdx 失败，回退 push2his
-        logger.info(f"mootdx K线为空({code})，回退push2his")
+        logger.debug(f"mootdx K线为空({code})，回退push2his")
     secid = code_to_secid(code)
     klt_map = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60,
                "day": 101, "daily": 101, "week": 102, "weekly": 102,
@@ -202,7 +266,7 @@ def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None
                 parts[5] = str(float(parts[5]) / 100)
                 klines_raw.append(parts)
     except Exception as e:
-        logger.warning(f"push2his K线失败({code}): {e}")
+        logger.debug(f"push2his K线失败({code}): {e}")
 
     # 腾讯回退
     if not klines_raw:
@@ -221,7 +285,7 @@ def fetch_kline(code: str, count: int = 250, period: str = "day") -> dict | None
                     klines_raw.append([str(k[0]), str(k[1]), str(k[2]),
                                        str(k[3]), str(k[4]), str(float(k[5]) / 100)])
         except Exception as e:
-            logger.warning(f"腾讯K线回退失败({code}): {e}")
+            logger.debug(f"腾讯K线回退失败({code}): {e}")
 
     if not klines_raw:
         return None

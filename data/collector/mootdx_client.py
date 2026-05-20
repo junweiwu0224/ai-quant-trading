@@ -88,7 +88,10 @@ class MootdxManager:
                 )
                 self._local.server = server
             except Exception as e:
-                logger.warning(f"mootdx 连接失败 {server}: {e}")
+                if self._server_idx == 0:
+                    logger.debug(f"mootdx 连接失败 {server}: {e}")
+                else:
+                    logger.debug(f"mootdx 连接切换失败 {server}: {e}")
                 # 尝试下一个服务器
                 self._server_idx = (self._server_idx + 1) % len(self._server_list)
                 server = self._server_list[self._server_idx]
@@ -110,7 +113,10 @@ class MootdxManager:
                 result = func(client, *args, **kwargs)
                 return result
             except Exception as e:
-                logger.warning(f"mootdx 调用失败 (第{attempt+1}次): {e}")
+                if attempt < 2:
+                    logger.debug(f"mootdx 调用失败 (第{attempt+1}次): {e}")
+                else:
+                    logger.warning(f"mootdx 调用失败 (第{attempt+1}次): {e}")
                 self._reset_client()
                 self._server_idx = (self._server_idx + 1) % len(self._server_list)
                 if attempt == 2:

@@ -37,6 +37,17 @@ test('V2.1 shell loads and command palette opens', async ({ page }) => {
     await jumpLink.click();
     await expect(page.locator('#tab-trade')).toBeVisible();
 
+    await expect(page.locator('#nav-paper')).toHaveAttribute('aria-controls', 'tab-paper');
+    await page.evaluate(() => window.App.switchTab('paper'));
+    await expect(page.locator('#tab-paper')).toBeVisible();
+    await expect(page.locator('#nav-paper')).toHaveClass(/active/);
+    await page.evaluate(() => window.App.switchTab('trade'));
+    await expect(page.locator('#tab-trade')).toBeVisible();
+    await page.evaluate(() => window.App.switchTab('sim'));
+    await expect(page.locator('#tab-paper')).toBeVisible();
+    await expect(page.locator('#nav-paper')).toHaveClass(/active/);
+    await expect(page).toHaveURL(/#paper$/);
+
     expect(response && response.ok()).toBeTruthy();
 });
 

@@ -197,7 +197,7 @@ def _fetch_batch_quotes_mootdx(codes: list[str], stock_info: dict[str, dict] | N
             )
         return result
     except Exception as e:
-        logger.warning(f"mootdx 行情获取失败: {e}")
+        logger.debug(f"mootdx 行情获取失败: {e}")
         return {}
 
 
@@ -325,7 +325,7 @@ def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
             inner_volume=inner_volume,
         )
     except Exception as e:
-        logger.warning(f"获取 {code} push2行情失败: {e}")
+        logger.debug(f"获取 {code} push2行情失败: {e}")
         return None
 
 

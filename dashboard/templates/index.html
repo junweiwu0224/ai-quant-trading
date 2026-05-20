@@ -54,9 +54,9 @@
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
                 <span class="nav-text">交易</span>
             </a></li>
-            <li><a href="#sim" class="nav-link" data-tab="sim" role="tab" id="nav-sim" aria-selected="false" aria-controls="tab-sim">
+            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/><circle cx="12" cy="12" r="3"/></svg></span>
-                <span class="nav-text">模拟</span>
+                <span class="nav-text">模拟盘</span>
             </a></li>
         </ul>
     </nav>
@@ -80,9 +80,9 @@
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
                 <span>交易</span>
             </a></li>
-            <li><a href="#sim" class="nav-link" data-tab="sim" role="tab" id="m-nav-sim" aria-selected="false" aria-controls="tab-sim">
+            <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="m-nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/><circle cx="12" cy="12" r="3"/></svg></span>
-                <span>模拟</span>
+                <span>模拟盘</span>
             </a></li>
         </ul>
     </nav>
@@ -774,6 +774,8 @@
                 <button class="research-sub-tab" data-subtab="backtest" role="tab" aria-selected="false">回测</button>
                 <button class="research-sub-tab" data-subtab="mining" role="tab" aria-selected="false">挖掘</button>
                 <button class="research-sub-tab" data-subtab="compare" role="tab" aria-selected="false">对比</button>
+                <button class="research-sub-tab" data-subtab="formula" role="tab" aria-selected="false">公式</button>
+                <button class="research-sub-tab" data-subtab="basket" role="tab" aria-selected="false">篮子</button>
                 <button class="research-sub-tab" data-subtab="strategy" role="tab" aria-selected="false">策略</button>
             </div>
             <div class="research-sub-panels">
@@ -820,6 +822,120 @@
                 <div class="research-sub-panel" id="research-panel-model" role="tabpanel"></div>
                 <div class="research-sub-panel" id="research-panel-backtest" role="tabpanel"></div>
                 <div class="research-sub-panel" id="research-panel-mining" role="tabpanel"></div>
+                <div class="research-sub-panel" id="research-panel-formula" role="tabpanel">
+                    <div class="card">
+                        <h2>公式系统</h2>
+                        <div class="form-row">
+                            <div class="form-group min-w-sm">
+                                <label for="formula-source">公式</label>
+                                <textarea id="formula-source" rows="6" placeholder="例如：CLOSE > MA(CLOSE, 20) AND RSI(CLOSE, 14) < 30" style="width:100%;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-family:monospace"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="formula-code">股票代码</label>
+                                <input type="text" id="formula-code" placeholder="000001" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div class="form-group">
+                                <label for="formula-start">开始日期</label>
+                                <input type="date" id="formula-start" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div class="form-group">
+                                <label for="formula-end">结束日期</label>
+                                <input type="date" id="formula-end" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                            <button class="btn btn-primary btn-sm" data-alpha-action="formula-evaluate">执行公式</button>
+                            <button class="btn btn-ghost btn-sm" data-alpha-action="formula-screen">公式选股</button>
+                            <button class="btn btn-sm" data-alpha-action="formula-catalog">公式目录</button>
+                        </div>
+                    </div>
+                    <div class="chart-row">
+                        <div class="card">
+                            <h2>执行结果</h2>
+                            <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
+                                <div class="stat-card"><div class="stat-label">成功</div><div class="stat-value" id="formula-success">--</div></div>
+                                <div class="stat-card"><div class="stat-label">最新值</div><div class="stat-value" id="formula-latest-value">--</div></div>
+                                <div class="stat-card"><div class="stat-label">命中数</div><div class="stat-value" id="formula-match-count">--</div></div>
+                            </div>
+                            <div class="table-wrap">
+                                <table id="formula-series-table">
+                                    <thead><tr><th>日期</th><th>值</th></tr></thead>
+                                    <tbody><tr><td colspan="2" class="text-muted">执行后显示</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2>目录 / 结果</h2>
+                            <div class="table-wrap" style="margin-bottom:12px">
+                                <table id="formula-catalog-table">
+                                    <thead><tr><th>名称</th><th>参数</th><th>说明</th></tr></thead>
+                                    <tbody><tr><td colspan="3" class="text-muted">点击“公式目录”加载</td></tr></tbody>
+                                </table>
+                            </div>
+                            <div class="table-wrap">
+                                <table id="formula-screen-table">
+                                    <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>最新值</th></tr></thead>
+                                    <tbody><tr><td colspan="4" class="text-muted">公式选股结果将显示在这里</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-top:12px">
+                        <h2>错误信息</h2>
+                        <div id="formula-error-list" class="text-sm text-muted">暂无错误</div>
+                    </div>
+                </div>
+                <div class="research-sub-panel" id="research-panel-basket" role="tabpanel">
+                    <div class="card">
+                        <h2>篮子交易</h2>
+                        <div class="form-row">
+                            <div class="form-group min-w-sm">
+                                <label for="basket-candidates">候选股票</label>
+                                <textarea id="basket-candidates" rows="6" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]' style="width:100%;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-family:monospace"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="basket-cash">初始资金</label>
+                                <input type="number" id="basket-cash" value="1000000" min="1" step="1000" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div class="form-group">
+                                <label for="basket-allocation">分配方式</label>
+                                <select id="basket-allocation" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                    <option value="equal">等权</option>
+                                    <option value="risk_parity">风险平价</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="basket-rebalance">再平衡周期</label>
+                                <input type="number" id="basket-rebalance" value="5" min="1" step="1" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                            <button class="btn btn-primary btn-sm" data-alpha-action="basket-plan">生成计划</button>
+                            <button class="btn btn-ghost btn-sm" data-alpha-action="basket-backtest">计划回测</button>
+                        </div>
+                    </div>
+                    <div class="chart-row">
+                        <div class="card">
+                            <h2>计划摘要</h2>
+                            <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
+                                <div class="stat-card"><div class="stat-label">成功</div><div class="stat-value" id="basket-success">--</div></div>
+                                <div class="stat-card"><div class="stat-label">目标金额</div><div class="stat-value" id="basket-target-value">--</div></div>
+                                <div class="stat-card"><div class="stat-label">预计成本</div><div class="stat-value" id="basket-estimated-cost">--</div></div>
+                            </div>
+                            <div class="table-wrap">
+                                <table id="basket-legs-table">
+                                    <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>权重</th><th>价格</th><th>股数</th><th>目标金额</th></tr></thead>
+                                    <tbody><tr><td colspan="7" class="text-muted">生成计划后显示</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2>回测摘要 / 警告</h2>
+                            <div id="basket-backtest-summary" class="text-sm text-muted" style="margin-bottom:12px">暂无回测结果</div>
+                            <div id="basket-warning-list" class="text-sm text-muted">暂无警告</div>
+                        </div>
+                    </div>
+                </div>
                 <div class="research-sub-panel" id="research-panel-compare" role="tabpanel">
                     <div class="card">
                         <h2>多股对比</h2>
@@ -1553,6 +1669,8 @@
                 <button class="sub-tab alpha-sub-tab" data-tab="mine" role="tab" aria-selected="false" id="alpha-tab-mine">因子挖掘</button>
                 <button class="sub-tab alpha-sub-tab" data-tab="portopt" role="tab" aria-selected="false" id="alpha-tab-portopt">组合优化</button>
                 <button class="sub-tab alpha-sub-tab" data-tab="llm" role="tab" aria-selected="false" id="alpha-tab-llm">AI 助手</button>
+                <button class="sub-tab alpha-sub-tab" data-tab="formula" role="tab" aria-selected="false" id="alpha-tab-formula">公式系统</button>
+                <button class="sub-tab alpha-sub-tab" data-tab="basket" role="tab" aria-selected="false" id="alpha-tab-basket">篮子交易</button>
             </div>
 
             <div id="alpha-sub-panels">
@@ -1825,10 +1943,10 @@
                         </div>
                     </div>
                 </div>
+
             </div>
         </section>
 
-        <!-- Tab 6: 模拟盘 (完整版) -->
         <section class="tab-panel" id="tab-paper" role="tabpanel" aria-labelledby="nav-paper">
             <div class="page-header">
                 <h1>模拟盘控制</h1>

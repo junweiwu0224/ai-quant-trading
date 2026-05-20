@@ -162,7 +162,13 @@ def _fetch_market_stocks(max_pages: int = 60) -> list[dict]:
             f"?pn={pn}&pz={page_size}&po=1&np=1&fltt=2&invt=2"
             f"&fid=f3&fs={fs}&fields={fields}"
         )
-        data = fetch_json(url, timeout=10)
+        try:
+            data = fetch_json(url, timeout=10)
+        except Exception as e:
+            if all_stocks:
+                logger.warning(f"全市场行情第{pn}页获取失败，返回已获取的{len(all_stocks)}只股票: {e}")
+                break
+            raise
         items = ((data.get("data") or {}).get("diff") or [])
         if not items:
             break

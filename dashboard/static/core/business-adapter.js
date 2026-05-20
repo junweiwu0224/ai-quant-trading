@@ -234,7 +234,7 @@
         const payload = normalizePayload(contextOrPayload);
         requireCode(payload, INTENT_TYPES.OPEN_PAPER_BUY);
 
-        switchMainTab('sim');
+        switchMainTab('paper');
         const activated = activatePaperSubTab(payload.activeTab) || activateDefaultPaperSubTab();
         await prefillPaperTradeForm(payload);
 

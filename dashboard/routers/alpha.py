@@ -18,6 +18,8 @@ from alpha.models.xgb_model import XGBConfig, XGBModel
 from alpha.models.ensemble_model import EnsembleModel, EnsembleConfig
 from alpha.evaluator import StrategyEvaluator
 from alpha.optimizer import HyperOptimizer, ModelType
+from alpha.basket import BasketBuilder
+from alpha.formula_engine import FormulaEngine
 from data.storage import DataStorage
 
 router = APIRouter()
@@ -850,6 +852,8 @@ async def optimize_params(req: OptimizeRequest):
 from alpha.cross_sectional import CrossSectionalPipeline
 
 _cs_pipeline = CrossSectionalPipeline()
+_formula_engine = FormulaEngine()
+_basket_builder = BasketBuilder()
 
 
 class TrainGlobalRequest(BaseModel):
@@ -938,6 +942,105 @@ class BacktestPortfolioRequest(BaseModel):
     rebalance_days: int = 5
     allocation: str = "equal"
     initial_cash: float = 1_000_000
+
+
+class FormulaEvaluateRequest(BaseModel):
+    code: str
+    formula: str
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class FormulaScreenRequest(BaseModel):
+    formula: str
+    codes: list[str] | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class BasketPlanRequest(BaseModel):
+    candidates: list[dict]
+    initial_cash: float = 1_000_000
+    allocation: str = "equal"
+    rebalance_days: int = 5
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class BasketBacktestRequest(BaseModel):
+    candidates: list[dict]
+    initial_cash: float = 1_000_000
+    allocation: str = "equal"
+    rebalance_days: int = 5
+    price_data: dict[str, list[dict]] | None = None
+
+
+@router.post("/formula/evaluate")
+async def formula_evaluate(req: FormulaEvaluateRequest):
+    try:
+        start = pd.Timestamp(req.start_date).date() if req.start_date else None
+        end = pd.Timestamp(req.end_date).date() if req.end_date else None
+        result = _formula_engine.evaluate_code(req.code, req.formula, start, end)
+        return result.to_dict()
+    except Exception as e:
+        logger.error(f"公式评估失败: {e}")
+        return {"success": False, "error": str(e), "series": []}
+
+
+@router.post("/formula/screen")
+async def formula_screen(req: FormulaScreenRequest):
+    try:
+        start = pd.Timestamp(req.start_date).date() if req.start_date else None
+        end = pd.Timestamp(req.end_date).date() if req.end_date else None
+        return _formula_engine.screen_codes(req.formula, req.codes, start, end)
+    except Exception as e:
+        logger.error(f"公式选股失败: {e}")
+        return {"success": False, "error": str(e), "matches": []}
+
+
+@router.get("/formula/catalog")
+async def formula_catalog():
+    return _formula_engine.catalog()
+
+
+@router.post("/basket/plan")
+async def basket_plan(req: BasketPlanRequest):
+    try:
+        start = pd.Timestamp(req.start_date).date() if req.start_date else None
+        end = pd.Timestamp(req.end_date).date() if req.end_date else None
+        plan = _basket_builder.build_plan(req.candidates, req.initial_cash, req.allocation, req.rebalance_days, start, end)
+        return plan.to_dict()
+    except Exception as e:
+        logger.error(f"篮子计划生成失败: {e}")
+        return {"success": False, "error": str(e), "legs": []}
+
+
+@router.post("/basket/backtest")
+async def basket_backtest(req: BasketBacktestRequest):
+    try:
+        price_data = None
+        if req.price_data:
+            price_data = {
+                code: pd.DataFrame(rows)
+                for code, rows in req.price_data.items()
+            }
+        else:
+            price_data = {}
+            for item in req.candidates:
+                code = str(item.get("code", "")).strip()
+                if not code:
+                    continue
+                df = storage.get_stock_daily(code, None, None)
+                if not df.empty:
+                    price_data[code] = df
+            if not price_data:
+                return {"success": False, "error": "无可用价格数据"}
+
+        result = _basket_builder.backtest_plan(req.candidates, req.initial_cash, req.allocation, req.rebalance_days, price_data)
+        return result
+    except Exception as e:
+        logger.error(f"篮子回测失败: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @router.post("/backtest-portfolio")

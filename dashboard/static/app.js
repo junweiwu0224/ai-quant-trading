@@ -78,9 +78,9 @@ const App = {
         if (typeof App.LLM !== 'undefined') App.LLM.toggleCopilot();
     },
 
-    // Tab别名映射 (新Tab名 → 实际面板ID)
-    _panelAlias: {
-        sim: 'paper',          // 模拟 复用模拟盘面板
+    // Tab别名映射 (旧Tab名 → 当前Tab名)
+    _tabAlias: {
+        sim: 'paper',
     },
 
     _uiActionPending: {},
@@ -1611,10 +1611,10 @@ const App = {
                 App.Compare.init();
                 this._tabCache['compare'] = Date.now();
             }
-        } else if (subtab === 'model') {
-            if (typeof App.initAlpha === 'function' && !this._tabCache['model']) {
+        } else if (subtab === 'model' || subtab === 'formula' || subtab === 'basket') {
+            if (typeof App.initAlpha === 'function' && !this._tabCache[subtab]) {
                 App.initAlpha();
-                this._tabCache['model'] = Date.now();
+                this._tabCache[subtab] = Date.now();
             }
         }
         // Bug3修复: 子面板激活后触发 resize，让图表重新计算尺寸
@@ -1695,7 +1695,7 @@ const App = {
     },
 
     _initGlobalShortcuts() {
-        const tabs = ['overview', 'intelligence', 'research', 'trade', 'sim', 'stock'];
+        const tabs = ['overview', 'intelligence', 'research', 'trade', 'paper', 'stock'];
         document.addEventListener('keydown', (e) => {
             const tag = e.target.tagName;
             const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
@@ -1749,7 +1749,7 @@ const App = {
                 e.preventDefault();
                 const activeTab = document.querySelector('.nav-link.active')?.dataset.tab;
                 if (activeTab === 'overview') this.loadOverview();
-                else if (activeTab === 'sim' || activeTab === 'paper') PaperTrading?.refreshAll?.();
+                else if (activeTab === 'paper') PaperTrading?.refreshAll?.();
                 else if (activeTab === 'trade') this.loadTradeTab?.();
                 return;
             }
@@ -1901,7 +1901,7 @@ const App = {
             { label: '情报', desc: '切换到情报页', icon: '📰', action: () => this.switchTab('intelligence') },
             { label: '研发', desc: '切换到研发页', icon: '🔬', action: () => this.switchTab('research') },
             { label: '交易', desc: '切换到交易页', icon: '💹', action: () => this.switchTab('trade') },
-            { label: '模拟', desc: '切换到模拟盘', icon: '🎮', action: () => this.switchTab('sim') },
+            { label: '模拟盘', desc: '切换到模拟盘', icon: '🎮', action: () => this.switchTab('paper') },
             { label: '刷新', desc: '刷新当前页数据', icon: '🔄', action: () => { const t = document.querySelector('.nav-link.active')?.dataset.tab; if (t === 'overview') this.loadOverview(); } },
             { label: '搜索', desc: '聚焦搜索框', icon: '🔍', action: () => { document.getElementById('stock-detail-code')?.focus(); } },
             { label: '帮助', desc: '显示快捷键帮助', icon: '❓', action: () => this._toggleShortcutsHelp() },
@@ -2116,29 +2116,42 @@ const App = {
 
     switchTab(tab) {
         // 旧路由重定向
-        const _legacyRedirect = { backtest: 'research', alpha: 'research', portfolio: 'trade', paper: 'sim', strategy: 'research', risk: 'trade' };
+        const _legacyRedirect = { backtest: 'research', alpha: 'research', portfolio: 'trade', sim: 'paper', strategy: 'research', risk: 'trade' };
         tab = _legacyRedirect[tab] || tab;
 
-        if (this.currentTab === tab) return;
-        this.currentTab = tab;
+        const panelId = this._tabAlias[tab] || tab;
+        const panel = document.getElementById('tab-' + panelId);
 
-        // Tab → 面板映射（部分Tab复用旧面板）
-        const panelId = this._panelAlias[tab] || tab;
+        this.currentTab = tab;
 
         document.querySelectorAll('.nav-link').forEach(l => {
             l.classList.toggle('active', l.dataset.tab === tab);
             l.setAttribute('aria-selected', l.dataset.tab === tab);
         });
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        const panel = document.getElementById('tab-' + panelId);
-        if (panel) panel.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(p => {
+            const isActive = p.id === `tab-${panelId}`;
+            p.classList.toggle('active', isActive);
+            p.classList.toggle('hidden', !isActive);
+            p.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+            if (isActive) {
+                p.removeAttribute('hidden');
+            } else {
+                p.setAttribute('hidden', '');
+            }
+        });
+        if (panel) {
+            panel.classList.add('active');
+            panel.classList.remove('hidden');
+            panel.removeAttribute('hidden');
+        }
 
         const titles = {
             overview: '监控', stock: '行情', alpha: 'AI Alpha', paper: '模拟盘', strategy: '策略管理',
-            intelligence: '情报', research: '研发', trade: '交易', sim: '模拟',
+            intelligence: '情报', research: '研发', trade: '交易',
         };
         document.title = (titles[tab] || '监控') + ' - AI 量化交易系统';
         history.replaceState(null, '', '#' + tab);
+
 
         if (tab === 'overview') {
             if (typeof this._registerOverviewTimers === 'function') {
@@ -2160,8 +2173,8 @@ const App = {
             this._rkStopPolling && this._rkStopPolling();
         }
 
-        // 模拟盘轮询仅在 sim tab 运行
-        if (tab !== 'sim' && tab !== 'paper') {
+        // 模拟盘轮询仅在 paper tab 运行
+        if (tab !== 'paper') {
             Paper._stopPolling && Paper._stopPolling();
         }
 
@@ -2179,7 +2192,7 @@ const App = {
         else if (tab === 'research') {
             this._initResearchSubTabs();
         }
-        else if (tab === 'paper' || tab === 'sim') { Paper._startPolling && Paper._startPolling(); if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
+        else if (tab === 'paper') { Paper._startPolling && Paper._startPolling(); if (stale) { Paper.loadStatus(); this._tabCache[tab] = now; } }
         else if (tab === 'stock') { StockDetail.refresh(); }
         else if (tab === 'intelligence') { if (typeof Intelligence !== 'undefined') Intelligence.load(); }
 

@@ -3,6 +3,7 @@ import time
 import tempfile
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import pytest
 
@@ -564,3 +565,76 @@ class TestStorage:
             monkeypatch.undo()
 
         assert result["301001"].limit_up == 12.0
+
+    def test_fetch_json_retries_transient_httpx_errors(self, monkeypatch):
+        calls = {"count": 0}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"ok": True}
+
+        class FakeClient:
+            def get(self, url, params=None, timeout=8.0, headers=None):
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    raise httpx.RemoteProtocolError("server disconnected")
+                return FakeResponse()
+
+        monkeypatch.setattr(http_client, "get_client", lambda: FakeClient())
+
+        result = http_client.fetch_json("https://push2delay.eastmoney.com/api/qt/stock/get")
+
+        assert result == {"ok": True}
+        assert calls["count"] == 2
+
+    def test_fetch_kline_prefers_tencent_when_push2his_fails(self, monkeypatch):
+        monkeypatch.setattr(http_client, "fetch_kline_mootdx", lambda code, count, frequency: None)
+        monkeypatch.setattr(http_client, "fetch_json", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.RemoteProtocolError("server disconnected")))
+
+        calls = {}
+
+        def fake_tencent(url, timeout=8):
+            calls["url"] = url
+            return {
+                "data": {
+                    "sh600519": {
+                        "qfqday": [["2024-01-02", "10", "10.5", "10.8", "9.8", "1000"]]
+                    }
+                }
+            }
+
+        monkeypatch.setattr(http_client, "fetch_json_tencent", fake_tencent)
+
+        result = http_client.fetch_kline("600519", count=1, period="day")
+
+        assert result is not None
+        assert result["klines_raw"][0][0] == "2024-01-02"
+        assert "param=sh600519,day" in calls["url"]
+
+    def test_fetch_market_stocks_keeps_successful_pages_on_later_failure(self, monkeypatch):
+        calls = {"count": 0}
+
+        first_page_items = [
+            {"f12": f"000{i:03d}", "f14": f"测试{i}", "f2": "10", "f3": "1", "f5": "1", "f6": "1", "f7": "1", "f8": "1", "f9": "1", "f15": "1", "f16": "1", "f17": "1", "f20": "1", "f21": "1", "f23": "1", "f100": "银行", "f50": "1"}
+            for i in range(1, 101)
+        ]
+
+        def fake_fetch_json(url, params=None, timeout=8.0, headers=None):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return {"data": {"diff": first_page_items}}
+            raise httpx.RemoteProtocolError("server disconnected")
+
+        monkeypatch.setattr("alpha.screener.fetch_json", fake_fetch_json)
+        monkeypatch.setattr("alpha.screener._MARKET_CACHE_TTL", 0)
+        monkeypatch.setattr("alpha.screener._market_cache", [])
+        monkeypatch.setattr("alpha.screener._market_cache_ts", 0)
+
+        result = __import__("alpha.screener", fromlist=["_fetch_market_stocks"])._fetch_market_stocks(max_pages=2)
+
+        assert len(result) == 100
+        assert result[0]["code"] == "000001"
+        assert calls["count"] == 2

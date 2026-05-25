@@ -25,6 +25,18 @@ def test_scan_js_text_flags_raw_tofixed_and_innerhtml():
     assert all(isinstance(risk, RenderRisk) for risk in risks)
 
 
+def test_scan_js_text_flags_multiline_innerhtml_template_interpolation():
+    text = """
+    tbody.innerHTML = rows.map((row) => `
+      <tr><td>${row.name}</td></tr>
+    `).join("");
+    """
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_js_text_flags_number_placeholder_and_nan_check():
     text = """
     const price = Number(row.price);
@@ -63,6 +75,17 @@ def test_scan_static_tree_returns_sorted_risks(tmp_path):
     risks = scan_static_tree(tmp_path)
 
     assert [risk.file for risk in risks] == ["a.js", "b.js"]
+
+
+def test_scan_static_tree_raises_when_root_is_missing(tmp_path):
+    missing = tmp_path / "missing"
+
+    try:
+        scan_static_tree(missing)
+    except FileNotFoundError as exc:
+        assert str(missing) in str(exc)
+    else:
+        raise AssertionError("scan_static_tree should fail fast for a missing root")
 
 
 def test_build_report_counts_risks_by_kind_and_severity(tmp_path):

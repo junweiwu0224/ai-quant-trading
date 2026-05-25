@@ -32,9 +32,9 @@ RISK_PATTERNS: tuple[tuple[str, str, Pattern[str]], ...] = (
     ("raw_to_fixed", "high", re.compile(r"\.toFixed\s*\(")),
     ("raw_number_constructor", "medium", re.compile(r"\bNumber\s*\(")),
     ("fallback_or_placeholder", "medium", re.compile(r"\|\|\s*(?:'--'|\"--\")")),
-    ("dynamic_inner_html", "medium", re.compile(r"\.innerHTML\s*=\s*`[^`]*\$\{")),
     ("direct_nan_check", "low", re.compile(r"\bisNaN\s*\(")),
 )
+DYNAMIC_INNER_HTML_PATTERN = re.compile(r"\.innerHTML\s*=.*?`[^`]*\$\{", re.DOTALL)
 
 
 def _is_comment_or_blank(line: str) -> bool:
@@ -53,8 +53,12 @@ def _posix_path(path: Path) -> str:
 def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
     risks: list[RenderRisk] = []
     file_name = _posix_path(file_path)
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        if _is_comment_or_blank(line):
+    stripped_lines = [
+        "" if _is_comment_or_blank(line) else line for line in text.splitlines()
+    ]
+    stripped_text = "\n".join(stripped_lines)
+    for line_number, line in enumerate(stripped_lines, start=1):
+        if not line:
             continue
         for kind, severity, pattern in RISK_PATTERNS:
             if pattern.search(line):
@@ -67,17 +71,34 @@ def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
                         snippet=_snippet(line),
                     )
                 )
+    for match in DYNAMIC_INNER_HTML_PATTERN.finditer(stripped_text):
+        line_number = stripped_text.count("\n", 0, match.start()) + 1
+        risks.append(
+            RenderRisk(
+                file=file_name,
+                line=line_number,
+                kind="dynamic_inner_html",
+                severity="medium",
+                snippet=_snippet(stripped_lines[line_number - 1]),
+            )
+        )
     return risks
 
 
 def scan_static_tree(root: Path) -> list[RenderRisk]:
     root = Path(root)
+    if not root.exists():
+        raise FileNotFoundError(f"Static audit root does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Static audit root is not a directory: {root}")
     risks: list[RenderRisk] = []
     for path in sorted(root.rglob("*.js")):
         if "node_modules" in path.parts:
             continue
         relative_path = path.relative_to(root)
-        risks.extend(scan_js_text(path.read_text(encoding="utf-8"), relative_path))
+        risks.extend(
+            scan_js_text(path.read_text(encoding="utf-8", errors="ignore"), relative_path)
+        )
     return sorted(risks, key=lambda risk: (risk.file, risk.line, risk.kind))
 
 

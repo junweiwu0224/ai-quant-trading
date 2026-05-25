@@ -35,9 +35,13 @@ RISK_PATTERNS: tuple[tuple[str, str, Pattern[str]], ...] = (
     (
         "dynamic_inner_html",
         "medium",
-        re.compile(r"\.innerHTML\s*\+?=(?:(?!;).)*`[^`]*\$\{", re.DOTALL),
+        re.compile(r"\.innerHTML\s*(?:\+=|=(?!=)).*?`[^`]*\$\{", re.DOTALL),
     ),
     ("direct_nan_check", "low", re.compile(r"\bisNaN\s*\(")),
+)
+
+NEW_STATEMENT_START = re.compile(
+    r"^(?:const|let|var|function|if|for|while|switch|try|catch|class|return|throw|import|export)\b"
 )
 
 
@@ -54,6 +58,28 @@ def _posix_path(path: Path) -> str:
     return path.as_posix()
 
 
+def _is_escaped(text: str, position: int) -> bool:
+    backslash_count = 0
+    index = position - 1
+    while index >= 0 and text[index] == "\\":
+        backslash_count += 1
+        index -= 1
+    return backslash_count % 2 == 1
+
+
+def _scan_statement_fragment(line: str, in_template: bool) -> tuple[bool, bool]:
+    for position, char in enumerate(line):
+        if char == "`" and not _is_escaped(line, position):
+            in_template = not in_template
+        elif char == ";" and not in_template:
+            return in_template, True
+    return in_template, False
+
+
+def _starts_new_statement(line: str) -> bool:
+    return bool(NEW_STATEMENT_START.match(line.strip()))
+
+
 def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
     chunks: list[tuple[int, str]] = []
     index = 0
@@ -64,9 +90,19 @@ def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
             continue
         start_index = index
         chunk_lines = [line]
-        while ";" not in chunk_lines[-1] and index + 1 < len(lines):
+        inner_html_position = line.find(".innerHTML")
+        in_template, statement_complete = _scan_statement_fragment(
+            line[inner_html_position:], in_template=False
+        )
+        while not statement_complete and index + 1 < len(lines):
+            next_line = lines[index + 1]
+            if not in_template and _starts_new_statement(next_line):
+                break
             index += 1
-            chunk_lines.append(lines[index])
+            chunk_lines.append(next_line)
+            in_template, statement_complete = _scan_statement_fragment(
+                next_line, in_template
+            )
         chunks.append((start_index + 1, "\n".join(chunk_lines)))
         index += 1
     return chunks

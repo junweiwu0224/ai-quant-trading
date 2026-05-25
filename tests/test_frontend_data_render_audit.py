@@ -50,6 +50,14 @@ def test_scan_js_text_flags_innerhtml_append_template_interpolation():
     assert any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
+def test_scan_js_text_does_not_flag_innerhtml_strict_comparison():
+    text = "if (node.innerHTML === `<span>${value}</span>`) {}"
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_js_text_does_not_cross_statement_boundary_for_innerhtml():
     text = """
     el.innerHTML = safeHtml;
@@ -59,6 +67,25 @@ def test_scan_js_text_does_not_cross_statement_boundary_for_innerhtml():
     risks = scan_js_text(text, Path("dashboard/static/sample.js"))
 
     assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
+def test_scan_js_text_does_not_cross_asi_boundary_for_innerhtml():
+    text = """
+    el.innerHTML = safeHtml
+    const label = `${row.name}`;
+    """
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
+def test_scan_js_text_flags_innerhtml_template_with_semicolon_before_interpolation():
+    text = "panel.innerHTML = `<span>; ${value}</span>`;"
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
 def test_scan_js_text_flags_number_placeholder_and_nan_check():
@@ -110,6 +137,18 @@ def test_scan_static_tree_raises_when_root_is_missing(tmp_path):
         assert str(missing) in str(exc)
     else:
         raise AssertionError("scan_static_tree should fail fast for a missing root")
+
+
+def test_scan_static_tree_raises_when_root_is_a_file(tmp_path):
+    root_file = tmp_path / "sample.js"
+    root_file.write_text("value.toFixed(2);", encoding="utf-8")
+
+    try:
+        scan_static_tree(root_file)
+    except NotADirectoryError as exc:
+        assert str(root_file) in str(exc)
+    else:
+        raise AssertionError("scan_static_tree should fail fast for a file root")
 
 
 def test_build_report_counts_risks_by_kind_and_severity(tmp_path):

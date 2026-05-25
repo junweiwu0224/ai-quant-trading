@@ -32,9 +32,13 @@ RISK_PATTERNS: tuple[tuple[str, str, Pattern[str]], ...] = (
     ("raw_to_fixed", "high", re.compile(r"\.toFixed\s*\(")),
     ("raw_number_constructor", "medium", re.compile(r"\bNumber\s*\(")),
     ("fallback_or_placeholder", "medium", re.compile(r"\|\|\s*(?:'--'|\"--\")")),
+    (
+        "dynamic_inner_html",
+        "medium",
+        re.compile(r"\.innerHTML\s*\+?=(?:(?!;).)*`[^`]*\$\{", re.DOTALL),
+    ),
     ("direct_nan_check", "low", re.compile(r"\bisNaN\s*\(")),
 )
-DYNAMIC_INNER_HTML_PATTERN = re.compile(r"\.innerHTML\s*=.*?`[^`]*\$\{", re.DOTALL)
 
 
 def _is_comment_or_blank(line: str) -> bool:
@@ -50,17 +54,36 @@ def _posix_path(path: Path) -> str:
     return path.as_posix()
 
 
+def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
+    chunks: list[tuple[int, str]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if ".innerHTML" not in line:
+            index += 1
+            continue
+        start_index = index
+        chunk_lines = [line]
+        while ";" not in chunk_lines[-1] and index + 1 < len(lines):
+            index += 1
+            chunk_lines.append(lines[index])
+        chunks.append((start_index + 1, "\n".join(chunk_lines)))
+        index += 1
+    return chunks
+
+
 def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
     risks: list[RenderRisk] = []
     file_name = _posix_path(file_path)
     stripped_lines = [
         "" if _is_comment_or_blank(line) else line for line in text.splitlines()
     ]
-    stripped_text = "\n".join(stripped_lines)
     for line_number, line in enumerate(stripped_lines, start=1):
         if not line:
             continue
         for kind, severity, pattern in RISK_PATTERNS:
+            if kind == "dynamic_inner_html":
+                continue
             if pattern.search(line):
                 risks.append(
                     RenderRisk(
@@ -71,17 +94,20 @@ def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
                         snippet=_snippet(line),
                     )
                 )
-    for match in DYNAMIC_INNER_HTML_PATTERN.finditer(stripped_text):
-        line_number = stripped_text.count("\n", 0, match.start()) + 1
-        risks.append(
-            RenderRisk(
-                file=file_name,
-                line=line_number,
-                kind="dynamic_inner_html",
-                severity="medium",
-                snippet=_snippet(stripped_lines[line_number - 1]),
-            )
-        )
+    for kind, severity, pattern in RISK_PATTERNS:
+        if kind != "dynamic_inner_html":
+            continue
+        for line_number, chunk in _inner_html_statement_chunks(stripped_lines):
+            if pattern.search(chunk):
+                risks.append(
+                    RenderRisk(
+                        file=file_name,
+                        line=line_number,
+                        kind=kind,
+                        severity=severity,
+                        snippet=_snippet(stripped_lines[line_number - 1]),
+                    )
+                )
     return risks
 
 

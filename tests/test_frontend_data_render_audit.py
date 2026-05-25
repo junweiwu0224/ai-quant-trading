@@ -2,12 +2,17 @@ import json
 from pathlib import Path
 
 from scripts.frontend_data_render_audit import (
+    RISK_PATTERNS,
     RenderRisk,
     build_report,
     main,
     scan_js_text,
     scan_static_tree,
 )
+
+
+def test_risk_patterns_registry_includes_dynamic_inner_html():
+    assert any(kind == "dynamic_inner_html" for kind, _severity, _pattern in RISK_PATTERNS)
 
 
 def test_scan_js_text_flags_raw_tofixed_and_innerhtml():
@@ -35,6 +40,25 @@ def test_scan_js_text_flags_multiline_innerhtml_template_interpolation():
     risks = scan_js_text(text, Path("dashboard/static/sample.js"))
 
     assert any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
+def test_scan_js_text_flags_innerhtml_append_template_interpolation():
+    text = "container.innerHTML += `<span>${value}</span>`;"
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
+def test_scan_js_text_does_not_cross_statement_boundary_for_innerhtml():
+    text = """
+    el.innerHTML = safeHtml;
+    const label = `${row.name}`;
+    """
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
 def test_scan_js_text_flags_number_placeholder_and_nan_check():

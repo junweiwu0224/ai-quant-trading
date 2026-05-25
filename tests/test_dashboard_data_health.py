@@ -1,4 +1,5 @@
 import json
+import importlib
 import sys
 import types
 
@@ -146,6 +147,37 @@ def test_run_api_audit_installs_test_account_overrides_before_client_creation(mo
     assert [endpoint["status_code"] for endpoint in report["endpoints"]] == [200, 200]
     assert all(endpoint["ok"] for endpoint in report["endpoints"])
     assert all(endpoint["json"] for endpoint in report["endpoints"])
+
+
+def test_run_api_audit_skips_account_overrides_when_dashboard_session_missing(monkeypatch):
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health():
+        return {"ok": True}
+
+    _install_fake_dashboard_app(monkeypatch, app)
+    monkeypatch.delitem(sys.modules, "dashboard.session", raising=False)
+
+    real_import_module = importlib.import_module
+
+    def import_module(name, package=None):
+        if name == "dashboard.session":
+            raise ModuleNotFoundError(
+                "No module named 'dashboard.session'", name="dashboard.session"
+            )
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+
+    report = run_api_audit(["/health"])
+    endpoint = report["endpoints"][0]
+
+    assert endpoint["path"] == "/health"
+    assert endpoint["status_code"] == 200
+    assert endpoint["ok"] is True
+    assert endpoint["json"] is True
+    assert report["failed_endpoint_count"] == 0
 
 
 def test_run_api_audit_counts_2xx_non_json_responses_as_failed(monkeypatch):

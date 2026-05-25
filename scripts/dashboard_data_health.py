@@ -196,8 +196,19 @@ async def _audit_account_override() -> dict[str, Any]:
     return _AUDIT_ACCOUNT
 
 
+def _import_dashboard_session():
+    try:
+        return importlib.import_module("dashboard.session")
+    except ModuleNotFoundError as exc:
+        if exc.name == "dashboard.session":
+            return None
+        raise
+
+
 def _install_account_overrides(app) -> dict[Any, Any]:
-    session = importlib.import_module("dashboard.session")
+    session = _import_dashboard_session()
+    if session is None:
+        return {}
 
     previous: dict[Any, Any] = {}
     for dependency_name in ("current_account", "optional_account"):
@@ -211,7 +222,9 @@ def _install_account_overrides(app) -> dict[Any, Any]:
 
 
 def _restore_account_overrides(app, previous: dict[Any, Any]) -> None:
-    session = importlib.import_module("dashboard.session")
+    session = _import_dashboard_session()
+    if session is None:
+        return
 
     for dependency_name in ("current_account", "optional_account"):
         dependency = getattr(session, dependency_name, None)

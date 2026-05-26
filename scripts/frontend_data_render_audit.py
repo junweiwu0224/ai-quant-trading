@@ -67,13 +67,13 @@ def _is_escaped(text: str, position: int) -> bool:
     return backslash_count % 2 == 1
 
 
-def _scan_statement_fragment(line: str, in_template: bool) -> tuple[bool, bool]:
+def _scan_statement_fragment(line: str, in_template: bool) -> tuple[bool, bool, str]:
     for position, char in enumerate(line):
         if char == "`" and not _is_escaped(line, position):
             in_template = not in_template
         elif char == ";" and not in_template:
-            return in_template, True
-    return in_template, False
+            return in_template, True, line[: position + 1]
+    return in_template, False, line
 
 
 def _starts_new_statement(line: str) -> bool:
@@ -89,21 +89,23 @@ def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
             index += 1
             continue
         start_index = index
-        chunk_lines = [line]
         inner_html_position = line.find(".innerHTML")
-        in_template, statement_complete = _scan_statement_fragment(
+        chunk_parts: list[str] = []
+        in_template, statement_complete, fragment = _scan_statement_fragment(
             line[inner_html_position:], in_template=False
         )
+        chunk_parts.append(fragment)
         while not statement_complete and index + 1 < len(lines):
             next_line = lines[index + 1]
             if not in_template and _starts_new_statement(next_line):
                 break
             index += 1
-            chunk_lines.append(next_line)
-            in_template, statement_complete = _scan_statement_fragment(
+            chunk_parts.append("\n")
+            in_template, statement_complete, fragment = _scan_statement_fragment(
                 next_line, in_template
             )
-        chunks.append((start_index + 1, "\n".join(chunk_lines)))
+            chunk_parts.append(fragment)
+        chunks.append((start_index + 1, "".join(chunk_parts)))
         index += 1
     return chunks
 

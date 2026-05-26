@@ -88,6 +88,17 @@ def test_scan_js_text_does_not_cross_asi_boundary_for_innerhtml():
     assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
+def test_scan_js_text_does_not_cross_asi_boundary_before_assignment():
+    text = """
+    el.innerHTML = safeHtml
+    label = `${row.name}`;
+    """
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_js_text_flags_innerhtml_template_with_semicolon_before_interpolation():
     text = "panel.innerHTML = `<span>; ${value}</span>`;"
 

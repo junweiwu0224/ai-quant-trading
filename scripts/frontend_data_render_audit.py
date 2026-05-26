@@ -43,6 +43,7 @@ RISK_PATTERNS: tuple[tuple[str, str, Pattern[str]], ...] = (
 NEW_STATEMENT_START = re.compile(
     r"^(?:const|let|var|function|if|for|while|switch|try|catch|class|return|throw|import|export)\b"
 )
+CONTINUATION_START = re.compile(r"^(?:[.`)\]}]|&&|\|\||[+*/%,?:])")
 
 
 def _is_comment_or_blank(line: str) -> bool:
@@ -80,6 +81,10 @@ def _starts_new_statement(line: str) -> bool:
     return bool(NEW_STATEMENT_START.match(line.strip()))
 
 
+def _continues_previous_statement(line: str) -> bool:
+    return bool(CONTINUATION_START.match(line.strip()))
+
+
 def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
     chunks: list[tuple[int, str]] = []
     index = 0
@@ -97,7 +102,9 @@ def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
         chunk_parts.append(fragment)
         while not statement_complete and index + 1 < len(lines):
             next_line = lines[index + 1]
-            if not in_template and _starts_new_statement(next_line):
+            if not in_template and (
+                _starts_new_statement(next_line) or not _continues_previous_statement(next_line)
+            ):
                 break
             index += 1
             chunk_parts.append("\n")

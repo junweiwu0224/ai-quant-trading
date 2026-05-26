@@ -361,7 +361,9 @@ test('dashboard data display health audit', async ({ page }) => {
 
     expect(report.runError, JSON.stringify(report, null, 2)).toBeNull();
     expect(report.panels.length, JSON.stringify(report, null, 2)).toBe(TAB_AUDITS.length);
+    expect(report.panels.filter((panel) => !panel.exists || !panel.visible), JSON.stringify(report, null, 2)).toEqual([]);
     expect(report.stockDetail.exists, JSON.stringify(report, null, 2)).toBeTruthy();
+    expect(report.stockDetail.visible, JSON.stringify(report, null, 2)).toBeTruthy();
     const hardPanelMatches = report.panels.flatMap((panel) => (
         panel.hardMatches.map((match) => `${panel.tab}:${match}`)
     ));

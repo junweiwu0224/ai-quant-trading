@@ -43,7 +43,7 @@ Object.assign(App, {
         });
 
         if (filtered.length === 0) {
-            posBody.innerHTML = '<tr><td colspan="14" class="text-muted">暂无持仓数据</td></tr>';
+            posBody.innerHTML = '<tr><td colspan="14" class="text-muted text-center">暂无持仓数据</td></tr>';
             totalFoot.innerHTML = '';
             return;
         }

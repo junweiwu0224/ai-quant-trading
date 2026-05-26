@@ -1,156 +1,151 @@
-"""热点归因分析模块
+"""热点归因分析模块。
 
-基于同花顺数据，分析当前市场热点板块、概念轮动、资金流向。
-输出结构化 JSON，供 LLM 和前端使用。
-
-数据源：AKShare 同花顺接口
-- 概念板块排名：stock_board_concept_name_ths
-- 行业板块资金流：stock_sector_fund_flow_rank_ths
-- 个股所属概念：stock_board_concept_cons_ths
+使用项目已有的东方财富 HTTP 数据源，避免情报页自动加载时触发
+AKShare/同花顺接口内部的原生 JS 引擎崩溃。
 """
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from urllib.parse import quote
 
-import pandas as pd
 from loguru import logger
+
+from data.collector.http_client import fetch_json
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        if value in (None, "-"):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        if value in (None, "-"):
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _fetch_board_ranking(board_type: str, top_n: int) -> list[dict]:
+    """从东方财富获取行业/概念板块涨跌排名。"""
+    fs_map = {
+        "concept": "m:90+t:3",
+        "industry": "m:90+t:2",
+    }
+    fs = fs_map.get(board_type, fs_map["concept"])
+    url = (
+        "https://push2delay.eastmoney.com/api/qt/clist/get"
+        f"?pn=1&pz={max(top_n, 1)}&po=1&np=1&fltt=2&invt=2"
+        f"&fid=f3&fs={fs}&fields=f2,f3,f12,f14,f104,f105,f128,f136,f140,f20"
+    )
+    data = fetch_json(url, timeout=10)
+    items = ((data.get("data") or {}).get("diff") or [])
+
+    records: list[dict] = []
+    for item in items[:top_n]:
+        records.append({
+            "code": str(item.get("f12", "") or ""),
+            "name": str(item.get("f14", "") or ""),
+            "change_pct": round(_safe_float(item.get("f3")), 2),
+            "leader": str(item.get("f140", "") or item.get("f128", "") or ""),
+            "leader_change": round(_safe_float(item.get("f136")), 2),
+            "stock_count": _safe_int(item.get("f104")) + _safe_int(item.get("f105")),
+            "up_count": _safe_int(item.get("f104")),
+            "down_count": _safe_int(item.get("f105")),
+            "total_mv": round(_safe_float(item.get("f20")) / 1e8, 0),
+        })
+    return records
+
+
+def _fetch_sector_fund_flow(top_n: int) -> list[dict]:
+    """从东方财富资金流接口获取行业主力净流入。"""
+    url = (
+        "https://push2.eastmoney.com/api/qt/clist/get"
+        f"?pn=1&pz={max(top_n, 1)}&po=1&np=1&fltt=2&invt=2"
+        "&fid=f62&fs=m:90+t:2&fields=f12,f14,f3,f62,f184"
+    )
+    data = fetch_json(url, timeout=10)
+    items = ((data.get("data") or {}).get("diff") or [])
+
+    records: list[dict] = []
+    for item in items[:top_n]:
+        records.append({
+            "code": str(item.get("f12", "") or ""),
+            "name": str(item.get("f14", "") or ""),
+            "change_pct": round(_safe_float(item.get("f3")), 2),
+            "main_net_inflow": round(_safe_float(item.get("f62")) / 1e8, 2),
+            "main_net_inflow_pct": round(_safe_float(item.get("f184")), 2),
+        })
+    return records
 
 
 async def get_hot_concepts(top_n: int = 20) -> list[dict]:
-    """获取当前热门概念板块排名
-
-    Returns:
-        [{"name": "锂电池", "change_pct": 3.5, "leader": "宁德时代", "stock_count": 50}, ...]
-    """
+    """获取当前热门概念板块排名。"""
     try:
-        import akshare as ak
-        loop = asyncio.get_event_loop()
-        df = await loop.run_in_executor(None, ak.stock_board_concept_name_ths)
-
-        if df is None or df.empty:
-            return []
-
-        records = []
-        for _, row in df.head(top_n).iterrows():
-            records.append({
-                "name": str(row.get("概念名称", "") or ""),
-                "change_pct": round(float(row.get("涨跌幅", 0) or 0), 2),
-                "leader": str(row.get("领涨股票", "") or ""),
-                "leader_change": round(float(row.get("领涨股票-涨跌幅", 0) or 0), 2),
-                "stock_count": int(row.get("总家数", 0) or 0),
-                "up_count": int(row.get("上涨家数", 0) or 0),
-                "down_count": int(row.get("下跌家数", 0) or 0),
-            })
-        return records
-
-    except ImportError:
-        logger.warning("AKShare 未安装，热点归因不可用")
-        return []
+        return await asyncio.to_thread(_fetch_board_ranking, "concept", top_n)
     except Exception as e:
         logger.warning(f"获取热门概念失败: {e}")
         return []
 
 
 async def get_hot_industries(top_n: int = 20) -> list[dict]:
-    """获取当前热门行业板块排名
-
-    Returns:
-        [{"name": "半导体", "change_pct": 2.1, "main_net_inflow": 15.3}, ...]
-    """
+    """获取当前热门行业板块排名。"""
     try:
-        import akshare as ak
-        loop = asyncio.get_event_loop()
-        df = await loop.run_in_executor(None, ak.stock_board_industry_name_ths)
-
-        if df is None or df.empty:
-            return []
-
-        records = []
-        for _, row in df.head(top_n).iterrows():
-            records.append({
-                "name": str(row.get("板块名称", "") or ""),
-                "change_pct": round(float(row.get("涨跌幅", 0) or 0), 2),
-                "leader": str(row.get("领涨股票", "") or ""),
-                "leader_change": round(float(row.get("领涨股票-涨跌幅", 0) or 0), 2),
-                "stock_count": int(row.get("总家数", 0) or 0),
-            })
-        return records
-
+        return await asyncio.to_thread(_fetch_board_ranking, "industry", top_n)
     except Exception as e:
         logger.warning(f"获取热门行业失败: {e}")
         return []
 
 
 async def get_sector_fund_flow(top_n: int = 20) -> list[dict]:
-    """获取行业板块资金流向排名
-
-    Returns:
-        [{"name": "半导体", "main_net_inflow": 15.3, "main_net_inflow_pct": 2.1}, ...]
-    """
+    """获取行业板块资金流向排名。"""
     try:
-        import akshare as ak
-        loop = asyncio.get_event_loop()
-        df = await loop.run_in_executor(
-            None, lambda: ak.stock_sector_fund_flow_rank_ths(indicator="今日")
-        )
-
-        if df is None or df.empty:
-            return []
-
-        records = []
-        for _, row in df.head(top_n).iterrows():
-            records.append({
-                "name": str(row.get("名称", "") or ""),
-                "change_pct": round(float(row.get("今日涨跌幅", 0) or 0), 2),
-                "main_net_inflow": round(float(row.get("主力净流入-净额", 0) or 0) / 1e8, 2),
-                "main_net_inflow_pct": round(float(row.get("主力净流入-净占比", 0) or 0), 2),
-            })
-        return records
-
+        return await asyncio.to_thread(_fetch_sector_fund_flow, top_n)
     except Exception as e:
         logger.warning(f"获取行业资金流失败: {e}")
         return []
 
 
 async def get_concept_for_stock(code: str) -> list[str]:
-    """获取个股所属概念板块列表
+    """获取个股所属概念列表。"""
+    normalized = str(code).strip()
+    if len(normalized) != 6 or not normalized.isdigit():
+        return []
 
-    Returns:
-        ["锂电池", "新能源汽车", ...]
-    """
     try:
-        import akshare as ak
-        loop = asyncio.get_event_loop()
-        df = await loop.run_in_executor(
-            None, lambda: ak.stock_board_concept_cons_ths(symbol=code)
+        market = "SH" if normalized.startswith(("6", "9")) else "SZ"
+        secucode = quote(f"{normalized}.{market}", safe="")
+        url = (
+            "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+            "?reportName=RPT_F10_CORETHEME_BOARDTYPE"
+            "&columns=SECURITY_CODE%2CBOARD_NAME%2CBOARD_TYPE"
+            f"&filter=(SECURITY_CODE%3D%22{secucode}%22)"
+            "&pageNumber=1&pageSize=50&source=HSF10&client=PC"
         )
 
-        if df is None or df.empty:
-            return []
+        def fetch() -> list[str]:
+            data = fetch_json(url, timeout=10, headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://emweb.securities.eastmoney.com/",
+            })
+            rows = ((data.get("result") or {}).get("data") or [])
+            concepts = [str(row.get("BOARD_NAME", "") or "") for row in rows]
+            return [name for name in concepts if name]
 
-        concepts = []
-        if "概念名称" in df.columns:
-            concepts = df["概念名称"].dropna().tolist()
-        return [str(c) for c in concepts]
-
+        return await asyncio.to_thread(fetch)
     except Exception as e:
         logger.warning(f"获取个股概念失败({code}): {e}")
         return []
 
 
 async def get_hotspot_attribution() -> dict:
-    """综合热点归因分析
-
-    Returns:
-        {
-            "timestamp": "...",
-            "hot_concepts": [...],
-            "hot_industries": [...],
-            "fund_flow": [...],
-            "summary": "今日热点：锂电池(+3.5%)、半导体(+2.1%)..."
-        }
-    """
+    """综合热点归因分析。"""
     concepts, industries, flow = await asyncio.gather(
         get_hot_concepts(10),
         get_hot_industries(10),
@@ -158,7 +153,6 @@ async def get_hotspot_attribution() -> dict:
         return_exceptions=True,
     )
 
-    # 处理异常
     if isinstance(concepts, Exception):
         logger.warning(f"热点概念获取失败: {concepts}")
         concepts = []
@@ -169,7 +163,6 @@ async def get_hotspot_attribution() -> dict:
         logger.warning(f"资金流向获取失败: {flow}")
         flow = []
 
-    # 生成摘要
     top3 = [f"{c['name']}({c['change_pct']:+.1f}%)" for c in (concepts or [])[:3]]
     summary = f"今日热点：{'、'.join(top3)}" if top3 else "暂无热点数据"
 

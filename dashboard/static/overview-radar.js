@@ -417,8 +417,11 @@
     App.OverviewRadar = { init, loadRadar, addToWatchlist };
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', () => {
+            if (globalThis.__AUTH_GATE_REQUIRED__ === true) return;
+            init();
+        });
     } else {
-        init();
+        if (globalThis.__AUTH_GATE_REQUIRED__ !== true) init();
     }
 })();

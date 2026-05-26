@@ -85,3 +85,10 @@ class DataSource(ABC):
     async def get_f10(self, code: str, section: str | None = None) -> dict:
         """获取F10基本面数据"""
         ...
+
+    async def get_valuation_snapshot(self, code: str, report_limit: int = 8) -> dict:
+        """获取估值快照/研报共识数据。
+
+        默认实现保留兼容性，具体数据源可以覆盖。
+        """
+        raise NotImplementedError

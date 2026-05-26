@@ -1,6 +1,13 @@
 /* ── 持仓模块：交易记录 ── */
 
 document.addEventListener('click', (e) => {
+    const tradeTab = e.target.closest('[data-portfolio-trade-tab]');
+    if (tradeTab) {
+        e.preventDefault();
+        App.pfSwitchTradeTab(tradeTab.dataset.portfolioTradeTab);
+        return;
+    }
+
     const button = e.target.closest('[data-pf-history-page]');
     if (!button) {
         return;
@@ -21,7 +28,7 @@ Object.assign(App, {
         const tradeBody = document.querySelector('#pf-trades tbody');
 
         if (trades.length === 0) {
-            tradeBody.innerHTML = '<tr><td colspan="6" class="text-muted">今日无交易</td></tr>';
+            tradeBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">今日无交易</td></tr>';
             return;
         }
 
@@ -48,14 +55,18 @@ Object.assign(App, {
 
         if (tab === 'today') {
             todayPanel.style.display = '';
+            todayPanel.hidden = false;
             todayPanel.classList.add('active');
             historyPanel.style.display = 'none';
+            historyPanel.hidden = true;
             historyPanel.classList.remove('active');
             tabs[0].classList.add('active');
         } else {
             todayPanel.style.display = 'none';
+            todayPanel.hidden = true;
             todayPanel.classList.remove('active');
             historyPanel.style.display = '';
+            historyPanel.hidden = false;
             historyPanel.classList.add('active');
             tabs[1].classList.add('active');
             if (!this._pf.historyLoaded) {
@@ -81,7 +92,7 @@ Object.assign(App, {
 
             const tbody = document.querySelector('#pf-trade-history-table tbody');
             if (!data.trades || data.trades.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-muted">无交易记录</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">无交易记录</td></tr>';
                 document.getElementById('pf-hist-pagination').innerHTML = '';
                 return;
             }

@@ -7,12 +7,15 @@ const RealtimeQuotes = {
     _listeners: [],
     _subscribed: false,
     _reconnectAttempts: 0,
+    _disconnectRequested: false,
 
     connect() {
+        this._disconnectRequested = false;
         if (this._ws && this._ws.readyState === WebSocket.OPEN) return;
 
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${location.host}/ws/quotes`;
+        const rawUrl = `${proto}//${location.host}/ws/quotes`;
+        const url = (typeof App !== 'undefined' && App.withAPIKey) ? App.withAPIKey(rawUrl) : rawUrl;
 
         try {
             this._ws = new WebSocket(url);
@@ -47,8 +50,12 @@ const RealtimeQuotes = {
         };
     },
 
-    disconnect() {
+    disconnect({ suppressReconnect = false } = {}) {
         clearTimeout(this._reconnectTimer);
+        this._disconnectRequested = suppressReconnect;
+        if (suppressReconnect) {
+            this._reconnectAttempts = 0;
+        }
         if (this._ws) {
             this._ws.close();
             this._ws = null;
@@ -57,6 +64,9 @@ const RealtimeQuotes = {
 
     _scheduleReconnect() {
         clearTimeout(this._reconnectTimer);
+        if (this._disconnectRequested) {
+            return;
+        }
         const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), 30000);
         this._reconnectAttempts++;
         this._reconnectTimer = setTimeout(() => this.connect(), delay);

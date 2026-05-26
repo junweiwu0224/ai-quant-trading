@@ -16,4 +16,4 @@ docker run --rm --network host \
   -v "$ROOT_DIR:/work" \
   -w /work \
   "$IMAGE" \
-  bash -lc "PLAYWRIGHT_BASE_URL='$BASE_URL' npm run e2e"
+  bash -lc "PLAYWRIGHT_BASE_URL='$BASE_URL' PLAYWRIGHT_INVITE_CODE='${PLAYWRIGHT_INVITE_CODE:-LOCAL1}' npm run e2e"

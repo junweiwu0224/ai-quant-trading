@@ -1,5 +1,27 @@
 /* ── 通用搜索下拉组件（搜索内置在下拉中） ── */
 
+const normalizeStockSearchResults = (payload) => {
+    if (globalThis.Utils && typeof globalThis.Utils.normalizeStockSearchResults === 'function') {
+        return globalThis.Utils.normalizeStockSearchResults(payload);
+    }
+
+    const list = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === 'object'
+            ? (payload.results ?? payload.data ?? payload.items ?? payload.list)
+            : [];
+
+    if (!Array.isArray(list)) return [];
+
+    return list.filter((item) => {
+        if (!item || typeof item !== 'object') return false;
+        const code = typeof item.code === 'string'
+            ? item.code.trim()
+            : String(item.code ?? '').trim();
+        return code.length > 0;
+    });
+};
+
 class SearchBox {
     constructor(inputId, dropdownId, options = {}) {
         this.trigger = document.getElementById(inputId);
@@ -144,7 +166,7 @@ class SearchBox {
         try {
             const result = this._dataSource(q);
             // 支持异步数据源
-            const items = result instanceof Promise ? await result : result;
+            const items = normalizeStockSearchResults(result instanceof Promise ? await result : result);
 
             // 检查是否是最新的搜索请求
             if (version !== this._searchVersion) return;
@@ -286,7 +308,7 @@ class MultiSearchBox {
     getSelectedCodes() { return this._selected.map(s => s.code); }
 
     setSelected(items) {
-        this._selected = [...items];
+        this._selected = normalizeStockSearchResults(items);
         this._renderTags();
     }
 
@@ -364,7 +386,7 @@ class MultiSearchBox {
         try {
             const result = this._dataSource(q);
             // 支持异步数据源
-            const all = result instanceof Promise ? await result : result;
+            const all = normalizeStockSearchResults(result instanceof Promise ? await result : result);
 
             // 检查是否是最新的搜索请求
             if (version !== this._searchVersion) return;

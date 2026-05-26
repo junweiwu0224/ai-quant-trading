@@ -12,6 +12,7 @@ from engine.models import (
 from utils.db import get_connection
 
 DEFAULT_DB_PATH = str(PROJECT_ROOT / "data" / "paper_trading.db")
+MAX_DISPLAY_RATIO = 1000
 
 
 class PerformanceAnalyzer:
@@ -372,7 +373,7 @@ class PerformanceAnalyzer:
         if np.std(excess_returns) == 0:
             return 0
 
-        return float(np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252))
+        return self._bounded_ratio(np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252))
 
     def _calc_sortino_ratio(self, daily_returns: List[float], risk_free_rate: float = 0.03) -> float:
         """计算Sortino比率"""
@@ -386,7 +387,7 @@ class PerformanceAnalyzer:
         if len(downside_returns) == 0 or np.std(downside_returns) == 0:
             return 0
 
-        return float(np.mean(excess_returns) / np.std(downside_returns) * np.sqrt(252))
+        return self._bounded_ratio(np.mean(excess_returns) / np.std(downside_returns) * np.sqrt(252))
 
     def _calc_calmar_ratio(self, daily_returns: List[float], equity_curve: List[EquityCurvePoint]) -> float:
         """计算Calmar比率"""
@@ -400,7 +401,16 @@ class PerformanceAnalyzer:
         if max_drawdown == 0:
             return 0
 
-        return float(annual_return / max_drawdown)
+        return self._bounded_ratio(annual_return / max_drawdown)
+
+    def _bounded_ratio(self, value: float, limit: float = MAX_DISPLAY_RATIO) -> float:
+        """过滤低样本或近零波动导致的非有限/极端比率。"""
+        import math
+
+        value = float(value)
+        if not math.isfinite(value) or abs(value) > limit:
+            return 0
+        return value
 
     def _calc_win_rate(self, trades: List[PaperTrade]) -> float:
         """计算胜率"""

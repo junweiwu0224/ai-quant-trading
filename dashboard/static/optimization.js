@@ -34,7 +34,9 @@ Object.assign(App, {
 
             try {
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const ws = new WebSocket(`${proto}//${location.host}/api/optimization/ws/run`);
+                const rawUrl = `${proto}//${location.host}/api/optimization/ws/run`;
+                const url = (typeof App !== 'undefined' && App.withAPIKey) ? App.withAPIKey(rawUrl) : rawUrl;
+                const ws = new WebSocket(url);
                 const result = await new Promise((resolve, reject) => {
                     ws.onopen = () => ws.send(JSON.stringify(body));
                     ws.onmessage = (evt) => {

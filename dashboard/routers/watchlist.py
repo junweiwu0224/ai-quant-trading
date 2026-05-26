@@ -2,17 +2,37 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 """自选股管理 API"""
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 from pydantic import BaseModel
 
 from data.storage.storage import DataStorage, _normalize_storage_code
 from data.collector.quote_service import get_quote_service
-from data.collector.http_client import fetch_industry_batch
+from data.providers.astock_data_adapter import fetch_industry_batch
+from dashboard.session import optional_account
+from dashboard.session import current_account
 
 router = APIRouter()
 storage = DataStorage()
+
+
+def _quote_payload(quote):
+    if not quote:
+        return {
+            "price": None,
+            "change_pct": None,
+            "industry": "",
+            "sector": "",
+            "concepts": [],
+        }
+    return {
+        "price": quote.price,
+        "change_pct": quote.change_pct,
+        "industry": quote.industry or "",
+        "sector": quote.sector or "",
+        "concepts": quote.concepts.split(",") if quote.concepts else [],
+    }
 
 
 class AddWatchlistRequest(BaseModel):
@@ -20,9 +40,10 @@ class AddWatchlistRequest(BaseModel):
 
 
 @router.get("")
-async def get_watchlist():
+async def get_watchlist(account: dict | None = Depends(optional_account)):
     """获取自选股列表（含名称、行业、最新价、数据日期、概念、板块）"""
-    stocks = storage.get_watchlist_with_info()
+    workspace_id = account["workspace"]["id"] if account else ""
+    stocks = storage.get_watchlist_with_info(workspace_id)
 
     # 对行业为空的股票，从东方财富 F10 API 补充行业/板块/概念数据
     empty_codes = [s["code"] for s in stocks if not s.get("industry")]
@@ -80,7 +101,7 @@ async def get_watchlist():
 
 
 @router.post("")
-async def add_to_watchlist(req: AddWatchlistRequest):
+async def add_to_watchlist(req: AddWatchlistRequest, account: dict | None = Depends(optional_account)):
     """添加自选股"""
     raw_code = req.code.strip()
     if not raw_code:
@@ -113,7 +134,8 @@ async def add_to_watchlist(req: AddWatchlistRequest):
         storage.save_stock_info(match)
         stock_list = storage.get_stock_list()
 
-    added = storage.add_to_watchlist(code)
+    workspace_id = account["workspace"]["id"] if account else ""
+    added = storage.add_to_watchlist(code, workspace_id)
 
     stock_list = storage.get_stock_list()
     stock_name = ""
@@ -123,16 +145,16 @@ async def add_to_watchlist(req: AddWatchlistRequest):
             stock_name = match.iloc[0].get("name", "")
     quote = None
     try:
-        quote = get_quote_service().get_quote(code)
+        quote = get_quote_service().get_or_fetch_quote(code)
     except Exception as e:
         logger.warning(f"获取股票 {code} 实时行情失败: {e}")
+    quote_data = _quote_payload(quote)
 
     if not added:
         return {
             "success": True, "message": "已在自选股中", "code": code,
             "name": stock_name,
-            "price": quote.price if quote else None,
-            "change_pct": quote.change_pct if quote else None,
+            **quote_data,
         }
 
     try:
@@ -159,19 +181,23 @@ async def add_to_watchlist(req: AddWatchlistRequest):
     return {
         "success": True, "message": "添加成功", "code": code,
         "name": stock_name,
-        "price": quote.price if quote else None,
-        "change_pct": quote.change_pct if quote else None,
+        **quote_data,
     }
 
 
 @router.delete("/{code}")
-async def remove_from_watchlist(code: str):
+async def remove_from_watchlist(code: str, account: dict | None = Depends(optional_account)):
     """删除自选股"""
     _, plain_code = _normalize_storage_code(code)
     if not plain_code:
         raise HTTPException(400, "股票代码格式非法")
 
-    removed = storage.remove_from_watchlist(plain_code)
+    workspace_id = account["workspace"]["id"] if account else ""
+    removed = (
+        storage.remove_from_watchlist(plain_code, workspace_id)
+        if workspace_id
+        else storage.remove_from_watchlist(plain_code)
+    )
     if not removed:
         raise HTTPException(404, f"自选股 {plain_code} 不存在")
 
@@ -184,13 +210,14 @@ async def remove_from_watchlist(code: str):
 
 
 @router.post("/sync")
-async def sync_watchlist():
+async def sync_watchlist(account: dict | None = Depends(optional_account)):
     """手动触发自选股数据同步"""
     from datetime import datetime
     from data.collector import StockCollector
     from loguru import logger
 
-    codes = storage.get_watchlist()
+    workspace_id = account["workspace"]["id"] if account else ""
+    codes = storage.get_watchlist(workspace_id)
     if not codes:
         return {"message": "自选股为空", "synced": 0}
 

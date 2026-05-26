@@ -1,6 +1,17 @@
 const { test, expect } = require('@playwright/test');
 
 const TEST_STOCK_CODE = '600519';
+const TEST_INVITE_CODE = process.env.PLAYWRIGHT_INVITE_CODE || 'LOCAL1';
+const TEST_PASSWORD = 'Playwright123!';
+
+function getCookieDomain() {
+    try {
+        const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8001';
+        return new URL(baseUrl).hostname || '127.0.0.1';
+    } catch {
+        return '127.0.0.1';
+    }
+}
 
 async function waitForAppReady(page) {
     await expect(page.locator('body')).toBeVisible();
@@ -20,7 +31,47 @@ async function waitForAppReady(page) {
     });
 }
 
+async function ensureAuthenticated(page, usernameSuffix = Date.now()) {
+    const username = `pw_${usernameSuffix}`.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 32);
+    const cookieDomain = getCookieDomain();
+    const payload = {
+        username,
+        password: TEST_PASSWORD,
+        invite_code: TEST_INVITE_CODE,
+        display_name: username,
+        email: null,
+    };
+    const auth = await page.request.post('/api/account/register', { data: payload });
+    if (!auth.ok()) {
+        const login = await page.request.post('/api/account/login', {
+            data: { username: 'pw_shell', password: TEST_PASSWORD },
+        });
+        expect(login.ok()).toBeTruthy();
+        const sessionCookie = login.headers()['set-cookie'] || '';
+        await page.context().addCookies([{
+            name: 'quant_session',
+            value: sessionCookie.match(/quant_session=([^;]+)/)?.[1] || '',
+            domain: cookieDomain,
+            path: '/',
+            httpOnly: true,
+            sameSite: 'Lax',
+        }]);
+        return username;
+    }
+    const sessionCookie = auth.headers()['set-cookie'] || '';
+    await page.context().addCookies([{
+        name: 'quant_session',
+        value: sessionCookie.match(/quant_session=([^;]+)/)?.[1] || '',
+        domain: cookieDomain,
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Lax',
+    }]);
+    return username;
+}
+
 test('V2.1 shell loads and command palette opens', async ({ page }) => {
+    await ensureAuthenticated(page, 'shell');
     const response = await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     await waitForAppReady(page);
@@ -52,6 +103,7 @@ test('V2.1 shell loads and command palette opens', async ({ page }) => {
 });
 
 test('V2.1 stock action contracts are invokable without writes', async ({ page }) => {
+    await ensureAuthenticated(page, 'stock_actions');
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
 
@@ -98,7 +150,46 @@ test('V2.1 stock action contracts are invokable without writes', async ({ page }
     expect(result.activeStockCode).toBe(TEST_STOCK_CODE);
 });
 
+test('V2.1 stock hash restores a concrete stock detail on refresh', async ({ page }) => {
+    await ensureAuthenticated(page, 'stock_refresh');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await page.evaluate(async (code) => {
+        await window.App.openStockDetail(code, {
+            source: 'playwright:v2-stock-refresh',
+            preferDirectOpen: true,
+        });
+    }, TEST_STOCK_CODE);
+
+    await expect(page).toHaveURL(/#stock$/);
+    await expect(page.locator('#sd-code')).toHaveText(TEST_STOCK_CODE);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await expect(page).toHaveURL(/#stock$/);
+    await expect(page.locator('#tab-stock')).toBeVisible();
+    await expect(page.locator('#sd-code')).toHaveText(TEST_STOCK_CODE);
+
+    const restored = await page.evaluate(() => ({
+        currentTab: window.App.currentTab,
+        researchContext: window.App.getContext('research'),
+        valuationPanel: {
+            code: document.getElementById('research-panel-valuation')?.dataset?.activeStockCode || '',
+            name: document.getElementById('research-panel-valuation')?.dataset?.activeStockName || '',
+        },
+        savedCode: window.sessionStorage.getItem('last_stock_code'),
+    }));
+
+    expect(restored.currentTab).toBe('stock');
+    expect(restored.researchContext?.activeStock?.code || restored.valuationPanel.code).toBe(TEST_STOCK_CODE);
+    expect(restored.valuationPanel.code).toBe(TEST_STOCK_CODE);
+    expect(restored.savedCode).toBe(TEST_STOCK_CODE);
+});
+
 test('V2.1 conditional order section is available without writes', async ({ page }) => {
+    await ensureAuthenticated(page, 'orders');
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
 
@@ -109,6 +200,7 @@ test('V2.1 conditional order section is available without writes', async ({ page
 });
 
 test('V2.1 right rail offcanvas switches stock context without lifecycle residue', async ({ page }) => {
+    await ensureAuthenticated(page, 'rail');
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
 
@@ -214,4 +306,41 @@ test('V2.1 right rail offcanvas switches stock context without lifecycle residue
     expect(result.closed.lifecycleInstanceActive).toBeFalsy();
     expect(result.closed.domActive).toBeFalsy();
     expect(result.closed.ariaHidden).toBe('true');
+});
+
+test('A-Stock valuation center surfaces ledger metadata across research and detail views', async ({ page }) => {
+    await ensureAuthenticated(page, 'valuation_ledger');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await page.evaluate(() => window.App.switchTab('research'));
+    await expect(page.locator('.research-sub-tab[data-subtab="valuation"]')).toBeVisible();
+    await page.locator('.research-sub-tab[data-subtab="valuation"]').click();
+    await page.waitForFunction(() => Boolean(window.ResearchValuation));
+    await page.evaluate(() => {
+        globalThis.ResearchValuation?.addCode?.({ code: '600519', name: '贵州茅台' });
+    });
+
+    await expect.poll(async () => page.evaluate(() => window.App.getContext('research'))).toMatchObject({
+        type: 'research',
+        activeSubtab: 'valuation',
+        activeStock: { code: TEST_STOCK_CODE },
+    });
+    await expect(page.locator('#research-panel-valuation')).toHaveAttribute('data-active-stock-code', TEST_STOCK_CODE);
+    await expect(page.locator('#valuation-detail')).toContainText('来源', { timeout: 20_000 });
+
+    await page.locator('.research-sub-tab[data-subtab="datahub"]').click();
+    await page.waitForFunction(() => Boolean(window.ResearchDataHub));
+    await page.evaluate(() => {
+        globalThis.ResearchDataHub?._addCode?.({ code: '600519', name: '贵州茅台' });
+    });
+    await expect(page.locator('#datahub-source-health')).toContainText(/在线|--/);
+    await expect(page.locator('#datahub-quality-summary')).toBeVisible();
+
+    await page.evaluate(() => window.App.switchTab('stock'));
+    await page.waitForFunction(() => Boolean(window.StockDetail));
+    await page.evaluate(async () => {
+        await window.App.openStockDetail('600519', { source: 'playwright:valuation-ledger' });
+    });
+    await expect(page.locator('#sd-valuation-snapshot')).toContainText('估值源');
 });

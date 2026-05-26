@@ -22,10 +22,10 @@ def get_llm_client() -> AsyncOpenAI:
     if _client is None:
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY 未配置，请在 .env 或环境变量中设置")
-        _client = AsyncOpenAI(
-            api_key=OPENAI_API_KEY,
-            base_url=OPENAI_BASE_URL,
-        )
+        kwargs = {"api_key": OPENAI_API_KEY}
+        if OPENAI_BASE_URL:
+            kwargs["base_url"] = OPENAI_BASE_URL
+        _client = AsyncOpenAI(**kwargs)
     return _client
 
 

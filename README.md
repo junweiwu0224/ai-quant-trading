@@ -30,7 +30,7 @@
 | **风控模块** | 单票仓位上限、行业集中度、最大回撤止损、日亏损限额、ATR 止损、跟踪止损 |
 | **模拟盘** | PaperEngine 模拟盘、市价/限价/止损/止盈单、实时行情接入、Dashboard 控制面板 |
 | **持仓管理** | 持仓监控、风险指标（VaR/Sharpe/Sortino/Calmar）、行业分布、相关性矩阵、导出 |
-| **LLM 集成** | gpt-5.5 大模型、自然语言策略生成、AI 结果解读、流式对话 |
+| **LLM 集成** | OpenAI 兼容大模型、自然语言策略生成、AI 结果解读、流式对话 |
 | **多股对比** | 最多 5 只股票归一化收益率对比，支持缩放/滚动/区间标注 |
 | **画线工具** | 趋势线/水平线/斐波那契回撤线，保存/加载/删除 |
 | **多周期切换** | 1m/5m/15m/30m/60m/日/周/月 K 线 |
@@ -62,12 +62,13 @@
 | L2 十档行情 | QMT/PTrade | 骨架完成：OrderBook 模型与模拟器已实现；真实 L2 数据源待接入 |
 | 实盘交易 | QMT/PTrade | 桩代码完成：BrokerGateway、CTP/XTP 接口骨架已实现；真实券商 SDK 尚未接入 |
 
-### 当前验收基线
+### 当前验收方式
 
 | 检查项 | 命令 | 结果 |
 |-------|------|------|
-| 后端/API/核心测试 | `PYTHONPATH=/home/ubuntu/quant-trading-system /home/ubuntu/quant-trading-system/.venv/bin/python -m pytest -q /home/ubuntu/quant-trading-system/tests` | 通过：195 passed, 1 warning |
-| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm --prefix /home/ubuntu/quant-trading-system run e2e:docker` | 通过：4 passed |
+| 后端/API/核心测试 | `python -m pytest -q` | 需先安装 `requirements.txt` |
+| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm run e2e` | 需先启动 Dashboard |
+| 语法检查 | `python -m compileall -q .` | 快速发现 Python 语法错误 |
 
 ## 技术栈
 
@@ -79,7 +80,7 @@
 | 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
 | 数据库 | SQLite |
 | AI/ML | LightGBM, XGBoost, Optuna, SHAP |
-| NLP | SnowNLP, gpt-5.5 (LLM) |
+| NLP | SnowNLP, OpenAI-compatible LLM |
 | Web 框架 | FastAPI + Jinja2 |
 | 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
 | 任务调度 | APScheduler |
@@ -92,11 +93,29 @@
 git clone https://github.com/junweiwu0224/ai-quant-trading.git
 cd ai-quant-trading
 
+# 配置环境变量（可选，但公网部署时建议设置 QUANT_SYSTEM_API_KEY）
+cp .env.example .env
+
 # Docker 部署
 docker compose up -d
 
 # 访问
 open http://localhost:8001
+```
+
+如果设置了 `QUANT_SYSTEM_API_KEY`，HTTP API 需要携带 `X-API-Key`，WebSocket 需要通过 `X-API-Key`、`Authorization: Bearer ...` 或 `?api_key=...` 传入密钥。浏览器端可在控制台执行：
+
+```js
+localStorage.setItem('quant_api_key', 'your-api-key')
+```
+
+本地开发也可以不用 Docker：
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+python scripts/run_dashboard.py --port 8001
 ```
 
 ## 项目结构
@@ -110,7 +129,6 @@ quant-trading-system/
 ├── strategy/                # 策略层（内置策略 + 管理器 + 版本管理）
 ├── alpha/                   # AI Alpha 层
 │   ├── factors/             # 因子库（技术/基本面/资金流/情绪/宏观）
-│   ├── models/              # 模型（LightGBM/XGBoost/Ensemble）
 │   ├── feature_pipeline.py  # 特征工程管道
 │   ├── cross_sectional.py   # 跨截面选股模型
 │   ├── backtest.py          # 组合回测引擎
@@ -129,6 +147,12 @@ quant-trading-system/
 ```
 
 详见 [架构设计文档](docs/ARCHITECTURE.md)
+
+## 安全说明
+
+- 自定义策略代码会经过 AST 白名单校验，但仍然会在 Python 进程内执行。不要在公网环境开放给不可信用户。
+- CTP/XTP 网关目前是接口骨架/桩实现，真实下单前必须接入券商 SDK、完成权限隔离和风控验收。
+- 生产部署建议设置 `QUANT_SYSTEM_API_KEY`，并通过反向代理启用 HTTPS。
 
 ## License
 

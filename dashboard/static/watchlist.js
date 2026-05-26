@@ -26,13 +26,13 @@ const Watchlist = {
                         return this._stockListCache;
                     }
                     const results = await App.fetchJSON('/api/stock/search?q=&limit=6000');
-                    this._stockListCache = results || [];
+                    this._stockListCache = Utils.normalizeStockSearchResults(results);
                     this._stockListCacheTime = now;
                     return this._stockListCache;
                 }
                 // 有关键词：实时搜索
                 const results = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`);
-                return results || [];
+                return Utils.normalizeStockSearchResults(results);
             } catch (e) {
                 console.error('搜索失败:', e);
                 return [];
@@ -54,9 +54,26 @@ const Watchlist = {
 
     /** 设置已选中的自选股（从后端加载后调用，需要 stockCache） */
     setSelected(codes) {
-        this._watchlistCodes = new Set(codes);
-        if (!this._multiSearch || !App.stockCache) return;
-        const items = App.stockCache.filter(s => this._watchlistCodes.has(s.code));
+        const codeList = Array.isArray(codes)
+            ? codes.map((item) => {
+                if (typeof item === 'string') {
+                    return item.trim();
+                }
+                if (item && typeof item === 'object' && typeof item.code === 'string') {
+                    return item.code.trim();
+                }
+                return String(item?.code ?? '').trim();
+            }).filter(Boolean)
+            : [];
+        this._watchlistCodes = new Set(codeList);
+        if (!this._multiSearch) return;
+        const source = Array.isArray(App.stockCache)
+            ? App.stockCache
+            : Array.isArray(App.watchlistCache)
+                ? App.watchlistCache
+                : [];
+        if (source.length === 0) return;
+        const items = source.filter(s => this._watchlistCodes.has(s.code));
         this._multiSearch.setSelected(items);
     },
 
@@ -143,6 +160,7 @@ const Watchlist = {
         const hintEl = document.getElementById('ov-stock-hint');
         if (!stockBody) return;
 
+        this._ensureTableShape();
         const list = Array.isArray(stocks) ? stocks : [];
         this._lastData = list;
         this._bindSortHeaders();
@@ -150,9 +168,31 @@ const Watchlist = {
         App._watchlistRowMap = null; // 重建索引
     },
 
+    _ensureTableShape() {
+        const table = document.getElementById('ov-stocks-table');
+        const headerRow = table?.querySelector('thead tr');
+        if (!headerRow) return;
+
+        const headers = [...headerRow.children].map(th => th.textContent.trim());
+        if (!headers.includes('概念')) {
+            const conceptTh = document.createElement('th');
+            conceptTh.textContent = '概念';
+            const priceTh = [...headerRow.children].find(th => th.textContent.trim() === '最新价');
+            headerRow.insertBefore(conceptTh, priceTh || null);
+        }
+
+        table.querySelectorAll('tbody tr').forEach(row => {
+            const singleCell = row.cells?.length === 1 ? row.cells[0] : null;
+            if (singleCell && singleCell.hasAttribute('colspan')) {
+                singleCell.colSpan = headerRow.children.length;
+            }
+        });
+    },
+
     _bindSortHeaders() {
         const table = document.getElementById('ov-stocks-table');
         if (!table || table._sortBound) return;
+        this._ensureTableShape();
         table._sortBound = true;
         const headers = table.querySelectorAll('thead th');
         const sortMap = { 5: 'price', 6: 'change_pct' };
@@ -216,26 +256,48 @@ const Watchlist = {
                 const rt = RealtimeQuotes.getQuote(s.code);
                 const price = rt ? rt.price : (s.price || s.latest_price || null);
                 const changePct = rt ? rt.change_pct : (s.change_pct != null ? s.change_pct : null);
-                const industry = rt ? (rt.industry || '') : (s.industry || '');
-                const sector = rt ? (rt.sector || '') : (s.sector || '');
-                const priceStr = price ? '¥' + Number(price).toFixed(2) : '--';
+                const name = (rt && rt.name && rt.name !== '--') ? rt.name : (s.name || s.code);
+                const industry = rt ? (rt.industry || s.industry || '') : (s.industry || '');
+                const sector = rt ? (rt.sector || s.sector || '') : (s.sector || '');
+                const concepts = rt ? (rt.concepts || []) : (s.concepts || []);
+                const priceNum = Number(price);
+                const priceStr = Number.isFinite(priceNum) && priceNum > 0 ? '¥' + priceNum.toFixed(2) : '--';
                 const changeStr = changePct != null
-                    ? `<span class="change-pct">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</span>`
+                    ? `<span class="change-pct">${Number(changePct) >= 0 ? '+' : ''}${Number(changePct).toFixed(2)}%</span>`
                     : '';
                 const changeClass = changePct != null ? (changePct >= 0 ? 'text-up' : 'text-down') : '';
                 return `
                 <tr>
                     <td>${App.escapeHTML(s.code)}</td>
-                    <td><a href="#stock" class="stock-link" data-code="${App.escapeHTML(s.code)}">${App.escapeHTML(s.name) || '--'}</a></td>
+                    <td><a href="#stock" class="stock-link" data-code="${App.escapeHTML(s.code)}">${App.escapeHTML(name) || '--'}</a></td>
                     <td>${App.escapeHTML(industry) || '--'}</td>
                     <td>${App.escapeHTML(sector) || '--'}</td>
+                    <td>${this._renderConcepts(concepts)}</td>
                     <td class="${changeClass}">${priceStr}</td>
                     <td class="${changeClass}">${changeStr}</td>
                 </tr>`;
             }).join('');
         } else {
             if (hintEl) hintEl.textContent = '';
-            stockBody.innerHTML = '<tr><td colspan="6" class="text-muted">暂无自选股，使用上方搜索框添加</td></tr>';
+            stockBody.innerHTML = '<tr><td colspan="7" class="text-muted">暂无自选股，使用上方搜索框添加</td></tr>';
         }
+    },
+
+    _renderConcepts(concepts) {
+        let list = concepts;
+        if (typeof list === 'string') {
+            list = list.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
+        }
+        if (!Array.isArray(list)) return '--';
+        const clean = list
+            .flatMap(item => String(item || '').split(/[,，、]/))
+            .map(item => item.trim())
+            .filter(Boolean);
+        if (clean.length === 0) return '--';
+        const visible = clean.slice(0, 3).map(item => `<span class="watchlist-concept-tag">${App.escapeHTML(item)}</span>`).join('');
+        const extra = clean.length > 3
+            ? `<span class="text-muted" title="${App.escapeHTML(clean.join('、'))}">+${clean.length - 3}</span>`
+            : '';
+        return `<div class="watchlist-concepts">${visible}${extra}</div>`;
     },
 };

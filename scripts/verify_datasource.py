@@ -78,7 +78,7 @@ def test_kline(mode: str):
     import config.settings
     importlib.reload(config.settings)
 
-    from data.collector.http_client import fetch_kline
+    from data.providers.astock_data_adapter import fetch_kline
 
     print(f"\n{'='*60}")
     print(f"K线测试 ({mode} 模式)")

@@ -1,0 +1,52 @@
+<h2>先定位：哪些数据显示最不正常？</h2>
+<p class="subtitle">可以点一个或多个区域；也可以直接在对话里说具体页面、字段或截图里的现象。</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="realtime" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>实时行情 / 盘口 / K 线</h3>
+      <p>价格、涨跌幅、成交量、K 线、分时、五档或十档行情显示异常。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="overview" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>首页概览 / 市场雷达</h3>
+      <p>指数、板块热力图、北向资金、涨跌榜、市场统计或刷新状态不正常。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="portfolio" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>持仓 / 模拟交易 / 账户</h3>
+      <p>现金、持仓、市值、盈亏、交易记录、风控指标或订单状态不正常。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="research" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>研发 / 回测 / AI Alpha</h3>
+      <p>回测收益、因子、选股、策略参数、模型推荐、SHAP 或报告数据异常。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="watchlist" onclick="toggleSelect(this)">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>自选股 / 个股详情</h3>
+      <p>自选列表、个股基本面、估值、研报、龙虎榜、多周期共振或筹码分布异常。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="global-format" onclick="toggleSelect(this)">
+    <div class="letter">F</div>
+    <div class="content">
+      <h3>全局格式问题</h3>
+      <p>大量字段显示 NaN、undefined、0、空白、旧数据、百分比/金额单位错误或红绿方向反了。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我下一步会怎么查</h3>
+  <p>先复现一个最明显页面，再沿着“前端渲染 -> API 响应 -> 服务层计算 -> 数据源/缓存”追踪，不会直接猜修。</p>
+</div>

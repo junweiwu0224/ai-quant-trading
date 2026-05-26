@@ -10,22 +10,63 @@ from fastapi.templating import Jinja2Templates
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
-BASE_DIR = Path(__file__).resolve().parent
+from dashboard.auth import api_key_enabled, is_valid_api_key, request_api_key
+from dashboard.account_store import account_store
 
-# ── API 认证中间件（仅对 HTTP 请求生效，不影响 WebSocket）──
-_QUANT_API_KEY = os.environ.get("QUANT_SYSTEM_API_KEY", "")
+BASE_DIR = Path(__file__).resolve().parent
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
-    """HTTP-only API Key 校验，WebSocket 请求自动跳过"""
+    """HTTP API Key 校验。WebSocket 在各端点握手前校验。"""
 
     async def dispatch(self, request: Request, call_next):
-        if _QUANT_API_KEY:
-            key = request.headers.get("X-API-Key", "")
-            if key != _QUANT_API_KEY:
-                return Response(content='{"detail":"无效的 API Key"}', status_code=401,
-                                media_type="application/json")
+        if request.url.path in ("/", "/favicon.ico", "/sw.js") or request.url.path.startswith("/static/"):
+            return await call_next(request)
+        if request.url.path.startswith("/api/account/"):
+            return await call_next(request)
+        if request.cookies.get("quant_session"):
+            return await call_next(request)
+        if not is_valid_api_key(request_api_key(request)):
+            return Response(
+                content='{"detail":"无效的 API Key"}',
+                status_code=401,
+                media_type="application/json",
+            )
         return await call_next(request)
+
+
+class SessionGateMiddleware(BaseHTTPMiddleware):
+    """Require login for all app APIs except account bootstrap endpoints."""
+
+    _allowed_paths = {
+        "/",
+        "/favicon.ico",
+        "/sw.js",
+        "/api/account/me",
+        "/api/account/login",
+        "/api/account/register",
+        "/api/account/logout",
+    }
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if os.environ.get("APP_ENV") == "test":
+            return await call_next(request)
+        if path in self._allowed_paths or path.startswith("/static/"):
+            return await call_next(request)
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        if api_key_enabled() and is_valid_api_key(request_api_key(request)):
+            return await call_next(request)
+        if request.cookies.get("quant_session"):
+            token = request.cookies.get("quant_session") or ""
+            if account_store.get_user_by_session(token):
+                return await call_next(request)
+        return Response(
+            content='{"detail":"请先登录"}',
+            status_code=401,
+            media_type="application/json",
+        )
 
 
 # ── 生命周期：启动/停止后台调度器 ──
@@ -34,6 +75,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     from data.scheduler import DataScheduler
     from data.collector.quote_service import get_quote_service
+    from dashboard.openclaw_service import openclaw_service_manager
 
     scheduler = DataScheduler()
     quote_service = get_quote_service(interval=1.0)
@@ -59,8 +101,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"行情服务启动失败: {e}")
 
+    try:
+        status = await openclaw_service_manager.ensure_started()
+        logger.info(f"OpenClaw 托管状态: {status.get('state')} {status.get('gateway_url')}")
+    except Exception as e:
+        logger.warning(f"OpenClaw 托管启动失败: {e}")
+
     yield
 
+    await openclaw_service_manager.shutdown()
     quote_service.stop()
     scheduler.stop()
 
@@ -71,8 +120,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# API 认证（HTTP-only 中间件，不影响 WebSocket）
-if _QUANT_API_KEY:
+# 登录门
+app.add_middleware(SessionGateMiddleware)
+
+# API 认证
+if api_key_enabled():
     app.add_middleware(APIKeyMiddleware)
 
 # CORS — 生产环境只允许 HTTPS，开发环境允许 localhost
@@ -114,11 +166,12 @@ async def favicon():
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402
-    alerts, alpha, backtest, broker_config, conditional_orders, factor, llm, market, market_rules, optimization, paper_control,
+    account, alerts, alpha, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, openclaw, optimization, paper_control,
     paper_trading, portfolio, portfolio_opt, qlib, realtime_quotes, screener, stock_detail, strategy,
-    strategy_version, system, watchlist,
+    strategy_version, system, valuation, watchlist,
 )
 
+app.include_router(account.router, prefix="/api/account", tags=["用户与工作区"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["回测"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["持仓"])
 app.include_router(system.router, prefix="/api/system", tags=["系统"])
@@ -133,7 +186,10 @@ app.include_router(stock_detail.router, prefix="/api/stock", tags=["股票详情
 app.include_router(optimization.router, prefix="/api/optimization", tags=["参数优化"])
 app.include_router(strategy_version.router, prefix="/api/strategy-version", tags=["策略版本管理"])
 app.include_router(llm.router, prefix="/api/llm", tags=["AI 助手"])
+app.include_router(openclaw.router, prefix="/api/openclaw", tags=["OpenClaw"])
 app.include_router(screener.router, prefix="/api/screener", tags=["条件选股"])
+app.include_router(valuation.router, prefix="/api/valuation", tags=["估值数据中心"])
+app.include_router(datahub.router, prefix="/api/datahub", tags=["数据底座"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["预警管理"])
 app.include_router(conditional_orders.router, prefix="/api/conditional-orders", tags=["条件单"])
 app.include_router(market.router, prefix="/api/market", tags=["市场雷达"])

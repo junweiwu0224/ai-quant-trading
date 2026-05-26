@@ -9,13 +9,16 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "e2e": "playwright test --config=playwright.config.cjs tests/e2e/v2-smoke.spec.cjs",
+    "e2e": "playwright test --config=playwright.config.cjs tests/e2e/v2-smoke.spec.cjs tests/e2e/openclaw.spec.cjs",
     "e2e:data-health": "playwright test --config=playwright.config.cjs tests/e2e/data-display-health.spec.cjs",
     "e2e:docker": "bash scripts/e2e.sh"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
+  "dependencies": {
+    "openclaw": "2026.5.20"
+  },
   "devDependencies": {
     "@playwright/test": "1.60.0"
   }

@@ -84,6 +84,25 @@ const Utils = {
         };
     },
 
+    /** 统一股票搜索响应形状：兼容数组和 {results/data/items/list} 包装对象 */
+    normalizeStockSearchResults(payload) {
+        const list = Array.isArray(payload)
+            ? payload
+            : payload && typeof payload === 'object'
+                ? (payload.results ?? payload.data ?? payload.items ?? payload.list)
+                : [];
+
+        if (!Array.isArray(list)) return [];
+
+        return list.filter((item) => {
+            if (!item || typeof item !== 'object') return false;
+            const code = typeof item.code === 'string'
+                ? item.code.trim()
+                : String(item.code ?? '').trim();
+            return code.length > 0;
+        });
+    },
+
     /** 复制文本到剪贴板 */
     async copyToClipboard(text) {
         try {

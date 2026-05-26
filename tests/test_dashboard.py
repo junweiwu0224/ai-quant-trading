@@ -3,6 +3,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.app import app
+from dashboard.session import current_account
+from data.storage.storage import DataStorage
 
 client = TestClient(app)
 
@@ -108,3 +110,104 @@ class TestSystemAPI:
             assert "name" in rule
             assert "threshold" in rule
             assert "status" in rule
+
+
+class TestValuationDataHubAPI:
+    def test_stock_detail_includes_source_provenance(self, monkeypatch):
+        from data.collector import quote_service
+        from data.collector.quote_service import QuoteData
+
+        class FakeQuoteService:
+            def get_quote(self, code):
+                return QuoteData(
+                    code=code,
+                    name="平安银行",
+                    price=10.0,
+                    open=9.9,
+                    high=10.2,
+                    low=9.8,
+                    pre_close=9.9,
+                    volume=1000,
+                    amount=10000,
+                    change_pct=1.01,
+                    timestamp=1.0,
+                )
+
+            def get_financial_data(self, code):
+                return None
+
+        monkeypatch.setattr(quote_service, "get_quote_service", lambda: FakeQuoteService())
+        monkeypatch.setattr("dashboard.routers.stock_detail.DATA_SOURCE_MODE", "new", raising=False)
+        monkeypatch.setattr("dashboard.routers.stock_detail.now_beijing_iso", lambda: "2026-05-24T12:00:00+08:00", raising=False)
+
+        res = client.get("/api/stock/detail/000001")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["source"] == "astock"
+        assert data["source_version"]
+        assert data["updated_at"] == "2026-05-24T12:00:00+08:00"
+
+    def test_valuation_health_endpoint_exposes_source_health(self):
+        res = client.get("/api/valuation/health")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert "source_health" in data
+        assert "quality_summary" in data
+        assert "shadow" in data
+        assert "coverage" in data
+
+    def test_datahub_health_includes_quality_summary(self):
+        res = client.get("/api/datahub/health")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert "source_health" in data
+        assert "quality_summary" in data
+        assert "shadow" in data
+        assert "valuation" in data
+        assert "quote" in data
+
+    def test_datahub_decision_matrix_includes_snapshot_metadata(self, monkeypatch):
+        storage = DataStorage()
+        storage.save_data_snapshot(
+            "000001",
+            "valuation",
+            "astock",
+            "v-test",
+            {"peg_next_year": 0.88},
+            quality_status="warn",
+        )
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        item = res.json()["items"][0]
+        assert item["source"] == "astock"
+        assert item["source_version"] == "v-test"
+        assert item["quality_status"] == "warn"
+        assert item["snapshot_at"]
+
+    def test_datahub_decision_matrix_summary_includes_ledger_health(self, monkeypatch):
+        storage = DataStorage()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        summary = res.json()["summary"]
+        assert "source_health" in summary
+        assert "quality_summary" in summary
+        assert "shadow" in summary

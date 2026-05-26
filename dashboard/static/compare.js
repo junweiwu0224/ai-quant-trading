@@ -42,17 +42,21 @@
         _multiSearch.setDataSource(async (q) => {
             if (!q) {
                 // 无搜索词时显示自选股 + 缓存的全量列表
-                const watchlist = App.watchlistCache || [];
+                const watchlist = Utils.normalizeStockSearchResults(App.watchlistCache || []);
                 if (watchlist.length > 0) return watchlist;
                 // 尝试获取全量列表
                 try {
-                    return await App.fetchJSON('/api/stock/search?limit=200', { silent: true });
+                    return Utils.normalizeStockSearchResults(
+                        await App.fetchJSON('/api/stock/search?limit=200', { silent: true })
+                    );
                 } catch {
                     return [];
                 }
             }
             try {
-                return await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`, { silent: true });
+                return Utils.normalizeStockSearchResults(
+                    await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`, { silent: true })
+                );
             } catch {
                 return [];
             }

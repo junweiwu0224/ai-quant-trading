@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
 from alpha import nl_strategy
+from dashboard.session import optional_account
 
 router = APIRouter()
 
@@ -272,38 +273,42 @@ class ConversationSaveRequest(BaseModel):
 
 
 @router.get("/conversations")
-async def list_conversations():
+async def list_conversations(account: dict | None = Depends(optional_account)):
     """获取对话列表"""
     from data.storage.storage import DataStorage
     storage = DataStorage()
-    return storage.list_conversations()
+    workspace_id = account["workspace"]["id"] if account else ""
+    return storage.list_conversations(workspace_id=workspace_id)
 
 
 @router.get("/conversations/{conv_id}")
-async def get_conversation(conv_id: str):
+async def get_conversation(conv_id: str, account: dict | None = Depends(optional_account)):
     """获取单个对话"""
     from data.storage.storage import DataStorage
     storage = DataStorage()
-    conv = storage.get_conversation(conv_id)
+    workspace_id = account["workspace"]["id"] if account else ""
+    conv = storage.get_conversation(conv_id, workspace_id=workspace_id)
     if not conv:
         return {"success": False, "error": "对话不存在"}
     return {"success": True, "data": conv}
 
 
 @router.post("/conversations")
-async def save_conversation(req: ConversationSaveRequest):
+async def save_conversation(req: ConversationSaveRequest, account: dict | None = Depends(optional_account)):
     """保存对话"""
     from data.storage.storage import DataStorage
     storage = DataStorage()
+    workspace_id = account["workspace"]["id"] if account else ""
     msgs = [{"role": m.role, "content": m.content} for m in req.messages]
-    storage.save_conversation(req.id, req.title, msgs)
+    storage.save_conversation(req.id, req.title, msgs, workspace_id=workspace_id)
     return {"success": True}
 
 
 @router.delete("/conversations/{conv_id}")
-async def delete_conversation(conv_id: str):
+async def delete_conversation(conv_id: str, account: dict | None = Depends(optional_account)):
     """删除对话"""
     from data.storage.storage import DataStorage
     storage = DataStorage()
-    ok = storage.delete_conversation(conv_id)
+    workspace_id = account["workspace"]["id"] if account else ""
+    ok = storage.delete_conversation(conv_id, workspace_id=workspace_id)
     return {"success": ok}

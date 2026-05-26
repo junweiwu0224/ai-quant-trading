@@ -7,6 +7,8 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from dashboard.auth import close_unauthorized_websocket, is_valid_api_key, websocket_api_key
+from dashboard.session import optional_websocket_account
 from data.collector.quote_service import get_quote_service, QuoteData
 
 router = APIRouter()
@@ -162,6 +164,13 @@ async def websocket_quotes(ws: WebSocket):
     - {"action": "unsubscribe", "codes": ["002297"]}
     - {"action": "ping"}
     """
+    if not is_valid_api_key(websocket_api_key(ws)):
+        await close_unauthorized_websocket(ws)
+        return
+    if not await optional_websocket_account(ws):
+        await ws.close(code=1008, reason="请先登录")
+        return
+
     await ws.accept()
     async with _ws_lock:
         if len(_active_connections) >= 100:
@@ -276,6 +285,13 @@ async def websocket_l2(ws: WebSocket):
     - {"type": "l2", "data": {OrderBook.to_dict()}}
     - {"type": "pong"}
     """
+    if not is_valid_api_key(websocket_api_key(ws)):
+        await close_unauthorized_websocket(ws)
+        return
+    if not await optional_websocket_account(ws):
+        await ws.close(code=1008, reason="请先登录")
+        return
+
     await ws.accept()
     from engine.order_book import get_l2_simulator
     simulator = get_l2_simulator()

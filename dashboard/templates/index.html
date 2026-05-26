@@ -8,11 +8,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="AI Quant">
+    <script>
+        window.__AUTH_GATE_REQUIRED__ = true;
+        document.documentElement.classList.add('auth-required');
+    </script>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=12">
-    <link rel="stylesheet" href="/static/paper-trading.css?v=1">
+    <link rel="stylesheet" href="/static/style.css?v=36">
+    <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
 </head>
@@ -50,6 +54,10 @@
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg></span>
                 <span class="nav-text">研发</span>
             </a></li>
+            <li><a href="#openclaw" class="nav-link" data-tab="openclaw" role="tab" id="nav-openclaw" aria-selected="false" aria-controls="tab-openclaw">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 00-4 4v3H6a4 4 0 00-4 4v1a4 4 0 004 4h1.2c.35 1.73 1.9 3 3.8 3h2c1.9 0 3.45-1.27 3.8-3H18a4 4 0 004-4v-1a4 4 0 00-4-4h-2V6a4 4 0 00-4-4zm-2 7V6a2 2 0 114 0v3h-4zm-2 5.2A1.8 1.8 0 116 12.4a1.8 1.8 0 014 0v1.8zm8 0a1.8 1.8 0 11-3.6 0v-1.8a1.8 1.8 0 113.6 0v1.8z"/></svg></span>
+                <span class="nav-text">龙虾</span>
+            </a></li>
             <li><a href="#trade" class="nav-link" data-tab="trade" role="tab" id="nav-trade" aria-selected="false" aria-controls="tab-trade">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
                 <span class="nav-text">交易</span>
@@ -57,6 +65,10 @@
             <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/><circle cx="12" cy="12" r="3"/></svg></span>
                 <span class="nav-text">模拟盘</span>
+            </a></li>
+            <li><a href="#strategy-admin" class="nav-link" data-tab="strategy-admin" role="tab" id="nav-strategy" aria-selected="false" aria-controls="tab-strategy">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 5H6V6h12v2zm0 5H6v-2h12v2zm-5 5H6v-2h7v2z"/></svg></span>
+                <span class="nav-text">策略</span>
             </a></li>
         </ul>
     </nav>
@@ -76,6 +88,10 @@
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg></span>
                 <span>研发</span>
             </a></li>
+            <li><a href="#openclaw" class="nav-link" data-tab="openclaw" role="tab" id="m-nav-openclaw" aria-selected="false" aria-controls="tab-openclaw">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 00-4 4v3H6a4 4 0 00-4 4v1a4 4 0 004 4h1.2c.35 1.73 1.9 3 3.8 3h2c1.9 0 3.45-1.27 3.8-3H18a4 4 0 004-4v-1a4 4 0 00-4-4h-2V6a4 4 0 00-4-4zm-2 7V6a2 2 0 114 0v3h-4zm-2 5.2A1.8 1.8 0 116 12.4a1.8 1.8 0 014 0v1.8zm8 0a1.8 1.8 0 11-3.6 0v-1.8a1.8 1.8 0 113.6 0v1.8z"/></svg></span>
+                <span>龙虾</span>
+            </a></li>
             <li><a href="#trade" class="nav-link" data-tab="trade" role="tab" id="m-nav-trade" aria-selected="false" aria-controls="tab-trade">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></span>
                 <span>交易</span>
@@ -83,6 +99,10 @@
             <li><a href="#paper" class="nav-link" data-tab="paper" role="tab" id="m-nav-paper" aria-selected="false" aria-controls="tab-paper">
                 <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/><circle cx="12" cy="12" r="3"/></svg></span>
                 <span>模拟盘</span>
+            </a></li>
+            <li><a href="#strategy-admin" class="nav-link" data-tab="strategy-admin" role="tab" id="m-nav-strategy" aria-selected="false" aria-controls="tab-strategy">
+                <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 5H6V6h12v2zm0 5H6v-2h12v2zm-5 5H6v-2h7v2z"/></svg></span>
+                <span>策略</span>
             </a></li>
         </ul>
     </nav>
@@ -180,8 +200,8 @@
             <div class="card">
                 <h2>预警中心</h2>
                 <div class="alert-add-row">
-                    <input type="text" id="alert-code" class="search-input" placeholder="股票代码" aria-label="股票代码" style="max-width:120px">
-                    <select id="alert-condition" aria-label="预警条件">
+                    <input type="text" id="alert-code" class="search-input action-code" placeholder="股票代码" aria-label="股票代码">
+                    <select id="alert-condition" class="action-condition" aria-label="预警条件">
                         <option value="price_above">价格突破</option>
                         <option value="price_below">价格跌破</option>
                         <option value="change_above">涨幅超过(%)</option>
@@ -190,8 +210,8 @@
                         <option value="turnover_above">换手率超过(%)</option>
                         <option value="amplitude_above">振幅超过(%)</option>
                     </select>
-                    <input type="number" id="alert-threshold" class="search-input" placeholder="阈值" aria-label="阈值" step="0.01" style="max-width:100px">
-                    <input type="url" id="alert-webhook" class="search-input" placeholder="Webhook URL（可选）" aria-label="Webhook推送地址" style="max-width:200px" title="预警触发时发送POST请求到此地址">
+                    <input type="number" id="alert-threshold" class="search-input action-threshold" placeholder="阈值" aria-label="阈值" step="0.01">
+                    <input type="url" id="alert-webhook" class="search-input action-webhook" placeholder="Webhook URL（可选）" aria-label="Webhook推送地址" title="预警触发时发送POST请求到此地址">
                     <button class="btn btn-primary btn-sm" id="alert-add-btn">添加预警</button>
                 </div>
                 <div class="table-wrap">
@@ -200,39 +220,39 @@
                         <tbody><tr><td colspan="5" class="text-muted text-center">加载中...</td></tr></tbody>
                     </table>
                 </div>
-                <h3 style="margin-top:14px;font-size:var(--font-size-sm)">触发记录</h3>
+                <h3 class="overview-subtitle">触发记录</h3>
                 <div id="alert-history" class="alert-history"></div>
 
-                <div class="conditional-order-section" id="conditional-order-section" style="margin-top:16px;border-top:1px solid var(--color-border,#e5e7eb);padding-top:14px">
-                    <h3 style="font-size:var(--font-size-sm);margin-bottom:10px">条件单（模拟盘）</h3>
+                <div class="conditional-order-section" id="conditional-order-section">
+                    <h3 class="overview-subtitle">条件单（模拟盘）</h3>
                     <div class="alert-add-row">
-                        <select id="cond-alert-rule" aria-label="关联预警规则" style="max-width:180px">
+                        <select id="cond-alert-rule" class="action-rule" aria-label="关联预警规则">
                             <option value="">选择预警规则</option>
                         </select>
-                        <select id="cond-direction" aria-label="下单方向" style="max-width:90px">
+                        <select id="cond-direction" class="action-direction" aria-label="下单方向">
                             <option value="buy">买入</option>
                             <option value="sell">卖出</option>
                         </select>
-                        <select id="cond-order-type" aria-label="订单类型" style="max-width:100px">
+                        <select id="cond-order-type" class="action-order-type" aria-label="订单类型">
                             <option value="market">市价</option>
                             <option value="limit">限价</option>
                         </select>
-                        <input type="number" id="cond-price" class="search-input" placeholder="限价" aria-label="限价" step="0.01" style="max-width:90px">
-                        <input type="number" id="cond-volume" class="search-input" placeholder="数量" aria-label="数量" min="100" step="100" style="max-width:90px">
-                        <input type="number" id="cond-max-amount" class="search-input" placeholder="最大金额" aria-label="最大下单金额" min="0" step="100" style="max-width:110px">
-                        <input type="number" id="cond-cooldown" class="search-input" value="300" aria-label="冷却秒数" min="0" step="30" style="max-width:90px">
-                        <label style="display:flex;align-items:center;gap:4px;font-size:var(--font-size-sm)">
+                        <input type="number" id="cond-price" class="search-input action-price" placeholder="限价" aria-label="限价" step="0.01">
+                        <input type="number" id="cond-volume" class="search-input action-volume" placeholder="数量" aria-label="数量" min="100" step="100">
+                        <input type="number" id="cond-max-amount" class="search-input action-amount" placeholder="最大金额" aria-label="最大下单金额" min="0" step="100">
+                        <input type="number" id="cond-cooldown" class="search-input action-cooldown" value="300" aria-label="冷却秒数" min="0" step="30">
+                        <label class="action-check-label">
                             <input type="checkbox" id="cond-enabled"> 启用
                         </label>
                         <button class="btn btn-primary btn-sm" id="cond-add-btn">创建条件单</button>
                     </div>
-                    <div class="table-wrap" style="margin-top:10px">
+                    <div class="table-wrap">
                         <table id="cond-rules-table">
                             <thead><tr><th>预警</th><th>代码</th><th>方向</th><th>类型</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
                             <tbody><tr><td colspan="7" class="text-muted text-center">加载中...</td></tr></tbody>
                         </table>
                     </div>
-                    <h3 style="margin-top:14px;font-size:var(--font-size-sm)">条件单执行历史</h3>
+                    <h3 class="overview-subtitle">条件单执行历史</h3>
                     <div id="cond-events" class="alert-history"></div>
                 </div>
             </div>
@@ -249,8 +269,25 @@
                 </div>
                 <div class="table-wrap">
                     <table id="ov-stocks-table">
-                        <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>板块</th><th>最新价</th><th>涨跌幅</th></tr></thead>
+                        <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>板块</th><th>概念</th><th>最新价</th><th>涨跌幅</th></tr></thead>
                         <tbody><tr><td colspan="7" class="loading"><span class="spinner"></span>加载中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Row 4.5: 数据机会池 -->
+            <div class="card">
+                <div class="card-header-row">
+                    <div>
+                        <h2>数据机会池</h2>
+                        <p class="text-muted text-sm" id="ov-opportunity-hint">PEG、机构预测、Qlib 与风险标签合成的优先研究清单。</p>
+                    </div>
+                    <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
+                </div>
+                <div class="table-wrap">
+                    <table id="ov-opportunity-table" class="datahub-matrix-table">
+                        <thead><tr><th>#</th><th>股票</th><th>决策</th><th>PEG</th><th>风险</th><th>下一步</th><th>操作</th></tr></thead>
+                        <tbody><tr><td colspan="7" class="text-muted text-center">加载中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -315,6 +352,13 @@
                         <div class="stat-label">最新数据日期</div>
                         <div class="stat-value" id="ov-latest-date">--</div>
                     </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>数据底座健康</h2>
+                <div class="datahub-health-grid" id="ov-datahub-health">
+                    <div class="text-muted">加载中...</div>
                 </div>
             </div>
 
@@ -492,6 +536,21 @@
                     <h3>研究报告 <span class="text-muted" id="sd-reports-hint"></span></h3>
                     <div id="sd-reports">
                         <div class="text-muted text-center" style="padding:20px">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- PEG 估值快照 -->
+                <div class="card">
+                    <h3>PEG 估值快照 <span class="text-muted" id="sd-valuation-hint"></span></h3>
+                    <div id="sd-valuation-snapshot">
+                        <div class="text-muted text-center" style="padding:20px">加载中...</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>同业对比 <span class="text-muted" id="sd-peer-hint"></span></h3>
+                    <div id="sd-peer-panel" class="valuation-peer-panel">
+                        <div class="text-muted text-center" style="padding:12px">加载中...</div>
                     </div>
                 </div>
 
@@ -768,7 +827,9 @@
         <!-- 研发Tab (6子Tab容器) -->
         <section class="tab-panel" id="tab-research" role="tabpanel" aria-labelledby="nav-research">
             <div class="research-sub-tabs" role="tablist">
-                <button class="research-sub-tab active" data-subtab="screener" role="tab" aria-selected="true">选股</button>
+                <button class="research-sub-tab" data-subtab="screener" role="tab" aria-selected="false">选股</button>
+                <button class="research-sub-tab" data-subtab="datahub" role="tab" aria-selected="false">数据</button>
+                <button class="research-sub-tab active" data-subtab="valuation" role="tab" aria-selected="true">估值</button>
                 <button class="research-sub-tab" data-subtab="factor" role="tab" aria-selected="false">因子</button>
                 <button class="research-sub-tab" data-subtab="model" role="tab" aria-selected="false">模型</button>
                 <button class="research-sub-tab" data-subtab="backtest" role="tab" aria-selected="false">回测</button>
@@ -779,7 +840,7 @@
                 <button class="research-sub-tab" data-subtab="strategy" role="tab" aria-selected="false">策略</button>
             </div>
             <div class="research-sub-panels">
-                <div class="research-sub-panel active" id="research-panel-screener" role="tabpanel">
+                <div class="research-sub-panel" id="research-panel-screener" role="tabpanel">
                     <div class="card">
                         <div class="screener-tabs">
                             <button class="screener-tab active" data-tab="manual">条件选股</button>
@@ -818,6 +879,138 @@
                         </div>
                     </div>
                 </div>
+                <div class="research-sub-panel" id="research-panel-datahub" role="tabpanel">
+                    <div class="card datahub-workbench-card">
+                        <div class="card-header-row">
+                            <div>
+                                <h2>数据中枢</h2>
+                                <p class="text-muted text-sm">把行情健康、机构预测、PEG 和 Qlib 预测合成一张可行动清单。</p>
+                            </div>
+                            <div class="datahub-toolbar">
+                                <select id="datahub-scope" aria-label="数据中枢范围">
+                                    <option value="watchlist" selected>自选股</option>
+                                    <option value="qlib">Qlib Top</option>
+                                    <option value="codes">指定股票</option>
+                                </select>
+                                <button class="btn btn-sm" id="datahub-refresh-btn">刷新</button>
+                            </div>
+                        </div>
+                        <div class="datahub-code-row hidden" id="datahub-code-row">
+                            <div class="search-box">
+                                <input type="text" id="datahub-code-input" class="search-input" placeholder="输入或搜索股票代码" autocomplete="off" aria-label="数据中枢股票代码">
+                                <div class="search-dropdown" id="datahub-code-dropdown"></div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="datahub-add-code-btn">加入矩阵</button>
+                            <div class="sb-tags" id="datahub-code-tags"></div>
+                        </div>
+                        <div class="datahub-summary-strip" id="datahub-summary-strip">
+                            <div class="stat-card"><div class="stat-label">样本数</div><div class="stat-value" id="datahub-total">--</div></div>
+                            <div class="stat-card"><div class="stat-label">重点研究</div><div class="stat-value" id="datahub-high-score">--</div></div>
+                            <div class="stat-card"><div class="stat-label">PEG≤1</div><div class="stat-value" id="datahub-cheap">--</div></div>
+                            <div class="stat-card"><div class="stat-label">AI Top50</div><div class="stat-value" id="datahub-qlib-top">--</div></div>
+                            <div class="stat-card"><div class="stat-label">估值覆盖</div><div class="stat-value" id="datahub-valuation-cov">--</div></div>
+                            <div class="stat-card"><div class="stat-label">AI覆盖</div><div class="stat-value" id="datahub-qlib-cov">--</div></div>
+                            <div class="stat-card"><div class="stat-label">可行动</div><div class="stat-value" id="datahub-actionable">--</div></div>
+                            <div class="stat-card"><div class="stat-label">高风险</div><div class="stat-value" id="datahub-high-risk">--</div></div>
+                        </div>
+                        <div class="datahub-pipeline" id="datahub-pipeline">
+                            <div class="datahub-pipeline-step"><strong>行情</strong><span id="datahub-pipe-quote">--</span></div>
+                            <div class="datahub-pipeline-step"><strong>机构预测</strong><span id="datahub-pipe-valuation">--</span></div>
+                            <div class="datahub-pipeline-step"><strong>AI预测</strong><span id="datahub-pipe-ai">--</span></div>
+                            <div class="datahub-pipeline-step"><strong>影子对账</strong><span id="datahub-pipe-shadow">--</span></div>
+                        </div>
+                        <div class="datahub-health-grid" id="datahub-health-grid">
+                            <div class="datahub-health-item"><span>数据源在线</span><strong id="datahub-source-health">--</strong></div>
+                            <div class="datahub-health-item"><span>质量记录</span><strong id="datahub-quality-summary">--</strong></div>
+                            <div class="datahub-health-item"><span>影子差异</span><strong id="datahub-shadow-summary">--</strong></div>
+                            <div class="datahub-health-item"><span>最新版本</span><strong id="datahub-version-summary">--</strong></div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="datahub-matrix-table" id="datahub-matrix-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th><th>股票</th><th>决策</th><th>PEG</th><th>明年增速</th>
+                                        <th>目标空间</th><th>Qlib</th><th>风险</th><th>下一步</th><th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody><tr><td colspan="10" class="text-muted text-center">加载中...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="research-sub-panel active" id="research-panel-valuation" role="tabpanel">
+                    <div class="card valuation-center-card">
+                        <div class="card-header-row">
+                            <h2>估值数据中心</h2>
+                            <div class="valuation-toolbar">
+                                <select id="valuation-scope" aria-label="估值范围">
+                                    <option value="watchlist" selected>自选股</option>
+                                    <option value="codes">指定股票</option>
+                                    <option value="all">全市场</option>
+                                </select>
+                                <button class="btn btn-sm" id="valuation-refresh-btn">刷新</button>
+                            </div>
+                        </div>
+                        <div class="valuation-code-row" id="valuation-code-row">
+                            <div class="search-box">
+                                <input type="text" id="valuation-code-input" class="search-input" placeholder="输入或搜索股票代码" autocomplete="off" aria-label="估值股票代码">
+                                <div class="search-dropdown" id="valuation-code-dropdown"></div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="valuation-add-code-btn">加入对比</button>
+                            <div class="sb-tags" id="valuation-code-tags"></div>
+                        </div>
+                        <div class="valuation-filter-row">
+                            <label>PEG≤<input type="number" id="valuation-max-peg" min="0" step="0.1" placeholder="不限"></label>
+                            <label>增速≥<input type="number" id="valuation-min-growth" step="1" placeholder="不限"></label>
+                            <label>空间≥<input type="number" id="valuation-min-upside" step="1" placeholder="不限"></label>
+                            <label>研报≥<input type="number" id="valuation-min-reports" min="0" step="1" value="0"></label>
+                            <select id="valuation-bucket-filter" aria-label="估值分层">
+                                <option value="">全部分层</option>
+                                <option value="高性价比">高性价比</option>
+                                <option value="合理区间">合理区间</option>
+                                <option value="偏贵">偏贵</option>
+                                <option value="增长缺失">增长缺失</option>
+                            </select>
+                            <button class="btn btn-sm" id="valuation-cheap-growth-btn">低估高增</button>
+                            <button class="btn btn-sm" id="valuation-clear-filter-btn">清空</button>
+                        </div>
+                        <div class="valuation-summary-strip" id="valuation-summary-strip">
+                            <div class="stat-card"><div class="stat-label">覆盖股票</div><div class="stat-value" id="valuation-total">--</div></div>
+                            <div class="stat-card"><div class="stat-label">PEG≤1</div><div class="stat-value" id="valuation-cheap-count">--</div></div>
+                            <div class="stat-card"><div class="stat-label">预测覆盖</div><div class="stat-value" id="valuation-coverage">--</div></div>
+                            <div class="stat-card"><div class="stat-label">中位PEG</div><div class="stat-value" id="valuation-median-peg">--</div></div>
+                        </div>
+                        <div class="valuation-industry-strip" id="valuation-industry-strip"></div>
+                        <div class="table-wrap">
+                            <table class="valuation-table" id="valuation-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th><th>股票</th><th>行业</th><th>价格</th><th>PE(TTM)</th>
+                                        <th>明年增速</th><th>PEG</th><th>空间</th><th>评级</th><th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody><tr><td colspan="10" class="text-muted text-center">加载中...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="chart-row valuation-detail-grid">
+                        <div class="card">
+                            <h2>估值快照</h2>
+                            <div id="valuation-detail" class="valuation-detail">
+                                <div class="text-muted text-center" style="padding:20px">请选择股票</div>
+                            </div>
+                            <div id="valuation-peer-panel" class="valuation-peer-panel">
+                                <div class="text-muted text-center" style="padding:12px">同业对比等待加载</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2>研报预测</h2>
+                            <div id="valuation-reports" class="valuation-reports">
+                                <div class="text-muted text-center" style="padding:20px">暂无数据</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="research-sub-panel" id="research-panel-factor" role="tabpanel"></div>
                 <div class="research-sub-panel" id="research-panel-model" role="tabpanel"></div>
                 <div class="research-sub-panel" id="research-panel-backtest" role="tabpanel"></div>
@@ -825,25 +1018,25 @@
                 <div class="research-sub-panel" id="research-panel-formula" role="tabpanel">
                     <div class="card">
                         <h2>公式系统</h2>
-                        <div class="form-row">
+                        <div class="form-row research-tool-form">
                             <div class="form-group min-w-sm">
                                 <label for="formula-source">公式</label>
-                                <textarea id="formula-source" rows="6" placeholder="例如：CLOSE > MA(CLOSE, 20) AND RSI(CLOSE, 14) < 30" style="width:100%;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-family:monospace"></textarea>
+                                <textarea id="formula-source" class="code-input" rows="6" placeholder="例如：CLOSE > MA(CLOSE, 20) AND RSI(CLOSE, 14) < 30"></textarea>
                             </div>
                             <div class="form-group">
                                 <label for="formula-code">股票代码</label>
-                                <input type="text" id="formula-code" placeholder="000001" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <input type="text" id="formula-code" placeholder="000001">
                             </div>
                             <div class="form-group">
                                 <label for="formula-start">开始日期</label>
-                                <input type="date" id="formula-start" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <input type="date" id="formula-start">
                             </div>
                             <div class="form-group">
                                 <label for="formula-end">结束日期</label>
-                                <input type="date" id="formula-end" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <input type="date" id="formula-end">
                             </div>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                        <div class="compact-action-row research-tool-actions">
                             <button class="btn btn-primary btn-sm" data-alpha-action="formula-evaluate">执行公式</button>
                             <button class="btn btn-ghost btn-sm" data-alpha-action="formula-screen">公式选股</button>
                             <button class="btn btn-sm" data-alpha-action="formula-catalog">公式目录</button>
@@ -852,7 +1045,7 @@
                     <div class="chart-row">
                         <div class="card">
                             <h2>执行结果</h2>
-                            <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
+                            <div class="stats-grid stats-grid-3 mb-md">
                                 <div class="stat-card"><div class="stat-label">成功</div><div class="stat-value" id="formula-success">--</div></div>
                                 <div class="stat-card"><div class="stat-label">最新值</div><div class="stat-value" id="formula-latest-value">--</div></div>
                                 <div class="stat-card"><div class="stat-label">命中数</div><div class="stat-value" id="formula-match-count">--</div></div>
@@ -866,7 +1059,7 @@
                         </div>
                         <div class="card">
                             <h2>目录 / 结果</h2>
-                            <div class="table-wrap" style="margin-bottom:12px">
+                            <div class="table-wrap mb-md">
                                 <table id="formula-catalog-table">
                                     <thead><tr><th>名称</th><th>参数</th><th>说明</th></tr></thead>
                                     <tbody><tr><td colspan="3" class="text-muted">点击“公式目录”加载</td></tr></tbody>
@@ -880,7 +1073,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card" style="margin-top:12px">
+                    <div class="card mt-md">
                         <h2>错误信息</h2>
                         <div id="formula-error-list" class="text-sm text-muted">暂无错误</div>
                     </div>
@@ -888,28 +1081,28 @@
                 <div class="research-sub-panel" id="research-panel-basket" role="tabpanel">
                     <div class="card">
                         <h2>篮子交易</h2>
-                        <div class="form-row">
+                        <div class="form-row research-tool-form">
                             <div class="form-group min-w-sm">
                                 <label for="basket-candidates">候选股票</label>
-                                <textarea id="basket-candidates" rows="6" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]' style="width:100%;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-family:monospace"></textarea>
+                                <textarea id="basket-candidates" class="code-input" rows="6" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]'></textarea>
                             </div>
                             <div class="form-group">
                                 <label for="basket-cash">初始资金</label>
-                                <input type="number" id="basket-cash" value="1000000" min="1" step="1000" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <input type="number" id="basket-cash" value="1000000" min="1" step="1000">
                             </div>
                             <div class="form-group">
                                 <label for="basket-allocation">分配方式</label>
-                                <select id="basket-allocation" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <select id="basket-allocation">
                                     <option value="equal">等权</option>
                                     <option value="risk_parity">风险平价</option>
                                 </select>
                             </div>
                             <div class="form-group">
                                 <label for="basket-rebalance">再平衡周期</label>
-                                <input type="number" id="basket-rebalance" value="5" min="1" step="1" style="width:100%;padding:8px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary)">
+                                <input type="number" id="basket-rebalance" value="5" min="1" step="1">
                             </div>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                        <div class="compact-action-row research-tool-actions">
                             <button class="btn btn-primary btn-sm" data-alpha-action="basket-plan">生成计划</button>
                             <button class="btn btn-ghost btn-sm" data-alpha-action="basket-backtest">计划回测</button>
                         </div>
@@ -917,7 +1110,7 @@
                     <div class="chart-row">
                         <div class="card">
                             <h2>计划摘要</h2>
-                            <div class="stats-grid stats-grid-3" style="margin-bottom:12px">
+                            <div class="stats-grid stats-grid-3 mb-md">
                                 <div class="stat-card"><div class="stat-label">成功</div><div class="stat-value" id="basket-success">--</div></div>
                                 <div class="stat-card"><div class="stat-label">目标金额</div><div class="stat-value" id="basket-target-value">--</div></div>
                                 <div class="stat-card"><div class="stat-label">预计成本</div><div class="stat-value" id="basket-estimated-cost">--</div></div>
@@ -931,7 +1124,7 @@
                         </div>
                         <div class="card">
                             <h2>回测摘要 / 警告</h2>
-                            <div id="basket-backtest-summary" class="text-sm text-muted" style="margin-bottom:12px">暂无回测结果</div>
+                            <div id="basket-backtest-summary" class="text-sm text-muted mb-md">暂无回测结果</div>
                             <div id="basket-warning-list" class="text-sm text-muted">暂无警告</div>
                         </div>
                     </div>
@@ -963,13 +1156,46 @@
                             </div>
                         </div>
                         <div id="compare-stats"></div>
-                        <div class="chart-container chart-h-lg" style="position:relative;">
+                        <div class="chart-container chart-h-lg">
                             <canvas id="compare-chart" aria-label="多股对比图"></canvas>
                         </div>
                     </div>
                 </div>
-                <div class="research-sub-panel" id="research-panel-strategy" role="tabpanel"></div>
+                <div class="research-sub-panel" id="research-panel-strategy" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header-row">
+                            <h2>策略管理</h2>
+                            <button class="btn btn-primary" data-app-action="switch-tab" data-tab="strategy-admin">打开策略管理</button>
+                        </div>
+                        <p class="text-muted text-sm">策略创建、导入导出、版本和聚合回测已移到独立策略页。</p>
+                    </div>
+                </div>
             </div>
+        </section>
+
+        <!-- Tab 8: 龙虾工作区 -->
+        <section class="tab-panel" id="tab-openclaw" role="tabpanel" aria-labelledby="nav-openclaw">
+            <div class="page-header">
+                <h1>龙虾</h1>
+                <div class="flex-center" style="gap:8px">
+                    <span class="badge badge-info" id="openclaw-status-badge">--</span>
+                    <button class="btn btn-sm" data-openclaw-action="refresh">刷新</button>
+                    <button class="btn btn-sm btn-primary" data-openclaw-action="open-native">原生面板</button>
+                </div>
+            </div>
+            <div id="openclaw-workbench"></div>
+        </section>
+
+        <!-- Tab 9: 龙虾设置 -->
+        <section class="tab-panel" id="tab-openclaw-settings" role="tabpanel" aria-labelledby="openclaw-settings-title">
+            <div class="page-header">
+                <h1 id="openclaw-settings-title">龙虾设置</h1>
+                <div class="flex-center" style="gap:8px">
+                    <span class="badge badge-info" id="openclaw-settings-badge">完整设置页</span>
+                    <button class="btn btn-sm" data-app-action="switch-tab" data-tab="openclaw">返回聊天</button>
+                </div>
+            </div>
+            <div id="openclaw-settings-workbench"></div>
         </section>
 
         <!-- Tab 2: 回测 -->
@@ -1257,7 +1483,7 @@
                 <!-- 蒙特卡洛模拟 -->
                 <div class="card">
                     <h2>蒙特卡洛模拟</h2>
-                    <div class="mb-md">
+                    <div class="mc-action-row mb-md">
                         <button class="btn btn-sm" id="mc-run-btn">运行模拟</button>
                         <span class="text-muted ml-sm text-xs">随机打乱交易顺序，评估策略稳健性</span>
                     </div>
@@ -1290,7 +1516,7 @@
             <!-- 子面板 1: 持仓概览 -->
             <div class="trade-sub-panel active" id="trade-panel-portfolio" role="tabpanel">
             <!-- 统计卡片（6个统一来源） -->
-            <div class="stats-grid" id="pf-stats-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem">
+                    <div class="stats-grid stats-grid-5" id="pf-stats-grid">
                 <div class="stat-card pf-stat-primary"><div class="stat-label">总资产</div><div class="stat-value" id="pf-equity">--</div></div>
                 <div class="stat-card"><div class="stat-label">可用资金</div><div class="stat-value" id="pf-cash">--</div></div>
                 <div class="stat-card"><div class="stat-label">持仓市值</div><div class="stat-value" id="pf-mv">--</div></div>
@@ -1348,12 +1574,12 @@
             </div>
 
             <!-- 持仓明细 -->
-            <div class="card">
-                <div class="card-header-row">
-                    <h2>持仓明细</h2>
-                    <div class="pf-toolbar">
-                        <input type="text" class="search-input" id="pf-search" placeholder="搜索代码/名称..." aria-label="搜索持仓">
-                        <select id="pf-filter-strategy" class="pf-filter-select" aria-label="按策略筛选"><option value="">全部策略</option></select>
+                    <div class="card">
+                        <div class="card-header-row">
+                            <h2>持仓明细</h2>
+                            <div class="pf-toolbar">
+                                <input type="text" class="search-input" id="pf-search" placeholder="搜索代码/名称..." aria-label="搜索持仓">
+                                <select id="pf-filter-strategy" class="pf-filter-select" aria-label="按策略筛选"><option value="">全部策略</option></select>
                         <button class="btn btn-sm" data-portfolio-action="export-csv" title="导出 CSV">导出</button>
                     </div>
                 </div>
@@ -1377,7 +1603,7 @@
                                 <th>操作</th>
                             </tr>
                         </thead>
-                        <tbody><tr><td colspan="14" class="text-muted">暂无持仓数据</td></tr></tbody>
+                        <tbody><tr><td colspan="14" class="text-muted text-center">暂无持仓数据</td></tr></tbody>
                         <tfoot id="pf-positions-total"></tfoot>
                     </table>
                 </div>
@@ -1396,16 +1622,16 @@
                     <div class="table-wrap">
                         <table id="pf-trades" class="sortable">
                             <thead><tr><th data-sort="time">时间</th><th data-sort="code">代码</th><th data-sort="dir">方向</th><th data-sort="price">价格</th><th data-sort="volume">数量</th><th data-sort="equity">收益</th></tr></thead>
-                            <tbody><tr><td colspan="6" class="text-muted">今日无交易</td></tr></tbody>
+                            <tbody><tr><td colspan="6" class="text-muted text-center">今日无交易</td></tr></tbody>
                         </table>
                     </div>
                 </div>
-                <div class="analysis-panel" id="pf-trade-history" style="display:none">
-                    <div class="pf-history-toolbar flex-center">
+                <div class="analysis-panel" id="pf-trade-history" hidden>
+                    <div class="pf-history-toolbar">
                         <input type="date" id="pf-hist-start" aria-label="起始日期">
-                        <span class="text-muted">至</span>
+                        <span class="text-muted pf-history-separator">至</span>
                         <input type="date" id="pf-hist-end" aria-label="结束日期">
-                        <button class="btn btn-sm" data-portfolio-action="load-history">查询</button>
+                        <button class="btn" data-portfolio-action="load-history">查询</button>
                     </div>
                     <div class="table-wrap">
                         <table id="pf-trade-history-table" class="sortable">
@@ -1427,7 +1653,7 @@
             <!-- 子面板 2: 风控管理 -->
             <div class="trade-sub-panel" id="trade-panel-risk" role="tabpanel">
                 <!-- 告警横幅 -->
-                <div id="rk-alert-banner" class="rk-alert-banner" style="display:none"></div>
+                <div id="rk-alert-banner" class="rk-alert-banner hidden"></div>
 
                 <!-- 双列: 回撤曲线 + 资金/行业 -->
                 <div class="rk-grid-60-40">
@@ -1439,7 +1665,7 @@
                         <div class="card">
                             <h2>资金利用率</h2>
                             <div class="rk-capital-wrap">
-                                <div class="chart-container chart-h-sm" style="max-width:200px"><canvas id="rk-capital-chart" aria-label="资金利用率"></canvas></div>
+                                <div class="chart-container chart-h-sm rk-capital-chart"><canvas id="rk-capital-chart" aria-label="资金利用率"></canvas></div>
                                 <div class="rk-capital-info">
                                     <div class="rk-capital-pct" id="rk-capital-pct">--</div>
                                     <div class="rk-capital-label">使用率</div>
@@ -1464,7 +1690,7 @@
                 <div class="card">
                     <h2>高级风险指标</h2>
                     <div id="rk-indicator-panel" class="rk-indicator-panel">
-                        <div class="text-muted text-center" style="grid-column:1/-1">加载中...</div>
+                        <div class="text-muted text-center rk-loading-cell">加载中...</div>
                     </div>
                 </div>
 
@@ -1515,10 +1741,10 @@
                             <option value="position_limit">仓位限制</option>
                             <option value="drawdown_limit">回撤限制</option>
                         </select>
-                        <input type="text" id="rk-filter-code" placeholder="搜索代码..." style="max-width:160px">
+                        <input type="text" id="rk-filter-code" class="rk-filter-input" placeholder="搜索代码...">
                     </div>
                     <div id="rk-events-timeline">
-                        <div class="text-muted" style="text-align:center;padding:24px"><span class="spinner"></span> 加载中...</div>
+                        <div class="text-muted text-center rk-loading-wrap"><span class="spinner"></span> 加载中...</div>
                     </div>
                 </div>
 
@@ -1533,7 +1759,7 @@
             <div class="trade-sub-panel" id="trade-panel-broker" role="tabpanel">
                 <div class="card">
                     <h2>券商账户配置</h2>
-                    <form id="broker-form" class="form-row">
+                    <form id="broker-form" class="form-row trade-form">
                         <div class="form-group">
                             <label for="br-type">券商类型</label>
                             <select id="br-type">
@@ -1558,9 +1784,9 @@
                             <label for="br-auth">认证码</label>
                             <input type="text" id="br-auth" placeholder="券商分配的 AuthCode">
                         </div>
-                        <div class="form-group">
-                            <span></span>
-                            <div class="flex-center">
+                            <div class="form-group trade-action-group">
+                                <span></span>
+                            <div class="flex-center trade-action-row">
                                 <button type="button" class="btn btn-primary btn-sm" id="br-save-btn">保存配置</button>
                                 <button type="button" class="btn btn-sm" id="br-test-btn">测试连接</button>
                             </div>
@@ -1908,7 +2134,7 @@
                             <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
                                 <div>
                                     <h2>量化 AI 助手</h2>
-                                    <span class="text-muted text-sm">基于 gpt-5.5 大模型 · 支持策略生成、因子解读、量化问答</span>
+                                    <span class="text-muted text-sm">基于 OpenAI 模型 · 支持策略生成、因子解读、量化问答</span>
                                 </div>
                                 <div style="display:flex;gap:6px;align-items:center">
                                     <select id="llm-conv-select" class="form-control form-control-sm" style="max-width:200px;font-size:12px" data-llm-conversation-select="alpha">
@@ -1966,9 +2192,9 @@
             <!-- 子 Tab 导航 -->
             <div class="sub-tabs" id="paper-sub-tabs" role="tablist">
                 <button class="sub-tab active paper-sub-tab" data-tab="console" role="tab" aria-selected="true" id="paper-tab-console">控制台</button>
-                <button class="sub-tab paper-sub-tab" data-tab="trade" role="tab" aria-selected="false" id="paper-tab-trade">交易</button>
-                <button class="sub-tab paper-sub-tab" data-tab="perf" role="tab" aria-selected="false" id="paper-tab-perf">收益</button>
-                <button class="sub-tab paper-sub-tab" data-tab="history" role="tab" aria-selected="false" id="paper-tab-history">历史</button>
+                <button class="sub-tab paper-sub-tab" data-tab="trade" role="tab" aria-selected="false" id="paper-tab-trade">模拟交易</button>
+                <button class="sub-tab paper-sub-tab" data-tab="perf" role="tab" aria-selected="false" id="paper-tab-perf">收益分析</button>
+                <button class="sub-tab paper-sub-tab" data-tab="history" role="tab" aria-selected="false" id="paper-tab-history">交易历史</button>
             </div>
 
             <div id="paper-sub-panels">
@@ -1977,7 +2203,7 @@
                     <!-- 配置面板 -->
                     <div class="card">
                         <h2>配置</h2>
-                        <form id="paper-form" class="form-row">
+                        <form id="paper-form" class="form-row trade-form paper-control-form">
                             <div class="form-group">
                                 <label for="pp-strategy">策略</label>
                                 <select id="pp-strategy">
@@ -2010,13 +2236,13 @@
                                 <label for="pp-risk">风控</label>
                                 <select id="pp-risk"><option value="true">启用</option><option value="false">关闭</option></select>
                             </div>
-                            <div class="form-group">
+                            <div class="form-group trade-action-group paper-control-actions">
                                 <span></span>
-                                <div class="flex-center">
+                                <div class="trade-action-row">
                                     <button type="button" class="btn btn-primary" id="pp-start-btn">启动</button>
                                     <button type="button" class="btn btn-danger" id="pp-stop-btn" disabled>停止</button>
-                                    <button type="button" class="btn btn-sm">重置</button>
-                                    <button type="button" class="btn btn-sm btn-outline" id="pp-train-btn" title="重新训练 qlib ML 模型">训练ML</button>
+                                    <button type="button" class="btn">重置</button>
+                                    <button type="button" class="btn btn-outline" id="pp-train-btn" title="重新训练 qlib ML 模型">训练ML</button>
                                 </div>
                             </div>
                         </form>
@@ -2028,9 +2254,9 @@
                         <div class="chart-container chart-h-md">
                             <canvas id="pt-equity-chart" aria-label="资金曲线"></canvas>
                         </div>
-                        <div id="pt-equity-empty" class="text-center text-muted" style="padding: 2rem; display: none;">
-                            <p style="font-size: 1.125rem; margin-bottom: 0.5rem;">📈 启动模拟盘查看资金曲线</p>
-                            <p style="font-size: 0.875rem;">配置策略和股票后点击「启动」按钮开始交易</p>
+                        <div id="pt-equity-empty" class="empty-state hidden">
+                            <p class="empty-state-title">启动模拟盘查看资金曲线</p>
+                            <p class="empty-state-desc">配置策略和股票后点击「启动」按钮开始交易</p>
                         </div>
                     </div>
 
@@ -2048,8 +2274,8 @@
                     <!-- 订单面板 -->
                     <div class="card">
                         <h2>手动下单</h2>
-                        <form id="pt-order-form" class="form-row">
-                            <div class="form-group" style="position:relative">
+                        <form id="pt-order-form" class="form-row trade-form">
+                            <div class="form-group pt-code-group">
                                 <label for="pt-code">股票代码</label>
                                 <input type="text" id="pt-code" placeholder="输入股票代码" autocomplete="off" required>
                                 <div id="pt-code-dropdown" class="search-dropdown"></div>
@@ -2070,7 +2296,7 @@
                                     <option value="take_profit">止盈单</option>
                                 </select>
                             </div>
-                            <div class="form-group" id="pt-price-group" style="display:none">
+                            <div class="form-group hidden" id="pt-price-group">
                                 <label for="pt-price">价格</label>
                                 <input type="number" id="pt-price" step="0.01" placeholder="输入价格">
                             </div>
@@ -2084,26 +2310,26 @@
                                     <button type="button" class="btn btn-sm pt-qty-btn" data-qty="5000">5000</button>
                                 </div>
                             </div>
-                            <div class="form-group">
+                            <div class="form-group trade-action-group">
                                 <span></span>
                                 <button type="submit" class="btn btn-primary">下单</button>
                             </div>
                         </form>
-                        <div id="pt-funds-info" style="margin-top:0.5rem;font-size:0.8125rem;color:var(--color-text-muted,#6b7280);">
-                            可用资金: <span id="pt-available-cash" style="font-weight:600;color:var(--color-text,#1f2937);">--</span>
-                            <span id="pt-est-cost" style="margin-left:1rem;display:none;">预估花费: <span style="font-weight:600;">--</span></span>
+                        <div id="pt-funds-info" class="pt-funds-info">
+                            可用资金: <span id="pt-available-cash" class="pt-funds-value">--</span>
+                            <span id="pt-est-cost" class="hidden">预估花费: <span class="pt-funds-value">--</span></span>
                         </div>
                         <!-- 实时行情预览 -->
-                        <div id="pt-quote-preview" class="hidden" style="margin-top: 0.75rem; padding: 0.75rem; background: var(--color-surface-alt, #f9fafb); border-radius: 0.375rem;">
-                            <div class="flex-between" style="margin-bottom: 0.5rem;">
-                                <span id="pt-quote-name" style="font-weight: 600;">--</span>
+                        <div id="pt-quote-preview" class="hidden pt-quote-preview">
+                            <div class="flex-between mb-sm">
+                                <span id="pt-quote-name" class="pt-quote-name">--</span>
                                 <span id="pt-quote-code" class="text-muted">--</span>
                             </div>
                             <div class="flex-between">
-                                <span id="pt-quote-price" style="font-size: 1.25rem; font-weight: 700;">--</span>
-                                <span id="pt-quote-change" style="font-weight: 600;">--</span>
+                                <span id="pt-quote-price" class="pt-quote-price">--</span>
+                                <span id="pt-quote-change" class="pt-quote-change">--</span>
                             </div>
-                            <div class="flex-between" style="margin-top: 0.25rem; font-size: 0.875rem;">
+                            <div class="flex-between pt-quote-meta">
                                 <span>最高: <span id="pt-quote-high">--</span></span>
                                 <span>最低: <span id="pt-quote-low">--</span></span>
                                 <span>成交量: <span id="pt-quote-volume">--</span></span>
@@ -2117,7 +2343,7 @@
                         <div class="table-wrap">
                             <table id="pt-orders-table">
                                 <thead><tr><th>代码</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
-                                <tbody><tr><td colspan="7" class="text-muted" style="text-align:center">暂无挂单</td></tr></tbody>
+                                <tbody><tr><td colspan="7" class="text-muted text-center">暂无挂单</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -2125,17 +2351,17 @@
                     <!-- 持仓明细 -->
                     <div class="card">
                         <h2>持仓明细</h2>
-                        <div class="flex-wrap mb-md">
+                        <div class="flex-wrap mb-md trade-action-row">
                             <button class="btn btn-sm btn-danger" id="pt-close-all-btn">一键清仓</button>
                         </div>
                         <div class="table-wrap">
                             <table id="pt-positions-table">
                                 <thead><tr><th>股票</th><th>数量</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈亏</th><th>盈亏率</th><th>止损/止盈</th><th>操作</th></tr></thead>
-                                <tbody><tr><td colspan="9" class="text-muted" style="text-align:center">暂无持仓</td></tr></tbody>
+                                <tbody><tr><td colspan="9" class="text-muted text-center">暂无持仓</td></tr></tbody>
                             </table>
                         </div>
-                        <div id="pt-positions-empty" class="text-center text-muted" style="padding: 1.5rem; display: none;">
-                            <p>📊 启动模拟盘后自动创建持仓</p>
+                        <div id="pt-positions-empty" class="empty-state hidden">
+                            <p class="empty-state-title">启动模拟盘后自动创建持仓</p>
                         </div>
                     </div>
 
@@ -2221,7 +2447,7 @@
                     <div class="card">
                         <div class="card-header-row">
                             <h2>策略对比</h2>
-                            <button class="btn btn-sm" data-app-action="save-sim-snapshot">保存当前快照</button>
+                            <button class="btn" data-app-action="save-sim-snapshot">保存当前快照</button>
                         </div>
                         <div class="table-wrap">
                             <table id="sim-compare-table" class="sortable">
@@ -2237,9 +2463,9 @@
                     <!-- 交易历史 -->
                     <div class="card">
                         <h2>交易历史</h2>
-                        <div class="flex-wrap mb-md" style="gap:0.5rem;align-items:center">
-                            <input type="text" id="pt-filter-code" class="form-control form-control-sm" placeholder="筛选代码" style="width:120px">
-                            <select id="pt-filter-direction" class="form-control form-control-sm" style="width:90px">
+                        <div class="flex-wrap mb-md trade-history-toolbar">
+                            <input type="text" id="pt-filter-code" class="form-control form-control-sm" placeholder="筛选代码">
+                            <select id="pt-filter-direction" class="form-control form-control-sm">
                                 <option value="">全部</option>
                                 <option value="buy">买入</option>
                                 <option value="sell">卖出</option>
@@ -2250,11 +2476,11 @@
                         <div class="table-wrap">
                             <table id="pt-trades-table">
                                 <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>价格</th><th>数量</th><th>盈亏</th><th>费用</th><th>策略</th><th>信号原因</th></tr></thead>
-                                <tbody><tr><td colspan="9" class="text-muted" style="text-align:center">暂无交易</td></tr></tbody>
+                                <tbody><tr><td colspan="9" class="text-muted text-center">暂无交易</td></tr></tbody>
                             </table>
                         </div>
-                        <div id="pt-trades-empty" class="text-center text-muted" style="padding: 1.5rem; display: none;">
-                            <p>📝 启动模拟盘后自动记录交易</p>
+                        <div id="pt-trades-empty" class="empty-state hidden">
+                            <p class="empty-state-title">启动模拟盘后自动记录交易</p>
                         </div>
                         <div id="pt-trades-pagination" class="mt-md"></div>
                     </div>
@@ -2265,7 +2491,7 @@
                         <div class="table-wrap">
                             <table id="pt-risk-events-table">
                                 <thead><tr><th>时间</th><th>代码</th><th>类型</th><th>触发价格</th><th>原因</th></tr></thead>
-                                <tbody><tr><td colspan="5" class="text-muted" style="text-align:center">暂无风控事件</td></tr></tbody>
+                                <tbody><tr><td colspan="5" class="text-muted text-center">暂无风控事件</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -2277,19 +2503,19 @@
         <section class="tab-panel" id="tab-strategy" role="tabpanel" aria-labelledby="nav-strategy">
             <div class="page-header">
                 <h1>策略管理</h1>
-                <div style="display:flex;gap:0.5rem">
-                    <button class="btn btn-sm" id="strategy-export-btn" title="导出所有策略为JSON文件">导出策略</button>
-                    <label class="btn btn-sm" title="从JSON文件导入策略" style="cursor:pointer">
+                <div class="strategy-actions">
+                    <button class="btn" id="strategy-export-btn" title="导出所有策略为JSON文件">导出策略</button>
+                    <label class="btn strategy-import-btn" title="从JSON文件导入策略">
                         导入策略
-                        <input id="strategy-import-input" type="file" accept=".json" style="display:none">
+                        <input id="strategy-import-input" type="file" accept=".json" hidden>
                     </label>
-                    <button class="btn btn-primary btn-sm" id="strategy-create-btn">新增策略</button>
-                    <button class="btn btn-sm" id="strategy-code-editor-btn">代码编辑器</button>
-                    <button class="btn btn-sm" id="strategy-ensemble-btn" title="多策略信号聚合回测">聚合回测</button>
-                    <button class="btn btn-sm" id="strategy-ai-btn" title="AI 生成策略代码">AI 策略</button>
+                    <button class="btn btn-primary" id="strategy-create-btn">新增策略</button>
+                    <button class="btn" id="strategy-code-editor-btn">代码编辑器</button>
+                    <button class="btn" id="strategy-ensemble-btn" title="多策略信号聚合回测">聚合回测</button>
+                    <button class="btn" id="strategy-ai-btn" title="AI 生成策略代码">AI 策略</button>
                 </div>
             </div>
-            <div id="st-filter" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+            <div id="st-filter" class="strategy-filter-bar"></div>
             <div class="strategy-grid" id="st-list">
                 <div class="loading"><span class="spinner"></span>加载中...</div>
             </div>
@@ -2314,8 +2540,8 @@
         <div class="copilot-header">
             <div class="copilot-title-row">
                 <span class="copilot-icon">🤖</span>
-                <h3>OpenAI AI 助手</h3>
-                <span class="copilot-badge">gpt-5.5</span>
+                <h3>龙虾</h3>
+                <span class="copilot-badge">Quant Copilot</span>
             </div>
             <div class="copilot-actions">
                 <select id="copilot-conv-select" class="form-control form-control-sm" data-llm-conversation-select="copilot" style="max-width:140px;font-size:11px">
@@ -2329,13 +2555,13 @@
             <div class="llm-welcome">
                 <div class="llm-welcome-icon">🤖</div>
                 <div class="llm-welcome-text">
-                    <strong>你好！我是 OpenAI 量化助手</strong>
+                    <strong>你好！我是龙虾</strong>
                     <p>我可以帮你：</p>
                     <ul>
-                        <li>用自然语言描述选股条件，自动生成筛选规则</li>
-                        <li>解读 AI 模型的预测结果和因子贡献度</li>
-                        <li>解释量化策略、因子含义和回测指标</li>
-                        <li>分析股票技术面和基本面</li>
+                        <li>把选股想法拆成可回测的筛选条件</li>
+                        <li>从技术面、基本面、资金情绪和风控视角分析问题</li>
+                        <li>解读回测指标、因子贡献和策略失效风险</li>
+                        <li>把模糊判断改写成参数化策略假设</li>
                     </ul>
                     <div class="llm-quick-actions" style="margin-top:12px">
                         <button class="btn btn-sm" data-llm-action="send-quick" data-llm-prompt="帮我选出PE低于20、ROE大于15%的股票">低PE高ROE</button>
@@ -2359,6 +2585,8 @@
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
     </button>
 
+    <div id="user-shell-root"></div>
+
     <div class="toast-container" role="alert" aria-live="polite" id="toast-container"></div>
 
     <div class="cmd-palette-overlay hidden" id="cmd-palette" hidden aria-hidden="true">
@@ -2373,53 +2601,6 @@
         </div>
     </div>
 
-    <script src="/static/core/intent-bus.js" defer></script>
-    <script src="/static/core/global-stock-store.js" defer></script>
-    <script src="/static/core/action-registry.js" defer></script>
-    <script src="/static/core/degraded-mode.js" defer></script>
-    <script src="/static/core/right-rail-controller.js" defer></script>
-    <script src="/static/core/panel-lifecycle.js" defer></script>
-    <script src="/static/core/business-adapter.js" defer></script>
-    <script src="/static/core/stock-search-service.js" defer></script>
-    <script src="/static/core/stock-actions.js" defer></script>
-    <script src="/static/core/local-mcp.js" defer></script>
-    <script src="/static/core/command-palette.js" defer></script>
-
-    <script src="/static/charts.js?v=5" defer></script>
-    <script src="/static/utils.js?v=1" defer></script>
-    <script src="/static/search.js?v=9" defer></script>
-    <script src="/static/watchlist.js?v=5" defer></script>
-    <script src="/static/paper.js?v=8" defer></script>
-    <script src="/static/paper-trading.js?v=1" defer></script>
-    <script src="/static/strategy.js?v=4" defer></script>
-    <script src="/static/realtime.js?v=2" defer></script>
-    <script src="/static/stock-detail.js?v=6" defer></script>
-    <script src="/static/app.js?v=11" defer></script>
-    <script src="/static/overview.js?v=2" defer></script>
-    <script src="/static/backtest.js?v=2" defer></script>
-    <script src="/static/portfolio-stats.js?v=1" defer></script>
-    <script src="/static/portfolio-table.js?v=1" defer></script>
-    <script src="/static/portfolio-charts.js?v=1" defer></script>
-    <script src="/static/portfolio-trades.js?v=1" defer></script>
-    <script src="/static/portfolio-actions.js?v=1" defer></script>
-    <script src="/static/portfolio.js?v=3" defer></script>
-    <script src="/static/risk.js?v=2" defer></script>
-    <script src="/static/risk-stats.js?v=2" defer></script>
-    <script src="/static/risk-charts.js?v=2" defer></script>
-    <script src="/static/risk-rules.js?v=2" defer></script>
-    <script src="/static/risk-positions.js?v=2" defer></script>
-    <script src="/static/risk-events.js?v=2" defer></script>
-    <script src="/static/risk-alerts.js?v=2" defer></script>
-    <script src="/static/alpha.js?v=2" defer></script>
-    <script src="/static/llm.js?v=1" defer></script>
-    <script src="/static/compare.js?v=3" defer></script>
-    <script src="/static/screener.js?v=4" defer></script>
-    <script src="/static/alerts.js?v=1" defer></script>
-    <script src="/static/overview-radar.js?v=4" defer></script>
-    <script src="/static/intelligence.js?v=1" defer></script>
-    <script src="/static/optimization.js?v=2" defer></script>
-    <script src="/static/factor.js?v=1" defer></script>
-    <script src="/static/portfolio-opt.js?v=1" defer></script>
-    <script src="/static/strategy-ensemble.js?v=1" defer></script>
+    {% include "partials/scripts.html" %}
 </body>
 </html>

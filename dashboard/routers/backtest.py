@@ -9,6 +9,8 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel
 
+from dashboard.auth import close_unauthorized_websocket, is_valid_api_key, websocket_api_key
+from dashboard.session import optional_websocket_account
 from data.storage import DataStorage
 from data.collector import StockCollector
 from engine.backtest_engine import BacktestConfig, BacktestEngine
@@ -1081,6 +1083,13 @@ async def get_tick_info(code: str = Query(..., description="股票代码")):
 @router.websocket("/ws/run")
 async def ws_backtest(ws: WebSocket):
     """WebSocket 回测（带实时进度推送）"""
+    if not is_valid_api_key(websocket_api_key(ws)):
+        await close_unauthorized_websocket(ws)
+        return
+    if not await optional_websocket_account(ws):
+        await ws.close(code=1008, reason="请先登录")
+        return
+
     await ws.accept()
     try:
         raw = await ws.receive_text()
@@ -1537,6 +1546,13 @@ class WalkForwardRequest(BaseModel):
 @router.websocket("/ws/walk-forward")
 async def ws_walk_forward(ws: WebSocket):
     """WebSocket Walk-Forward Analysis（带实时进度推送）"""
+    if not is_valid_api_key(websocket_api_key(ws)):
+        await close_unauthorized_websocket(ws)
+        return
+    if not await optional_websocket_account(ws):
+        await ws.close(code=1008, reason="请先登录")
+        return
+
     await ws.accept()
     try:
         raw = await ws.receive_text()

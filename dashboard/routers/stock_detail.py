@@ -9,10 +9,12 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
-from config.datetime_utils import now_beijing_str
+from config.datetime_utils import now_beijing_iso, now_beijing_str
+from config.settings import DATA_SOURCE_MODE
 
 from data.collector.cache import TTLCache
-from data.collector.http_client import code_to_secid, fetch_json, fetch_kline as _fetch_kline_shared
+from data.collector.http_client import code_to_secid, fetch_json
+from data.providers.astock_data_adapter import AStockDataAdapter, fetch_kline as _fetch_kline_shared
 
 router = APIRouter()
 
@@ -56,6 +58,7 @@ async def sync_all_stocks():
 
 
 _stock_list_cache: dict = {"df": None, "ts": 0}
+_MIN_FULL_STOCK_LIST_SIZE = 1000
 
 
 def _normalize_search_query(q: str) -> str:
@@ -78,6 +81,39 @@ def _stock_search_rank(record: dict, query: str, index: int) -> tuple:
     return (exact_code, code_prefix, exact_name, name_contains, code_contains, index)
 
 
+async def _load_full_stock_list(storage):
+    from data.collector import StockCollector
+
+    def _sync_full_list():
+        collector = StockCollector()
+        df = collector.get_stock_list()
+        if not df.empty:
+            storage.save_stock_info(df)
+        return df
+
+    return await asyncio.to_thread(_sync_full_list)
+
+
+def _filter_stock_records(df, query: str, limit: int) -> list[dict]:
+    if df is None or df.empty:
+        return []
+    records = df.to_dict("records")
+    if not query:
+        return records[:limit]
+
+    lowered = query.lower()
+    matched = [
+        record for record in records
+        if lowered in str(record.get("code") or "").lower()
+        or lowered in str(record.get("name") or "").lower()
+    ]
+    ranked = sorted(
+        enumerate(matched),
+        key=lambda item: _stock_search_rank(item[1], query, item[0]),
+    )
+    return [record for _, record in ranked[:limit]]
+
+
 @router.get("/search")
 async def search_stocks(
     q: str = Query("", description="搜索关键词"),
@@ -96,32 +132,23 @@ async def search_stocks(
             _stock_list_cache["df"] = df
             _stock_list_cache["ts"] = now
         else:
+            from data.storage.storage import DataStorage
+            storage = DataStorage()
             df = _stock_list_cache["df"]
 
         if df.empty:
-            return {
-                "success": True,
-                "query": query,
-                "source": source,
-                "degraded": False,
-                "results": [],
-            }
+            df = await _load_full_stock_list(storage)
+            source = "collector"
+            _stock_list_cache["df"] = df
+            _stock_list_cache["ts"] = now
 
-        records = df.to_dict("records")
-        if query:
-            lowered = query.lower()
-            records = [
-                record for record in records
-                if lowered in str(record.get("code") or "").lower()
-                or lowered in str(record.get("name") or "").lower()
-            ]
-            records = sorted(
-                enumerate(records),
-                key=lambda item: _stock_search_rank(item[1], query, item[0]),
-            )
-            results = [record for _, record in records[:limit]]
-        else:
-            results = records[:limit]
+        results = _filter_stock_records(df, query, limit)
+        if query and not results and len(df) < _MIN_FULL_STOCK_LIST_SIZE:
+            df = await _load_full_stock_list(storage)
+            source = "collector"
+            _stock_list_cache["df"] = df
+            _stock_list_cache["ts"] = now
+            results = _filter_stock_records(df, query, limit)
 
         return {
             "success": True,
@@ -479,9 +506,15 @@ async def get_stock_detail(code: str):
                 }
             )
 
+    source = "astock" if DATA_SOURCE_MODE == "new" else "legacy"
+    source_version = AStockDataAdapter.SOURCE_VERSION if source == "astock" else DATA_SOURCE_MODE
+
     return {
         "code": quote.code,
         "name": quote.name,
+        "source": source,
+        "source_version": source_version,
+        "updated_at": now_beijing_iso(),
         "price": quote.price,
         "open": quote.open,
         "high": quote.high,

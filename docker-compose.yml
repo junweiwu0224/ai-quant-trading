@@ -1,4 +1,46 @@
 services:
+  openclaw:
+    image: node:24-alpine
+    working_dir: /app
+    command:
+      - sh
+      - -lc
+      - |
+        npm install -g /app/openclaw-2026.5.20.tgz &&
+        mkdir -p /data/openclaw/state /data/openclaw/workspace &&
+        cat > /data/openclaw/openclaw.json <<'EOF'
+        {
+          "gateway": {
+            "mode": "local",
+            "port": 18789,
+            "bind": "loopback",
+            "auth": { "mode": "none" },
+            "http": {
+              "endpoints": {
+                "chatCompletions": { "enabled": true },
+                "responses": { "enabled": true }
+              }
+            }
+          },
+          "agents": {
+            "defaults": {
+              "workspace": "/data/openclaw/workspace"
+            }
+          }
+        }
+        EOF
+        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --auth none --allow-unconfigured
+    ports:
+      - "18789:18789"
+    volumes:
+      - ./openclaw-2026.5.20.tgz:/app/openclaw-2026.5.20.tgz:ro
+      - ./data/openclaw:/data/openclaw
+      - ./logs/openclaw:/logs/openclaw
+    environment:
+      - TZ=Asia/Shanghai
+      - OPENCLAW_WORKSPACE_DIR=/data/openclaw
+    restart: unless-stopped
+
   dashboard:
     build: .
     ports:
@@ -13,8 +55,16 @@ services:
       - LOG_LEVEL=INFO
       - TZ=Asia/Shanghai
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://cpa.junwei.fun/v1}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.5}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
+      - APP_ENV=${APP_ENV:-development}
+      - OPENCLAW_MANAGED=${OPENCLAW_MANAGED:-false}
+      - OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}
+      - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-http://openclaw:18789}
+      - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-http://127.0.0.1:18789}
+    depends_on:
+      - openclaw
     restart: unless-stopped
 
   paper:

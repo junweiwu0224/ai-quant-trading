@@ -8,6 +8,7 @@
 
 后台线程持续轮询，内存缓存，支持回调通知（WebSocket 推送）。
 """
+import asyncio
 import threading
 import time
 from dataclasses import dataclass
@@ -16,15 +17,9 @@ from typing import Callable, Optional
 from loguru import logger
 
 from data.collector.cache import TTLCache
-from data.collector.http_client import (
-    calculate_limit_prices,
-    code_to_secid,
-    fetch_industry_batch,
-    fetch_json,
-    fetch_kline,
-    get_client,
-    normalize_stock_code,
-)
+from data.collector.data_source import DataSource, Quote
+from data.collector.http_client import calculate_limit_prices, code_to_secid, fetch_json, get_client, normalize_stock_code
+from data.providers.astock_data_adapter import AStockDataAdapter, fetch_concepts_batch, fetch_industry_batch, fetch_kline
 from config.settings import DATA_SOURCE_MODE
 
 
@@ -86,6 +81,106 @@ _industry_cache = TTLCache(max_size=2000)
 # ── 高频降级日志节流 ──
 _last_mootdx_fallback_log = 0.0
 _stock_info_cache: dict[str, dict] | None = None
+
+
+def _run_provider_call(coro_factory):
+    """Run an async provider method from sync service code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+
+    if not loop.is_running():
+        return loop.run_until_complete(coro_factory())
+
+    result = {}
+
+    def _runner():
+        try:
+            result["value"] = asyncio.run(coro_factory())
+        except Exception as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True, name="quote-provider-call")
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
+def _safe_number(value, default: float = 0.0) -> float:
+    if value in (None, "", "-", "--"):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _provider_quote_to_quote_data(raw_quote, stock_info: dict[str, dict] | None = None) -> QuoteData | None:
+    if isinstance(raw_quote, QuoteData):
+        return raw_quote
+    code = normalize_stock_code(getattr(raw_quote, "code", ""))
+    if not code:
+        return None
+    info = (stock_info or {}).get(code, {})
+    pre_close = _safe_number(getattr(raw_quote, "pre_close", None))
+    limit_up, limit_down = calculate_limit_prices(code, pre_close)
+    return QuoteData(
+        code=code,
+        name=str(getattr(raw_quote, "name", "") or info.get("name", "")),
+        price=_safe_number(getattr(raw_quote, "price", None)),
+        open=_safe_number(getattr(raw_quote, "open", None)),
+        high=_safe_number(getattr(raw_quote, "high", None)),
+        low=_safe_number(getattr(raw_quote, "low", None)),
+        pre_close=pre_close,
+        volume=_safe_number(getattr(raw_quote, "volume", None)),
+        amount=_safe_number(getattr(raw_quote, "amount", None)),
+        change_pct=_safe_number(getattr(raw_quote, "change_pct", None)),
+        timestamp=time.time(),
+        industry=str(getattr(raw_quote, "industry", "") or info.get("industry", "")),
+        sector=str(getattr(raw_quote, "sector", "") or info.get("sector", "")),
+        concepts=str(getattr(raw_quote, "concepts", "") or info.get("concepts", "")),
+        market_cap=_safe_number(getattr(raw_quote, "market_cap", None)),
+        pe_ratio=_safe_number(getattr(raw_quote, "pe_ratio", None)),
+        pb_ratio=_safe_number(getattr(raw_quote, "pb_ratio", None)),
+        turnover_rate=_safe_number(getattr(raw_quote, "turnover_rate", None)),
+        limit_up=limit_up,
+        limit_down=limit_down,
+    )
+
+
+def _fetch_batch_quotes_provider(
+    codes: list[str],
+    provider: DataSource,
+    stock_info: dict[str, dict] | None = None,
+) -> dict[str, QuoteData]:
+    """Fetch quotes through the canonical provider, keeping legacy fallback for gaps."""
+    valid_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
+    if not valid_codes:
+        return {}
+
+    result: dict[str, QuoteData] = {}
+    try:
+        provider_quotes = _run_provider_call(lambda: provider.get_realtime_quotes(valid_codes)) or []
+        for raw_quote in provider_quotes:
+            quote = _provider_quote_to_quote_data(raw_quote, stock_info)
+            if quote and quote.price is not None:
+                result[quote.code] = quote
+    except Exception as exc:
+        logger.debug(f"A-Stock provider 行情获取失败，准备回退旧链路: {exc}")
+
+    missing_codes = [code for code in valid_codes if code not in result]
+    if missing_codes:
+        fallback_result = _fetch_batch_quotes(missing_codes, stock_info)
+        result = {**result, **fallback_result}
+
+    if result:
+        active_codes = [code for code in valid_codes if code in result]
+        _enrich_with_tencent(result, active_codes)
+        _enrich_with_industry(result, active_codes)
+    return result
 
 
 def _load_stock_info_map() -> dict[str, dict]:
@@ -329,7 +424,7 @@ def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
         return None
 
 
-def _fetch_financial_data(code: str) -> dict:
+def _fetch_financial_data(code: str, provider: DataSource | None = None) -> dict:
     """获取股票财务数据（根据 DATA_SOURCE_MODE 选择数据源）"""
     normalized = normalize_stock_code(code)
     if not normalized:
@@ -339,7 +434,15 @@ def _fetch_financial_data(code: str) -> dict:
     if hit:
         return cached
 
-    if DATA_SOURCE_MODE == "new":
+    if provider is not None:
+        try:
+            primary_result = _run_provider_call(lambda: provider.get_finance(normalized)) or {}
+        except Exception as exc:
+            logger.debug(f"A-Stock provider 财务数据获取失败 {normalized}: {exc}")
+            primary_result = {}
+        fallback_result = _fetch_financial_data_legacy(normalized)
+        result = {**fallback_result, **{k: v for k, v in primary_result.items() if v not in (None, "", 0, 0.0)}}
+    elif DATA_SOURCE_MODE == "new":
         primary_result = _fetch_financial_data_mootdx(normalized)
         fallback_result = _fetch_financial_data_legacy(normalized)
         result = {**fallback_result, **{k: v for k, v in primary_result.items() if v not in (None, "", 0, 0.0)}}
@@ -443,8 +546,6 @@ def _fetch_financial_data_legacy(code: str) -> dict:
 
 def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
     """用 DB 数据 + datacenter 批量 API + push2delay 补充行业/板块/概念"""
-    from data.collector.http_client import fetch_concepts_batch
-
     # 从缓存查找
     missing = []
     for code in codes:
@@ -643,8 +744,15 @@ class QuoteService:
     - 支持回调通知（WebSocket 推送用）
     """
 
-    def __init__(self, interval: float = 5.0):
+    def __init__(
+        self,
+        interval: float = 5.0,
+        provider: DataSource | None = None,
+        storage=None,
+    ):
         self._interval = interval
+        self._provider = provider or AStockDataAdapter()
+        self._storage = storage
         self._subscriptions: set[str] = set()
         self._cache: dict[str, QuoteData] = {}
         self._lock = threading.Lock()
@@ -661,8 +769,12 @@ class QuoteService:
     def _reload_stock_info(self):
         """从 DB 加载股票名称和行业信息"""
         try:
-            from data.storage.storage import DataStorage
-            df = DataStorage().get_stock_list()
+            storage = self._storage
+            if storage is None:
+                from data.storage.storage import DataStorage
+                storage = DataStorage()
+                self._storage = storage
+            df = storage.get_stock_list()
             if not df.empty:
                 self._stock_info = {
                     normalize_stock_code(row["code"]): {"name": row.get("name", ""), "industry": row.get("industry", "")}
@@ -711,6 +823,28 @@ class QuoteService:
         with self._lock:
             return self._cache.get(normalized)
 
+    def get_or_fetch_quote(self, code: str) -> Optional[QuoteData]:
+        """获取缓存行情；缓存缺失时立即拉取一次并写回缓存。"""
+        normalized = normalize_stock_code(code)
+        if not normalized:
+            return None
+        with self._lock:
+            cached = self._cache.get(normalized)
+        if cached:
+            return cached
+
+        quotes = self._fetch_quotes([normalized])
+        quote = quotes.get(normalized)
+        if quote:
+            with self._lock:
+                self._cache[normalized] = quote
+            for cb in self._callbacks:
+                try:
+                    cb({normalized: quote})
+                except Exception as e:
+                    logger.error(f"行情回调异常: {e}")
+        return quote
+
     def get_all_quotes(self) -> dict[str, QuoteData]:
         """获取所有缓存行情"""
         with self._lock:
@@ -724,6 +858,9 @@ class QuoteService:
     def get_financial_data(self, code: str) -> dict | None:
         """获取预缓存的财务数据"""
         return get_financial_cache(code)
+
+    def _fetch_quotes(self, codes: list[str]) -> dict[str, QuoteData]:
+        return _fetch_batch_quotes_provider(codes, self._provider, self._stock_info)
 
     @property
     def is_running(self) -> bool:
@@ -791,7 +928,7 @@ class QuoteService:
         if not codes:
             return
 
-        quotes = _fetch_batch_quotes(codes, self._stock_info)
+        quotes = self._fetch_quotes(codes)
         if not quotes:
             return
 
@@ -829,7 +966,7 @@ class QuoteService:
         success, fail = 0, 0
         for code in codes:
             try:
-                _fetch_financial_data(code)  # 内部有 TTL 缓存
+                _fetch_financial_data(code, provider=self._provider)  # 内部有 TTL 缓存
                 success += 1
             except Exception as e:
                 logger.warning(f"财务数据刷新失败 {code}: {e}")

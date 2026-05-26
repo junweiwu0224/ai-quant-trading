@@ -398,8 +398,11 @@
     };
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            if (globalThis.__AUTH_GATE_REQUIRED__ === true) return;
+            init();
+        });
+    } else if (globalThis.__AUTH_GATE_REQUIRED__ !== true) {
         init();
     }
 })();

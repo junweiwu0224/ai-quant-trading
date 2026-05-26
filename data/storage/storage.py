@@ -1,5 +1,9 @@
 """SQLite 数据库存储层"""
-from datetime import date
+import hashlib
+import math
+import json
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -24,9 +28,9 @@ def _to_prefix_code(code: str) -> str:
     if code[:2] in ("sh", "sz", "SH", "SZ"):
         return code.lower()
     # 纯数字：根据规则加前缀
-    if code.startswith(("6", "9")):
+    if code.startswith("6"):
         return f"sh{code}"
-    if code.startswith(("0", "3")):
+    if code.startswith(("0", "3", "9")):
         return f"sz{code}"
     return code
 
@@ -46,6 +50,108 @@ def _normalize_storage_code(code: str) -> tuple[str | None, str | None]:
     if len(plain_code) != 6 or not plain_code.isdigit():
         return None, None
     return _to_prefix_code(plain_code), plain_code
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="microseconds")
+
+
+def _sanitize_json_value(value):
+    if value is None or value is pd.NA or value is pd.NaT:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, Decimal):
+        if value.is_nan() or value.is_infinite():
+            return None
+        integral_value = value.to_integral_value()
+        if value == integral_value:
+            try:
+                return int(integral_value)
+            except (TypeError, ValueError, OverflowError):
+                return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError, OverflowError):
+            return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if hasattr(value, "item") and not isinstance(value, (str, bytes, bytearray)):
+        try:
+            item = value.item()
+        except Exception:
+            item = value
+        if item is not value:
+            return _sanitize_json_value(item)
+    if isinstance(value, dict):
+        sanitized: dict[str, object] = {}
+        for key in sorted(value.keys(), key=lambda item: str(item)):
+            sanitized[str(key)] = _sanitize_json_value(value[key])
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, set):
+        items = [_sanitize_json_value(item) for item in value]
+        return sorted(items, key=lambda item: _json_stable_dumps(item))
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if hasattr(value, "__dict__"):
+        return _sanitize_json_value(vars(value))
+    return value if isinstance(value, (str, int, bool)) else str(value)
+
+
+def _json_dumps(value) -> str:
+    return json.dumps(
+        _sanitize_json_value(value if value is not None else {}),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _json_stable_dumps(value) -> str:
+    return json.dumps(
+        _sanitize_json_value(value if value is not None else {}),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _payload_hash(payload) -> str:
+    return hashlib.sha256(_json_stable_dumps(payload).encode("utf-8")).hexdigest()
+
+
+def _json_loads(value: str | None, fallback=None):
+    if not value:
+        return {} if fallback is None else fallback
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {} if fallback is None else fallback
+
+
+def _normalize_ledger_code(code: str) -> str:
+    raw_code = str(code or "").strip()
+    plain_code = _to_plain_code(raw_code)
+    if len(plain_code) == 6 and plain_code.isdigit():
+        return plain_code
+    return raw_code
 
 
 class StockDaily(Base):
@@ -85,6 +191,20 @@ class UserWatchlist(Base):
 
     code = Column(String(10), primary_key=True)
     added_at = Column(String(30))
+
+
+class WorkspaceWatchlist(Base):
+    """工作区自选股表"""
+    __tablename__ = "workspace_watchlist"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(String(36), nullable=False, index=True)
+    code = Column(String(10), nullable=False, index=True)
+    added_at = Column(String(30))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "code", name="uq_workspace_watchlist_workspace_code"),
+    )
 
 
 class StrategyVersion(Base):
@@ -161,10 +281,58 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(String(36), primary_key=True)  # UUID
+    workspace_id = Column(String(36), index=True, default="")
+    surface = Column(String(32), nullable=False, default="llm", index=True)
     title = Column(String(200), default="新对话")
     messages_json = Column(Text, default="[]")  # JSON: [{role, content, timestamp}]
     created_at = Column(String(30))
     updated_at = Column(String(30))
+
+
+class DataSourceVersion(Base):
+    """数据源版本表"""
+    __tablename__ = "data_source_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String(50), nullable=False, index=True)
+    version = Column(String(100), nullable=False)
+    active = Column(Integer, default=1, index=True)
+    metadata_json = Column("metadata", Text, default="{}")
+    created_at = Column(String(30))
+    updated_at = Column(String(30))
+
+    __table_args__ = (
+        UniqueConstraint("source", "version", name="uq_data_source_version"),
+    )
+
+
+class DataSnapshot(Base):
+    """数据快照表"""
+    __tablename__ = "data_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(20), nullable=False, index=True)
+    domain = Column(String(50), nullable=False, index=True)
+    source = Column(String(50), nullable=False, index=True)
+    source_version = Column(String(100))
+    payload_json = Column("payload", Text, nullable=False)
+    payload_hash = Column(String(64), nullable=False, index=True)
+    quality_status = Column(String(20), default="ok", index=True)
+    created_at = Column(String(30), index=True)
+
+
+class DataQualityRecord(Base):
+    """数据质量记录表"""
+    __tablename__ = "data_quality_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(20), nullable=False, index=True)
+    domain = Column(String(50), nullable=False, index=True)
+    check_name = Column(String(80), nullable=False, index=True)
+    status = Column(String(20), nullable=False, index=True)
+    details_json = Column("details", Text, default="{}")
+    diff_count = Column(Integer, default=0)
+    created_at = Column(String(30), index=True)
 
 
 class DataStorage:
@@ -233,6 +401,126 @@ class DataStorage:
                 if "status" not in cols:
                     cursor.execute("ALTER TABLE stock_info ADD COLUMN status TEXT DEFAULT 'active'")
                     logger.info("迁移: stock_info 添加 status 列")
+
+            # user_watchlist.workspace_id + id
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_watchlist'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(user_watchlist)")
+                cols = {row[1] for row in cursor.fetchall()}
+                # 旧匿名表保留兼容；新工作区表用于登录用户。
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace_watchlist'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    """CREATE TABLE workspace_watchlist (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        workspace_id TEXT NOT NULL,
+                        code TEXT NOT NULL,
+                        added_at TEXT,
+                        UNIQUE(workspace_id, code)
+                    )"""
+                )
+                logger.info("迁移: 创建 workspace_watchlist 表")
+
+            # conversations.workspace_id
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(conversations)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "workspace_id" not in cols:
+                    cursor.execute("ALTER TABLE conversations ADD COLUMN workspace_id TEXT DEFAULT ''")
+                    logger.info("迁移: conversations 添加 workspace_id 列")
+                if "surface" not in cols:
+                    cursor.execute("ALTER TABLE conversations ADD COLUMN surface TEXT DEFAULT 'llm'")
+                    logger.info("迁移: conversations 添加 surface 列")
+                cursor.execute("UPDATE conversations SET surface = 'llm' WHERE surface IS NULL OR surface = ''")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_conversations_surface ON conversations(surface)")
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data_source_versions'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    """CREATE TABLE data_source_versions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source TEXT NOT NULL,
+                        version TEXT NOT NULL,
+                        active INTEGER DEFAULT 1,
+                        metadata TEXT DEFAULT '{}',
+                        created_at TEXT,
+                        updated_at TEXT,
+                        UNIQUE(source, version)
+                    )"""
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_source_versions_source ON data_source_versions(source)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_source_versions_active ON data_source_versions(active)")
+                logger.info("迁移: 创建 data_source_versions 表")
+            else:
+                cursor.execute("PRAGMA table_info(data_source_versions)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "updated_at" not in cols:
+                    cursor.execute("ALTER TABLE data_source_versions ADD COLUMN updated_at TEXT")
+                    cursor.execute("UPDATE data_source_versions SET updated_at = created_at WHERE updated_at IS NULL")
+                    logger.info("迁移: data_source_versions 添加 updated_at 列")
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data_snapshots'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    """CREATE TABLE data_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        code TEXT NOT NULL,
+                        domain TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        source_version TEXT,
+                        payload TEXT NOT NULL,
+                        payload_hash TEXT NOT NULL DEFAULT '',
+                        quality_status TEXT DEFAULT 'ok',
+                        created_at TEXT
+                    )"""
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_code ON data_snapshots(code)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_domain ON data_snapshots(domain)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_source ON data_snapshots(source)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_payload_hash ON data_snapshots(payload_hash)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_created_at ON data_snapshots(created_at)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_data_snapshots_code_domain_created ON data_snapshots(code, domain, created_at)"
+                )
+                logger.info("迁移: 创建 data_snapshots 表")
+            else:
+                cursor.execute("PRAGMA table_info(data_snapshots)")
+                cols = {row[1] for row in cursor.fetchall()}
+                if "payload_hash" not in cols:
+                    cursor.execute("ALTER TABLE data_snapshots ADD COLUMN payload_hash TEXT DEFAULT ''")
+                    logger.info("迁移: data_snapshots 添加 payload_hash 列")
+                cursor.execute(
+                    "SELECT id, payload FROM data_snapshots WHERE payload_hash IS NULL OR payload_hash = ''"
+                )
+                for snapshot_id, payload_json in cursor.fetchall():
+                    payload = _json_loads(payload_json)
+                    cursor.execute(
+                        "UPDATE data_snapshots SET payload_hash = ? WHERE id = ?",
+                        (_payload_hash(payload), snapshot_id),
+                    )
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_snapshots_payload_hash ON data_snapshots(payload_hash)")
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data_quality_records'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    """CREATE TABLE data_quality_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        code TEXT NOT NULL,
+                        domain TEXT NOT NULL,
+                        check_name TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        details TEXT DEFAULT '{}',
+                        diff_count INTEGER DEFAULT 0,
+                        created_at TEXT
+                    )"""
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_quality_records_code ON data_quality_records(code)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_quality_records_domain ON data_quality_records(domain)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_quality_records_check_name ON data_quality_records(check_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_quality_records_status ON data_quality_records(status)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_data_quality_records_created_at ON data_quality_records(created_at)")
+                logger.info("迁移: 创建 data_quality_records 表")
 
             conn.commit()
         except Exception as e:
@@ -505,32 +793,303 @@ class DataStorage:
         finally:
             session.close()
 
+    # ── 数据来源与质量台账 ──
+
+    def save_data_source_version(
+        self,
+        source: str,
+        version: str,
+        active: bool = True,
+        metadata: dict | None = None,
+    ) -> int:
+        """保存或更新数据源版本，返回版本记录 ID"""
+        session = self._get_session()
+        try:
+            now = _now_iso()
+            row = (
+                session.query(DataSourceVersion)
+                .filter(DataSourceVersion.source == source, DataSourceVersion.version == version)
+                .first()
+            )
+            if row:
+                row.active = 1 if active else 0
+                if metadata is not None:
+                    row.metadata_json = _json_dumps(metadata)
+                row.updated_at = now
+            else:
+                row = DataSourceVersion(
+                    source=source,
+                    version=version,
+                    active=1 if active else 0,
+                    metadata_json=_json_dumps(metadata),
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(row)
+            session.commit()
+            return row.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"保存数据源版本失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_data_source_versions(self, source: str | None = None, active_only: bool = False) -> list[dict]:
+        """查询数据源版本列表"""
+        session = self._get_session()
+        try:
+            query = session.query(DataSourceVersion)
+            if source:
+                query = query.filter(DataSourceVersion.source == source)
+            if active_only:
+                query = query.filter(DataSourceVersion.active == 1)
+            rows = query.order_by(DataSourceVersion.source, DataSourceVersion.id).all()
+            return [
+                {
+                    "id": row.id,
+                    "source": row.source,
+                    "version": row.version,
+                    "active": bool(row.active),
+                    "metadata": _json_loads(row.metadata_json),
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at or row.created_at,
+                }
+                for row in rows
+            ]
+        finally:
+            session.close()
+
+    def save_data_snapshot(
+        self,
+        code: str,
+        domain: str,
+        source: str,
+        source_version: str,
+        payload: dict,
+        quality_status: str = "ok",
+    ) -> int:
+        """保存一条数据快照，返回快照 ID"""
+        session = self._get_session()
+        try:
+            payload_json = _json_dumps(payload)
+            row = DataSnapshot(
+                code=_normalize_ledger_code(code),
+                domain=domain,
+                source=source,
+                source_version=source_version,
+                payload_json=payload_json,
+                payload_hash=_payload_hash(payload),
+                quality_status=quality_status,
+                created_at=_now_iso(),
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"保存数据快照失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_latest_data_snapshot(self, code: str, domain: str) -> dict | None:
+        """获取指定代码和业务域的最新数据快照"""
+        plain_code = _normalize_ledger_code(code)
+        prefixed_code = _to_prefix_code(plain_code)
+        session = self._get_session()
+        try:
+            row = (
+                session.query(DataSnapshot)
+                .filter(DataSnapshot.code.in_([plain_code, prefixed_code]), DataSnapshot.domain == domain)
+                .order_by(DataSnapshot.id.desc())
+                .first()
+            )
+            if not row:
+                return None
+            return {
+                "id": row.id,
+                "code": row.code,
+                "domain": row.domain,
+                "source": row.source,
+                "source_version": row.source_version,
+                "payload": _json_loads(row.payload_json),
+                "payload_hash": row.payload_hash,
+                "quality_status": row.quality_status,
+                "created_at": row.created_at,
+            }
+        finally:
+            session.close()
+
+    def save_data_quality_record(
+        self,
+        code: str,
+        domain: str,
+        check_name: str,
+        status: str,
+        details: dict | None = None,
+        diff_count: int = 0,
+    ) -> int:
+        """保存一条数据质量检查记录，返回记录 ID"""
+        session = self._get_session()
+        try:
+            sanitized_details = _sanitize_json_value(details)
+            inferred_diff_count = diff_count
+            if inferred_diff_count in (None, 0) and isinstance(sanitized_details, dict):
+                inferred_diff_count = sanitized_details.get("diff_count", 0) or 0
+            row = DataQualityRecord(
+                code=_normalize_ledger_code(code),
+                domain=domain,
+                check_name=check_name,
+                status=status,
+                details_json=_json_dumps(sanitized_details),
+                diff_count=int(inferred_diff_count or 0),
+                created_at=_now_iso(),
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"保存数据质量记录失败: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_data_quality_summary(self, domain: str | None = None) -> dict:
+        """汇总数据质量记录，支持按业务域过滤"""
+        session = self._get_session()
+        try:
+            query = session.query(DataQualityRecord)
+            if domain:
+                query = query.filter(DataQualityRecord.domain == domain)
+            rows = query.all()
+
+            by_status: dict[str, int] = {}
+            by_domain: dict[str, int] = {}
+            shadow_diff_count = 0
+            for row in rows:
+                by_status[row.status] = by_status.get(row.status, 0) + 1
+                by_domain[row.domain] = by_domain.get(row.domain, 0) + 1
+                if row.check_name == "shadow_compare":
+                    shadow_diff_count += int(row.diff_count or 0)
+
+            latest_created_at = max((row.created_at for row in rows if row.created_at), default=None)
+            return {
+                "domain": domain,
+                "total": len(rows),
+                "by_status": dict(sorted(by_status.items())),
+                "by_domain": dict(sorted(by_domain.items())),
+                "shadow_diff_count": shadow_diff_count,
+                "latest_created_at": latest_created_at,
+            }
+        finally:
+            session.close()
+
+    def get_data_source_health(self) -> dict:
+        """汇总数据源可用性和最新版本信息"""
+        session = self._get_session()
+        try:
+            rows = session.query(DataSourceVersion).order_by(DataSourceVersion.source, DataSourceVersion.id).all()
+            sources: dict[str, dict] = {}
+            for row in rows:
+                row_seen_at = row.updated_at or row.created_at
+                source_health = sources.setdefault(
+                    row.source,
+                    {
+                        "latest_version": None,
+                        "active_versions": [],
+                        "version_count": 0,
+                        "last_seen_at": None,
+                        "latest_version_id": None,
+                        "_latest_seen_at": None,
+                    },
+                )
+                source_health["version_count"] += 1
+                if row_seen_at and (
+                    source_health["_latest_seen_at"] is None
+                    or row_seen_at > source_health["_latest_seen_at"]
+                    or (row_seen_at == source_health["_latest_seen_at"] and (source_health["latest_version_id"] or 0) < row.id)
+                ):
+                    source_health["latest_version"] = row.version
+                    source_health["_latest_seen_at"] = row_seen_at
+                    source_health["latest_version_id"] = row.id
+                if row_seen_at and (
+                    source_health["last_seen_at"] is None
+                    or row_seen_at > source_health["last_seen_at"]
+                ):
+                    source_health["last_seen_at"] = row_seen_at
+                if row.active:
+                    source_health["active_versions"].append(row.version)
+
+            active_sources = [
+                source
+                for source, source_health in sources.items()
+                if source_health["active_versions"]
+            ]
+            for source_health in sources.values():
+                source_health.pop("_latest_seen_at", None)
+                source_health.pop("latest_version_id", None)
+            return {
+                "total_sources": len(sources),
+                "total_active_sources": len(active_sources),
+                "sources": sources,
+            }
+        finally:
+            session.close()
+
     # ── 自选股管理 ──
 
-    def add_to_watchlist(self, code: str) -> bool:
+    def _next_watchlist_id(self, session) -> int:
+        row = session.execute(text("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM user_watchlist")).mappings().first()
+        return int(row["next_id"]) if row and row["next_id"] else 1
+
+    def add_to_watchlist(self, code: str, workspace_id: str = "") -> bool:
         """添加自选股，返回是否新增（False=已存在）"""
         prefixed_code, plain_code = _normalize_storage_code(code)
         if not prefixed_code or not plain_code:
             return False
         session = self._get_session()
         try:
-            existing_rows = (
-                session.query(UserWatchlist)
-                .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
-                .all()
-            )
-            existing = next((row for row in existing_rows if row.code == prefixed_code), None)
-            if existing is None and existing_rows:
-                existing = existing_rows[0]
-                existing.code = prefixed_code
-            if existing:
-                for duplicate in existing_rows:
-                    if duplicate is existing:
-                        continue
-                    session.delete(duplicate)
-                session.commit()
-                return False
-            session.add(UserWatchlist(code=prefixed_code, added_at=str(pd.Timestamp.now())))
+            if workspace_id:
+                existing = (
+                    session.query(WorkspaceWatchlist)
+                    .filter(
+                        WorkspaceWatchlist.workspace_id == workspace_id,
+                        WorkspaceWatchlist.code.in_([prefixed_code, plain_code]),
+                    )
+                    .first()
+                )
+                if existing:
+                    existing.code = prefixed_code
+                    session.commit()
+                    return False
+                session.add(WorkspaceWatchlist(
+                    workspace_id=workspace_id,
+                    code=prefixed_code,
+                    added_at=str(pd.Timestamp.now()),
+                ))
+            else:
+                existing_rows = (
+                    session.query(UserWatchlist)
+                    .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
+                    .all()
+                )
+                existing = next((row for row in existing_rows if row.code == prefixed_code), None)
+                if existing is None and existing_rows:
+                    existing = existing_rows[0]
+                    existing.code = prefixed_code
+                if existing:
+                    for duplicate in existing_rows:
+                        if duplicate is existing:
+                            continue
+                        session.delete(duplicate)
+                    session.commit()
+                    return False
+                session.add(UserWatchlist(
+                    code=prefixed_code,
+                    added_at=str(pd.Timestamp.now()),
+                ))
             session.commit()
             logger.info(f"自选股添加: {prefixed_code}")
             return True
@@ -541,17 +1100,27 @@ class DataStorage:
         finally:
             session.close()
 
-    def remove_from_watchlist(self, code: str) -> bool:
+    def remove_from_watchlist(self, code: str, workspace_id: str = "") -> bool:
         """删除自选股，返回是否存在"""
         prefixed_code = _to_prefix_code(code)
         plain_code = _to_plain_code(code)
         session = self._get_session()
         try:
-            rows = (
-                session.query(UserWatchlist)
-                .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
-                .all()
-            )
+            if workspace_id:
+                rows = (
+                    session.query(WorkspaceWatchlist)
+                    .filter(
+                        WorkspaceWatchlist.workspace_id == workspace_id,
+                        WorkspaceWatchlist.code.in_([prefixed_code, plain_code]),
+                    )
+                    .all()
+                )
+            else:
+                rows = (
+                    session.query(UserWatchlist)
+                    .filter(UserWatchlist.code.in_([prefixed_code, plain_code]))
+                    .all()
+                )
             if not rows:
                 return False
             for row in rows:
@@ -566,11 +1135,17 @@ class DataStorage:
         finally:
             session.close()
 
-    def get_watchlist(self) -> list[str]:
+    def get_watchlist(self, workspace_id: str = "") -> list[str]:
         """获取自选股代码列表"""
         session = self._get_session()
         try:
-            rows = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at).all()
+            if workspace_id:
+                query = session.query(WorkspaceWatchlist.code).filter(
+                    WorkspaceWatchlist.workspace_id == workspace_id
+                ).order_by(WorkspaceWatchlist.added_at)
+            else:
+                query = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at)
+            rows = query.all()
             codes = []
             seen = set()
             for row in rows:
@@ -583,11 +1158,17 @@ class DataStorage:
         finally:
             session.close()
 
-    def get_watchlist_with_info(self) -> list[dict]:
+    def get_watchlist_with_info(self, workspace_id: str = "") -> list[dict]:
         """获取自选股列表（含名称、行业、最新价、数据日期）"""
         session = self._get_session()
         try:
-            rows = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at).all()
+            if workspace_id:
+                query = session.query(WorkspaceWatchlist.code).filter(
+                    WorkspaceWatchlist.workspace_id == workspace_id
+                ).order_by(WorkspaceWatchlist.added_at)
+            else:
+                query = session.query(UserWatchlist.code).order_by(UserWatchlist.added_at)
+            rows = query.all()
             if not rows:
                 return []
 
@@ -628,32 +1209,80 @@ class DataStorage:
                 .order_by(StockDaily.date.desc())
                 .all()
             )
-            latest_prices = {}
-            latest_prefixed = {}
+            daily_rows_by_code = {}
             for row in latest_rows:
                 plain_code = _to_plain_code(row.code)
-                row_is_prefixed = row.code == _to_prefix_code(plain_code)
-                existing_date = latest_prices.get(plain_code, {}).get("date")
-                if existing_date is None or row.date > existing_date:
-                    latest_prices[plain_code] = {"price": row.close, "date": row.date}
-                    latest_prefixed[plain_code] = row_is_prefixed
-                    continue
-                if row.date == existing_date and row_is_prefixed and not latest_prefixed.get(plain_code, False):
-                    latest_prices[plain_code] = {"price": row.close, "date": row.date}
-                    latest_prefixed[plain_code] = True
+                daily_rows_by_code.setdefault(plain_code, []).append(row)
+
+            latest_prices = {}
+            previous_prices = {}
+            for plain_code, daily_rows in daily_rows_by_code.items():
+                ordered_rows = sorted(
+                    daily_rows,
+                    key=lambda item: (item.date, item.code == _to_prefix_code(plain_code)),
+                    reverse=True,
+                )
+                latest = ordered_rows[0]
+                latest_prices[plain_code] = {"price": latest.close, "date": latest.date}
+
+                for row in ordered_rows[1:]:
+                    if row.date < latest.date and row.close not in (None, 0):
+                        previous_prices[plain_code] = row.close
+                        break
 
             return [
                 {
                     "code": plain_code,
                     "name": info_map.get(plain_code, {}).get("name", ""),
                     "industry": info_map.get(plain_code, {}).get("industry", ""),
+                    "price": latest_prices.get(plain_code, {}).get("price"),
                     "latest_price": latest_prices.get(plain_code, {}).get("price"),
+                    "change_pct": (
+                        round(
+                            (
+                                (latest_prices[plain_code]["price"] - previous_prices[plain_code])
+                                / previous_prices[plain_code]
+                            ) * 100,
+                            2,
+                        )
+                        if plain_code in latest_prices
+                        and plain_code in previous_prices
+                        and latest_prices[plain_code].get("price") is not None
+                        else None
+                    ),
                     "latest_date": str(latest_prices[plain_code]["date"]) if plain_code in latest_prices else None,
                 }
                 for plain_code in ordered_codes
             ]
         finally:
             session.close()
+
+    def get_watchlist_workspaces(self) -> list[str]:
+        """列出所有存在自选股的工作区 ID（含匿名空工作区）"""
+        session = self._get_session()
+        try:
+            rows = session.query(WorkspaceWatchlist.workspace_id).distinct().all()
+            workspaces = []
+            seen = set()
+            for row in rows:
+                wid = row.workspace_id or ""
+                if wid in seen:
+                    continue
+                seen.add(wid)
+                workspaces.append(wid)
+            return workspaces
+        finally:
+            session.close()
+
+    def get_all_watchlist_codes(self) -> list[tuple[str, list[str]]]:
+        """返回所有工作区及其自选股代码列表。"""
+        result = []
+        for workspace_id in self.get_watchlist_workspaces():
+            result.append((workspace_id, self.get_watchlist(workspace_id)))
+        default_codes = self.get_watchlist("")
+        if default_codes:
+            result.append(("", default_codes))
+        return result
 
     # ── 画线工具 CRUD ──
 
@@ -806,44 +1435,58 @@ class DataStorage:
 
     # ── 对话历史 ──
 
-    def list_conversations(self, limit: int = 50) -> list[dict]:
+    def list_conversations(self, limit: int = 50, workspace_id: str = "", surface: str = "llm") -> list[dict]:
         """获取对话列表"""
         session = self._get_session()
         try:
-            rows = session.query(Conversation).order_by(Conversation.updated_at.desc()).limit(limit).all()
+            surface_value = surface or "llm"
+            query = session.query(Conversation).order_by(Conversation.updated_at.desc())
+            query = query.filter(Conversation.workspace_id == (workspace_id or ""))
+            query = query.filter(Conversation.surface == surface_value)
+            rows = query.limit(limit).all()
             return [{"id": r.id, "title": r.title, "created_at": r.created_at, "updated_at": r.updated_at} for r in rows]
         finally:
             session.close()
 
-    def get_conversation(self, conv_id: str) -> dict | None:
+    def get_conversation(self, conv_id: str, workspace_id: str = "", surface: str = "llm") -> dict | None:
         """获取单个对话（含消息）"""
-        import json as _json
         session = self._get_session()
         try:
-            r = session.query(Conversation).filter(Conversation.id == conv_id).first()
+            surface_value = surface or "llm"
+            query = session.query(Conversation).filter(Conversation.id == conv_id)
+            query = query.filter(Conversation.workspace_id == (workspace_id or ""))
+            query = query.filter(Conversation.surface == surface_value)
+            r = query.first()
             if not r:
                 return None
-            return {"id": r.id, "title": r.title, "messages": _json.loads(r.messages_json), "created_at": r.created_at, "updated_at": r.updated_at}
+            return {"id": r.id, "title": r.title, "messages": _json_loads(r.messages_json, []), "created_at": r.created_at, "updated_at": r.updated_at}
         finally:
             session.close()
 
-    def save_conversation(self, conv_id: str, title: str, messages: list) -> None:
+    def save_conversation(self, conv_id: str, title: str, messages: list, workspace_id: str = "", surface: str = "llm") -> None:
         """创建或更新对话"""
-        import json as _json
-        from datetime import datetime
-        now = datetime.now().isoformat()
         session = self._get_session()
         try:
-            existing = session.query(Conversation).filter(Conversation.id == conv_id).first()
+            surface_value = surface or "llm"
+            now = _now_iso()
+            payload = _json_dumps(messages or [])
+            query = session.query(Conversation).filter(Conversation.id == conv_id)
+            query = query.filter(Conversation.workspace_id == (workspace_id or ""))
+            query = query.filter(Conversation.surface == surface_value)
+            existing = query.first()
             if existing:
                 existing.title = title
-                existing.messages_json = _json.dumps(messages, ensure_ascii=False)
+                existing.messages_json = payload
                 existing.updated_at = now
             else:
                 session.add(Conversation(
-                    id=conv_id, title=title,
-                    messages_json=_json.dumps(messages, ensure_ascii=False),
-                    created_at=now, updated_at=now,
+                    id=conv_id,
+                    workspace_id=workspace_id or "",
+                    surface=surface_value,
+                    title=title,
+                    messages_json=payload,
+                    created_at=now,
+                    updated_at=now,
                 ))
             session.commit()
         except Exception as e:
@@ -852,11 +1495,15 @@ class DataStorage:
         finally:
             session.close()
 
-    def delete_conversation(self, conv_id: str) -> bool:
+    def delete_conversation(self, conv_id: str, workspace_id: str = "", surface: str = "llm") -> bool:
         """删除对话"""
         session = self._get_session()
         try:
-            count = session.query(Conversation).filter(Conversation.id == conv_id).delete()
+            surface_value = surface or "llm"
+            query = session.query(Conversation).filter(Conversation.id == conv_id)
+            query = query.filter(Conversation.workspace_id == (workspace_id or ""))
+            query = query.filter(Conversation.surface == surface_value)
+            count = query.delete()
             session.commit()
             return count > 0
         except Exception as e:

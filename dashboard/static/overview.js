@@ -5,7 +5,12 @@ Object.assign(App, {
 
     async loadOverview() {
         if (this._loadingOverview) return;
+        const currentHash = typeof location?.hash === 'string' ? location.hash : '';
+        if (currentHash && currentHash !== '#overview') {
+            return;
+        }
         this._loadingOverview = true;
+        this._setTabTitle?.('overview');
         const refreshBtn = this._getLegacyActionButton ? this._getLegacyActionButton('overview-refresh') : null;
         if (refreshBtn) refreshBtn.disabled = true;
         const loadStartTime = Date.now();
@@ -58,6 +63,7 @@ Object.assign(App, {
 
             // Qlib 心跳检查（异步，不阻塞）
             this._checkQlibHealth();
+            this._loadDataHubHealth();
 
             this._updateQuoteStatus();
             this._updateMarketPhase();
@@ -68,6 +74,7 @@ Object.assign(App, {
             Watchlist.render(watchlist);
             Watchlist.setSelectedItems(watchlist || []);
             this._buildWatchlistIndex();
+            this._loadOverviewOpportunities();
 
             // 持仓明细
             this._renderPositions(snapshot);
@@ -78,14 +85,20 @@ Object.assign(App, {
                 tradesBody.innerHTML = trades.slice(0, 5).map(t => `
                     <tr><td>${Utils.formatBeijingTime(t.time)}</td><td><a href="#" class="stock-link" data-code="${this.escapeHTML(t.code)}">${this.escapeHTML(t.code)} ${this.escapeHTML(t.name || '')}</a></td><td class="${(t.direction === 'long' || t.direction === 'buy') ? 'text-up' : 'text-down'}">${(t.direction === 'long' || t.direction === 'buy') ? '买入' : '卖出'}</td><td>¥${this.escapeHTML(t.price)}</td><td>${this.escapeHTML(t.volume)}</td></tr>
                 `).join('');
+            } else if (tradesBody) {
+                tradesBody.innerHTML = '<tr><td colspan="5" class="text-muted">暂无交易数据</td></tr>';
             }
 
             // 阶段 2：次要数据（图表 + 市场，不阻塞首屏）
-            this._loadOverviewSecondary(so);
+            this._loadOverviewSecondary(so).catch((e) => {
+                console.warn('总览次要数据加载失败:', e);
+                this._clearOverviewSecondarySkeletons();
+            });
 
             // 数据新鲜度指示
             this._overviewDataTime = loadStartTime;
             this._updateDataFreshness();
+            this._bindOverviewOpportunityActions();
         } catch (e) {
             ['ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe', 'ov-position-count'].forEach(id => {
                 const el = document.getElementById(id);
@@ -109,6 +122,120 @@ Object.assign(App, {
 
         this._overviewChartData = equityHistory;
 
+        this._clearOverviewSecondarySkeletons();
+        try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
+        try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
+        try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
+    },
+
+    _bindOverviewOpportunityActions() {
+        const table = document.getElementById('ov-opportunity-table');
+        if (!table || table.dataset.bound === '1') return;
+        table.dataset.bound = '1';
+        table.addEventListener('click', async (event) => {
+            const btn = event.target.closest('[data-ov-opportunity-action]');
+            if (!btn) return;
+            event.preventDefault();
+            const code = btn.dataset.code;
+            if (!code) return;
+            const action = btn.dataset.ovOpportunityAction;
+            if (action === 'stock') {
+                App.openStockDetail(code, { source: 'overview:opportunity' });
+            } else if (action === 'watchlist') {
+                App.addToWatchlist(code, { source: 'overview:opportunity' });
+            } else if (action === 'ask') {
+                await this._askOpportunityOpenClaw(code);
+            }
+        });
+    },
+
+    async _loadOverviewOpportunities() {
+        const tbody = document.querySelector('#ov-opportunity-table tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
+        const hint = document.getElementById('ov-opportunity-hint');
+        if (hint) hint.textContent = 'PEG、机构预测、Qlib 与风险标签合成的优先研究清单。';
+        try {
+            const scope = (this.watchlistCache || []).length ? 'watchlist' : 'qlib';
+            const fastData = await this.fetchJSON(`/api/datahub/decision-matrix?scope=${scope}&limit=8&fast=true`, { silent: true, timeout: 8000 });
+            const fastItems = (fastData.items || []).slice(0, 5);
+            if (!fastItems.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无候选，先加入自选或生成 Qlib 缓存</td></tr>';
+                return;
+            }
+            this._renderOverviewOpportunityData(fastData, true);
+            this._loadOverviewOpportunitiesFull(scope).catch(() => {});
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">机会池加载失败：${this.escapeHTML(error.message || '未知错误')}</td></tr>`;
+        }
+    },
+
+    async _loadOverviewOpportunitiesFull(scope) {
+        const data = await this.fetchJSON(`/api/datahub/decision-matrix?scope=${scope}&limit=8&max_wait_sec=6`, { silent: true, timeout: 20000 });
+        this._renderOverviewOpportunityData(data, false);
+    },
+
+    _renderOverviewOpportunityData(data, isFast) {
+        const tbody = document.querySelector('#ov-opportunity-table tbody');
+        const hint = document.getElementById('ov-opportunity-hint');
+        if (!tbody) return;
+        const items = (data.items || []).slice(0, 5);
+        if (!items.length) return;
+        this._overviewOpportunityItems = items;
+        tbody.innerHTML = items.map((item) => this._renderOpportunityRow(item)).join('');
+        if (hint) {
+            if (data.summary?.used_fallback) {
+                hint.textContent = isFast
+                    ? '当前使用默认候选快速预览；完整估值正在后台补齐。'
+                    : '当前使用默认候选；加入自选股或生成 Qlib 缓存后会自动切换。';
+            } else if (isFast) {
+                hint.textContent = '快速预览已加载，PEG 和机构预测正在后台补齐。';
+            } else {
+                hint.textContent = 'PEG、机构预测、Qlib 与风险标签合成的优先研究清单。';
+            }
+        }
+    },
+
+    _renderOpportunityRow(item) {
+        const score = Number(item.decision_score || 0);
+        const scoreCls = score >= 78 ? 'score-hot' : score >= 62 ? 'score-warm' : score >= 45 ? 'score-neutral' : 'score-cold';
+        const riskCls = item.risk_level === '高' ? 'risk-high' : item.risk_level === '中' ? 'risk-mid' : 'risk-low';
+        const actions = item.next_actions || [];
+        return `<tr>
+            <td>${item.matrix_rank || '--'}</td>
+            <td>
+                <button class="link-button datahub-stock-link" data-ov-opportunity-action="stock" data-code="${this.escapeHTML(item.code || '')}">${this.escapeHTML(item.name || item.code || '--')}</button>
+                <div class="text-muted text-xs">${this.escapeHTML(item.code || '')} ${this.escapeHTML(item.industry || '')}</div>
+            </td>
+            <td><span class="datahub-score ${scoreCls}">${score}</span><span class="datahub-decision-label">${this.escapeHTML(item.decision_label || '--')}</span></td>
+            <td>${this._fmtOverviewNum(item.peg_next_year, 2)}</td>
+            <td><span class="datahub-risk-pill ${riskCls}">${this.escapeHTML(item.risk_level || '--')}</span></td>
+            <td>${actions.slice(0, 2).map((tag) => `<span class="datahub-next-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted">--</span>'}</td>
+            <td class="datahub-actions">
+                <button class="btn btn-xs" data-ov-opportunity-action="watchlist" data-code="${this.escapeHTML(item.code || '')}">自选</button>
+                <button class="btn btn-xs" data-ov-opportunity-action="ask" data-code="${this.escapeHTML(item.code || '')}">问龙虾</button>
+            </td>
+        </tr>`;
+    },
+
+    async _askOpportunityOpenClaw(code) {
+        const item = (this._overviewOpportunityItems || []).find((stock) => stock.code === code) || { code };
+        const prompt = [
+            `请基于首页数据机会池分析 ${item.name || code}(${code})。`,
+            `决策评分：${item.decision_score ?? '--'}，标签：${item.decision_label || '--'}，风险：${item.risk_level || '--'}。`,
+            `下一步建议：${(item.next_actions || []).join('、') || '--'}。`,
+            '请给我一个模拟盘观察计划，不要给实盘下单建议。',
+        ].join('\n');
+        await App.switchTab('openclaw');
+        await globalThis.OpenClawWorkbench?.maybeInitForTab?.('openclaw');
+        await globalThis.OpenClawWorkbench?.send?.(prompt);
+    },
+
+    _fmtOverviewNum(value, digits = 2) {
+        return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '--';
+    },
+
+    _clearOverviewSecondarySkeletons() {
         const chartContainer = document.querySelector('#tab-overview .chart-container');
         if (chartContainer) {
             const skel = chartContainer.querySelector('.skeleton-chart');
@@ -116,9 +243,17 @@ Object.assign(App, {
             const canvas = chartContainer.querySelector('canvas');
             if (canvas) canvas.style.display = '';
         }
-        try { this.renderEquityChart(equityHistory); } catch (e) { console.warn('收益图表渲染失败:', e); }
-        try { this.renderMarketIndices(indices); } catch (e) { console.warn('指数渲染失败:', e); }
-        try { this.renderHotSectors(hotSectors); } catch (e) { console.warn('热门板块渲染失败:', e); }
+
+        const indicesEl = document.getElementById('ov-market-indices');
+        if (indicesEl?.querySelector('.skeleton-indices')) {
+            indicesEl.innerHTML = '<div class="text-muted text-center">暂无指数数据</div>';
+        }
+        ['ov-hot-industries', 'ov-hot-concepts'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el?.querySelector('.skeleton-sector-rows')) {
+                el.innerHTML = '<div class="text-muted">暂无数据</div>';
+            }
+        });
     },
 
     _showOverviewSkeletons() {
@@ -156,23 +291,29 @@ Object.assign(App, {
     _renderMetric(id, pnl, pnlPct, isCurrency) {
         const el = document.getElementById(id);
         if (!el) return;
-        const sign = pnl >= 0 ? '+' : '';
-        const arrow = pnl >= 0 ? '↑' : '↓';
-        const text = isCurrency ? `${arrow} ${sign}¥${Math.abs(pnl).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}` : `${arrow} ${sign}${(pnlPct * 100).toFixed(2)}%`;
+        const value = Number(pnl || 0);
+        const pct = Number(pnlPct || 0);
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        const arrow = value > 0 ? '↑ ' : value < 0 ? '↓ ' : '';
+        const text = isCurrency
+            ? `${arrow}${sign}¥${Math.abs(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+            : `${arrow}${sign}${Math.abs(pct * 100).toFixed(2)}%`;
         el.textContent = text;
-        el.className = 'stat-value ' + (pnl >= 0 ? 'text-up' : 'text-down');
+        el.className = 'stat-value ' + (value > 0 ? 'text-up' : value < 0 ? 'text-down' : 'text-muted');
     },
 
     _renderPctMetric(id, value, alwaysRed) {
         const el = document.getElementById(id);
         if (!el) return;
-        const arrow = value >= 0 ? '↑' : '↓';
-        el.textContent = arrow + ' ' + (value >= 0 ? '+' : '') + (value * 100).toFixed(2) + '%';
+        value = Number(value || 0);
+        const arrow = value > 0 ? '↑ ' : value < 0 ? '↓ ' : '';
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        el.textContent = `${arrow}${sign}${Math.abs(value * 100).toFixed(2)}%`;
         if (alwaysRed) {
             // 回撤阈值：>0.5% 暗红，否则普通红
-            el.className = 'stat-value ' + (Math.abs(value) > 0.005 ? 'stat-value-critical' : 'text-up');
+            el.className = 'stat-value ' + (Math.abs(value) > 0.005 ? 'stat-value-critical' : 'text-muted');
         } else {
-            el.className = 'stat-value ' + (value >= 0 ? 'text-up' : 'text-down');
+            el.className = 'stat-value ' + (value > 0 ? 'text-up' : value < 0 ? 'text-down' : 'text-muted');
         }
     },
 
@@ -246,15 +387,21 @@ Object.assign(App, {
 
     renderMarketIndices(indices) {
         const el = document.getElementById('ov-market-indices');
-        if (!el || !Array.isArray(indices) || indices.length === 0) return;
+        if (!el) return;
+        if (!Array.isArray(indices) || indices.length === 0) {
+            el.innerHTML = '<div class="text-muted text-center">暂无指数数据</div>';
+            return;
+        }
         el.innerHTML = indices.map(idx => {
-            const cls = idx.change_pct >= 0 ? 'text-up' : 'text-down';
-            const sign = idx.change_pct >= 0 ? '+' : '';
+            const changePct = Number(idx.change_pct || 0);
+            const change = Number(idx.change || 0);
+            const cls = changePct > 0 ? 'text-up' : changePct < 0 ? 'text-down' : 'text-muted';
+            const sign = changePct > 0 ? '+' : changePct < 0 ? '-' : '';
             return `
                 <div class="market-index">
                     <div class="idx-name">${this.escapeHTML(idx.name)}</div>
                     <div class="idx-price ${cls}">${idx.price.toFixed(2)}</div>
-                    <div class="idx-change ${cls}">${sign}${idx.change.toFixed(2)}  ${sign}${idx.change_pct.toFixed(3)}%</div>
+                    <div class="idx-change ${cls}">${sign}${Math.abs(change).toFixed(2)}  ${sign}${Math.abs(changePct).toFixed(3)}%</div>
                 </div>`;
         }).join('');
     },
@@ -333,6 +480,52 @@ Object.assign(App, {
             el.className = 'stat-value text-down';
         }
     },
+
+    async _loadDataHubHealth() {
+            const root = document.getElementById('ov-datahub-health');
+            if (!root) return;
+            try {
+                const data = await this.fetchJSON('/api/datahub/health', { silent: true, timeout: 20000 });
+                const quote = data.quote || {};
+                const valuation = data.valuation || {};
+                const qlib = data.qlib || {};
+                const shadow = data.shadow || {};
+                const age = quote.last_update_age_sec;
+                const quoteLabel = quote.running
+                    ? (age == null ? '运行中' : `${Math.round(age)}秒前`)
+                    : '未运行';
+                const qlibLabel = qlib.status === 'online'
+                    ? `在线 · ${qlib.cache_age_label || '--'}`
+                    : qlib.status === 'stale'
+                        ? `过期 · ${qlib.cache_age_label || '--'}`
+                        : '离线';
+                const shadowLabel = shadow.total_checks
+                    ? `${shadow.total_diffs || 0} 条差异`
+                    : '暂无差异日志';
+                const sourceHealth = data.source_health || {};
+                const qualitySummary = data.quality_summary || {};
+                const sourceLabel = sourceHealth.total_active_sources != null
+                    ? `${sourceHealth.total_active_sources} 个在线`
+                    : '--';
+                const qualityLabel = qualitySummary.total != null
+                    ? `${qualitySummary.total} 条`
+                    : '--';
+                root.innerHTML = `
+                <div class="datahub-health-item"><span>股票覆盖</span><strong>${this.escapeHTML(data.stock_count ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>自选覆盖</span><strong>${this.escapeHTML(data.watchlist_count ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>行情缓存</span><strong>${this.escapeHTML(quote.cache_count ?? '--')} / ${this.escapeHTML(quote.subscriptions ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>行情新鲜度</span><strong>${this.escapeHTML(quoteLabel)}</strong></div>
+                <div class="datahub-health-item"><span>估值覆盖</span><strong>${valuation.coverage_pct == null ? '--' : `${valuation.coverage_pct}%`}</strong></div>
+                <div class="datahub-health-item"><span>Qlib缓存</span><strong>${this.escapeHTML(qlibLabel)}</strong></div>
+                <div class="datahub-health-item"><span>影子对账</span><strong>${this.escapeHTML(shadowLabel)}</strong></div>
+                <div class="datahub-health-item"><span>数据源在线</span><strong>${this.escapeHTML(sourceLabel)}</strong></div>
+                <div class="datahub-health-item"><span>质量记录</span><strong>${this.escapeHTML(qualityLabel)}</strong></div>
+                <div class="datahub-health-item"><span>估值源</span><strong>机构预测</strong></div>
+            `;
+            } catch (e) {
+                root.innerHTML = '<div class="text-muted">数据底座状态暂不可用</div>';
+            }
+        },
 
     /** 更新数据新鲜度指示 */
     _updateDataFreshness() {

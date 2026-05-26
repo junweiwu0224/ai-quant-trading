@@ -110,14 +110,14 @@
         return true;
     }
 
-    function switchMainTab(tabName) {
+    function switchMainTab(tabName, options = {}) {
         const app = requireApp();
         if (typeof app.switchTab !== 'function') {
             warnUnavailable('window.App.switchTab is not available');
             throw createAdapterError('window.App.switchTab is not available', 'APP_SWITCH_TAB_UNAVAILABLE');
         }
 
-        app.switchTab(tabName);
+        return app.switchTab(tabName, options);
     }
 
     function activateStockSubTab(activeTab) {
@@ -203,8 +203,23 @@
         const payload = normalizePayload(contextOrPayload);
         requireCode(payload, INTENT_TYPES.OPEN_STOCK_DETAIL);
 
+        const app = requireApp();
+        app._activeStockCode = payload.code;
+        await app.ensureBundle?.('stock');
         const stockDetail = requireStockDetail();
-        switchMainTab('stock');
+        stockDetail.init?.();
+        if (typeof app.openStockDetail === 'function') {
+            await app.openStockDetail(payload.code, {
+                source: 'business-adapter:open-stock-detail',
+                preferDirectOpen: true,
+            });
+            activateStockSubTab(payload.activeTab);
+            return {
+                ok: true,
+                code: payload.code,
+            };
+        }
+        await switchMainTab('stock', { autoOpenStock: false });
         await stockDetail.open(payload.code);
         activateStockSubTab(payload.activeTab);
 
@@ -234,7 +249,8 @@
         const payload = normalizePayload(contextOrPayload);
         requireCode(payload, INTENT_TYPES.OPEN_PAPER_BUY);
 
-        switchMainTab('paper');
+        await switchMainTab('paper');
+        await requireApp().ensureBundle?.('paper');
         const activated = activatePaperSubTab(payload.activeTab) || activateDefaultPaperSubTab();
         await prefillPaperTradeForm(payload);
 

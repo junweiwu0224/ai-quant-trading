@@ -7,6 +7,8 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel
 
+from dashboard.auth import close_unauthorized_websocket, is_valid_api_key, websocket_api_key
+from dashboard.session import optional_websocket_account
 from engine.backtest_engine import BacktestConfig
 from engine.optimization_engine import (
     STRATEGY_PARAM_RANGES,
@@ -134,6 +136,13 @@ async def run_sensitivity(req: SensitivityRequest):
 @router.websocket("/ws/run")
 async def ws_optimization(ws: WebSocket):
     """WebSocket 参数优化（带进度推送）"""
+    if not is_valid_api_key(websocket_api_key(ws)):
+        await close_unauthorized_websocket(ws)
+        return
+    if not await optional_websocket_account(ws):
+        await ws.close(code=1008, reason="请先登录")
+        return
+
     await ws.accept()
     try:
         raw = await ws.receive_text()

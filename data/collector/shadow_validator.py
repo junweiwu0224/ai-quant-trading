@@ -6,9 +6,9 @@
   - 对比结果写入日志文件，供迁移验证
 """
 import json
-import os
 import time
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -72,7 +72,13 @@ def validate_quote_consistency(code: str, old_data: dict, new_data: dict) -> lis
     return diffs
 
 
-def log_shadow_result(code: str, diffs: list[dict], old_data: dict, new_data: dict):
+def log_shadow_result(
+    code: str,
+    diffs: list[dict],
+    old_data: dict,
+    new_data: dict,
+    storage: Any | None = None,
+):
     """将对比结果写入日志文件"""
     if not diffs:
         return
@@ -94,6 +100,19 @@ def log_shadow_result(code: str, diffs: list[dict], old_data: dict, new_data: di
 
     logger.warning(f"[SHADOW] {code}: {len(diffs)} 项差异 — "
                    f"价格 old={old_data.get('price')} new={new_data.get('price')}")
+
+    if storage is not None:
+        try:
+            storage.save_data_quality_record(
+                code=code,
+                domain="quote",
+                check_name="shadow_compare",
+                status="diff",
+                details={"diff_count": len(diffs), "diffs": diffs, "old": old_data, "new": new_data},
+                diff_count=len(diffs),
+            )
+        except Exception as exc:
+            logger.debug(f"[SHADOW] 写入质量台账失败 {code}: {exc}")
 
 
 def get_shadow_stats(date_str: str | None = None) -> dict:

@@ -28,12 +28,11 @@ quant-trading-system/
 │   └── momentum.py          # 动量策略
 ├── alpha/                   # AI Alpha 层
 │   ├── factors/             # 因子库（技术/基本面/资金流/情绪/宏观）
-│   ├── models/              # 模型（LightGBM/XGBoost/Ensemble）
 │   ├── feature_pipeline.py  # 特征工程管道
 │   ├── cross_sectional.py   # 跨截面选股模型
 │   ├── backtest.py          # 组合回测引擎（含成本/约束/分配）
 │   ├── screener.py          # 条件选股引擎
-│   ├── llm_client.py        # LLM 客户端（mimo-v2.5）
+│   ├── llm_client.py        # OpenAI 兼容 LLM 客户端
 │   ├── nl_strategy.py       # 自然语言策略生成 + AI 解读
 │   └── factor_scheduler.py  # 因子动态更新调度器
 ├── risk/                    # 风控层
@@ -135,7 +134,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | sentiment.py | 情绪分/3日均/5日均/变化率 | 东方财富公告 API + SnowNLP |
 | macro.py | SHIBOR 1W/1M、国债收益率 10Y/1Y、M2 增速、社融 | 东方财富宏观数据 API |
 
-#### 模型 (alpha/models/)
+#### 模型
 
 | 模型 | 说明 |
 |------|------|
@@ -152,7 +151,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | backtest.py | 组合回测：等权/风险平价/因子加权分配，含成本模型和行业约束 |
 | screener.py | 条件选股：字段+运算符+值过滤，6 预设策略，批量获取行情 |
 | factor_scheduler.py | 因子调度：交易时段高频（北向15min/板块30min/情绪1h/宏观日更），盘后降频 |
-| llm_client.py | mimo-v2.5 LLM 客户端（OpenAI 兼容接口，异步调用） |
+| llm_client.py | OpenAI 兼容 LLM 客户端（异步调用） |
 | nl_strategy.py | 自然语言→选股条件 JSON + AI 预测结果解读 + 量化对话 |
 
 #### 可解释性
@@ -303,7 +302,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
 | 数据库 | SQLite + SQLAlchemy |
 | AI/ML | LightGBM, XGBoost, Optuna, SHAP |
-| NLP | SnowNLP, mimo-v2.5 (LLM) |
+| NLP | SnowNLP, OpenAI-compatible LLM |
 | Web 框架 | FastAPI + Jinja2 |
 | 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
 | 任务调度 | APScheduler |
@@ -357,7 +356,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 - [x] 特征管道集成（enable_api_factors 开关）
 
 ### Phase 7: LLM 集成 — 已完成
-- [x] mimo-v2.5 LLM 客户端（OpenAI 兼容，异步调用）
+- [x] OpenAI 兼容 LLM 客户端（异步调用）
 - [x] 自然语言→选股条件 JSON
 - [x] AI 预测结果解读（理由/因子/风险/建议）
 - [x] 流式对话 SSE
@@ -401,12 +400,13 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 5 | L2 十档行情 | QMT/PTrade | 骨架完成：OrderBook 模型与模拟器已实现；真实 L2 数据源待接入 | ★★★ |
 | 6 | 实盘交易 | QMT/PTrade | 桩代码完成：BrokerGateway、CTP/XTP 接口骨架已实现；真实券商 SDK 尚未接入 | ★★★★★ |
 
-### 当前验收基线
+### 当前验收方式
 
 | 检查项 | 命令 | 结果 |
 |-------|------|------|
-| 后端/API/核心测试 | `PYTHONPATH=/home/ubuntu/quant-trading-system /home/ubuntu/quant-trading-system/.venv/bin/python -m pytest -q /home/ubuntu/quant-trading-system/tests` | 通过：195 passed, 1 warning |
-| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm --prefix /home/ubuntu/quant-trading-system run e2e:docker` | 通过：4 passed |
+| 后端/API/核心测试 | `python -m pytest -q` | 需先安装 `requirements.txt` |
+| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm run e2e` | 需先启动 Dashboard |
+| 语法检查 | `python -m compileall -q .` | 快速发现 Python 语法错误 |
 
 ---
 

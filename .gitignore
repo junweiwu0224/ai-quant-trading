@@ -53,10 +53,12 @@ docker-compose.override.yml
 # Node / frontend artifacts
 node_modules/
 test-results/
+.tools/
 
 # Local runtime data
 data/db/
 data/qlib/
+data/openclaw/
 models/
 
 # Claude local workspace artifacts

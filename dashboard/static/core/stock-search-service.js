@@ -634,12 +634,19 @@
             const query = params.query ? `q=${encodeURIComponent(params.query)}` : 'q=';
             const limit = Number.isFinite(params.limit) && params.limit > 0 ? params.limit : DEFAULT_LIMIT;
             const response = await global.App.fetchJSON(`/api/stock/search?${query}&limit=${limit}`, { silent: true });
+            if (global.Utils && typeof global.Utils.normalizeStockSearchResults === 'function') {
+                return global.Utils.normalizeStockSearchResults(response);
+            }
+
             if (Array.isArray(response)) {
                 return response;
             }
 
-            if (isPlainObject(response) && Array.isArray(response.results)) {
-                return response.results;
+            if (isPlainObject(response)) {
+                const list = response.results ?? response.data ?? response.items ?? response.list;
+                if (Array.isArray(list)) {
+                    return list.filter((item) => isPlainObject(item) && typeof item.code === 'string' && item.code.trim() !== '');
+                }
             }
 
             return [];

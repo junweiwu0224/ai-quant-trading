@@ -42,6 +42,17 @@ def test_scan_js_text_flags_multiline_innerhtml_template_interpolation():
     assert any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
+def test_scan_js_text_flags_next_line_innerhtml_template_interpolation():
+    text = """
+    el.innerHTML =
+    `<span>${value}</span>`;
+    """
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_js_text_flags_innerhtml_append_template_interpolation():
     text = "container.innerHTML += `<span>${value}</span>`;"
 

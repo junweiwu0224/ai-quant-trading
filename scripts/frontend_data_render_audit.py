@@ -90,29 +90,43 @@ def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
     index = 0
     while index < len(lines):
         line = lines[index]
-        if ".innerHTML" not in line:
+        search_start = 0
+        inner_html_position = line.find(".innerHTML", search_start)
+        if inner_html_position == -1:
             index += 1
             continue
-        start_index = index
-        inner_html_position = line.find(".innerHTML")
-        chunk_parts: list[str] = []
-        in_template, statement_complete, fragment = _scan_statement_fragment(
-            line[inner_html_position:], in_template=False
-        )
-        chunk_parts.append(fragment)
-        while not statement_complete and index + 1 < len(lines):
-            next_line = lines[index + 1]
-            if not in_template and (
-                _starts_new_statement(next_line) or not _continues_previous_statement(next_line)
-            ):
-                break
-            index += 1
-            chunk_parts.append("\n")
+        consumed_next_lines = False
+        while inner_html_position != -1:
+            chunk_parts: list[str] = []
             in_template, statement_complete, fragment = _scan_statement_fragment(
-                next_line, in_template
+                line[inner_html_position:], in_template=False
             )
             chunk_parts.append(fragment)
-        chunks.append((start_index + 1, "".join(chunk_parts)))
+            lookahead_index = index
+            while not statement_complete and lookahead_index + 1 < len(lines):
+                next_line = lines[lookahead_index + 1]
+                if not in_template and (
+                    _starts_new_statement(next_line)
+                    or not _continues_previous_statement(next_line)
+                ):
+                    break
+                lookahead_index += 1
+                consumed_next_lines = True
+                chunk_parts.append("\n")
+                in_template, statement_complete, fragment = _scan_statement_fragment(
+                    next_line, in_template
+                )
+                chunk_parts.append(fragment)
+            chunks.append((index + 1, "".join(chunk_parts)))
+            next_search_start = inner_html_position + len(".innerHTML")
+            if statement_complete:
+                next_search_start = line.find(";", inner_html_position)
+                if next_search_start == -1:
+                    break
+                next_search_start += 1
+            inner_html_position = line.find(".innerHTML", next_search_start)
+        if consumed_next_lines:
+            index = lookahead_index
         index += 1
     return chunks
 

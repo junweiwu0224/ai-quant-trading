@@ -77,6 +77,14 @@ def test_scan_js_text_does_not_cross_same_line_statement_boundary_for_innerhtml(
     assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
 
 
+def test_scan_js_text_flags_later_same_line_innerhtml_write():
+    text = "el.innerHTML = safeHtml; panel.innerHTML = `<span>${value}</span>`;"
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_js_text_does_not_cross_asi_boundary_for_innerhtml():
     text = """
     el.innerHTML = safeHtml

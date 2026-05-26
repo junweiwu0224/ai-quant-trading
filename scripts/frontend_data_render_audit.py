@@ -85,6 +85,49 @@ def _continues_previous_statement(line: str) -> bool:
     return bool(CONTINUATION_START.match(line.strip()))
 
 
+def _strip_block_comments(lines: list[str]) -> list[str]:
+    stripped_lines: list[str] = []
+    in_block_comment = False
+    for line in lines:
+        index = 0
+        output: list[str] = []
+        while index < len(line):
+            if in_block_comment:
+                end = line.find("*/", index)
+                if end == -1:
+                    index = len(line)
+                    continue
+                in_block_comment = False
+                index = end + 2
+                continue
+            start = line.find("/*", index)
+            if start == -1:
+                output.append(line[index:])
+                break
+            output.append(line[index:start])
+            index = start + 2
+            in_block_comment = True
+        stripped_lines.append("".join(output))
+    return stripped_lines
+
+
+def _blank_quoted_strings(line: str) -> str:
+    output: list[str] = []
+    quote: str | None = None
+    for position, char in enumerate(line):
+        if quote:
+            if char == quote and not _is_escaped(line, position):
+                quote = None
+            output.append(" ")
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            output.append(" ")
+            continue
+        output.append(char)
+    return "".join(output)
+
+
 def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
     chunks: list[tuple[int, str]] = []
     index = 0
@@ -134,8 +177,9 @@ def _inner_html_statement_chunks(lines: list[str]) -> list[tuple[int, str]]:
 def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
     risks: list[RenderRisk] = []
     file_name = _posix_path(file_path)
+    uncommented_lines = _strip_block_comments(text.splitlines())
     stripped_lines = [
-        "" if _is_comment_or_blank(line) else line for line in text.splitlines()
+        "" if _is_comment_or_blank(line) else line for line in uncommented_lines
     ]
     for line_number, line in enumerate(stripped_lines, start=1):
         if not line:
@@ -156,7 +200,8 @@ def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
     for kind, severity, pattern in RISK_PATTERNS:
         if kind != "dynamic_inner_html":
             continue
-        for line_number, chunk in _inner_html_statement_chunks(stripped_lines):
+        html_scan_lines = [_blank_quoted_strings(line) for line in stripped_lines]
+        for line_number, chunk in _inner_html_statement_chunks(html_scan_lines):
             if pattern.search(chunk):
                 risks.append(
                     RenderRisk(

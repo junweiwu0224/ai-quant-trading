@@ -152,6 +152,27 @@ def test_scan_js_text_ignores_comments_and_empty_lines():
     assert scan_js_text(text, Path("dashboard/static/sample.js")) == []
 
 
+def test_scan_js_text_ignores_block_comments():
+    text = """
+    /*
+      value.toFixed(2)
+      panel.innerHTML = `<span>${value}</span>`;
+    */
+
+    const value = DisplayFormat.money(row.value);
+    """
+
+    assert scan_js_text(text, Path("dashboard/static/sample.js")) == []
+
+
+def test_scan_js_text_does_not_flag_innerhtml_inside_string_literal():
+    text = 'const sample = "panel.innerHTML = `<span>${value}</span>`;";'
+
+    risks = scan_js_text(text, Path("dashboard/static/sample.js"))
+
+    assert not any(risk.kind == "dynamic_inner_html" for risk in risks)
+
+
 def test_scan_static_tree_returns_sorted_risks(tmp_path):
     first = tmp_path / "b.js"
     second = tmp_path / "a.js"

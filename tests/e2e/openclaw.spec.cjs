@@ -80,8 +80,8 @@ test('openclaw avatar menu exposes the workspace and settings surfaces', async (
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
 
-    await expect(page.locator('#nav-openclaw')).toBeVisible();
-    await page.locator('#nav-openclaw').click();
+    await expect(page.locator('#nav-openclaw')).toHaveCount(0);
+    await page.goto('/#openclaw', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#tab-openclaw')).toBeVisible();
     await expect(page.locator('#openclaw-workbench')).toBeAttached();
     await dismissSetupModal(page);

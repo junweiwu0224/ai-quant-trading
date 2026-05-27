@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 
 from dashboard.session import current_account, optional_account
 from data.providers.astock_data_adapter import normalize_stock_code
+from data.qlib.candidates import fallback_seed_codes
 from data.storage.storage import DataStorage
 
 router = APIRouter()
@@ -355,25 +356,7 @@ def _stock_info_map(storage: DataStorage) -> dict[str, dict[str, str]]:
 
 
 def _fallback_seed_codes(storage: DataStorage, limit: int) -> list[str]:
-    stock_list = storage.get_stock_list()
-    if not stock_list.empty:
-        preferred = [
-            "600519", "300750", "000858", "601318", "000333", "600036",
-            "002594", "601899", "600276", "000001", "002475", "600900",
-        ]
-        available = {_plain_code(row.get("code")) for _, row in stock_list.iterrows()}
-        seeded = [code for code in preferred if code in available]
-        if len(seeded) >= min(limit, 5):
-            return seeded[:limit]
-        for _, row in stock_list.head(max(limit * 4, 20)).iterrows():
-            code = _plain_code(row.get("code"))
-            if code and code not in seeded:
-                seeded.append(code)
-            if len(seeded) >= limit:
-                break
-        return seeded[:limit]
-
-    return ["600519", "300750", "000858", "601318", "000333", "600036", "002594", "600276"][:limit]
+    return fallback_seed_codes(storage, limit)
 
 
 def _attach_snapshot_metadata(storage: DataStorage, code: str, item: dict[str, Any]) -> dict[str, Any]:

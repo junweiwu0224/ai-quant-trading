@@ -11,6 +11,7 @@ from config.settings import SYNC_HOUR, SYNC_MINUTE
 from data.collector import StockCollector
 from data.collector.data_source import DataSource
 from data.providers.astock_data_adapter import AStockDataAdapter
+from data.qlib.daily_sync import sync_qlib_daily
 from data.storage import DataStorage
 
 
@@ -102,6 +103,24 @@ class DataScheduler:
 
         logger.info(f"全量同步完成: 成功 {success}, 失败 {fail}, 共 {len(codes)}")
 
+    def sync_qlib_coverage(self):
+        """同步 Qlib 覆盖池并刷新预测缓存。"""
+        logger.info("=== 开始同步 Qlib 覆盖池 ===")
+        try:
+            summary = sync_qlib_daily(
+                storage=self._storage,
+                adapter=self._provider,
+                generate_predictions_cache=True,
+                min_success=2,
+            )
+            logger.info(
+                "Qlib 覆盖池同步完成: "
+                f"成功 {summary.success_count}, 失败 {summary.fail_count}, "
+                f"预测 {summary.prediction_total if summary.prediction_total is not None else 0}"
+            )
+        except Exception as exc:
+            logger.error(f"Qlib 覆盖池同步失败: {exc}")
+
     def start(self):
         """启动后台定时调度（非阻塞）"""
         if self._scheduler.running:
@@ -112,8 +131,14 @@ class DataScheduler:
             id="daily_sync",
             name="每日自选股同步",
         )
+        self._scheduler.add_job(
+            self.sync_qlib_coverage,
+            trigger=CronTrigger(hour=SYNC_HOUR, minute=(SYNC_MINUTE + 10) % 60, day_of_week="mon-fri"),
+            id="qlib_daily_sync",
+            name="每日 Qlib 覆盖池同步",
+        )
         self._scheduler.start()
-        logger.info(f"后台调度器已启动，每个交易日 {SYNC_HOUR}:{SYNC_MINUTE:02d} 同步自选股")
+        logger.info(f"后台调度器已启动，每个交易日 {SYNC_HOUR}:{SYNC_MINUTE:02d} 同步自选股和 Qlib 覆盖池")
 
     def stop(self):
         """停止调度器"""

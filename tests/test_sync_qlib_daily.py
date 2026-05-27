@@ -51,7 +51,7 @@ class FakeStorage:
 
 
 def test_sync_qlib_daily_writes_rows_and_generates_predictions():
-    from scripts.sync_qlib_daily import sync_qlib_daily
+    from data.qlib.daily_sync import sync_qlib_daily
 
     adapter = FakeAdapter(
         frames={
@@ -92,7 +92,7 @@ def test_sync_qlib_daily_writes_rows_and_generates_predictions():
 
 
 def test_sync_qlib_daily_records_failures_and_skips_predictions_below_min_success():
-    from scripts.sync_qlib_daily import sync_qlib_daily
+    from data.qlib.daily_sync import sync_qlib_daily
 
     adapter = FakeAdapter(
         frames={"600519": _daily_frame(100.0)},
@@ -126,3 +126,40 @@ def test_parse_codes_accepts_repeated_and_comma_separated_values():
         "000001",
         "300750",
     ]
+
+
+def test_build_default_coverage_codes_merges_representative_watchlist_and_fallback():
+    from data.qlib.candidates import build_default_coverage_codes
+
+    class CoverageStorage:
+        def get_all_watchlist_codes(self):
+            return [
+                ("workspace-a", ["600519", "688001"]),
+                ("workspace-b", ["000001", "300750"]),
+            ]
+
+        def get_stock_list(self):
+            return pd.DataFrame(
+                [
+                    {"code": "sh600519"},
+                    {"code": "sz300750"},
+                    {"code": "sz000858"},
+                    {"code": "sh601318"},
+                    {"code": "sz000333"},
+                    {"code": "sh600036"},
+                    {"code": "sz002594"},
+                    {"code": "sh601899"},
+                    {"code": "sh600276"},
+                    {"code": "sz000001"},
+                    {"code": "sz002475"},
+                    {"code": "sh600900"},
+                    {"code": "sh688001"},
+                ]
+            )
+
+    codes = build_default_coverage_codes(CoverageStorage(), limit=20)
+
+    assert codes[:3] == ["600519", "000001", "300750"]
+    assert "688001" in codes
+    assert "002475" in codes
+    assert len(codes) == len(set(codes))

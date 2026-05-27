@@ -2,6 +2,7 @@
 
 同时启动 qlib 推理微服务（后台子进程），统一在一个容器内管理。
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,8 @@ def _start_qlib_service(qlib_port: int) -> subprocess.Popen | None:
 def main(host: str, port: int, qlib_port: int, no_qlib: bool, reload: bool):
     """启动可视化面板"""
     setup_logging()
+
+    os.environ.setdefault("QLIB_SERVICE_URL", f"http://127.0.0.1:{qlib_port}")
 
     qlib_proc = None
     if not no_qlib:

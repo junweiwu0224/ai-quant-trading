@@ -287,14 +287,32 @@ Object.assign(App, {
         const scopeLabel = summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
         const cacheAge = summary.qlib_cache_age_label ? ` · ${this.escapeHTML(summary.qlib_cache_age_label)}` : '';
         const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
-        status.innerHTML = [
+        const syncStatus = this._formatOverviewQlibSyncStatus(summary.qlib_sync_status);
+        const items = [
             `候选 ${this.escapeHTML(total)} 只`,
             `范围 ${this.escapeHTML(scopeLabel)}`,
             `估值 ${this.escapeHTML(valuation)}`,
             `Qlib ${this.escapeHTML(qlibStatus)}${cacheAge}`,
             `Qlib覆盖 ${this.escapeHTML(qlibCoverage)}`,
             mode,
-        ].map((text) => `<span class="opportunity-status-item">${text}</span>`).join('');
+        ];
+        if (syncStatus) items.splice(5, 0, syncStatus);
+        status.innerHTML = items.map((text) => `<span class="opportunity-status-item">${text}</span>`).join('');
+    },
+
+    _formatOverviewQlibSyncStatus(syncStatus) {
+        if (!syncStatus || typeof syncStatus !== 'object') return '';
+        const successCount = Number(syncStatus.success_count);
+        const targetCount = Number(syncStatus.target_count);
+        const failCount = Number(syncStatus.fail_count || 0);
+        if (!Number.isFinite(successCount) || !Number.isFinite(targetCount) || targetCount <= 0) {
+            return '';
+        }
+        const parts = [`同步 ${successCount}/${targetCount}`];
+        if (failCount > 0) {
+            parts.push(`失败 ${failCount}`);
+        }
+        return parts.join(' · ');
     },
 
     _overviewOpportunityScopeLabel(scope) {

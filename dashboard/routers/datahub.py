@@ -57,10 +57,15 @@ def _age_label(hours: float | None) -> str:
 
 def _load_qlib_health() -> dict[str, Any]:
     try:
-        from dashboard.routers.qlib import PRED_CACHE_FILE
+        from dashboard.routers.qlib import PRED_CACHE_FILE, _load_sync_status
 
         if not PRED_CACHE_FILE.exists():
-            return {"status": "offline", "cache_age_hours": None, "cache_age_label": "无缓存"}
+            return {
+                "status": "offline",
+                "cache_age_hours": None,
+                "cache_age_label": "无缓存",
+                "sync_status": _load_sync_status(),
+            }
         age_hours = (time.time() - PRED_CACHE_FILE.stat().st_mtime) / 3600
         if age_hours < 24:
             status = "online"
@@ -72,9 +77,15 @@ def _load_qlib_health() -> dict[str, Any]:
             "status": status,
             "cache_age_hours": round(age_hours, 1),
             "cache_age_label": _age_label(age_hours),
+            "sync_status": _load_sync_status(),
         }
     except Exception:
-        return {"status": "offline", "cache_age_hours": None, "cache_age_label": "未知"}
+        return {
+            "status": "offline",
+            "cache_age_hours": None,
+            "cache_age_label": "未知",
+            "sync_status": {},
+        }
 
 
 def _load_shadow_summary() -> dict[str, Any]:
@@ -600,6 +611,7 @@ async def decision_matrix(
             "qlib_status": qlib_health.get("status"),
             "qlib_cache_age_hours": qlib_health.get("cache_age_hours"),
             "qlib_cache_age_label": qlib_health.get("cache_age_label"),
+            "qlib_sync_status": qlib_health.get("sync_status") or {},
             "high_risk": high_risk,
             "actionable": actionable,
             "shadow": shadow,

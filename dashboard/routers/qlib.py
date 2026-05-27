@@ -11,12 +11,13 @@ import httpx
 from fastapi import APIRouter
 from loguru import logger
 
-from config.settings import QLIB_SERVICE_URL
+from config.settings import QLIB_SERVICE_URL, QLIB_SYNC_STATUS
 from utils.db import get_connection
 
 router = APIRouter()
 
 PRED_CACHE_FILE = Path(__file__).parent.parent.parent / "data" / "qlib" / "predictions_cache.json"
+SYNC_STATUS_FILE = QLIB_SYNC_STATUS
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "db" / "quant.db"
 QLIB_TRAIN_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train"
 QLIB_TRAIN_STATUS_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train/status"
@@ -33,6 +34,40 @@ def _load_predictions() -> dict:
         return data
     except Exception as e:
         logger.warning(f"读取预测缓存失败: {e}")
+        return {}
+
+
+def _load_sync_status() -> dict:
+    """读取 Qlib 日线覆盖同步状态。"""
+    if not SYNC_STATUS_FILE.exists():
+        return {}
+    try:
+        payload = json.loads(SYNC_STATUS_FILE.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {}
+        items = payload.get("items") if isinstance(payload.get("items"), list) else []
+        errors = [
+            {"code": str(item.get("code") or ""), "error": str(item.get("error") or "")}
+            for item in items
+            if isinstance(item, dict) and item.get("success") is False and item.get("error")
+        ][:5]
+        return {
+            "source": payload.get("source"),
+            "success": payload.get("success"),
+            "started_at": payload.get("started_at"),
+            "finished_at": payload.get("finished_at"),
+            "duration_sec": payload.get("duration_sec"),
+            "target_count": payload.get("target_count"),
+            "success_count": payload.get("success_count"),
+            "fail_count": payload.get("fail_count"),
+            "prediction_success": payload.get("prediction_success"),
+            "prediction_latest_date": payload.get("prediction_latest_date"),
+            "prediction_total": payload.get("prediction_total"),
+            "prediction_message": payload.get("prediction_message"),
+            "last_error_samples": errors,
+        }
+    except Exception as exc:
+        logger.warning(f"读取 Qlib 同步状态失败: {exc}")
         return {}
 
 
@@ -271,6 +306,7 @@ async def qlib_health():
                 "cache_path": str(PRED_CACHE_FILE),
                 "prediction_total": 0,
                 "service_url": QLIB_SERVICE_URL,
+                "sync_status": _load_sync_status(),
             }
 
         import time
@@ -304,6 +340,7 @@ async def qlib_health():
             "cache_path": str(PRED_CACHE_FILE),
             "prediction_total": prediction_total,
             "service_url": QLIB_SERVICE_URL,
+            "sync_status": _load_sync_status(),
         }
     except Exception as e:
         logger.error(f"Qlib 健康检查失败: {e}")
@@ -316,6 +353,7 @@ async def qlib_health():
             "cache_path": str(PRED_CACHE_FILE),
             "prediction_total": 0,
             "service_url": QLIB_SERVICE_URL,
+            "sync_status": _load_sync_status(),
         }
 
 

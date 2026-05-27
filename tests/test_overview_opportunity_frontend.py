@@ -123,6 +123,24 @@ def test_overview_opportunity_query_and_rendering():
         assert.match(tbody.innerHTML, /短线涨幅过热/);
         assert.match(tbody.innerHTML, /opportunity-evidence-tags/);
         assert.match(tbody.innerHTML, /opportunity-risk-tags/);
+
+        App._renderOverviewOpportunityStatus({
+            total: 2,
+            valuation_coverage_pct: 50,
+            qlib_coverage_pct: 100,
+            qlib_status: 'fresh',
+            qlib_cache_age_label: '5分钟',
+            qlib_sync_status: {
+                success: false,
+                success_count: 2,
+                fail_count: 1,
+                target_count: 3,
+                finished_at: '2026-05-27T16:41:05',
+            },
+        }, 2, false);
+
+        assert.match(elements['ov-opportunity-status'].innerHTML, /同步 2\/3/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /失败 1/);
         """
     )
 
@@ -229,4 +247,4 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=12" in scripts
+    assert "/static/overview.js?v=13" in scripts

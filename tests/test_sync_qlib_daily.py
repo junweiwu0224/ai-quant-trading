@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 
 
@@ -89,6 +91,51 @@ def test_sync_qlib_daily_writes_rows_and_generates_predictions():
     assert [code for code, _ in storage.saved] == ["600519", "000001"]
     assert storage.saved[0][1]["adj_factor"].tolist() == [1.0, 1.0]
     assert summary.items[0].latest_date == "2026-05-27"
+
+
+def test_sync_qlib_daily_writes_operational_status(tmp_path):
+    from data.qlib.daily_sync import sync_qlib_daily
+
+    status_path = tmp_path / "sync_status.json"
+    adapter = FakeAdapter(
+        frames={
+            "600519": _daily_frame(100.0),
+            "000001": _daily_frame(10.0),
+        }
+    )
+    storage = FakeStorage()
+
+    def fake_generate_predictions():
+        return type(
+            "Summary",
+            (),
+            {"success": True, "latest_date": "2026-05-27", "total": 2, "message": ""},
+        )()
+
+    summary = sync_qlib_daily(
+        codes=["600519", "000001"],
+        count=2,
+        storage=storage,
+        adapter=adapter,
+        generate_predictions_fn=fake_generate_predictions,
+        generate_predictions_cache=True,
+        min_success=2,
+        status_path=status_path,
+        status_source="unit_test",
+    )
+
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    assert payload["source"] == "unit_test"
+    assert payload["success"] is True
+    assert payload["success_count"] == 2
+    assert payload["fail_count"] == 0
+    assert payload["target_count"] == 2
+    assert payload["prediction_success"] is True
+    assert payload["prediction_latest_date"] == "2026-05-27"
+    assert payload["prediction_total"] == 2
+    assert payload["items"][0]["code"] == "600519"
+    assert payload["duration_sec"] >= 0
+    assert summary.success is True
 
 
 def test_sync_qlib_daily_records_failures_and_skips_predictions_below_min_success():

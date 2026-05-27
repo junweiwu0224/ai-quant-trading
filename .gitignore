@@ -60,6 +60,7 @@ data/db/
 data/qlib/cn_data/
 data/qlib/models/
 data/qlib/predictions_cache.json
+data/qlib/sync_status.json
 data/openclaw/
 models/
 

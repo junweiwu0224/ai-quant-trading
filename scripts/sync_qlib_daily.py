@@ -39,6 +39,7 @@ def main(codes: tuple[str, ...], count: int, limit: int, generate_predictions: b
         limit=limit,
         generate_predictions_cache=generate_predictions,
         min_success=min_success,
+        status_source="cli",
     )
 
     for item in summary.items:

@@ -112,6 +112,7 @@ class DataScheduler:
                 adapter=self._provider,
                 generate_predictions_cache=True,
                 min_success=2,
+                status_source="scheduler",
             )
             logger.info(
                 "Qlib 覆盖池同步完成: "

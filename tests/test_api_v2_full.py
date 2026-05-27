@@ -7,6 +7,7 @@
     pytest tests/test_api_v2_full.py -v --tb=short
     pytest tests/test_api_v2_full.py -v --tb=short -x  # 首次失败即停
 """
+import json
 import sqlite3
 from pathlib import Path
 
@@ -626,6 +627,53 @@ class TestQlib:
         assert payload["last_update"] == "2026-05-22"
         assert payload["prediction_total"] == 2
         assert payload["service_url"] == qlib_router.QLIB_SERVICE_URL
+
+    def test_qlib_health_reports_daily_sync_status(self, client, monkeypatch, tmp_path):
+        cache_path = tmp_path / "predictions_cache.json"
+        status_path = tmp_path / "sync_status.json"
+        cache_path.write_text(
+            '{"predictions":{"2026-05-27":{"600519":0.81,"000001":0.62}}}',
+            encoding="utf-8",
+        )
+        status_path.write_text(
+            json.dumps(
+                {
+                    "source": "scheduler",
+                    "success": False,
+                    "started_at": "2026-05-27T16:40:00",
+                    "finished_at": "2026-05-27T16:41:05",
+                    "duration_sec": 65.2,
+                    "target_count": 3,
+                    "success_count": 2,
+                    "fail_count": 1,
+                    "prediction_success": True,
+                    "prediction_latest_date": "2026-05-27",
+                    "prediction_total": 2,
+                    "prediction_message": "",
+                    "items": [
+                        {"code": "600519", "success": True},
+                        {"code": "000001", "success": True},
+                        {"code": "300750", "success": False, "error": "remote closed"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(qlib_router, "PRED_CACHE_FILE", cache_path)
+        monkeypatch.setattr(qlib_router, "SYNC_STATUS_FILE", status_path)
+
+        resp = client.get("/api/qlib/health")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["sync_status"]["source"] == "scheduler"
+        assert payload["sync_status"]["success"] is False
+        assert payload["sync_status"]["target_count"] == 3
+        assert payload["sync_status"]["success_count"] == 2
+        assert payload["sync_status"]["fail_count"] == 1
+        assert payload["sync_status"]["last_error_samples"] == [
+            {"code": "300750", "error": "remote closed"}
+        ]
 
     def test_enrich_stock_info_accepts_plain_codes_against_prefixed_db(self, monkeypatch, tmp_path):
         db_path = tmp_path / "quant.db"

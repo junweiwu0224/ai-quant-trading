@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Callable, Iterable
 
 import pandas as pd
 
+from config.settings import QLIB_SYNC_STATUS
 from data.providers.astock_data_adapter import AStockDataAdapter
 from data.qlib.candidates import build_default_coverage_codes, dedupe_codes
 from data.qlib.predictor import QlibPredictionSummary, generate_predictions
@@ -33,6 +38,46 @@ class SyncSummary:
     prediction_latest_date: str | None = None
     prediction_total: int | None = None
     prediction_message: str = ""
+
+
+def _write_sync_status(
+    summary: SyncSummary,
+    status_path: Path,
+    source: str,
+    started_at: datetime,
+    duration_sec: float,
+) -> None:
+    payload = {
+        "source": source,
+        "success": summary.success,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": datetime.now().isoformat(timespec="seconds"),
+        "duration_sec": round(duration_sec, 3),
+        "target_count": len(summary.items),
+        "success_count": summary.success_count,
+        "fail_count": summary.fail_count,
+        "prediction_success": summary.prediction_success,
+        "prediction_latest_date": summary.prediction_latest_date,
+        "prediction_total": summary.prediction_total,
+        "prediction_message": summary.prediction_message,
+        "items": [
+            {
+                "code": item.code,
+                "success": item.success,
+                "rows": item.rows,
+                "written": item.written,
+                "latest_date": item.latest_date,
+                "error": item.error,
+            }
+            for item in summary.items
+        ],
+    }
+    status_path = Path(status_path)
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def normalize_daily_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,7 +112,11 @@ def sync_qlib_daily(
     generate_predictions_cache: bool = False,
     min_success: int = 2,
     limit: int = 80,
+    status_path: Path | None = None,
+    status_source: str = "manual",
 ) -> SyncSummary:
+    started_at = datetime.now()
+    start_time = time.perf_counter()
     storage = storage or DataStorage()
     target_codes = dedupe_codes(codes) if codes is not None else build_default_coverage_codes(storage, limit=limit)
     adapter = adapter or AStockDataAdapter()
@@ -109,7 +158,7 @@ def sync_qlib_daily(
         prediction_total = prediction.total
         prediction_message = prediction.message
 
-    return SyncSummary(
+    summary = SyncSummary(
         success=fail_count == 0 and success_count >= min_success,
         success_count=success_count,
         fail_count=fail_count,
@@ -119,3 +168,11 @@ def sync_qlib_daily(
         prediction_total=prediction_total,
         prediction_message=prediction_message,
     )
+    _write_sync_status(
+        summary=summary,
+        status_path=Path(status_path) if status_path is not None else QLIB_SYNC_STATUS,
+        source=status_source,
+        started_at=started_at,
+        duration_sec=time.perf_counter() - start_time,
+    )
+    return summary

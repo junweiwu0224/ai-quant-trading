@@ -32,6 +32,7 @@ def test_scheduler_runs_qlib_daily_sync_after_watchlist_sync(monkeypatch):
             "adapter": scheduler._provider,
             "generate_predictions_cache": True,
             "min_success": 2,
+            "status_source": "scheduler",
         }
     ]
 

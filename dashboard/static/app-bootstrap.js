@@ -104,12 +104,13 @@
                     const tabActionLink = e.target.closest('[data-app-action="switch-tab"]');
                     if (tabActionLink) {
                         const tab = typeof tabActionLink.dataset.tab === 'string' ? tabActionLink.dataset.tab.trim() : '';
+                        const subtab = typeof tabActionLink.dataset.subtab === 'string' ? tabActionLink.dataset.subtab.trim() : '';
                         if (!tab) {
                             return;
                         }
 
                         e.preventDefault();
-                        this.switchTab(tab);
+                        this.switchTab(tab, subtab ? { subtab } : {});
                         return;
                     }
 
@@ -167,6 +168,7 @@
             if (typeof this.loadOverview === 'function') {
                 await this.loadOverview();
             }
+            await this._initOverviewWidgets?.();
             const currentHash = location.hash || '';
             if (currentHash === '#stock') {
                 const restoredCode = await this._resolveStockRouteInitialCode();
@@ -177,6 +179,19 @@
                 }
             }
             this._syncTabFromHash();
+        },
+
+        async _initOverviewWidgets() {
+            if (this._overviewWidgetsInitialized) {
+                return;
+            }
+
+            if (!globalThis.App?.OverviewRadar || !globalThis.App?.Alerts) {
+                await this.ensureBundle?.('overview');
+            }
+            await globalThis.App?.OverviewRadar?.init?.();
+            await globalThis.App?.Alerts?.init?.();
+            this._overviewWidgetsInitialized = true;
         },
 
         async _resolveStockRouteInitialCode() {

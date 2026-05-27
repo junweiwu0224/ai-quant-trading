@@ -57,10 +57,13 @@ test-results/
 
 # Local runtime data
 data/db/
-data/qlib/
+data/qlib/cn_data/
+data/qlib/models/
+data/qlib/predictions_cache.json
 data/openclaw/
 models/
 
 # Claude local workspace artifacts
 .claude/worktrees/
 .claude/plan/*.md
+.superpowers/

@@ -2,6 +2,7 @@
 
 Object.assign(App, {
     _overviewLoaded: false,
+    _overviewOpportunityScope: 'watchlist',
 
     async loadOverview() {
         if (this._loadingOverview) return;
@@ -130,22 +131,32 @@ Object.assign(App, {
 
     _bindOverviewOpportunityActions() {
         const table = document.getElementById('ov-opportunity-table');
-        if (!table || table.dataset.bound === '1') return;
-        table.dataset.bound = '1';
-        table.addEventListener('click', async (event) => {
-            const btn = event.target.closest('[data-ov-opportunity-action]');
+        if (table && table.dataset.bound !== '1') {
+            table.dataset.bound = '1';
+            table.addEventListener('click', async (event) => {
+                const btn = event.target.closest('[data-ov-opportunity-action]');
+                if (!btn) return;
+                event.preventDefault();
+                const code = btn.dataset.code;
+                if (!code) return;
+                const action = btn.dataset.ovOpportunityAction;
+                if (action === 'stock') {
+                    App.openStockDetail(code, { source: 'overview:opportunity' });
+                } else if (action === 'watchlist') {
+                    App.addToWatchlist(code, { source: 'overview:opportunity' });
+                } else if (action === 'ask') {
+                    await this._askOpportunityOpenClaw(code);
+                }
+            });
+        }
+        const toggle = document.querySelector('.opportunity-scope-toggle');
+        if (!toggle || toggle.dataset.bound === '1') return;
+        toggle.dataset.bound = '1';
+        toggle.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-ov-opportunity-scope]');
             if (!btn) return;
             event.preventDefault();
-            const code = btn.dataset.code;
-            if (!code) return;
-            const action = btn.dataset.ovOpportunityAction;
-            if (action === 'stock') {
-                App.openStockDetail(code, { source: 'overview:opportunity' });
-            } else if (action === 'watchlist') {
-                App.addToWatchlist(code, { source: 'overview:opportunity' });
-            } else if (action === 'ask') {
-                await this._askOpportunityOpenClaw(code);
-            }
+            this._setOverviewOpportunityScope(btn.dataset.ovOpportunityScope || 'watchlist');
         });
     },
 
@@ -155,27 +166,95 @@ Object.assign(App, {
         tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
         const hint = document.getElementById('ov-opportunity-hint');
         if (hint) hint.textContent = 'PEG、机构预测、Qlib 与风险标签合成的优先研究清单。';
+        const status = document.getElementById('ov-opportunity-status');
+        if (status) status.innerHTML = '<span class="opportunity-status-item">正在加载</span>';
         try {
-            const scope = (this.watchlistCache || []).length ? 'watchlist' : 'qlib';
-            const fastData = await this.fetchJSON(`/api/datahub/decision-matrix?scope=${scope}&limit=8&fast=true`, { silent: true, timeout: 8000 });
+            const scope = this._resolveOverviewOpportunityScope();
+            const requestId = this._beginOverviewOpportunityRequest(scope);
+            this._updateOverviewOpportunityScopeButtons(scope);
+            const fastQuery = this._buildOverviewOpportunityQuery(scope, { fast: true });
+            const fastData = await this.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
+            if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
             const fastItems = (fastData.items || []).slice(0, 5);
             if (!fastItems.length) {
                 tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无候选，先加入自选或生成 Qlib 缓存</td></tr>';
+                this._renderOverviewOpportunityStatus(fastData.summary || {}, 0, true);
                 return;
             }
-            this._renderOverviewOpportunityData(fastData, true);
-            this._loadOverviewOpportunitiesFull(scope).catch(() => {});
+            this._renderOverviewOpportunityData(fastData, true, { scope, requestId });
+            this._loadOverviewOpportunitiesFull(scope, requestId).catch(() => {});
         } catch (error) {
             tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">机会池加载失败：${this.escapeHTML(error.message || '未知错误')}</td></tr>`;
+            if (status) status.innerHTML = '<span class="opportunity-status-item">加载失败</span>';
         }
     },
 
-    async _loadOverviewOpportunitiesFull(scope) {
-        const data = await this.fetchJSON(`/api/datahub/decision-matrix?scope=${scope}&limit=8&max_wait_sec=6`, { silent: true, timeout: 20000 });
-        this._renderOverviewOpportunityData(data, false);
+    async _loadOverviewOpportunitiesFull(scope, requestId) {
+        const query = this._buildOverviewOpportunityQuery(scope, { fast: false });
+        const data = await this.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 20000 });
+        this._renderOverviewOpportunityData(data, false, { scope, requestId });
     },
 
-    _renderOverviewOpportunityData(data, isFast) {
+    _beginOverviewOpportunityRequest(scope) {
+        const nextId = (this._overviewOpportunityRequestId || 0) + 1;
+        this._overviewOpportunityRequestId = nextId;
+        this._overviewOpportunityActiveScope = scope;
+        return nextId;
+    },
+
+    _isCurrentOverviewOpportunityRequest(scope, requestId) {
+        return this._overviewOpportunityActiveScope === scope
+            && this._overviewOpportunityScope === scope
+            && this._overviewOpportunityRequestId === requestId;
+    },
+
+    _buildOverviewOpportunityQuery(scope = 'watchlist', { fast = true } = {}) {
+        const requestedScope = ['watchlist', 'qlib', 'default'].includes(scope) ? scope : 'watchlist';
+        const query = new URLSearchParams();
+        query.set('scope', requestedScope === 'default' ? 'watchlist' : requestedScope);
+        query.set('limit', '8');
+        if (fast) {
+            query.set('fast', 'true');
+        } else {
+            query.set('max_wait_sec', '6');
+        }
+        if (requestedScope === 'default') {
+            query.set('force_fallback', 'true');
+        }
+        return query;
+    },
+
+    _resolveOverviewOpportunityScope() {
+        const current = this._overviewOpportunityScope || 'watchlist';
+        if (current === 'watchlist' && !(this.watchlistCache || []).length) {
+            this._overviewOpportunityScope = 'qlib';
+            return 'qlib';
+        }
+        return ['watchlist', 'qlib', 'default'].includes(current) ? current : 'watchlist';
+    },
+
+    _setOverviewOpportunityScope(scope) {
+        const nextScope = ['watchlist', 'qlib', 'default'].includes(scope) ? scope : 'watchlist';
+        if (nextScope === this._overviewOpportunityScope && this._overviewOpportunityItems?.length) {
+            return;
+        }
+        this._overviewOpportunityScope = nextScope;
+        this._updateOverviewOpportunityScopeButtons(nextScope);
+        this._loadOverviewOpportunities();
+    },
+
+    _updateOverviewOpportunityScopeButtons(scope) {
+        document.querySelectorAll('[data-ov-opportunity-scope]').forEach((btn) => {
+            const active = btn.dataset.ovOpportunityScope === scope;
+            btn.classList.toggle('active', active);
+            btn.setAttribute?.('aria-pressed', active ? 'true' : 'false');
+        });
+    },
+
+    _renderOverviewOpportunityData(data, isFast, requestMeta = null) {
+        if (requestMeta && !this._isCurrentOverviewOpportunityRequest(requestMeta.scope, requestMeta.requestId)) {
+            return;
+        }
         const tbody = document.querySelector('#ov-opportunity-table tbody');
         const hint = document.getElementById('ov-opportunity-hint');
         if (!tbody) return;
@@ -183,6 +262,7 @@ Object.assign(App, {
         if (!items.length) return;
         this._overviewOpportunityItems = items;
         tbody.innerHTML = items.map((item) => this._renderOpportunityRow(item)).join('');
+        this._renderOverviewOpportunityStatus(data.summary || {}, items.length, isFast);
         if (hint) {
             if (data.summary?.used_fallback) {
                 hint.textContent = isFast
@@ -196,20 +276,55 @@ Object.assign(App, {
         }
     },
 
+    _renderOverviewOpportunityStatus(summary = {}, itemCount = 0, isFast = false) {
+        const status = document.getElementById('ov-opportunity-status');
+        if (!status) return;
+        const qlibStatusMap = { fresh: '在线', stale: '过期', offline: '离线', empty: '离线' };
+        const total = summary.total ?? itemCount;
+        const valuation = this._fmtOverviewPct(summary.valuation_coverage_pct);
+        const qlibCoverage = this._fmtOverviewPct(summary.qlib_coverage_pct);
+        const qlibStatus = qlibStatusMap[summary.qlib_status] || summary.qlib_status || '未知';
+        const scopeLabel = summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
+        const cacheAge = summary.qlib_cache_age_label ? ` · ${this.escapeHTML(summary.qlib_cache_age_label)}` : '';
+        const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
+        status.innerHTML = [
+            `候选 ${this.escapeHTML(total)} 只`,
+            `范围 ${this.escapeHTML(scopeLabel)}`,
+            `估值 ${this.escapeHTML(valuation)}`,
+            `Qlib ${this.escapeHTML(qlibStatus)}${cacheAge}`,
+            `Qlib覆盖 ${this.escapeHTML(qlibCoverage)}`,
+            mode,
+        ].map((text) => `<span class="opportunity-status-item">${text}</span>`).join('');
+    },
+
+    _overviewOpportunityScopeLabel(scope) {
+        return {
+            watchlist: '自选',
+            qlib: 'Qlib Top',
+            default: '默认候选',
+        }[scope] || '自选';
+    },
+
     _renderOpportunityRow(item) {
         const score = Number(item.decision_score || 0);
         const scoreCls = score >= 78 ? 'score-hot' : score >= 62 ? 'score-warm' : score >= 45 ? 'score-neutral' : 'score-cold';
         const riskCls = item.risk_level === '高' ? 'risk-high' : item.risk_level === '中' ? 'risk-mid' : 'risk-low';
         const actions = item.next_actions || [];
+        const reasonTags = (item.reason_tags || []).slice(0, 3);
+        const riskTags = (item.risk_tags || []).slice(0, 3);
         return `<tr>
             <td>${item.matrix_rank || '--'}</td>
             <td>
                 <button class="link-button datahub-stock-link" data-ov-opportunity-action="stock" data-code="${this.escapeHTML(item.code || '')}">${this.escapeHTML(item.name || item.code || '--')}</button>
                 <div class="text-muted text-xs">${this.escapeHTML(item.code || '')} ${this.escapeHTML(item.industry || '')}</div>
+                <div class="opportunity-evidence-tags">${reasonTags.map((tag) => `<span class="datahub-reason-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无评分依据</span>'}</div>
             </td>
             <td><span class="datahub-score ${scoreCls}">${score}</span><span class="datahub-decision-label">${this.escapeHTML(item.decision_label || '--')}</span></td>
             <td>${this._fmtOverviewNum(item.peg_next_year, 2)}</td>
-            <td><span class="datahub-risk-pill ${riskCls}">${this.escapeHTML(item.risk_level || '--')}</span></td>
+            <td>
+                <span class="datahub-risk-pill ${riskCls}">${this.escapeHTML(item.risk_level || '--')}</span>
+                <div class="opportunity-risk-tags">${riskTags.map((tag) => `<span class="datahub-risk-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无明显风险</span>'}</div>
+            </td>
             <td>${actions.slice(0, 2).map((tag) => `<span class="datahub-next-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted">--</span>'}</td>
             <td class="datahub-actions">
                 <button class="btn btn-xs" data-ov-opportunity-action="watchlist" data-code="${this.escapeHTML(item.code || '')}">自选</button>
@@ -233,6 +348,10 @@ Object.assign(App, {
 
     _fmtOverviewNum(value, digits = 2) {
         return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '--';
+    },
+
+    _fmtOverviewPct(value) {
+        return Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)}%` : '--';
     },
 
     _clearOverviewSecondarySkeletons() {

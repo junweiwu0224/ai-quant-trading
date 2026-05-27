@@ -147,7 +147,7 @@ const App = {
             '/static/factor.js?v=1',
             '/static/portfolio-opt.js?v=1',
             '/static/intelligence.js?v=2',
-            '/static/intelligence-market.js?v=1',
+            '/static/intelligence-market.js?v=2',
             '/static/intelligence-iwencai.js?v=1',
             '/static/intelligence-qlib.js?v=2',
             '/static/research-datahub.js?v=3',
@@ -173,7 +173,7 @@ const App = {
         ],
         intelligence: [
             '/static/intelligence.js?v=2',
-            '/static/intelligence-market.js?v=1',
+            '/static/intelligence-market.js?v=2',
             '/static/intelligence-iwencai.js?v=1',
             '/static/intelligence-qlib.js?v=2',
         ],

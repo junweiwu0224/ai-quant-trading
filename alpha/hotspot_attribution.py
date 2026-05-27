@@ -53,7 +53,8 @@ def _fetch_board_ranking(board_type: str, top_n: int) -> list[dict]:
             "code": str(item.get("f12", "") or ""),
             "name": str(item.get("f14", "") or ""),
             "change_pct": round(_safe_float(item.get("f3")), 2),
-            "leader": str(item.get("f140", "") or item.get("f128", "") or ""),
+            "leader": str(item.get("f128", "") or item.get("f140", "") or ""),
+            "leader_code": str(item.get("f140", "") or ""),
             "leader_change": round(_safe_float(item.get("f136")), 2),
             "stock_count": _safe_int(item.get("f104")) + _safe_int(item.get("f105")),
             "up_count": _safe_int(item.get("f104")),
@@ -153,15 +154,39 @@ async def get_hotspot_attribution() -> dict:
         return_exceptions=True,
     )
 
+    partial_errors: list[str] = []
+    source_status = {
+        "concept": {"ok": True, "count": 0, "message": ""},
+        "industry": {"ok": True, "count": 0, "message": ""},
+        "fund_flow": {"ok": True, "count": 0, "message": ""},
+    }
+
     if isinstance(concepts, Exception):
+        error = str(concepts)
         logger.warning(f"热点概念获取失败: {concepts}")
         concepts = []
+        source_status["concept"] = {"ok": False, "count": 0, "message": error}
     if isinstance(industries, Exception):
+        error = str(industries)
         logger.warning(f"热门行业获取失败: {industries}")
         industries = []
+        source_status["industry"] = {"ok": False, "count": 0, "message": error}
     if isinstance(flow, Exception):
+        error = str(flow)
         logger.warning(f"资金流向获取失败: {flow}")
         flow = []
+        source_status["fund_flow"] = {"ok": False, "count": 0, "message": error}
+
+    for key, rows in (("concept", concepts), ("industry", industries), ("fund_flow", flow)):
+        count = len(rows or [])
+        if source_status[key]["ok"]:
+            source_status[key] = {
+                "ok": count > 0,
+                "count": count,
+                "message": "" if count > 0 else "source returned no rows",
+            }
+        if not source_status[key]["ok"]:
+            partial_errors.append(key)
 
     top3 = [f"{c['name']}({c['change_pct']:+.1f}%)" for c in (concepts or [])[:3]]
     summary = f"今日热点：{'、'.join(top3)}" if top3 else "暂无热点数据"
@@ -172,4 +197,6 @@ async def get_hotspot_attribution() -> dict:
         "hot_industries": industries or [],
         "fund_flow": flow or [],
         "summary": summary,
+        "source_status": source_status,
+        "partial_errors": partial_errors,
     }

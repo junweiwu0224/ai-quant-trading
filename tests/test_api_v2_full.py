@@ -580,6 +580,84 @@ class TestQlib:
         resp = client.get("/api/qlib/top")
         assert resp.status_code == 200
 
+    def test_top_predictions_reads_cache_and_enriches_rows(self, client, monkeypatch, tmp_path):
+        cache_path = tmp_path / "predictions_cache.json"
+        cache_path.write_text(
+            '{"predictions":{"2026-05-22":{"600519":0.81,"000001":0.62}}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(qlib_router, "PRED_CACHE_FILE", cache_path)
+        monkeypatch.setattr(
+            qlib_router,
+            "_enrich_with_stock_info",
+            lambda codes: {
+                "600519": {"name": "贵州茅台", "industry": "白酒", "price": 1688.0},
+                "000001": {"name": "平安银行", "industry": "银行", "price": 10.5},
+            },
+        )
+
+        resp = client.get("/api/qlib/top", params={"top_n": 1})
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        assert payload["date"] == "2026-05-22"
+        assert payload["total"] == 2
+        assert payload["predictions"][0]["code"] == "600519"
+        assert payload["predictions"][0]["name"] == "贵州茅台"
+        assert payload["predictions"][0]["score"] == 0.81
+
+    def test_qlib_health_reports_cache_metadata(self, client, monkeypatch, tmp_path):
+        cache_path = tmp_path / "predictions_cache.json"
+        cache_path.write_text(
+            '{"predictions":{"2026-05-22":{"600519":0.81,"000001":0.62}}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(qlib_router, "PRED_CACHE_FILE", cache_path)
+
+        resp = client.get("/api/qlib/health")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        assert payload["status"] in {"online", "stale", "offline"}
+        assert payload["cache_exists"] is True
+        assert payload["cache_path"] == str(cache_path)
+        assert payload["last_update"] == "2026-05-22"
+        assert payload["prediction_total"] == 2
+        assert payload["service_url"] == qlib_router.QLIB_SERVICE_URL
+
+    def test_enrich_stock_info_accepts_plain_codes_against_prefixed_db(self, monkeypatch, tmp_path):
+        db_path = tmp_path / "quant.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE stock_info (code TEXT PRIMARY KEY, name TEXT, industry TEXT)")
+        conn.execute(
+            """CREATE TABLE stock_daily (
+                code TEXT,
+                date TEXT,
+                close REAL,
+                volume REAL,
+                amount REAL
+            )"""
+        )
+        conn.execute(
+            "INSERT INTO stock_info (code, name, industry) VALUES (?, ?, ?)",
+            ("sh600519", "贵州茅台", "白酒"),
+        )
+        conn.execute(
+            "INSERT INTO stock_daily (code, date, close, volume, amount) VALUES (?, ?, ?, ?, ?)",
+            ("sh600519", "2026-05-22", 1688.0, 1000.0, 1688000.0),
+        )
+        conn.commit()
+        conn.close()
+        monkeypatch.setattr(qlib_router, "DB_PATH", db_path)
+
+        info = qlib_router._enrich_with_stock_info(["600519"])
+
+        assert info["600519"]["name"] == "贵州茅台"
+        assert info["600519"]["industry"] == "白酒"
+        assert info["600519"]["price"] == 1688.0
+
     def test_train_status_uses_configured_service_url(self, client, monkeypatch):
         """GET /api/qlib/train/status — 应使用配置的 qlib 服务地址"""
 

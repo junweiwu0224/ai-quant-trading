@@ -151,7 +151,8 @@ def _fetch_sector_ranking(sector_type: str = "industry") -> list[dict]:
             "change_pct": round(float(item.get("f3", 0)), 2) if item.get("f3") else 0,
             "up_count": int(item.get("f104", 0)),
             "down_count": int(item.get("f105", 0)),
-            "leader": item.get("f140", ""),
+            "leader": item.get("f128", "") or item.get("f140", ""),
+            "leader_code": item.get("f140", ""),
             "leader_change": round(float(item.get("f136", 0)), 2) if item.get("f136") else 0,
         })
     return sectors
@@ -200,7 +201,8 @@ def _fetch_sector_heatmap() -> list[dict]:
             "change_pct": round(float(item.get("f3", 0) or 0), 2),
             "up_count": int(item.get("f104", 0) or 0),
             "down_count": int(item.get("f105", 0) or 0),
-            "leader": item.get("f140", ""),
+            "leader": item.get("f128", "") or item.get("f140", ""),
+            "leader_code": item.get("f140", ""),
             "leader_change": round(float(item.get("f136", 0) or 0), 2) if item.get("f136") else 0,
             "total_mv": round(total_mv / 1e8, 0) if total_mv else 0,  # 亿
             "main_net_inflow": round(float(item.get("f109", 0) or 0) / 1e4, 2),  # 万→亿

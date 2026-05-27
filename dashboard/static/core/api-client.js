@@ -17,6 +17,66 @@
         global.App?.toast?.(message, type);
     }
 
+    const FIELD_LABELS = {
+        username: '用户名',
+        password: '密码',
+        invite_code: '邀请码',
+        display_name: '昵称',
+        email: '邮箱',
+    };
+
+    function formatValidationMessage(item) {
+        if (!item || typeof item !== 'object') {
+            return '';
+        }
+        const loc = Array.isArray(item.loc) ? item.loc : [];
+        const field = loc.length ? loc[loc.length - 1] : '';
+        const label = FIELD_LABELS[field] || field || '字段';
+        const type = String(item.type || '');
+        const ctx = item.ctx || {};
+
+        if (type.includes('string_too_short') && ctx.min_length) {
+            return `${label}至少需要 ${ctx.min_length} 个字符`;
+        }
+        if (type.includes('string_too_long') && ctx.max_length) {
+            return `${label}最多只能 ${ctx.max_length} 个字符`;
+        }
+        if (type.includes('missing')) {
+            return `请填写${label}`;
+        }
+        return item.msg ? `${label}: ${item.msg}` : '';
+    }
+
+    function formatErrorDetail(detail, status) {
+        if (!detail) {
+            return '';
+        }
+        if (typeof detail === 'string') {
+            return detail;
+        }
+        if (Array.isArray(detail)) {
+            const messages = detail.map(formatValidationMessage).filter(Boolean);
+            if (messages.length) {
+                return `请求参数校验失败：${messages.join('；')}`;
+            }
+            return status === 422 ? '请求参数校验失败' : JSON.stringify(detail);
+        }
+        if (typeof detail === 'object') {
+            if (typeof detail.message === 'string' && detail.message) {
+                return detail.message;
+            }
+            if (typeof detail.error === 'string' && detail.error) {
+                return detail.error;
+            }
+            try {
+                return JSON.stringify(detail);
+            } catch {
+                return String(detail);
+            }
+        }
+        return String(detail);
+    }
+
     /**
      * Unified JSON request method shared by page modules.
      * Keeps auth, retry, timeout, and user-facing errors in one place.
@@ -55,7 +115,10 @@
                         if (text) {
                             try {
                                 const parsed = JSON.parse(text);
-                                detail = parsed.detail || parsed.error || parsed.message || '';
+                                detail = formatErrorDetail(
+                                    parsed.detail || parsed.error || parsed.message || '',
+                                    res.status,
+                                );
                             } catch {
                                 detail = text;
                             }

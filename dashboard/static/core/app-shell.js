@@ -795,7 +795,8 @@
                 this.bindSensitivity?.();
                 this.bindStrategyChips?.();
                 this._initResearchSubTabs();
-                const activeResearchSubtab = this._researchActiveSubtab || 'valuation';
+                const requestedSubtab = typeof options.subtab === 'string' ? options.subtab.trim() : '';
+                const activeResearchSubtab = requestedSubtab || this._researchActiveSubtab || 'valuation';
                 const defaultBtn = document.querySelector(`.research-sub-tab[data-subtab="${activeResearchSubtab}"]`) || document.querySelector('.research-sub-tab[data-subtab="valuation"]');
                 if (defaultBtn) {
                     defaultBtn.click();

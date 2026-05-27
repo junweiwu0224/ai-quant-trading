@@ -144,6 +144,20 @@ Object.assign(globalThis.App, {
         this._startAuthenticatedApp?.();
     },
 
+    _validateRegisterPayload(payload) {
+        const username = (payload?.username || '').trim();
+        const password = payload?.password || '';
+        const inviteCode = (payload?.invite_code || '').trim();
+        const email = (payload?.email || '').trim();
+
+        if (username.length < 3) return '用户名至少需要 3 个字符';
+        if (!/^[A-Za-z0-9_.-]{3,32}$/.test(username)) return '用户名只能包含字母、数字、下划线、点和横线';
+        if (password.length < 8) return '密码至少需要 8 位';
+        if (inviteCode.length !== 6) return '邀请码必须是 6 位';
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return '邮箱格式不正确';
+        return '';
+    },
+
     _renderUserShell() {
             const root = this._ensureUserShell();
             const state = this._accountState;
@@ -317,6 +331,11 @@ Object.assign(globalThis.App, {
                 display_name: overlay.querySelector('#auth-register-display').value.trim(),
                 email: overlay.querySelector('#auth-register-email').value.trim(),
             };
+            const validationMessage = this._validateRegisterPayload(payload);
+            if (validationMessage) {
+                this.toast(validationMessage, 'error');
+                return;
+            }
             this._authFlowActive = true;
             try {
                 const data = await this.fetchJSON('/api/account/register', {
@@ -326,6 +345,8 @@ Object.assign(globalThis.App, {
                 });
                 this._handleAuthenticated(data);
                 this.toast('注册成功', 'success');
+            } catch {
+                // fetchJSON already shows a user-facing message.
             } finally {
                 this._authFlowActive = false;
             }

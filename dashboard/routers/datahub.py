@@ -467,6 +467,7 @@ async def decision_matrix(
     codes: str = Query("", description="逗号分隔股票代码"),
     limit: int = Query(30, ge=1, le=80),
     fast: bool = Query(False, description="跳过外部估值源，快速返回行情/AI预览"),
+    force_fallback: bool = Query(False, description="强制使用默认候选池"),
     account: dict = Depends(current_account),
 ):
     """Merge valuation, qlib prediction and quote health into one research table."""
@@ -481,7 +482,11 @@ async def decision_matrix(
 
     used_fallback = False
     fallback_reason = ""
-    if scope == "watchlist":
+    if force_fallback:
+        selected_codes = _fallback_seed_codes(storage, limit)
+        used_fallback = bool(selected_codes)
+        fallback_reason = "forced_default"
+    elif scope == "watchlist":
         selected_codes = storage.get_watchlist(account["workspace"]["id"])
     elif scope == "qlib":
         selected_codes = qlib_ctx["ordered_codes"][:limit]

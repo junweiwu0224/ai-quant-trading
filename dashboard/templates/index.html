@@ -282,7 +282,17 @@
                         <h2>数据机会池</h2>
                         <p class="text-muted text-sm" id="ov-opportunity-hint">PEG、机构预测、Qlib 与风险标签合成的优先研究清单。</p>
                     </div>
-                    <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
+                    <div class="opportunity-card-actions">
+                        <div class="opportunity-scope-toggle" role="group" aria-label="机会池范围">
+                            <button class="active" type="button" data-ov-opportunity-scope="watchlist" aria-pressed="true">自选</button>
+                            <button type="button" data-ov-opportunity-scope="qlib" aria-pressed="false">Qlib Top</button>
+                            <button type="button" data-ov-opportunity-scope="default" aria-pressed="false">默认候选</button>
+                        </div>
+                        <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
+                    </div>
+                </div>
+                <div id="ov-opportunity-status" class="opportunity-status-strip">
+                    <span class="opportunity-status-item">等待加载</span>
                 </div>
                 <div class="table-wrap">
                     <table id="ov-opportunity-table" class="datahub-matrix-table">

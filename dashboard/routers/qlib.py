@@ -39,24 +39,49 @@ def _load_predictions() -> dict:
 def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
     """从数据库批量获取股票名称、行业、最新收盘价
 
-    codes 格式统一为 sh/sz 前缀 (sz002049)。
+    缓存通常使用六位裸码，数据库历史数据可能使用 sh/sz 前缀。
     """
     result: dict[str, dict] = {}
     if not DB_PATH.exists() or not codes:
         return result
+
+    def _plain_code(code: str) -> str:
+        raw = str(code or "").strip()
+        if raw[:2].lower() in {"sh", "sz"}:
+            raw = raw[2:]
+        return raw if len(raw) == 6 and raw.isdigit() else str(code or "").strip()
+
+    def _storage_code_candidates(code: str) -> list[str]:
+        plain = _plain_code(code)
+        if not plain or len(plain) != 6 or not plain.isdigit():
+            return [plain] if plain else []
+        if plain.startswith("6"):
+            return [plain, f"sh{plain}"]
+        if plain.startswith(("0", "3", "9")):
+            return [plain, f"sz{plain}", f"sh{plain}"]
+        return [plain]
+
+    requested_by_storage_code: dict[str, str] = {}
+    for code in codes:
+        plain = _plain_code(code)
+        requested_by_storage_code[str(code)] = plain
+        for candidate in _storage_code_candidates(plain):
+            requested_by_storage_code[candidate] = plain
+    query_codes = list(requested_by_storage_code.keys())
 
     conn = get_connection(str(DB_PATH), readonly=True)
     try:
         cur = conn.cursor()
 
         # 批量查询名称和行业
-        placeholders = ",".join("?" * len(codes))
+        placeholders = ",".join("?" * len(query_codes))
         cur.execute(
             f"SELECT code, name, industry FROM stock_info WHERE code IN ({placeholders})",
-            codes,
+            query_codes,
         )
         for row in cur.fetchall():
-            result[row["code"]] = {"name": row["name"], "industry": row["industry"] or "--"}
+            plain = requested_by_storage_code.get(row["code"], _plain_code(row["code"]))
+            result[plain] = {"name": row["name"], "industry": row["industry"] or "--"}
 
         # 批量查询每只股票的最新收盘价、成交量、成交额
         cur.execute(
@@ -68,13 +93,14 @@ def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
                     WHERE code IN ({placeholders})
                     GROUP BY code
                 ) latest ON s.code = latest.code AND s.date = latest.max_date""",
-            codes,
+            query_codes,
         )
         for row in cur.fetchall():
-            if row["code"] in result:
-                result[row["code"]]["price"] = round(row["close"], 2)
-                result[row["code"]]["volume"] = row["volume"]
-                result[row["code"]]["amount"] = row["amount"]
+            plain = requested_by_storage_code.get(row["code"], _plain_code(row["code"]))
+            if plain in result:
+                result[plain]["price"] = round(row["close"], 2)
+                result[plain]["volume"] = row["volume"]
+                result[plain]["amount"] = row["amount"]
     except Exception as e:
         logger.warning(f"查询股票信息失败: {e}")
     finally:
@@ -236,17 +262,29 @@ async def qlib_health():
     """
     try:
         if not PRED_CACHE_FILE.exists():
-            return {"success": True, "status": "offline", "last_update": None, "cache_age_hours": None}
+            return {
+                "success": True,
+                "status": "offline",
+                "last_update": None,
+                "cache_age_hours": None,
+                "cache_exists": False,
+                "cache_path": str(PRED_CACHE_FILE),
+                "prediction_total": 0,
+                "service_url": QLIB_SERVICE_URL,
+            }
 
         import time
         mtime = PRED_CACHE_FILE.stat().st_mtime
         age_hours = (time.time() - mtime) / 3600
 
         # 读取最新日期
+        prediction_total = 0
         try:
             data = json.loads(PRED_CACHE_FILE.read_text(encoding="utf-8"))
             preds = data.get("predictions", data)
             latest_date = max(preds.keys()) if isinstance(preds, dict) and preds else None
+            latest_preds = preds.get(latest_date, {}) if latest_date and isinstance(preds, dict) else {}
+            prediction_total = len(latest_preds) if isinstance(latest_preds, dict) else 0
         except Exception:
             latest_date = None
 
@@ -262,10 +300,23 @@ async def qlib_health():
             "status": status,
             "last_update": latest_date,
             "cache_age_hours": round(age_hours, 1),
+            "cache_exists": True,
+            "cache_path": str(PRED_CACHE_FILE),
+            "prediction_total": prediction_total,
+            "service_url": QLIB_SERVICE_URL,
         }
     except Exception as e:
         logger.error(f"Qlib 健康检查失败: {e}")
-        return {"success": True, "status": "offline", "last_update": None, "cache_age_hours": None}
+        return {
+            "success": True,
+            "status": "offline",
+            "last_update": None,
+            "cache_age_hours": None,
+            "cache_exists": False,
+            "cache_path": str(PRED_CACHE_FILE),
+            "prediction_total": 0,
+            "service_url": QLIB_SERVICE_URL,
+        }
 
 
 @router.post("/train")

@@ -113,6 +113,26 @@ class TestSystemAPI:
 
 
 class TestValuationDataHubAPI:
+    def test_decision_score_does_not_flag_ai_uncovered_when_qlib_rank_exists(self):
+        from dashboard.routers.datahub import _score_decision
+
+        decision = _score_decision(
+            {
+                "peg_next_year": 1.2,
+                "growth_next_year_pct": 20,
+                "report_count": 3,
+            },
+            {
+                "qlib_rank": 8,
+                "qlib_score": 0.76,
+                "qlib_diamond": False,
+            },
+        )
+
+        assert "AI未覆盖" not in decision["risk_tags"]
+        assert "AI前10" in decision["reason_tags"]
+        assert decision["decision_score"] >= 70
+
     def test_stock_detail_includes_source_provenance(self, monkeypatch):
         from data.collector import quote_service
         from data.collector.quote_service import QuoteData
@@ -211,3 +231,23 @@ class TestValuationDataHubAPI:
         assert "source_health" in summary
         assert "quality_summary" in summary
         assert "shadow" in summary
+
+    def test_datahub_decision_matrix_force_fallback_uses_default_candidates(self, monkeypatch):
+        storage = DataStorage()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(storage, "get_watchlist", lambda workspace_id: ["000001"])
+        monkeypatch.setattr("dashboard.routers.datahub._fallback_seed_codes", lambda storage, limit: ["600519"][:limit])
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=watchlist&limit=3&fast=true&force_fallback=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["items"]
+        assert [item["code"] for item in data["items"]] == ["600519"]
+        assert data["summary"]["used_fallback"] is True
+        assert data["summary"]["fallback_reason"] == "forced_default"

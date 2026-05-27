@@ -4,6 +4,8 @@ import time
 import tempfile
 from pathlib import Path
 import asyncio
+import subprocess
+import sys
 
 import httpx
 import pandas as pd
@@ -863,6 +865,22 @@ class TestStorage:
 
 
 class TestAStockValuation:
+    def test_astock_adapter_imports_in_clean_interpreter(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from data.providers.astock_data_adapter import AStockDataAdapter; print(AStockDataAdapter.__name__)",
+            ],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "AStockDataAdapter" in result.stdout
+
     def test_data_source_interface_exposes_valuation_snapshot(self):
         from data.collector.data_source import DataSource
 

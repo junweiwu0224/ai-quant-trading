@@ -16,12 +16,38 @@ SignalStatus = Literal[
     "closed",
 ]
 
+VALID_SIGNAL_DIRECTIONS = {"buy", "sell", "hold", "risk"}
+VALID_SIGNAL_STATUSES = {
+    "new",
+    "watching",
+    "backtested",
+    "paper_pending",
+    "paper_active",
+    "expired",
+    "invalidated",
+    "closed",
+}
+
+_CODE_PATTERNS = (
+    re.compile(r"^(?:SH|SZ|BJ)?(?P<code>\d{6})(?:\.(?:SH|SZ|BJ))?$", re.IGNORECASE),
+)
+
 
 def normalize_signal_code(code: str) -> str:
-    cleaned = re.sub(r"[^0-9]", "", code or "")
-    if len(cleaned) < 6:
-        raise ValueError("stock code must contain 6 digits")
-    return cleaned[-6:]
+    raw = str(code or "").strip()
+    for pattern in _CODE_PATTERNS:
+        match = pattern.fullmatch(raw)
+        if match:
+            return match.group("code")
+    raise ValueError("stock code must be a 6-digit A-share code with optional SH/SZ/BJ prefix or suffix")
+
+
+def _as_float(name: str, value: float | int | str) -> float:
+    try:
+        converted = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric") from exc
+    return converted
 
 
 @dataclass(frozen=True)
@@ -30,8 +56,11 @@ class AgentProfile:
     name: str
     kind: str
     description: str
-    permissions: list[str] = field(default_factory=list)
+    permissions: tuple[str, ...] | list[str] = field(default_factory=tuple)
     enabled: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "permissions", tuple(self.permissions))
 
 
 @dataclass(frozen=True)
@@ -43,8 +72,8 @@ class TradingSignal:
     direction: SignalDirection
     confidence: float
     time_horizon: str
-    entry_reasons: list[str]
-    risk_notes: list[str]
+    entry_reasons: tuple[str, ...] | list[str]
+    risk_notes: tuple[str, ...] | list[str]
     suggested_position: float
     stop_loss: float | None
     take_profit: float | None
@@ -54,12 +83,36 @@ class TradingSignal:
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "code", normalize_signal_code(self.code))
-        if not 0 <= float(self.confidence) <= 1:
+        normalized_code = normalize_signal_code(self.code)
+        confidence = _as_float("confidence", self.confidence)
+        suggested_position = _as_float("suggested_position", self.suggested_position)
+        stop_loss = None if self.stop_loss is None else _as_float("stop_loss", self.stop_loss)
+        take_profit = None if self.take_profit is None else _as_float("take_profit", self.take_profit)
+        entry_reasons = tuple(self.entry_reasons or ())
+        risk_notes = tuple(self.risk_notes or ())
+
+        if self.direction not in VALID_SIGNAL_DIRECTIONS:
+            raise ValueError(f"unsupported signal direction: {self.direction}")
+        if self.status not in VALID_SIGNAL_STATUSES:
+            raise ValueError(f"unsupported signal status: {self.status}")
+        if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
-        if not self.entry_reasons:
+        if not entry_reasons:
             raise ValueError("entry_reasons is required")
-        if not self.risk_notes:
+        if not risk_notes:
             raise ValueError("risk_notes is required")
-        if not 0 <= float(self.suggested_position) <= 1:
+        if not 0 <= suggested_position <= 1:
             raise ValueError("suggested_position must be between 0 and 1")
+        if stop_loss is not None and not 0 < stop_loss <= 1:
+            raise ValueError("stop_loss must be in (0, 1]")
+        if take_profit is not None and take_profit <= 0:
+            raise ValueError("take_profit must be positive")
+
+        object.__setattr__(self, "code", normalized_code)
+        object.__setattr__(self, "confidence", confidence)
+        object.__setattr__(self, "suggested_position", suggested_position)
+        object.__setattr__(self, "stop_loss", stop_loss)
+        object.__setattr__(self, "take_profit", take_profit)
+        object.__setattr__(self, "entry_reasons", entry_reasons)
+        object.__setattr__(self, "risk_notes", risk_notes)
+        object.__setattr__(self, "metadata", dict(self.metadata or {}))

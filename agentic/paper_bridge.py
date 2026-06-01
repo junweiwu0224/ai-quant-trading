@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+
+from agentic.models import TradingSignal
 
 
 @dataclass(frozen=True)
@@ -16,17 +20,18 @@ class PaperBridge:
     def __init__(self, order_manager=None):
         self.order_manager = order_manager
 
-    def create_intent(self, signal, cash):
+    def create_intent(self, signal: TradingSignal, cash: float) -> PaperIntent:
         if signal.status != "paper_pending":
-            raise ValueError("Only paper_pending signals can create paper intents")
+            raise ValueError("signal must be paper_pending before creating paper intent")
         if signal.direction not in {"buy", "sell"}:
-            raise ValueError("Paper intents only support buy/sell directions")
+            raise ValueError("only buy/sell signals can create paper intents")
 
         return PaperIntent(
-            signal_id=signal.signal_id,
+            signal_id=signal.id,
             agent_id=signal.agent_id,
             code=signal.code,
             direction=signal.direction,
-            amount=cash * signal.suggested_position,
-            reason="; ".join(signal.entry_reasons),
+            amount=round(float(cash) * float(signal.suggested_position), 2),
+            reason="; ".join(signal.entry_reasons[:3]),
+            requires_confirmation=True,
         )

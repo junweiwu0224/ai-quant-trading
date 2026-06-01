@@ -4,6 +4,17 @@ from agentic.models import AgentProfile, TradingSignal, normalize_signal_code
 def test_normalize_signal_code_accepts_exchange_suffix():
     assert normalize_signal_code("605066.SH") == "605066"
     assert normalize_signal_code("sz000001") == "000001"
+    assert normalize_signal_code("BJ920099") == "920099"
+
+
+def test_normalize_signal_code_rejects_ambiguous_or_overlong_input():
+    for raw in ["foo1234567", "2026-06-01 605066", "12345", "000001000002"]:
+        try:
+            normalize_signal_code(raw)
+        except ValueError as exc:
+            assert "6-digit A-share code" in str(exc)
+        else:
+            raise AssertionError(f"{raw} should be rejected")
 
 
 def test_trading_signal_requires_structured_reason_and_risk():
@@ -13,13 +24,13 @@ def test_trading_signal_requires_structured_reason_and_risk():
         source="qlib",
         code="605066.SH",
         direction="buy",
-        confidence=0.72,
+        confidence="0.72",
         time_horizon="3-10d",
         entry_reasons=["Qlib score top 5", "close above MA20"],
         risk_notes=["break MA20 invalidates signal"],
-        suggested_position=0.1,
-        stop_loss=0.05,
-        take_profit=0.12,
+        suggested_position="0.1",
+        stop_loss="0.05",
+        take_profit="0.12",
         status="new",
         created_at="2026-06-01T15:00:00+08:00",
         expires_at="2026-06-08T15:00:00+08:00",
@@ -27,16 +38,39 @@ def test_trading_signal_requires_structured_reason_and_risk():
 
     assert signal.code == "605066"
     assert signal.confidence == 0.72
+    assert signal.suggested_position == 0.1
     assert signal.entry_reasons[0] == "Qlib score top 5"
+    assert isinstance(signal.entry_reasons, tuple)
 
 
-def test_agent_profile_defaults_to_enabled():
-    profile = AgentProfile(
-        id="risk_agent",
-        name="Risk Review Agent",
-        kind="risk",
-        description="Publishes risk warnings only.",
+def test_trading_signal_rejects_invalid_direction_and_status():
+    base = dict(
+        id="sig_1",
+        agent_id="qlib_agent",
+        source="qlib",
+        code="605066",
+        direction="buy",
+        confidence=0.72,
+        time_horizon="3-10d",
+        entry_reasons=["Qlib score top 5"],
+        risk_notes=["break MA20 invalidates signal"],
+        suggested_position=0.1,
+        stop_loss=0.05,
+        take_profit=0.12,
+        status="new",
+        created_at="2026-06-01T15:00:00+08:00",
     )
 
-    assert profile.permissions == []
-    assert profile.enabled is True
+    for patch, message in [({"direction": "strong_buy"}, "unsupported signal direction"), ({"status": "ready"}, "unsupported signal status")]:
+        try:
+            TradingSignal(**{**base, **patch})
+        except ValueError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError(f"{patch} should be rejected")
+
+
+def test_agent_profile_permissions_are_immutable_tuple():
+    profile = AgentProfile("a", "Agent", "signal", "desc", ["read_market"])
+
+    assert profile.permissions == ("read_market",)

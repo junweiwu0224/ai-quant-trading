@@ -1,24 +1,5 @@
-from dataclasses import dataclass
-
+from agentic.models import TradingSignal
 from agentic.paper_bridge import PaperBridge, PaperIntent
-
-
-@dataclass
-class TradingSignal:
-    signal_id: str
-    agent_id: str
-    agent_type: str
-    code: str
-    direction: str
-    confidence: float
-    horizon: str
-    entry_reasons: list[str]
-    risk_notes: list[str]
-    suggested_position: float
-    stop_loss: float
-    take_profit: float
-    status: str
-    created_at: str
 
 
 class FakeOrderManager:

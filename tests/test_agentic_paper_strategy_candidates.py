@@ -39,3 +39,31 @@ def test_paper_strategy_candidate_service_rejects_unpromoted_candidate(tmp_path)
         assert "only promoted candidates" in str(exc)
     else:
         raise AssertionError("unpromoted candidate should be rejected")
+
+
+def test_paper_strategy_candidate_service_confirms_candidate_without_ordering(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(
+        _promoted_result(),
+        sample={"codes": ["000001"], "start_date": "2024-01-01", "end_date": "2024-03-31", "trading_days": 60},
+    )
+
+    confirmed = service.confirm(record.id)
+
+    assert confirmed.id == record.id
+    assert confirmed.status == "paper_active"
+    assert confirmed.requires_confirmation is False
+    assert repo.list_paper_strategy_candidates()[0].status == "paper_active"
+
+
+def test_paper_strategy_candidate_service_rejects_missing_confirm(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+
+    try:
+        service.confirm("missing")
+    except KeyError as exc:
+        assert "paper strategy candidate not found" in str(exc)
+    else:
+        raise AssertionError("missing candidate should raise")

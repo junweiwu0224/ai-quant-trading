@@ -150,6 +150,17 @@ def enqueue_paper_strategy_candidate(payload: PaperStrategyCandidatePayload):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "candidate": asdict(candidate)}
 
+
+@router.post("/strategy/paper-candidates/{candidate_id}/confirm")
+def confirm_paper_strategy_candidate(candidate_id: str):
+    try:
+        candidate = paper_strategy_candidate_service.confirm(candidate_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "candidate": asdict(candidate)}
+
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):
     batch = await candidate_backtester.run(

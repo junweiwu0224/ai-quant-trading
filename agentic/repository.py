@@ -228,6 +228,38 @@ class AgenticRepository:
             )
             conn.commit()
 
+    def get_paper_strategy_candidate(self, candidate_id: str) -> PaperStrategyCandidate:
+        with get_connection(self.db_path, readonly=True) as conn:
+            row = conn.execute(
+                """
+                SELECT id, candidate_id, name, dsl, sample, metrics, promotion,
+                       status, requires_confirmation, created_at
+                FROM agentic_paper_strategy_candidates
+                WHERE id = ?
+                """,
+                (candidate_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"paper strategy candidate not found: {candidate_id}")
+        return _row_to_paper_strategy_candidate(row)
+
+    def update_paper_strategy_candidate_status(
+        self, candidate_id: str, status: str, requires_confirmation: bool
+    ) -> PaperStrategyCandidate:
+        with get_connection(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE agentic_paper_strategy_candidates
+                SET status = ?, requires_confirmation = ?
+                WHERE id = ?
+                """,
+                (status, 1 if requires_confirmation else 0, candidate_id),
+            )
+            conn.commit()
+        if cursor.rowcount == 0:
+            raise KeyError(f"paper strategy candidate not found: {candidate_id}")
+        return self.get_paper_strategy_candidate(candidate_id)
+
     def list_paper_strategy_candidates(self, limit: int = 100) -> list[PaperStrategyCandidate]:
         safe_limit = max(1, min(int(limit), 500))
         with get_connection(self.db_path, readonly=True) as conn:

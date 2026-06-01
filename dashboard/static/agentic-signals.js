@@ -1,5 +1,5 @@
 (function () {
-  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null };
+  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [] };
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"]/g, ch => ({
@@ -187,6 +187,57 @@
   }
 
 
+  function renderPaperStrategyCandidates() {
+    const list = document.querySelector('[data-agentic-paper-candidates]');
+    if (!list) return;
+    if (!state.paperCandidates.length) {
+      list.innerHTML = '<div class="empty-state">暂无待审核策略候选</div>';
+      return;
+    }
+    list.innerHTML = state.paperCandidates.map(item => `
+      <article class="agentic-paper-candidate-row" data-paper-candidate-id="${esc(item.id)}">
+        <div>
+          <strong>${esc(item.name || item.candidate_id)}</strong>
+          <p>${esc((item.sample?.codes || []).join(' / '))} · ${esc(item.sample?.start_date || '-')} 至 ${esc(item.sample?.end_date || '-')}</p>
+          <span>${esc(item.status)} · Sharpe ${esc(item.metrics?.sharpe ?? '-')}</span>
+        </div>
+        <div class="agentic-paper-candidate-actions">
+          ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(item.id)}">确认实跑</button>` : '<span>已确认</span>'}
+        </div>
+      </article>
+    `).join('');
+  }
+
+  async function loadPaperStrategyCandidates() {
+    const list = document.querySelector('[data-agentic-paper-candidates]');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-state">加载候选中...</div>';
+    try {
+      const resp = await fetch('/api/agentic/strategy/paper-candidates?limit=20');
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'load failed');
+      state.paperCandidates = data.candidates || [];
+      renderPaperStrategyCandidates();
+    } catch (error) {
+      state.paperCandidates = [];
+      list.innerHTML = '<div class="empty-state">候选加载失败</div>';
+    }
+  }
+
+  async function confirmPaperStrategyCandidate(candidateId) {
+    if (!candidateId) return;
+    try {
+      const resp = await fetch(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/confirm`, { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'confirm failed');
+      state.paperCandidates = state.paperCandidates.map(item => item.id === candidateId ? data.candidate : item);
+      renderPaperStrategyCandidates();
+    } catch (error) {
+      const list = document.querySelector('[data-agentic-paper-candidates]');
+      if (list) list.innerHTML = '<div class="empty-state">确认失败：' + esc(error.message || error) + '</div>';
+    }
+  }
+
   function renderSignalCard(signal) {
     return `
       <article class="agentic-signal-card" data-signal-id="${esc(signal.id)}">
@@ -243,6 +294,8 @@
     if (action === 'run-sample-backtest') runSampleBacktest();
     if (action === 'run-candidate-backtests') runCandidateBacktests();
     if (action === 'queue-paper-strategy') queuePaperStrategyCandidate(event.target?.dataset?.candidateIndex);
+    if (action === 'refresh-paper-candidates') loadPaperStrategyCandidates();
+    if (action === 'confirm-paper-strategy') confirmPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -251,9 +304,10 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();
+    loadPaperStrategyCandidates();
   });
 })();

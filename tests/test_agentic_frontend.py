@@ -112,3 +112,26 @@ def test_agentic_candidate_rows_can_queue_promoted_strategy_for_paper():
     assert "/api/agentic/strategy/paper-candidates" in js
     assert "queuePaperStrategyCandidate" in js
     assert "promotion.promoted ?" in js
+
+
+def test_agentic_paper_candidate_review_ui_is_registered():
+    html = read_template()
+    js = read_agentic_signals()
+
+    assert 'data-agentic-paper-candidates' in html
+    assert 'data-agentic-action="refresh-paper-candidates"' in html
+    assert "loadPaperStrategyCandidates" in js
+    assert "confirmPaperStrategyCandidate" in js
+    assert "/api/agentic/strategy/paper-candidates" in js
+    assert "/confirm" in js
+
+
+def test_agentic_paper_candidate_review_styles_exist():
+    styles = read_styles()
+
+    for selector in [
+        ".agentic-paper-candidate-list",
+        ".agentic-paper-candidate-row",
+        ".agentic-paper-candidate-actions",
+    ]:
+        assert selector in styles

@@ -7621,3 +7621,41 @@ tbody tr:nth-child(even):hover {
     text-align: left;
   }
 }
+
+.agentic-paper-review {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #d8dee9);
+}
+.agentic-paper-candidate-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.agentic-paper-candidate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(22, 163, 74, 0.35);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(22, 163, 74, 0.06);
+}
+.agentic-paper-candidate-row p {
+  margin: 4px 0;
+  color: var(--text-muted, #6b7280);
+}
+.agentic-paper-candidate-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+@media (max-width: 680px) {
+  .agentic-paper-candidate-row {
+    grid-template-columns: 1fr;
+  }
+  .agentic-paper-candidate-actions {
+    justify-content: flex-start;
+  }
+}

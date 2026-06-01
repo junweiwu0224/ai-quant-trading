@@ -34,5 +34,15 @@ class PaperStrategyCandidateService:
         self.repository.save_paper_strategy_candidate(record)
         return record
 
+    def confirm(self, candidate_id: str) -> PaperStrategyCandidate:
+        candidate = self.repository.get_paper_strategy_candidate(candidate_id)
+        if candidate.status != "paper_candidate":
+            raise ValueError("only paper_candidate records can be confirmed")
+        return self.repository.update_paper_strategy_candidate_status(
+            candidate_id,
+            status="paper_active",
+            requires_confirmation=False,
+        )
+
     def list(self, limit: int = 100) -> list[PaperStrategyCandidate]:
         return self.repository.list_paper_strategy_candidates(limit=limit)

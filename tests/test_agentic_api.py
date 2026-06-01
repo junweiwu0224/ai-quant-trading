@@ -274,3 +274,34 @@ def test_agentic_unpromoted_strategy_candidate_is_rejected_for_paper(client, mon
 
     assert resp.status_code == 400
     assert "only promoted candidates" in resp.json()["detail"]
+
+
+def test_agentic_paper_strategy_candidate_can_be_confirmed(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyCandidate
+
+    class FakeService:
+        def confirm(self, candidate_id):
+            assert candidate_id == "paper_strategy_1"
+            return PaperStrategyCandidate(
+                id="paper_strategy_1",
+                candidate_id="qlib_ranked_core",
+                name="Qlib 核心轮动",
+                dsl={"strategy_type": "ranked_rotation"},
+                sample={"codes": ["000001"]},
+                metrics={"trades": 18},
+                promotion={"promoted": True},
+                status="paper_active",
+                requires_confirmation=False,
+                created_at="2026-06-01T21:40:00+00:00",
+            )
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post("/api/agentic/strategy/paper-candidates/paper_strategy_1/confirm")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["candidate"]["status"] == "paper_active"
+    assert body["candidate"]["requires_confirmation"] is False

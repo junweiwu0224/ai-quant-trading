@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from config.settings import DB_PATH
+from config.settings import ACCOUNT_DB_PATH
 from utils.db import get_connection
 
 
@@ -111,7 +111,7 @@ def safe_json_loads(value: str | None, default: Any) -> Any:
 class AccountStore:
     """SQLite-backed account store kept separate from market data storage."""
 
-    def __init__(self, db_path: str | Path = DB_PATH):
+    def __init__(self, db_path: str | Path = ACCOUNT_DB_PATH):
         self.db_path = Path(db_path)
         self.init_db()
 

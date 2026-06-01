@@ -63,6 +63,7 @@ services:
       - OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}
       - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-http://openclaw:18789}
       - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-http://127.0.0.1:18789}
+      - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-0.0.0.0}
     depends_on:
       - openclaw
     restart: unless-stopped

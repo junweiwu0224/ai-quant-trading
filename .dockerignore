@@ -6,6 +6,9 @@ __pycache__/
 .gitignore
 .pytest_cache/
 logs/
+data/
+models/
+test-results/
 data/db/*.db
 *.egg-info/
 dist/

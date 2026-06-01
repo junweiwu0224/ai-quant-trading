@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DB_DIR = PROJECT_ROOT / "data" / "db"
 DB_PATH = DB_DIR / "quant.db"
 DB_URL = f"sqlite:///{DB_PATH}"
+ACCOUNT_DB_PATH = Path(os.getenv("ACCOUNT_DB_PATH", DB_DIR / "accounts.db"))
 
 # AKShare 配置
 AKSHARE_RETRY_COUNT = 3

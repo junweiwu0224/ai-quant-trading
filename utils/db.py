@@ -12,6 +12,14 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
 
+def _enable_wal_or_fallback(conn: sqlite3.Connection) -> None:
+    """Enable WAL when supported, falling back for restrictive filesystems."""
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        conn.execute("PRAGMA journal_mode=DELETE")
+
+
 def get_connection(db_path: str | Path, readonly: bool = False) -> sqlite3.Connection:
     """获取配置好 WAL + busy_timeout 的 SQLite 连接
 
@@ -32,7 +40,7 @@ def get_connection(db_path: str | Path, readonly: bool = False) -> sqlite3.Conne
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     if not readonly:
-        conn.execute("PRAGMA journal_mode=WAL")
+        _enable_wal_or_fallback(conn)
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
@@ -62,7 +70,10 @@ def create_sqlite_engine(db_path: str | Path, **kwargs):
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            cursor.execute("PRAGMA journal_mode=DELETE")
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 

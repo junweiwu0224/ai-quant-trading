@@ -1,9 +1,11 @@
 from dataclasses import asdict
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler
+from agentic.candidate_backtester import StrategyCandidateBacktester
 from agentic.backtest_runner import AgenticBacktestRunner
 from agentic.registry import AgentRegistry
 from agentic.sample_selector import BacktestSampleSelector
@@ -20,6 +22,7 @@ backtest_compiler = BacktestCompiler()
 backtest_runner = AgenticBacktestRunner(compiler=backtest_compiler)
 sample_selector = BacktestSampleSelector()
 strategy_candidate_generator = StrategyCandidateGenerator()
+candidate_backtester = StrategyCandidateBacktester(candidate_generator=strategy_candidate_generator, sample_selector=sample_selector, runner=backtest_runner)
 
 
 class StrategyDSLPayload(BaseModel):
@@ -58,6 +61,14 @@ class CompileBacktestPayload(BaseModel):
     slippage: float = 0.002
     benchmark: str = ""
     period: str = "daily"
+
+
+class RunCandidateBacktestsPayload(BaseModel):
+    context: dict[str, Any] = {}
+    limit: int = 4
+    min_days: int = 60
+    max_codes: int = 5
+    initial_cash: float = 1_000_000
 
 
 @router.get("/agents")
@@ -112,6 +123,18 @@ def compile_strategy_backtest(payload: CompileBacktestPayload):
         )
     )
     return {"success": True, "backtest_request": compiled}
+
+
+@router.post("/strategy/run-candidates")
+async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):
+    batch = await candidate_backtester.run(
+        context=payload.context,
+        limit=payload.limit,
+        min_days=payload.min_days,
+        max_codes=payload.max_codes,
+        initial_cash=payload.initial_cash,
+    )
+    return {"success": True, **batch.to_dict()}
 
 @router.post("/strategy/run-backtest")
 async def run_strategy_backtest(payload: CompileBacktestPayload):

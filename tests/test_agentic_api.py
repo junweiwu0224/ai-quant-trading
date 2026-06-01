@@ -158,3 +158,59 @@ def test_agentic_strategy_candidates_endpoint_returns_valid_dsl_candidates(clien
     assert body["candidates"][0]["dsl"]["universe"] == "iwencai_pool"
     assert body["candidates"][0]["dsl"]["max_holdings"] == 3
     assert body["candidates"][0]["dsl"]["stop_loss"] <= 0.04
+
+
+def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.sample_selector import BacktestSample
+    from agentic.strategy_candidates import StrategyCandidateGenerator
+    from agentic.strategy_lab import StrategyIterationResult
+
+    class FakeBacktester:
+        async def run(self, context=None, limit=4, min_days=60, max_codes=5, initial_cash=1_000_000):
+            assert context == {"universe": "qlib_top", "risk_mode": "balanced", "max_holdings": 5}
+            assert limit == 2
+            assert min_days == 60
+            assert max_codes == 3
+            assert initial_cash == 50000
+            candidates = StrategyCandidateGenerator().generate(limit=2)
+            metrics = {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1}
+            result = type("Result", (), {})()
+            result.sample = BacktestSample(["000001"], "2024-01-01", "2024-03-31", 60)
+            result.results = []
+            result.to_dict = lambda: {
+                "sample": result.sample.to_dict(),
+                "results": [
+                    {
+                        "candidate": candidates[0].to_dict(),
+                        "backtest_request": {"strategy": "qlib_signal"},
+                        "backtest": {"total_trades": 18},
+                        "metrics": metrics,
+                        "promotion": {
+                            "promoted": True,
+                            "reason": "passed promotion gate",
+                            "metrics": StrategyIterationResult(candidates[0].dsl, metrics, True, "passed promotion gate").metrics,
+                        },
+                    }
+                ],
+            }
+            return result
+
+    monkeypatch.setattr(agentic_router, "candidate_backtester", FakeBacktester())
+
+    resp = client.post(
+        "/api/agentic/strategy/run-candidates",
+        json={
+            "context": {"universe": "qlib_top", "risk_mode": "balanced", "max_holdings": 5},
+            "limit": 2,
+            "min_days": 60,
+            "max_codes": 3,
+            "initial_cash": 50000,
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["sample"]["codes"] == ["000001"]
+    assert body["results"][0]["promotion"]["promoted"] is True

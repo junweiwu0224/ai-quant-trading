@@ -7519,3 +7519,46 @@ tbody tr:nth-child(even):hover {
 .agentic-signal-actions button {
   min-height: 32px;
 }
+.agentic-strategy-lab {
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: linear-gradient(180deg, rgba(28, 39, 62, 0.04), rgba(255, 255, 255, 0.02));
+}
+.agentic-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.agentic-sample-pill {
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--panel-bg, #fff);
+  min-height: 64px;
+}
+.agentic-sample-pill span {
+  display: block;
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.agentic-sample-pill strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.agentic-backtest-result {
+  border-left: 3px solid var(--primary-color, #2563eb);
+  padding: 10px 12px;
+  background: rgba(37, 99, 235, 0.07);
+  color: var(--text-color, #111827);
+  min-height: 42px;
+}
+.agentic-backtest-result span {
+  display: block;
+  margin-top: 4px;
+}

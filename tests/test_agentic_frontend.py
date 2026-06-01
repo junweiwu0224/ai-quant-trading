@@ -49,3 +49,33 @@ def test_agentic_signal_styles_exist():
         ".agentic-signal-actions",
     ]:
         assert selector in styles
+
+
+def test_agentic_strategy_lab_ui_is_registered():
+    html = read_template()
+
+    assert 'id="agentic-strategy-lab"' in html
+    assert 'data-agentic-sample-status' in html
+    assert 'data-agentic-action="run-sample-backtest"' in html
+    assert 'data-agentic-backtest-result' in html
+
+
+def test_agentic_strategy_lab_fetches_sample_and_runs_backtest():
+    js = read_agentic_signals()
+
+    assert "/api/agentic/backtest-sample" in js
+    assert "/api/agentic/strategy/run-backtest" in js
+    assert "buildDefaultStrategyDSL" in js
+    assert "runSampleBacktest" in js
+
+
+def test_agentic_strategy_lab_styles_exist():
+    styles = read_styles()
+
+    for selector in [
+        ".agentic-strategy-lab",
+        ".agentic-sample-grid",
+        ".agentic-sample-pill",
+        ".agentic-backtest-result",
+    ]:
+        assert selector in styles

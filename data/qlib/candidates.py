@@ -22,6 +22,8 @@ REPRESENTATIVE_CODES = [
     "600900",
 ]
 
+QLIB_DAILY_SUPPORTED_PREFIXES = ("000", "001", "002", "003", "300", "301", "600", "601", "603", "605", "688")
+
 
 def plain_code(code: object) -> str:
     return normalize_stock_code(str(code or "")) or ""
@@ -38,16 +40,21 @@ def dedupe_codes(codes: Iterable[object]) -> list[str]:
     return result
 
 
+def is_supported_daily_code(code: object) -> bool:
+    normalized = plain_code(code)
+    return bool(normalized and normalized.startswith(QLIB_DAILY_SUPPORTED_PREFIXES))
+
+
 def fallback_seed_codes(storage: DataStorage, limit: int) -> list[str]:
     stock_list = storage.get_stock_list()
     if not stock_list.empty:
         available = {plain_code(row.get("code")) for _, row in stock_list.iterrows()}
-        seeded = [code for code in REPRESENTATIVE_CODES if code in available]
+        seeded = [code for code in REPRESENTATIVE_CODES if code in available and is_supported_daily_code(code)]
         if len(seeded) >= min(limit, 5):
             return seeded[:limit]
         for _, row in stock_list.head(max(limit * 4, 20)).iterrows():
             code = plain_code(row.get("code"))
-            if code and code not in seeded:
+            if code and is_supported_daily_code(code) and code not in seeded:
                 seeded.append(code)
             if len(seeded) >= limit:
                 break
@@ -65,4 +72,4 @@ def build_default_coverage_codes(storage: DataStorage, limit: int = 80) -> list[
         watchlist_codes = []
 
     fallback_codes = fallback_seed_codes(storage, limit)
-    return dedupe_codes([*REPRESENTATIVE_CODES, *watchlist_codes, *fallback_codes])[:limit]
+    return [code for code in dedupe_codes([*REPRESENTATIVE_CODES, *watchlist_codes, *fallback_codes]) if is_supported_daily_code(code)][:limit]

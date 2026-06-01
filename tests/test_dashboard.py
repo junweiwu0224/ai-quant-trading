@@ -188,6 +188,7 @@ class TestValuationDataHubAPI:
         assert "shadow" in data
         assert "valuation" in data
         assert "quote" in data
+        assert "temporary_subscriptions" in data["quote"]
 
     def test_datahub_decision_matrix_includes_snapshot_metadata(self, monkeypatch):
         storage = DataStorage()
@@ -251,3 +252,139 @@ class TestValuationDataHubAPI:
         assert [item["code"] for item in data["items"]] == ["600519"]
         assert data["summary"]["used_fallback"] is True
         assert data["summary"]["fallback_reason"] == "forced_default"
+
+    def test_datahub_decision_matrix_refreshes_stale_quote_cache(self, monkeypatch):
+        storage = DataStorage()
+        calls = []
+
+        class Quote:
+            def __init__(self, price, timestamp):
+                self.code = "000001"
+                self.name = "平安银行"
+                self.price = price
+                self.open = price
+                self.high = price
+                self.low = price
+                self.pre_close = price
+                self.volume = 1000
+                self.amount = 10000
+                self.change_pct = 1.0
+                self.timestamp = timestamp
+                self.industry = "银行"
+                self.turnover_rate = 1.2
+                self.volume_ratio = 1.1
+
+        class FakeQuoteService:
+            def get_or_fetch_quote(self, code, max_age_sec=None):
+                calls.append((code, max_age_sec))
+                return Quote(price=11.0, timestamp=2000.0)
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("dashboard.routers.datahub.time.time", lambda: 2000.0)
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        item = res.json()["items"][0]
+        assert calls == [("000001", 900)]
+        assert item["price"] == 11.0
+        assert item["quote_age_sec"] == 0.0
+        assert "行情缓存偏旧" not in item["risk_tags"]
+
+    def test_datahub_decision_matrix_refreshes_quotes_in_one_batch(self, monkeypatch):
+        storage = DataStorage()
+        calls = []
+
+        class Quote:
+            def __init__(self, code, price, timestamp):
+                self.code = code
+                self.name = code
+                self.price = price
+                self.open = price
+                self.high = price
+                self.low = price
+                self.pre_close = price
+                self.volume = 1000
+                self.amount = 10000
+                self.change_pct = 1.0
+                self.timestamp = timestamp
+                self.industry = ""
+                self.turnover_rate = 1.2
+                self.volume_ratio = 1.1
+
+        class FakeQuoteService:
+            def get_or_fetch_quotes(self, codes, max_age_sec=None, refresh_timeout_sec=None):
+                calls.append((list(codes), max_age_sec, refresh_timeout_sec))
+                return {
+                    "000001": Quote("000001", 11.0, 2000.0),
+                    "600519": Quote("600519", 1500.0, 2000.0),
+                }
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("dashboard.routers.datahub.time.time", lambda: 2000.0)
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        assert calls == [(["000001", "600519"], 900, 2.0)]
+        items = {item["code"]: item for item in res.json()["items"]}
+        assert items["000001"]["quote_age_sec"] == 0.0
+        assert items["600519"]["quote_age_sec"] == 0.0
+
+    def test_datahub_decision_matrix_uses_short_quote_refresh_budget(self, monkeypatch):
+        storage = DataStorage()
+        calls = []
+
+        class FakeQuoteService:
+            def get_or_fetch_quotes(self, codes, max_age_sec=None, refresh_timeout_sec=None):
+                calls.append((list(codes), max_age_sec, refresh_timeout_sec))
+                return {}
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        assert calls == [(["000001", "600519"], 900, 2.0)]
+
+    def test_datahub_decision_matrix_adds_candidates_to_temporary_quote_pool(self, monkeypatch):
+        storage = DataStorage()
+        temporary_calls = []
+
+        class FakeQuoteService:
+            def add_temporary_subscriptions(self, codes, ttl_sec=None):
+                temporary_calls.append((list(codes), ttl_sec))
+
+            def get_or_fetch_quotes(self, codes, max_age_sec=None, refresh_timeout_sec=None):
+                return {}
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        assert temporary_calls == [(["000001", "600519"], 1800)]

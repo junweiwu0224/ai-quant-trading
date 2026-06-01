@@ -27,10 +27,38 @@ class FilterItem(BaseModel):
 
 class ScreenerRequest(BaseModel):
     filters: list[FilterItem] = []
+    codes: list[str] = []
     sort_by: str = "change_pct"
     sort_desc: bool = True
     page: int = 1
     page_size: int = 50
+
+
+def _normalize_code(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    upper = raw.upper()
+    for suffix in (".SH", ".SZ", ".BJ"):
+        if upper.endswith(suffix):
+            upper = upper[:-3]
+            break
+    for prefix in ("SH", "SZ", "BJ"):
+        if upper.startswith(prefix) and len(upper) >= 8:
+            upper = upper[2:]
+            break
+    return upper if upper.isdigit() and len(upper) == 6 else ""
+
+
+def _dedupe_codes(codes: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for code in codes:
+        normalized = _normalize_code(code)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
 
 
 class PresetRunRequest(BaseModel):
@@ -50,6 +78,7 @@ async def run_screener(req: ScreenerRequest):
         filters = [f.model_dump() for f in req.filters]
         result = _screener.screen(
             filters=filters,
+            codes=_dedupe_codes(req.codes),
             sort_by=req.sort_by,
             sort_desc=req.sort_desc,
             page=req.page,

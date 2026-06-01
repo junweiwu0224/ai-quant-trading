@@ -137,6 +137,33 @@ _market_cache_ts: float = 0
 _MARKET_CACHE_TTL = 60  # 60 秒缓存
 
 
+def _normalize_code(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    upper = raw.upper()
+    for suffix in (".SH", ".SZ", ".BJ"):
+        if upper.endswith(suffix):
+            upper = upper[:-3]
+            break
+    for prefix in ("SH", "SZ", "BJ"):
+        if upper.startswith(prefix) and len(upper) >= 8:
+            upper = upper[2:]
+            break
+    return upper if upper.isdigit() and len(upper) == 6 else ""
+
+
+def _normalize_code_pool(codes: list[str] | None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for code in codes or []:
+        normalized = _normalize_code(code)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
+
 def _fetch_market_stocks(max_pages: int = 60) -> list[dict]:
     """从东方财富 API 获取全市场股票行情
 
@@ -220,6 +247,7 @@ class StockScreener:
         sort_desc: bool = True,
         page: int = 1,
         page_size: int = 50,
+        codes: list[str] | None = None,
     ) -> dict:
         """执行条件选股
 
@@ -237,6 +265,11 @@ class StockScreener:
         stocks = _fetch_market_stocks()
         if not stocks:
             return {"total": 0, "page": page, "page_size": page_size, "stocks": []}
+
+        code_pool = _normalize_code_pool(codes)
+        if code_pool:
+            allowed = set(code_pool)
+            stocks = [stock for stock in stocks if _normalize_code(stock.get("code")) in allowed]
 
         # 应用过滤条件
         filter_objs = []

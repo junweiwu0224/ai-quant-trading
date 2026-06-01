@@ -9,7 +9,9 @@
     Object.assign(App, {
         async openStockDetail(code, options = {}) {
             await this.ensureBundle?.('stock');
-            const normalizedCode = typeof code === 'string' ? code.trim() : '';
+            const rawCode = typeof code === 'string' ? code.trim() : '';
+            const codeMatch = rawCode.match(/^(?:sh|sz|bj)?(\d{6})(?:\.(?:SH|SZ|BJ))?$/i) || rawCode.match(/\b(\d{6})\b/);
+            const normalizedCode = codeMatch ? codeMatch[1] : rawCode;
             if (!normalizedCode) {
                 return { ok: false, status: 'invalid', code: 'STOCK_CODE_REQUIRED' };
             }

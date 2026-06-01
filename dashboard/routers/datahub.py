@@ -17,6 +17,10 @@ from data.storage.storage import DataStorage
 
 router = APIRouter()
 
+QUOTE_STALE_SECONDS = 15 * 60
+OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS = 30 * 60
+OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
+
 
 def _plain_code(code: Any) -> str:
     normalized = normalize_stock_code(str(code or ""))
@@ -405,6 +409,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
     quote_health = {
         "running": False,
         "subscriptions": 0,
+        "temporary_subscriptions": 0,
         "cache_count": 0,
         "last_update_age_sec": None,
     }
@@ -416,6 +421,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
         quote_health = {
             "running": quote_service.is_running,
             "subscriptions": quote_service.subscription_count,
+            "temporary_subscriptions": getattr(quote_service, "temporary_subscription_count", 0),
             "cache_count": quote_service.cache_count,
             "last_update_age_sec": round(time.time() - last_update, 1) if last_update else None,
         }
@@ -515,6 +521,25 @@ async def decision_matrix(
     except Exception:
         quote_service = None
 
+    quote_map: dict[str, Any] = {}
+    quote_batch_supported = False
+    if quote_service and selected_codes:
+        try:
+            if hasattr(quote_service, "add_temporary_subscriptions"):
+                quote_service.add_temporary_subscriptions(
+                    selected_codes,
+                    ttl_sec=OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS,
+                )
+            if hasattr(quote_service, "get_or_fetch_quotes"):
+                quote_batch_supported = True
+                quote_map = quote_service.get_or_fetch_quotes(
+                    selected_codes,
+                    max_age_sec=QUOTE_STALE_SECONDS,
+                    refresh_timeout_sec=OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS,
+                )
+        except Exception:
+            quote_map = {}
+
     for code in selected_codes:
         plain = _plain_code(code)
         if not plain:
@@ -525,7 +550,9 @@ async def decision_matrix(
         quote_payload: dict[str, Any] = {}
         if quote_service:
             try:
-                quote = quote_service.get_quote(plain) or quote_service.get_or_fetch_quote(plain)
+                quote = quote_map.get(plain)
+                if quote is None and not quote_batch_supported:
+                    quote = quote_service.get_or_fetch_quote(plain, max_age_sec=QUOTE_STALE_SECONDS)
                 if quote:
                     quote_payload = {
                         "price": _safe_float(getattr(quote, "price", None)),

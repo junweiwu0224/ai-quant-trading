@@ -4,6 +4,7 @@ import time
 import tempfile
 from pathlib import Path
 import asyncio
+import threading
 import subprocess
 import sys
 
@@ -694,6 +695,216 @@ class TestStorage:
         assert service.subscription_count == 1
         assert service.get_quote("000001") is None
 
+    def test_quote_service_refetches_stale_on_demand_cache(self, monkeypatch, db):
+        """按需拉取写入的非订阅缓存过期后，应重新拉取而不是继续命中旧值。"""
+        calls = []
+
+        class FakeProvider:
+            async def get_realtime_quotes(self, codes):
+                calls.append(list(codes))
+                return [
+                    Quote(
+                        code="000001",
+                        name="平安银行",
+                        price=11.0,
+                        open=10.8,
+                        high=11.2,
+                        low=10.7,
+                        pre_close=10.5,
+                        volume=2000,
+                        amount=22000,
+                        change_pct=4.76,
+                    )
+                ]
+
+        service = quote_service.QuoteService(interval=1.0, provider=FakeProvider(), storage=db)
+        monkeypatch.setattr(quote_service, "_enrich_with_tencent", lambda result, codes: None)
+        monkeypatch.setattr(quote_service, "_enrich_with_industry", lambda result, codes: None)
+        monkeypatch.setattr(quote_service.time, "time", lambda: 2000.0)
+        service._cache["000001"] = QuoteData(
+            code="000001",
+            name="平安银行",
+            price=10.0,
+            open=9.9,
+            high=10.1,
+            low=9.8,
+            pre_close=9.9,
+            volume=1000,
+            amount=10000,
+            change_pct=1.01,
+            timestamp=1000.0,
+        )
+
+        quote = service.get_or_fetch_quote("000001", max_age_sec=900)
+
+        assert calls == [["000001"]]
+        assert quote is not None
+        assert quote.price == 11.0
+        assert quote.timestamp == 2000.0
+        assert service.subscription_count == 0
+
+    def test_quote_service_refetches_stale_on_demand_cache_in_batch(self, monkeypatch, db):
+        """批量按需读取时，应只对缺失或过期缓存做一次批量刷新。"""
+        calls = []
+
+        class FakeProvider:
+            async def get_realtime_quotes(self, codes):
+                calls.append(list(codes))
+                return [
+                    Quote(
+                        code="000001",
+                        name="平安银行",
+                        price=11.0,
+                        open=10.8,
+                        high=11.2,
+                        low=10.7,
+                        pre_close=10.5,
+                        volume=2000,
+                        amount=22000,
+                        change_pct=4.76,
+                    )
+                ]
+
+        service = quote_service.QuoteService(interval=1.0, provider=FakeProvider(), storage=db)
+        monkeypatch.setattr(quote_service, "_enrich_with_tencent", lambda result, codes: None)
+        monkeypatch.setattr(quote_service, "_enrich_with_industry", lambda result, codes: None)
+        monkeypatch.setattr(quote_service.time, "time", lambda: 2000.0)
+        service._cache["000001"] = QuoteData(
+            code="000001",
+            name="平安银行",
+            price=10.0,
+            open=9.9,
+            high=10.1,
+            low=9.8,
+            pre_close=9.9,
+            volume=1000,
+            amount=10000,
+            change_pct=1.01,
+            timestamp=1000.0,
+        )
+        service._cache["600519"] = QuoteData(
+            code="600519",
+            name="贵州茅台",
+            price=1500.0,
+            open=1490.0,
+            high=1510.0,
+            low=1488.0,
+            pre_close=1495.0,
+            volume=1000,
+            amount=1500000,
+            change_pct=0.3,
+            timestamp=1999.0,
+        )
+
+        quotes = service.get_or_fetch_quotes(["000001", "600519"], max_age_sec=900)
+
+        assert calls == [["000001"]]
+        assert quotes["000001"].price == 11.0
+        assert quotes["600519"].price == 1500.0
+        assert service.subscription_count == 0
+
+    def test_quote_service_returns_stale_cache_when_refresh_budget_expires(self, monkeypatch, db):
+        """刷新超出调用预算时，先返回旧缓存，避免页面请求被外部行情源拖住。"""
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        class FakeProvider:
+            async def get_realtime_quotes(self, codes):
+                calls.append(list(codes))
+                started.set()
+                await asyncio.to_thread(release.wait, 2)
+                return [
+                    Quote(
+                        code="000001",
+                        name="平安银行",
+                        price=11.0,
+                        open=10.8,
+                        high=11.2,
+                        low=10.7,
+                        pre_close=10.5,
+                        volume=2000,
+                        amount=22000,
+                        change_pct=4.76,
+                    )
+                ]
+
+        service = quote_service.QuoteService(interval=1.0, provider=FakeProvider(), storage=db)
+        monkeypatch.setattr(quote_service, "_enrich_with_tencent", lambda result, codes: None)
+        monkeypatch.setattr(quote_service, "_enrich_with_industry", lambda result, codes: None)
+        service._cache["000001"] = QuoteData(
+            code="000001",
+            name="平安银行",
+            price=10.0,
+            open=9.9,
+            high=10.1,
+            low=9.8,
+            pre_close=9.9,
+            volume=1000,
+            amount=10000,
+            change_pct=1.01,
+            timestamp=time.time() - 1200,
+        )
+
+        try:
+            quotes = service.get_or_fetch_quotes(["000001"], max_age_sec=900, refresh_timeout_sec=0.05)
+            assert quotes["000001"].price == 10.0
+            assert started.wait(1)
+
+            release.set()
+            deadline = time.time() + 2
+            while time.time() < deadline and service.get_quote("000001").price != 11.0:
+                time.sleep(0.02)
+
+            assert calls == [["000001"]]
+            assert service.get_quote("000001").price == 11.0
+        finally:
+            release.set()
+
+    def test_quote_service_temporary_subscriptions_join_poll_then_expire(self, monkeypatch, db):
+        """机会池临时关注的股票应短期进入后台刷新集合，TTL 到期后自动移除。"""
+        calls = []
+        now = {"value": 1000.0}
+
+        class FakeProvider:
+            async def get_realtime_quotes(self, codes):
+                calls.append(list(codes))
+                return [
+                    Quote(
+                        code=code,
+                        name=code,
+                        price=10.0,
+                        open=9.9,
+                        high=10.2,
+                        low=9.8,
+                        pre_close=9.9,
+                        volume=1000,
+                        amount=10000,
+                        change_pct=1.01,
+                    )
+                    for code in codes
+                ]
+
+        service = quote_service.QuoteService(interval=1.0, provider=FakeProvider(), storage=db)
+        service.subscribe(["000001"])
+        monkeypatch.setattr(quote_service, "_enrich_with_tencent", lambda result, codes: None)
+        monkeypatch.setattr(quote_service, "_enrich_with_industry", lambda result, codes: None)
+        monkeypatch.setattr(quote_service.time, "time", lambda: now["value"])
+
+        service.add_temporary_subscriptions(["600519", "bad"], ttl_sec=30)
+        service._poll_once()
+
+        assert calls == [["000001", "600519"]]
+        assert service.subscription_count == 1
+        assert service.temporary_subscription_count == 1
+        assert service.get_quote("600519") is not None
+
+        now["value"] = 1031.0
+        service._poll_once()
+
+        assert calls == [["000001", "600519"], ["000001"]]
+        assert service.temporary_subscription_count == 0
+
     def test_fetch_market_stocks_keeps_successful_pages_on_later_failure(self, monkeypatch):
         calls = {"count": 0}
 
@@ -718,6 +929,27 @@ class TestStorage:
         assert len(result) == 100
         assert result[0]["code"] == "000001"
         assert calls["count"] == 2
+
+    def test_stock_screener_limits_results_to_explicit_code_pool(self, monkeypatch):
+        from alpha.screener import StockScreener
+
+        monkeypatch.setattr(
+            "alpha.screener._fetch_market_stocks",
+            lambda: [
+                {"code": "000001", "name": "平安银行", "change_pct": 1.2},
+                {"code": "600519", "name": "贵州茅台", "change_pct": 0.6},
+                {"code": "300750", "name": "宁德时代", "change_pct": 5.1},
+            ],
+        )
+
+        result = StockScreener().screen(
+            filters=[],
+            codes=["600519.SH", "000001", "000001"],
+            page_size=100,
+        )
+
+        assert result["total"] == 2
+        assert [stock["code"] for stock in result["stocks"]] == ["000001", "600519"]
 
     def test_data_provenance_snapshot_round_trip(self, db):
         """数据快照应保留来源版本和 JSON payload"""

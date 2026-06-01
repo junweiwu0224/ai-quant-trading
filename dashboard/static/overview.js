@@ -2,7 +2,7 @@
 
 Object.assign(App, {
     _overviewLoaded: false,
-    _overviewOpportunityScope: 'watchlist',
+    _overviewOpportunityScope: 'qlib',
 
     async loadOverview() {
         if (this._loadingOverview) return;
@@ -172,6 +172,10 @@ Object.assign(App, {
             const scope = this._resolveOverviewOpportunityScope();
             const requestId = this._beginOverviewOpportunityRequest(scope);
             this._updateOverviewOpportunityScopeButtons(scope);
+            if (scope === 'watchlist' && !(this.watchlistCache || []).length) {
+                this._renderOverviewOpportunityEmptyWatchlist();
+                return;
+            }
             const fastQuery = this._buildOverviewOpportunityQuery(scope, { fast: true });
             const fastData = await this.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
             if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
@@ -209,32 +213,25 @@ Object.assign(App, {
     },
 
     _buildOverviewOpportunityQuery(scope = 'watchlist', { fast = true } = {}) {
-        const requestedScope = ['watchlist', 'qlib', 'default'].includes(scope) ? scope : 'watchlist';
+        const requestedScope = ['watchlist', 'qlib'].includes(scope) ? scope : 'qlib';
         const query = new URLSearchParams();
-        query.set('scope', requestedScope === 'default' ? 'watchlist' : requestedScope);
+        query.set('scope', requestedScope);
         query.set('limit', '8');
         if (fast) {
             query.set('fast', 'true');
         } else {
             query.set('max_wait_sec', '6');
         }
-        if (requestedScope === 'default') {
-            query.set('force_fallback', 'true');
-        }
         return query;
     },
 
     _resolveOverviewOpportunityScope() {
-        const current = this._overviewOpportunityScope || 'watchlist';
-        if (current === 'watchlist' && !(this.watchlistCache || []).length) {
-            this._overviewOpportunityScope = 'qlib';
-            return 'qlib';
-        }
-        return ['watchlist', 'qlib', 'default'].includes(current) ? current : 'watchlist';
+        const current = this._overviewOpportunityScope || 'qlib';
+        return ['watchlist', 'qlib'].includes(current) ? current : 'qlib';
     },
 
     _setOverviewOpportunityScope(scope) {
-        const nextScope = ['watchlist', 'qlib', 'default'].includes(scope) ? scope : 'watchlist';
+        const nextScope = ['watchlist', 'qlib'].includes(scope) ? scope : 'qlib';
         if (nextScope === this._overviewOpportunityScope && this._overviewOpportunityItems?.length) {
             return;
         }
@@ -249,6 +246,25 @@ Object.assign(App, {
             btn.classList.toggle('active', active);
             btn.setAttribute?.('aria-pressed', active ? 'true' : 'false');
         });
+    },
+
+    _renderOverviewOpportunityEmptyWatchlist() {
+        const tbody = document.querySelector('#ov-opportunity-table tbody');
+        const hint = document.getElementById('ov-opportunity-hint');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">请先添加股票到自选</td></tr>';
+        }
+        if (hint) {
+            hint.textContent = '自选为空；添加股票后这里会显示你的专属机会池。';
+        }
+        this._overviewOpportunityItems = [];
+        this._renderOverviewOpportunityStatus({
+            total: 0,
+            valuation_coverage_pct: null,
+            qlib_coverage_pct: null,
+            qlib_status: 'online',
+            fast_mode: true,
+        }, 0, true);
     },
 
     _renderOverviewOpportunityData(data, isFast, requestMeta = null) {
@@ -319,8 +335,7 @@ Object.assign(App, {
         return {
             watchlist: '自选',
             qlib: 'Qlib Top',
-            default: '默认候选',
-        }[scope] || '自选';
+        }[scope] || 'Qlib Top';
     },
 
     _renderOpportunityRow(item) {

@@ -210,3 +210,30 @@ def test_build_default_coverage_codes_merges_representative_watchlist_and_fallba
     assert "688001" in codes
     assert "002475" in codes
     assert len(codes) == len(set(codes))
+
+
+def test_build_default_coverage_codes_skips_unsupported_beijing_exchange_codes():
+    from data.qlib.candidates import build_default_coverage_codes
+
+    class CoverageStorage:
+        def get_all_watchlist_codes(self):
+            return [
+                ("workspace-a", ["920001", "600519"]),
+            ]
+
+        def get_stock_list(self):
+            return pd.DataFrame(
+                [
+                    {"code": "sh920001"},
+                    {"code": "sh920099"},
+                    {"code": "sh600519"},
+                    {"code": "sz000001"},
+                ]
+            )
+
+    codes = build_default_coverage_codes(CoverageStorage(), limit=20)
+
+    assert "600519" in codes
+    assert "000001" in codes
+    assert "920001" not in codes
+    assert "920099" not in codes

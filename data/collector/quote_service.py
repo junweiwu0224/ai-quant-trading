@@ -754,6 +754,7 @@ class QuoteService:
         self._provider = provider or AStockDataAdapter()
         self._storage = storage
         self._subscriptions: set[str] = set()
+        self._temporary_subscriptions: dict[str, float] = {}
         self._cache: dict[str, QuoteData] = {}
         self._lock = threading.Lock()
         self._stats_lock = threading.Lock()
@@ -792,12 +793,25 @@ class QuoteService:
             self._subscriptions.update(normalized_codes)
         logger.info(f"行情订阅: {normalized_codes}, 总计 {len(self._subscriptions)} 只")
 
+    def add_temporary_subscriptions(self, codes: list[str], ttl_sec: float = 1800):
+        """短期加入后台行情刷新集合，不改变用户自选订阅。"""
+        normalized_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
+        if not normalized_codes:
+            return
+        expires_at = time.time() + max(0.0, ttl_sec)
+        with self._lock:
+            for code in normalized_codes:
+                self._temporary_subscriptions[code] = expires_at
+            self._prune_expired_temporary_subscriptions_locked()
+        logger.info(f"临时行情订阅: {normalized_codes}, TTL={ttl_sec:.0f}秒")
+
     def unsubscribe(self, codes: list[str]):
         """取消订阅"""
         normalized_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
         with self._lock:
             for c in normalized_codes:
                 self._subscriptions.discard(c)
+                self._temporary_subscriptions.pop(c, None)
                 self._cache.pop(c, None)
         logger.info(f"取消订阅: {normalized_codes}, 剩余 {len(self._subscriptions)} 只")
 
@@ -811,6 +825,16 @@ class QuoteService:
                     del self._cache[c]
         logger.info(f"设置行情订阅: {len(normalized_codes)} 只股票")
 
+    def _prune_expired_temporary_subscriptions_locked(self) -> None:
+        now = time.time()
+        expired = [code for code, expires_at in self._temporary_subscriptions.items() if expires_at <= now]
+        for code in expired:
+            self._temporary_subscriptions.pop(code, None)
+
+    def _poll_codes_locked(self) -> list[str]:
+        self._prune_expired_temporary_subscriptions_locked()
+        return sorted(self._subscriptions | set(self._temporary_subscriptions))
+
     def on_update(self, callback: Callable[[dict[str, QuoteData]], None]):
         """注册行情更新回调"""
         self._callbacks.append(callback)
@@ -823,27 +847,98 @@ class QuoteService:
         with self._lock:
             return self._cache.get(normalized)
 
-    def get_or_fetch_quote(self, code: str) -> Optional[QuoteData]:
-        """获取缓存行情；缓存缺失时立即拉取一次并写回缓存。"""
+    def get_or_fetch_quote(
+        self,
+        code: str,
+        max_age_sec: float | None = None,
+        refresh_timeout_sec: float | None = None,
+    ) -> Optional[QuoteData]:
+        """获取缓存行情；缓存缺失或超过指定新鲜度阈值时立即拉取一次。"""
         normalized = normalize_stock_code(code)
         if not normalized:
             return None
-        with self._lock:
-            cached = self._cache.get(normalized)
-        if cached:
-            return cached
+        return self.get_or_fetch_quotes(
+            [normalized],
+            max_age_sec=max_age_sec,
+            refresh_timeout_sec=refresh_timeout_sec,
+        ).get(normalized)
 
-        quotes = self._fetch_quotes([normalized])
-        quote = quotes.get(normalized)
-        if quote:
-            with self._lock:
-                self._cache[normalized] = quote
-            for cb in self._callbacks:
-                try:
-                    cb({normalized: quote})
-                except Exception as e:
-                    logger.error(f"行情回调异常: {e}")
-        return quote
+    def get_or_fetch_quotes(
+        self,
+        codes: list[str],
+        max_age_sec: float | None = None,
+        refresh_timeout_sec: float | None = None,
+    ) -> dict[str, QuoteData]:
+        """批量获取缓存行情；缺失或过期项会合并为一次拉取。"""
+        normalized_codes = list(dict.fromkeys(code for code in (normalize_stock_code(c) for c in codes) if code))
+        if not normalized_codes:
+            return {}
+
+        now = time.time()
+        result: dict[str, QuoteData] = {}
+        stale_cached: dict[str, QuoteData] = {}
+        stale_or_missing: list[str] = []
+        with self._lock:
+            for code in normalized_codes:
+                cached = self._cache.get(code)
+                if cached and (max_age_sec is None or (now - cached.timestamp) <= max_age_sec):
+                    result[code] = cached
+                else:
+                    if cached:
+                        stale_cached[code] = cached
+                    stale_or_missing.append(code)
+
+        if not stale_or_missing:
+            return result
+
+        quotes, already_stored = self._fetch_quotes_with_budget(stale_or_missing, refresh_timeout_sec)
+        if quotes:
+            if not already_stored:
+                with self._lock:
+                    self._cache.update(quotes)
+                for cb in self._callbacks:
+                    try:
+                        cb(quotes)
+                    except Exception as e:
+                        logger.error(f"行情回调异常: {e}")
+            result.update(quotes)
+        for code, quote in stale_cached.items():
+            result.setdefault(code, quote)
+        return result
+
+    def _fetch_quotes_with_budget(self, codes: list[str], timeout_sec: float | None = None) -> tuple[dict[str, QuoteData], bool]:
+        if timeout_sec is None:
+            return self._fetch_quotes(codes), False
+
+        result: dict[str, QuoteData] = {}
+        error: list[Exception] = []
+        done = threading.Event()
+
+        def _runner():
+            try:
+                fetched = self._fetch_quotes(codes)
+                if fetched:
+                    with self._lock:
+                        self._cache.update(fetched)
+                    for cb in self._callbacks:
+                        try:
+                            cb(fetched)
+                        except Exception as e:
+                            logger.error(f"行情回调异常: {e}")
+                    result.update(fetched)
+            except Exception as exc:
+                error.append(exc)
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=_runner, daemon=True, name="quote-on-demand-refresh")
+        thread.start()
+        if done.wait(timeout=max(0.0, timeout_sec)):
+            if error:
+                raise error[0]
+            return result, True
+        logger.warning(f"按需行情刷新超过 {timeout_sec:.1f}s，先返回已有缓存: {codes}")
+        return {}, True
 
     def get_all_quotes(self) -> dict[str, QuoteData]:
         """获取所有缓存行情"""
@@ -870,6 +965,12 @@ class QuoteService:
     def subscription_count(self) -> int:
         with self._lock:
             return len(self._subscriptions)
+
+    @property
+    def temporary_subscription_count(self) -> int:
+        with self._lock:
+            self._prune_expired_temporary_subscriptions_locked()
+            return len(self._temporary_subscriptions)
 
     @property
     def cache_count(self) -> int:
@@ -924,7 +1025,7 @@ class QuoteService:
     def _poll_once(self):
         """执行一次行情采集（mootdx 主源，必要时回退 push2delay）"""
         with self._lock:
-            codes = list(self._subscriptions)
+            codes = self._poll_codes_locked()
         if not codes:
             return
 

@@ -195,6 +195,7 @@ async def websocket_quotes(ws: WebSocket):
         "type": "status",
         "running": service.is_running,
         "subscriptions": service.subscription_count,
+        "temporary_subscriptions": getattr(service, "temporary_subscription_count", 0),
         "cache_count": service.cache_count,
         "update_count": service.update_count,
     }))

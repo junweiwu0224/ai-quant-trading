@@ -87,9 +87,10 @@ def test_overview_opportunity_query_and_rendering():
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
 
+        assert.equal(App._overviewOpportunityScope, 'qlib');
         assert.equal(App._buildOverviewOpportunityQuery('watchlist').toString(), 'scope=watchlist&limit=8&fast=true');
         assert.equal(App._buildOverviewOpportunityQuery('qlib').toString(), 'scope=qlib&limit=8&fast=true');
-        assert.equal(App._buildOverviewOpportunityQuery('default').toString(), 'scope=watchlist&limit=8&fast=true&force_fallback=true');
+        assert.equal(App._buildOverviewOpportunityQuery('default').toString(), 'scope=qlib&limit=8&fast=true');
 
         App._renderOverviewOpportunityData({
             items: [{
@@ -235,6 +236,80 @@ def test_overview_opportunity_ignores_stale_full_response():
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_empty_watchlist_stays_on_watchlist_without_fetching():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            watchlistCache: [],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => {
+                throw new Error('empty watchlist should not fetch decision matrix');
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        App._setOverviewOpportunityScope('watchlist');
+
+        assert.equal(App._overviewOpportunityScope, 'watchlist');
+        assert.match(tbody.innerHTML, /请先添加股票到自选/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /范围 自选/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_template_and_styles_are_present():
     template = Path("dashboard/templates/index.html").read_text(encoding="utf-8")
     styles = Path("dashboard/static/style.css").read_text(encoding="utf-8")
@@ -243,8 +318,10 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert 'id="ov-opportunity-status"' in template
     assert 'data-ov-opportunity-scope="watchlist"' in template
     assert 'data-ov-opportunity-scope="qlib"' in template
-    assert 'data-ov-opportunity-scope="default"' in template
+    assert 'data-ov-opportunity-scope="default"' not in template
+    assert 'data-ov-opportunity-scope="qlib" aria-pressed="true">Qlib Top</button>' in template
+    assert 'data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>' in template
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=13" in scripts
+    assert "/static/overview.js?v=14" in scripts

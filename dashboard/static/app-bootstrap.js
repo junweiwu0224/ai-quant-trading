@@ -117,7 +117,9 @@
                     const link = e.target.closest('.stock-link');
                     if (!link) return;
                     e.preventDefault();
-                    const code = link.dataset.code;
+                    const rawCode = typeof link.dataset.code === 'string' ? link.dataset.code.trim() : '';
+                    const codeMatch = rawCode.match(/^(?:sh|sz|bj)?(\d{6})(?:\.(?:SH|SZ|BJ))?$/i) || rawCode.match(/\b(\d{6})\b/);
+                    const code = codeMatch ? codeMatch[1] : rawCode;
                     if (code) {
                         this.syncActiveStockContext(code, null, 'app:stock-link', 'stock-link');
                         this.openStockDetail(code, {

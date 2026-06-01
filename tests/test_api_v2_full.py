@@ -452,6 +452,35 @@ class TestScreener:
         resp = client.get("/api/screener/presets")
         assert resp.status_code == 200
 
+    def test_screener_run_respects_explicit_code_pool(self, client, monkeypatch):
+        """POST /api/screener/run — codes 应限定问财推送池"""
+        captured = {}
+
+        def fake_screen(**kwargs):
+            captured.update(kwargs)
+            return {
+                "total": len(kwargs["codes"]),
+                "page": 1,
+                "page_size": 10000,
+                "stocks": [{"code": code} for code in kwargs["codes"]],
+            }
+
+        monkeypatch.setattr("dashboard.routers.screener._screener.screen", fake_screen)
+
+        resp = client.post(
+            "/api/screener/run",
+            json={
+                "codes": ["600519.SH", "000001", "000001"],
+                "page_size": 10000,
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["total"] == 2
+        assert captured["codes"] == ["600519", "000001"]
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  预警管理

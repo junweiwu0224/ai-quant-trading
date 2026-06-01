@@ -422,10 +422,12 @@
 
             this.on('iwencai:send-to-screener', async ({ pool, query }) => {
                 await this.ensureBundle?.('research');
-                this.toast(`已推送 ${pool?.length || 0} 只股票至选股器`, 'success');
-                this.switchTab('research');
+                const codes = Array.isArray(pool)
+                    ? Array.from(new Set(pool.map((code) => String(code || '').trim()).filter(Boolean)))
+                    : [];
+                this.toast(`已推送 ${codes.length} 只股票至选股器`, 'success');
+                await this.switchTab('research', { subtab: 'screener' });
                 requestAnimationFrame(() => {
-                    document.querySelector('.research-sub-tab[data-subtab="screener"]')?.click();
                     requestAnimationFrame(() => {
                         if (typeof App.Screener !== 'undefined') {
                             if (App.Screener.init && !this._tabCache['screener']) {
@@ -433,7 +435,7 @@
                                 this._tabCache['screener'] = Date.now();
                             }
                             if (App.Screener.renderFromPool) {
-                                App.Screener.renderFromPool(pool, query);
+                                App.Screener.renderFromPool(codes, query);
                             }
                         }
                     });
@@ -446,8 +448,9 @@
                     this.toast('已发送至 AI 助手', 'info');
                     App.LLM.openCopilot();
                     let msg;
-                    if (data && data.data) {
-                        msg = `请分析以下问财查询结果：\n查询：${query}\n数据：${JSON.stringify(data.data.slice(0, 5))}`;
+                    if (data && Array.isArray(data.summaryRows) && data.summaryRows.length > 0) {
+                        const rows = data.summaryRows.slice(0, 10);
+                        msg = `请分析以下问财查询结果：\n查询：${query}\n精简数据：${JSON.stringify(rows)}`;
                     } else {
                         msg = query;
                     }
@@ -649,6 +652,8 @@
             const modelSel = document.getElementById('alpha-model');
             const analyzeBtn = this._getResearchHeaderActionButton('alpha-analyze');
             const optimizeBtn = this._getResearchHeaderActionButton('alpha-optimize');
+            const modelGroup = modelSel?.closest('.research-param-model');
+            const actionGroup = analyzeBtn?.closest('.research-param-actions');
             const needsHeader = ['factor', 'model', 'mining'].includes(subtab);
 
             if (alphaHeader) alphaHeader.style.display = needsHeader ? '' : 'none';
@@ -656,6 +661,8 @@
             if (modelSel) modelSel.style.display = (subtab === 'model') ? '' : 'none';
             if (analyzeBtn) analyzeBtn.style.display = (subtab === 'model') ? '' : 'none';
             if (optimizeBtn) optimizeBtn.style.display = (subtab === 'model') ? '' : 'none';
+            if (modelGroup) modelGroup.style.display = (subtab === 'model') ? '' : 'none';
+            if (actionGroup) actionGroup.style.display = (subtab === 'model') ? '' : 'none';
 
             this._researchActiveSubtab = subtab;
             if (!needsHeader) {

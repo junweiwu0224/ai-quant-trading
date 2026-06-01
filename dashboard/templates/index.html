@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=36">
+    <link rel="stylesheet" href="/static/style.css?v=37">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -276,9 +276,8 @@
                     </div>
                     <div class="opportunity-card-actions">
                         <div class="opportunity-scope-toggle" role="group" aria-label="机会池范围">
-                            <button class="active" type="button" data-ov-opportunity-scope="watchlist" aria-pressed="true">自选</button>
-                            <button type="button" data-ov-opportunity-scope="qlib" aria-pressed="false">Qlib Top</button>
-                            <button type="button" data-ov-opportunity-scope="default" aria-pressed="false">默认候选</button>
+                            <button class="active" type="button" data-ov-opportunity-scope="qlib" aria-pressed="true">Qlib Top</button>
+                            <button type="button" data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>
                         </div>
                         <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
                     </div>
@@ -1020,8 +1019,8 @@
                 <div class="research-sub-panel" id="research-panel-formula" role="tabpanel">
                     <div class="card">
                         <h2>公式系统</h2>
-                        <div class="form-row research-tool-form">
-                            <div class="form-group min-w-sm">
+                        <div class="form-row research-tool-form research-form-grid">
+                            <div class="form-group min-w-sm research-tool-primary">
                                 <label for="formula-source">公式</label>
                                 <textarea id="formula-source" class="code-input" rows="6" placeholder="例如：CLOSE > MA(CLOSE, 20) AND RSI(CLOSE, 14) < 30"></textarea>
                             </div>
@@ -1038,7 +1037,7 @@
                                 <input type="date" id="formula-end">
                             </div>
                         </div>
-                        <div class="compact-action-row research-tool-actions">
+                        <div class="compact-action-row research-tool-actions research-param-actions">
                             <button class="btn btn-primary btn-sm" data-alpha-action="formula-evaluate">执行公式</button>
                             <button class="btn btn-ghost btn-sm" data-alpha-action="formula-screen">公式选股</button>
                             <button class="btn btn-sm" data-alpha-action="formula-catalog">公式目录</button>
@@ -1083,8 +1082,8 @@
                 <div class="research-sub-panel" id="research-panel-basket" role="tabpanel">
                     <div class="card">
                         <h2>篮子交易</h2>
-                        <div class="form-row research-tool-form">
-                            <div class="form-group min-w-sm">
+                        <div class="form-row research-tool-form research-form-grid">
+                            <div class="form-group min-w-sm research-tool-primary">
                                 <label for="basket-candidates">候选股票</label>
                                 <textarea id="basket-candidates" class="code-input" rows="6" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]'></textarea>
                             </div>
@@ -1104,7 +1103,7 @@
                                 <input type="number" id="basket-rebalance" value="5" min="1" step="1">
                             </div>
                         </div>
-                        <div class="compact-action-row research-tool-actions">
+                        <div class="compact-action-row research-tool-actions research-param-actions">
                             <button class="btn btn-primary btn-sm" data-alpha-action="basket-plan">生成计划</button>
                             <button class="btn btn-ghost btn-sm" data-alpha-action="basket-backtest">计划回测</button>
                         </div>
@@ -1206,7 +1205,7 @@
 
             <div class="card">
                 <h2>回测参数</h2>
-                <form id="backtest-form" class="form-row">
+                <form id="backtest-form" class="form-row research-tool-form research-form-grid research-backtest-form">
                     <div class="form-group">
                         <label for="bt-strategy">策略</label>
                         <select id="bt-strategy">
@@ -1217,7 +1216,7 @@
                         <label>策略参数</label>
                         <div id="bt-params-fields"></div>
                     </div>
-                    <div class="form-group min-w-md">
+                    <div class="form-group min-w-md research-tool-primary">
                         <label for="bt-code">股票代码 <small class="text-muted">(可多选)</small></label>
                         <div class="search-box" id="bt-code-box">
                             <input type="text" id="bt-code" class="search-input" placeholder="搜索添加股票" autocomplete="off">
@@ -1274,7 +1273,7 @@
                             <option value="true">是</option>
                         </select>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group research-tool-submit">
                         <span></span>
                         <button type="submit" class="btn btn-primary" id="bt-run-btn">运行回测</button>
                     </div>
@@ -1857,23 +1856,35 @@
         <!-- Tab 5: AI Alpha (全功能版) -->
         <section class="tab-panel" id="tab-alpha" role="tabpanel" aria-labelledby="nav-alpha">
             <!-- 顶部控制栏 -->
-            <div class="page-header research-toolbar">
-                <div class="form-row">
-                    <div class="form-group min-w-sm">
+            <div class="page-header research-toolbar research-param-toolbar">
+                <div class="research-param-toolbar-inner">
+                    <div class="research-param-group research-param-stock">
+                        <span class="research-param-label">标的</span>
                         <div class="search-box" id="alpha-code-box">
                             <input type="text" id="alpha-code" class="search-input" placeholder="输入代码或名称" readonly autocomplete="off" aria-label="选择分析股票">
                             <div class="search-dropdown" id="alpha-code-dropdown"></div>
                         </div>
                     </div>
-                    <input type="date" id="alpha-start" aria-label="开始日期">
-                    <input type="date" id="alpha-end" aria-label="结束日期">
-                    <select id="alpha-model" aria-label="选择模型">
-                        <option value="lightgbm">LightGBM</option>
-                        <option value="xgboost">XGBoost</option>
-                        <option value="ensemble">集成模型</option>
-                    </select>
-                    <button class="btn btn-primary btn-sm" data-alpha-action="load-alpha" data-app-role="alpha-analyze">运行分析</button>
-                    <button class="btn btn-ghost btn-sm" data-alpha-action="optimize-alpha" data-app-role="alpha-optimize">超参优化</button>
+                    <div class="research-param-group research-param-dates">
+                        <span class="research-param-label">窗口</span>
+                        <div class="research-date-range">
+                            <input type="date" id="alpha-start" aria-label="开始日期">
+                            <span class="research-date-separator">至</span>
+                            <input type="date" id="alpha-end" aria-label="结束日期">
+                        </div>
+                    </div>
+                    <div class="research-param-group research-param-model">
+                        <span class="research-param-label">模型</span>
+                        <select id="alpha-model" aria-label="选择模型">
+                            <option value="lightgbm">LightGBM</option>
+                            <option value="xgboost">XGBoost</option>
+                            <option value="ensemble">集成模型</option>
+                        </select>
+                    </div>
+                    <div class="research-param-actions">
+                        <button class="btn btn-primary btn-sm" data-alpha-action="load-alpha" data-app-role="alpha-analyze">运行分析</button>
+                        <button class="btn btn-ghost btn-sm" data-alpha-action="optimize-alpha" data-app-role="alpha-optimize">超参优化</button>
+                    </div>
                 </div>
             </div>
 

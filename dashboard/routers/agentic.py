@@ -1,11 +1,12 @@
 from dataclasses import asdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler
 from agentic.backtest_runner import AgenticBacktestRunner
 from agentic.registry import AgentRegistry
+from agentic.sample_selector import BacktestSampleSelector
 from agentic.repository import AgenticRepository
 from agentic.signals import SignalService
 from agentic.strategy_dsl import StrategyDSL
@@ -16,6 +17,7 @@ registry = AgentRegistry.default()
 signal_service = SignalService(AgenticRepository(DB_DIR / "agentic.db"))
 backtest_compiler = BacktestCompiler()
 backtest_runner = AgenticBacktestRunner(compiler=backtest_compiler)
+sample_selector = BacktestSampleSelector()
 
 
 class StrategyDSLPayload(BaseModel):
@@ -65,6 +67,15 @@ def list_agents():
 def list_signals(limit: int = 100):
     return {"success": True, "signals": [asdict(signal) for signal in signal_service.list(limit=limit)]}
 
+
+
+@router.get("/backtest-sample")
+def get_backtest_sample(min_days: int = 60, max_codes: int = 5):
+    try:
+        sample = sample_selector.select(min_days=min_days, max_codes=max_codes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, "sample": sample.to_dict()}
 
 @router.post("/strategy/compile-backtest")
 def compile_strategy_backtest(payload: CompileBacktestPayload):

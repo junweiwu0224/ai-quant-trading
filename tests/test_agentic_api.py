@@ -109,3 +109,39 @@ def test_agentic_run_backtest_endpoint_compiles_runs_and_evaluates(client, monke
     assert body["promotion"]["promoted"] is True
     assert body["promotion"]["reason"] == "passed promotion gate"
     assert body["metrics"]["trades"] == 18
+
+
+def test_agentic_backtest_sample_endpoint_returns_local_coverage(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.sample_selector import BacktestSample
+
+    class FakeSelector:
+        def select(self, min_days=60, max_codes=5):
+            assert min_days == 30
+            assert max_codes == 2
+            return BacktestSample(codes=["000001", "600519"], start_date="2024-01-01", end_date="2024-03-31", trading_days=60)
+
+    monkeypatch.setattr(agentic_router, "sample_selector", FakeSelector())
+
+    resp = client.get("/api/agentic/backtest-sample?min_days=30&max_codes=2")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["sample"]["codes"] == ["000001", "600519"]
+    assert body["sample"]["source"] == "local_stock_daily"
+
+
+def test_agentic_backtest_sample_endpoint_reports_missing_coverage(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+
+    class EmptySelector:
+        def select(self, min_days=60, max_codes=5):
+            raise ValueError("no local stock_daily coverage with enough history for agentic backtest")
+
+    monkeypatch.setattr(agentic_router, "sample_selector", EmptySelector())
+
+    resp = client.get("/api/agentic/backtest-sample")
+
+    assert resp.status_code == 404
+    assert "no local stock_daily coverage" in resp.json()["detail"]

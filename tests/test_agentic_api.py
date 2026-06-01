@@ -28,3 +28,35 @@ def test_agentic_health_reports_core_components(client):
     assert body["success"] is True
     assert body["components"]["registry"] == "online"
     assert body["components"]["signals"] == "online"
+
+
+def test_agentic_compile_backtest_endpoint_returns_backtest_request(client):
+    resp = client.post(
+        "/api/agentic/strategy/compile-backtest",
+        json={
+            "dsl": {
+                "strategy_type": "ranked_rotation",
+                "universe": "qlib_top",
+                "rank_by": "qlib_score",
+                "filters": [{"close_above_ma": 20}],
+                "rebalance": "daily",
+                "max_holdings": 5,
+                "stop_loss": 0.05,
+                "take_profit": 0.12,
+                "max_holding_days": 10,
+            },
+            "codes": ["605066.SH", "000001"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "initial_cash": 50000,
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    req = body["backtest_request"]
+    assert req["strategy"] == "qlib_signal"
+    assert req["codes"] == ["605066", "000001"]
+    assert req["params"]["mode"] == "ranking"
+    assert req["risk_config"]["stop_loss_pct"] == 0.05

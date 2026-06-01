@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler
+from agentic.backtest_runner import AgenticBacktestRunner
 from agentic.registry import AgentRegistry
 from agentic.repository import AgenticRepository
 from agentic.signals import SignalService
@@ -14,6 +15,7 @@ router = APIRouter()
 registry = AgentRegistry.default()
 signal_service = SignalService(AgenticRepository(DB_DIR / "agentic.db"))
 backtest_compiler = BacktestCompiler()
+backtest_runner = AgenticBacktestRunner(compiler=backtest_compiler)
 
 
 class StrategyDSLPayload(BaseModel):
@@ -82,6 +84,33 @@ def compile_strategy_backtest(payload: CompileBacktestPayload):
     )
     return {"success": True, "backtest_request": compiled}
 
+@router.post("/strategy/run-backtest")
+async def run_strategy_backtest(payload: CompileBacktestPayload):
+    result = await backtest_runner.run_and_evaluate(
+        BacktestCompileRequest(
+            dsl=payload.dsl.to_dsl(),
+            codes=payload.codes,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            initial_cash=payload.initial_cash,
+            commission_rate=payload.commission_rate,
+            stamp_tax_rate=payload.stamp_tax_rate,
+            slippage=payload.slippage,
+            benchmark=payload.benchmark,
+            period=payload.period,
+        )
+    )
+    return {
+        "success": True,
+        "backtest_request": result.compiled_request,
+        "backtest": result.backtest_response,
+        "metrics": result.metrics,
+        "promotion": {
+            "promoted": result.promotion.promoted,
+            "reason": result.promotion.reason,
+            "metrics": result.promotion.metrics,
+        },
+    }
 
 @router.get("/health")
 def agentic_health():

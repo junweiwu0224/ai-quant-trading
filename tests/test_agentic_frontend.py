@@ -103,3 +103,12 @@ def test_agentic_candidate_backtest_styles_exist():
     ]:
         assert selector in styles
 
+
+
+def test_agentic_candidate_rows_can_queue_promoted_strategy_for_paper():
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="queue-paper-strategy"' in js
+    assert "/api/agentic/strategy/paper-candidates" in js
+    assert "queuePaperStrategyCandidate" in js
+    assert "promotion.promoted ?" in js

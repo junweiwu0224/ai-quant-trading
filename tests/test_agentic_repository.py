@@ -80,3 +80,27 @@ def test_repository_saves_and_gets_research_jobs(tmp_path):
 
     assert restored == job
     assert restored.code == "605066"
+
+
+def test_repository_saves_and_lists_paper_strategy_candidates(tmp_path):
+    from agentic.models import PaperStrategyCandidate
+
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    candidate = PaperStrategyCandidate(
+        id="paper_strategy_1",
+        candidate_id="qlib_ranked_core",
+        name="Qlib 核心轮动",
+        dsl={"strategy_type": "ranked_rotation", "universe": "qlib_top"},
+        sample={"codes": ["000001"], "start_date": "2024-01-01", "end_date": "2024-03-31", "trading_days": 60},
+        metrics={"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
+        promotion={"promoted": True, "reason": "passed promotion gate"},
+        status="paper_candidate",
+        requires_confirmation=True,
+        created_at="2026-06-01T21:30:00+08:00",
+    )
+
+    repo.save_paper_strategy_candidate(candidate)
+    rows = repo.list_paper_strategy_candidates()
+
+    assert rows == [candidate]
+    assert rows[0].requires_confirmation is True

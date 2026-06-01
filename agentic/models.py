@@ -133,3 +133,28 @@ class ResearchJob:
         object.__setattr__(self, "code", normalize_signal_code(self.code))
         object.__setattr__(self, "roles", tuple(self.roles or ()))
         object.__setattr__(self, "final_report", dict(self.final_report or {}))
+
+
+@dataclass(frozen=True)
+class PaperStrategyCandidate:
+    id: str
+    candidate_id: str
+    name: str
+    dsl: dict
+    sample: dict
+    metrics: dict
+    promotion: dict
+    status: str
+    requires_confirmation: bool
+    created_at: str
+
+    def __post_init__(self) -> None:
+        if self.status not in {"paper_candidate", "paper_active", "rejected"}:
+            raise ValueError(f"unsupported paper strategy candidate status: {self.status}")
+        if not self.candidate_id:
+            raise ValueError("candidate_id is required")
+        object.__setattr__(self, "dsl", dict(self.dsl or {}))
+        object.__setattr__(self, "sample", dict(self.sample or {}))
+        object.__setattr__(self, "metrics", dict(self.metrics or {}))
+        object.__setattr__(self, "promotion", dict(self.promotion or {}))
+        object.__setattr__(self, "requires_confirmation", bool(self.requires_confirmation))

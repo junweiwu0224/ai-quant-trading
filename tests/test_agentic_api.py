@@ -214,3 +214,63 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
     assert body["success"] is True
     assert body["sample"]["codes"] == ["000001"]
     assert body["results"][0]["promotion"]["promoted"] is True
+
+
+def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyCandidate
+
+    class FakeService:
+        def enqueue(self, result, sample):
+            assert result["promotion"]["promoted"] is True
+            assert sample["codes"] == ["000001"]
+            return PaperStrategyCandidate(
+                id="paper_strategy_1",
+                candidate_id=result["candidate"]["id"],
+                name=result["candidate"]["name"],
+                dsl=result["candidate"]["dsl"],
+                sample=sample,
+                metrics=result["metrics"],
+                promotion=result["promotion"],
+                status="paper_candidate",
+                requires_confirmation=True,
+                created_at="2026-06-01T21:35:00+00:00",
+            )
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-candidates",
+        json={
+            "sample": {"codes": ["000001"]},
+            "result": {
+                "candidate": {"id": "qlib_ranked_core", "name": "Qlib 核心轮动", "dsl": {"strategy_type": "ranked_rotation"}},
+                "metrics": {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
+                "promotion": {"promoted": True, "reason": "passed promotion gate"},
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["candidate"]["status"] == "paper_candidate"
+    assert body["candidate"]["requires_confirmation"] is True
+
+
+def test_agentic_unpromoted_strategy_candidate_is_rejected_for_paper(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+
+    class FakeService:
+        def enqueue(self, result, sample):
+            raise ValueError("only promoted candidates can be queued for paper trading")
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-candidates",
+        json={"sample": {"codes": ["000001"]}, "result": {"promotion": {"promoted": False}}},
+    )
+
+    assert resp.status_code == 400
+    assert "only promoted candidates" in resp.json()["detail"]

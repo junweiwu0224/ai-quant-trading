@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler
 from agentic.candidate_backtester import StrategyCandidateBacktester
 from agentic.backtest_runner import AgenticBacktestRunner
+from agentic.paper_strategy_candidates import PaperStrategyCandidateService
 from agentic.registry import AgentRegistry
 from agentic.sample_selector import BacktestSampleSelector
 from agentic.strategy_candidates import StrategyCandidateGenerator
@@ -17,12 +18,14 @@ from config.settings import DB_DIR
 
 router = APIRouter()
 registry = AgentRegistry.default()
-signal_service = SignalService(AgenticRepository(DB_DIR / "agentic.db"))
+agentic_repository = AgenticRepository(DB_DIR / "agentic.db")
+signal_service = SignalService(agentic_repository)
 backtest_compiler = BacktestCompiler()
 backtest_runner = AgenticBacktestRunner(compiler=backtest_compiler)
 sample_selector = BacktestSampleSelector()
 strategy_candidate_generator = StrategyCandidateGenerator()
 candidate_backtester = StrategyCandidateBacktester(candidate_generator=strategy_candidate_generator, sample_selector=sample_selector, runner=backtest_runner)
+paper_strategy_candidate_service = PaperStrategyCandidateService(agentic_repository)
 
 
 class StrategyDSLPayload(BaseModel):
@@ -69,6 +72,11 @@ class RunCandidateBacktestsPayload(BaseModel):
     min_days: int = 60
     max_codes: int = 5
     initial_cash: float = 1_000_000
+
+
+class PaperStrategyCandidatePayload(BaseModel):
+    sample: dict[str, Any]
+    result: dict[str, Any]
 
 
 @router.get("/agents")
@@ -124,6 +132,23 @@ def compile_strategy_backtest(payload: CompileBacktestPayload):
     )
     return {"success": True, "backtest_request": compiled}
 
+
+
+@router.get("/strategy/paper-candidates")
+def list_paper_strategy_candidates(limit: int = 100):
+    return {
+        "success": True,
+        "candidates": [asdict(candidate) for candidate in paper_strategy_candidate_service.list(limit=limit)],
+    }
+
+
+@router.post("/strategy/paper-candidates")
+def enqueue_paper_strategy_candidate(payload: PaperStrategyCandidatePayload):
+    try:
+        candidate = paper_strategy_candidate_service.enqueue(payload.result, payload.sample)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "candidate": asdict(candidate)}
 
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):

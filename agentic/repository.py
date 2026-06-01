@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agentic.models import ResearchJob, TradingSignal, normalize_signal_code
+from agentic.models import PaperStrategyCandidate, ResearchJob, TradingSignal, normalize_signal_code
 from utils.db import get_connection
 
 
@@ -48,6 +48,23 @@ class AgenticRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     error TEXT
+                )
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agentic_paper_strategy_candidates (
+                    id TEXT PRIMARY KEY,
+                    candidate_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    dsl TEXT NOT NULL,
+                    sample TEXT NOT NULL,
+                    metrics TEXT NOT NULL,
+                    promotion TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    requires_confirmation INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -177,6 +194,55 @@ class AgenticRepository:
             raise KeyError(f"research job not found: {job_id}")
         return _row_to_research_job(row)
 
+    def save_paper_strategy_candidate(self, candidate: PaperStrategyCandidate) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agentic_paper_strategy_candidates (
+                    id, candidate_id, name, dsl, sample, metrics, promotion,
+                    status, requires_confirmation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    candidate_id = excluded.candidate_id,
+                    name = excluded.name,
+                    dsl = excluded.dsl,
+                    sample = excluded.sample,
+                    metrics = excluded.metrics,
+                    promotion = excluded.promotion,
+                    status = excluded.status,
+                    requires_confirmation = excluded.requires_confirmation,
+                    created_at = excluded.created_at
+                """,
+                (
+                    candidate.id,
+                    candidate.candidate_id,
+                    candidate.name,
+                    _to_json(candidate.dsl),
+                    _to_json(candidate.sample),
+                    _to_json(candidate.metrics),
+                    _to_json(candidate.promotion),
+                    candidate.status,
+                    1 if candidate.requires_confirmation else 0,
+                    candidate.created_at,
+                ),
+            )
+            conn.commit()
+
+    def list_paper_strategy_candidates(self, limit: int = 100) -> list[PaperStrategyCandidate]:
+        safe_limit = max(1, min(int(limit), 500))
+        with get_connection(self.db_path, readonly=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, candidate_id, name, dsl, sample, metrics, promotion,
+                       status, requires_confirmation, created_at
+                FROM agentic_paper_strategy_candidates
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [_row_to_paper_strategy_candidate(row) for row in rows]
+
 
 def _to_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
@@ -186,6 +252,21 @@ def _from_json(value: str | None, default: Any) -> Any:
     if value is None:
         return default
     return json.loads(value)
+
+
+def _row_to_paper_strategy_candidate(row: Any) -> PaperStrategyCandidate:
+    return PaperStrategyCandidate(
+        id=row["id"],
+        candidate_id=row["candidate_id"],
+        name=row["name"],
+        dsl=_from_json(row["dsl"], {}),
+        sample=_from_json(row["sample"], {}),
+        metrics=_from_json(row["metrics"], {}),
+        promotion=_from_json(row["promotion"], {}),
+        status=row["status"],
+        requires_confirmation=bool(row["requires_confirmation"]),
+        created_at=row["created_at"],
+    )
 
 
 def _row_to_signal(row: Any) -> TradingSignal:

@@ -88,6 +88,7 @@
             <strong>${esc(candidate.name || candidate.id || '-')}</strong>
             <p>${esc(candidate.thesis || '')}</p>
             <span>${promotion.promoted ? '通过晋级' : '未晋级'} · ${esc(promotion.reason || '-')}</span>
+            ${promotion.promoted ? `<button class="btn btn-primary btn-sm" data-agentic-action="queue-paper-strategy" data-candidate-index="${index}">加入模拟盘候选</button>` : ''}
           </div>
           <div class="agentic-candidate-metrics">
             <span>交易 <b>${esc(metrics.trades ?? '-')}</b></span>
@@ -168,6 +169,23 @@
     }
   }
 
+  async function queuePaperStrategyCandidate(index) {
+    const result = state.candidateBatch?.results?.[Number(index)];
+    if (!result || !result.promotion?.promoted) return;
+    try {
+      const resp = await fetch('/api/agentic/strategy/paper-candidates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sample: state.candidateBatch.sample, result }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'queue failed');
+      renderCandidateBacktestResults(`已加入模拟盘候选：${data.candidate?.name || result.candidate?.name || ''}`);
+    } catch (error) {
+      renderCandidateBacktestResults('加入模拟盘候选失败：' + (error.message || error));
+    }
+  }
+
 
   function renderSignalCard(signal) {
     return `
@@ -224,6 +242,7 @@
     if (action === 'refresh-signals') loadSignals();
     if (action === 'run-sample-backtest') runSampleBacktest();
     if (action === 'run-candidate-backtests') runCandidateBacktests();
+    if (action === 'queue-paper-strategy') queuePaperStrategyCandidate(event.target?.dataset?.candidateIndex);
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -232,7 +251,7 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, renderCandidateBacktestResults, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();

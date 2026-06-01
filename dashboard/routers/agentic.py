@@ -7,6 +7,7 @@ from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler
 from agentic.backtest_runner import AgenticBacktestRunner
 from agentic.registry import AgentRegistry
 from agentic.sample_selector import BacktestSampleSelector
+from agentic.strategy_candidates import StrategyCandidateGenerator
 from agentic.repository import AgenticRepository
 from agentic.signals import SignalService
 from agentic.strategy_dsl import StrategyDSL
@@ -18,6 +19,7 @@ signal_service = SignalService(AgenticRepository(DB_DIR / "agentic.db"))
 backtest_compiler = BacktestCompiler()
 backtest_runner = AgenticBacktestRunner(compiler=backtest_compiler)
 sample_selector = BacktestSampleSelector()
+strategy_candidate_generator = StrategyCandidateGenerator()
 
 
 class StrategyDSLPayload(BaseModel):
@@ -76,6 +78,22 @@ def get_backtest_sample(min_days: int = 60, max_codes: int = 5):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"success": True, "sample": sample.to_dict()}
+
+
+@router.get("/strategy/candidates")
+def list_strategy_candidates(
+    limit: int = 4,
+    universe: str | None = None,
+    risk_mode: str | None = None,
+    max_holdings: int | None = None,
+):
+    context = {
+        "universe": universe,
+        "risk_mode": risk_mode,
+        "max_holdings": max_holdings,
+    }
+    candidates = strategy_candidate_generator.generate(context=context, limit=limit)
+    return {"success": True, "candidates": [candidate.to_dict() for candidate in candidates]}
 
 @router.post("/strategy/compile-backtest")
 def compile_strategy_backtest(payload: CompileBacktestPayload):

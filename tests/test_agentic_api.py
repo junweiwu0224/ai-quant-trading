@@ -145,3 +145,16 @@ def test_agentic_backtest_sample_endpoint_reports_missing_coverage(client, monke
 
     assert resp.status_code == 404
     assert "no local stock_daily coverage" in resp.json()["detail"]
+
+
+def test_agentic_strategy_candidates_endpoint_returns_valid_dsl_candidates(client):
+    resp = client.get("/api/agentic/strategy/candidates?limit=2&universe=iwencai_pool&risk_mode=conservative&max_holdings=3")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert len(body["candidates"]) == 2
+    assert body["candidates"][0]["id"] == "qlib_ranked_core"
+    assert body["candidates"][0]["dsl"]["universe"] == "iwencai_pool"
+    assert body["candidates"][0]["dsl"]["max_holdings"] == 3
+    assert body["candidates"][0]["dsl"]["stop_loss"] <= 0.04

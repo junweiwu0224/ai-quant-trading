@@ -56,7 +56,7 @@ def test_agentic_strategy_lab_ui_is_registered():
 
     assert 'id="agentic-strategy-lab"' in html
     assert 'data-agentic-sample-status' in html
-    assert 'data-agentic-action="run-sample-backtest"' in html
+    assert 'data-agentic-action="run-candidate-backtests"' in html
     assert 'data-agentic-backtest-result' in html
 
 
@@ -79,3 +79,27 @@ def test_agentic_strategy_lab_styles_exist():
         ".agentic-backtest-result",
     ]:
         assert selector in styles
+
+
+def test_agentic_strategy_lab_runs_candidate_batch_backtests():
+    html = read_template()
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="run-candidate-backtests"' in html
+    assert 'data-agentic-candidate-results' in html
+    assert "/api/agentic/strategy/run-candidates" in js
+    assert "runCandidateBacktests" in js
+    assert "renderCandidateBacktestResults" in js
+
+
+def test_agentic_candidate_backtest_styles_exist():
+    styles = read_styles()
+
+    for selector in [
+        ".agentic-candidate-list",
+        ".agentic-candidate-row",
+        ".agentic-candidate-rank",
+        ".agentic-candidate-metrics",
+    ]:
+        assert selector in styles
+

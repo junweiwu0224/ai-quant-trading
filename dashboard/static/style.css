@@ -7562,3 +7562,62 @@ tbody tr:nth-child(even):hover {
   display: block;
   margin-top: 4px;
 }
+
+.agentic-candidate-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.agentic-candidate-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) minmax(190px, 0.42fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-bg, #fff);
+}
+.agentic-candidate-row.is-promoted {
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.07);
+}
+.agentic-candidate-rank {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.12);
+  font-weight: 700;
+}
+.agentic-candidate-row p {
+  margin: 4px 0;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.4;
+}
+.agentic-candidate-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  text-align: right;
+}
+.agentic-candidate-metrics span {
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+}
+.agentic-candidate-metrics b {
+  display: block;
+  color: var(--text-color, #111827);
+  font-size: 13px;
+  margin-top: 3px;
+}
+@media (max-width: 760px) {
+  .agentic-candidate-row {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  .agentic-candidate-metrics {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}

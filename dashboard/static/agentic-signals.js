@@ -1,5 +1,5 @@
 (function () {
-  const state = { signals: [], filter: 'all', sample: null, backtest: null };
+  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null };
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"]/g, ch => ({
@@ -60,6 +60,46 @@
     `;
   }
 
+  function renderCandidateBacktestResults(message) {
+    const list = document.querySelector('[data-agentic-candidate-results]');
+    const summary = document.querySelector('[data-agentic-backtest-result]');
+    if (!list) return;
+    if (message) {
+      list.innerHTML = '';
+      if (summary) summary.textContent = message;
+      return;
+    }
+    const results = state.candidateBatch?.results || [];
+    if (!results.length) {
+      list.innerHTML = '<div class="empty-state">暂无候选回测结果</div>';
+      if (summary) summary.textContent = '等待候选回测';
+      return;
+    }
+    const promoted = results.filter(item => item.promotion?.promoted).length;
+    if (summary) summary.textContent = `候选 ${results.length} 个 · 晋级 ${promoted} 个`;
+    list.innerHTML = results.map((item, index) => {
+      const candidate = item.candidate || {};
+      const metrics = item.metrics || {};
+      const promotion = item.promotion || {};
+      return `
+        <article class="agentic-candidate-row ${promotion.promoted ? 'is-promoted' : ''}">
+          <div class="agentic-candidate-rank">#${index + 1}</div>
+          <div>
+            <strong>${esc(candidate.name || candidate.id || '-')}</strong>
+            <p>${esc(candidate.thesis || '')}</p>
+            <span>${promotion.promoted ? '通过晋级' : '未晋级'} · ${esc(promotion.reason || '-')}</span>
+          </div>
+          <div class="agentic-candidate-metrics">
+            <span>交易 <b>${esc(metrics.trades ?? '-')}</b></span>
+            <span>回撤 <b>${esc(metrics.max_drawdown ?? '-')}</b></span>
+            <span>Sharpe <b>${esc(metrics.sharpe ?? '-')}</b></span>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+
   async function loadBacktestSample() {
     const holder = document.querySelector('[data-agentic-sample-status]');
     if (!holder) return;
@@ -101,6 +141,33 @@
       renderBacktestResult('样本回测失败：' + (error.message || error));
     }
   }
+
+  async function runCandidateBacktests() {
+    renderCandidateBacktestResults('候选策略回测运行中...');
+    try {
+      const resp = await fetch('/api/agentic/strategy/run-candidates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context: { universe: 'qlib_top', risk_mode: 'balanced', max_holdings: 5 },
+          limit: 4,
+          min_days: 60,
+          max_codes: 5,
+          initial_cash: 1000000,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'candidate backtest failed');
+      state.candidateBatch = data;
+      state.sample = data.sample || state.sample;
+      renderSampleStatus();
+      renderCandidateBacktestResults();
+    } catch (error) {
+      state.candidateBatch = null;
+      renderCandidateBacktestResults('候选回测失败：' + (error.message || error));
+    }
+  }
+
 
   function renderSignalCard(signal) {
     return `
@@ -156,6 +223,7 @@
     const action = event.target?.dataset?.agenticAction;
     if (action === 'refresh-signals') loadSignals();
     if (action === 'run-sample-backtest') runSampleBacktest();
+    if (action === 'run-candidate-backtests') runCandidateBacktests();
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -164,7 +232,7 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, renderCandidateBacktestResults, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();

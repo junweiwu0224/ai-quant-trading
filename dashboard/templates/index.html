@@ -1169,14 +1169,15 @@
                                 <h2>Agent 策略实验台</h2>
                                 <p class="text-muted text-sm">使用本地可回测样本验证 AI 策略，通过晋级门槛后再进入模拟盘候选。</p>
                             </div>
-                            <button class="btn btn-primary btn-sm" data-agentic-action="run-sample-backtest">样本回测</button>
+                            <button class="btn btn-primary btn-sm" data-agentic-action="run-candidate-backtests">候选回测</button>
                         </div>
                         <div class="agentic-sample-grid" data-agentic-sample-status>
                             <div class="agentic-sample-pill"><span>样本</span><strong>加载中</strong></div>
                             <div class="agentic-sample-pill"><span>区间</span><strong>-</strong></div>
                             <div class="agentic-sample-pill"><span>交易日</span><strong>-</strong></div>
                         </div>
-                        <div class="agentic-backtest-result" data-agentic-backtest-result>等待样本回测</div>
+                        <div class="agentic-backtest-result" data-agentic-backtest-result>等待候选回测</div>
+                        <div class="agentic-candidate-list" data-agentic-candidate-results></div>
                     </div>
                     <div id="agentic-signal-pool" class="agentic-signal-pool">
                         <div class="card-header-row">

@@ -1,5 +1,5 @@
 (function () {
-  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [], paperExecutions: [] };
+  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [], paperExecutions: [], orderDrafts: [] };
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"]/g, ch => ({
@@ -251,6 +251,7 @@
         <span>${esc(item.status)} · ${esc((item.codes || []).join(' / '))}</span>
         <p>${esc(item.reason || '')}</p>
         ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(item.id)}">确认意图</button>` : ''}
+        ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-secondary btn-sm" data-agentic-action="create-order-drafts" data-paper-execution-id="${esc(item.id)}">生成订单草案</button>` : ''}
       </article>
     `).join('');
   }
@@ -309,6 +310,54 @@
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-executions]');
       if (list) list.innerHTML = '<div class="empty-state">确认意图失败：' + esc(error.message || error) + '</div>';
+    }
+  }
+
+  function renderAgenticOrderDrafts() {
+    const list = document.querySelector('[data-agentic-order-drafts]');
+    if (!list) return;
+    if (!state.orderDrafts.length) {
+      list.innerHTML = '<div class="empty-state">暂无订单草案</div>';
+      return;
+    }
+    list.innerHTML = state.orderDrafts.map(item => `
+      <article class="agentic-order-draft-row">
+        <strong>${esc(item.code)} · ${esc(item.direction)} · ${esc(item.order_type)}</strong>
+        <span>${esc(item.status)} · ${esc(item.volume)} 股 · ${esc(item.strategy_name)}</span>
+      </article>
+    `).join('');
+  }
+
+  async function loadAgenticOrderDrafts() {
+    const list = document.querySelector('[data-agentic-order-drafts]');
+    if (!list) return;
+    try {
+      const resp = await fetch('/api/agentic/strategy/order-drafts?limit=20');
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'load order drafts failed');
+      state.orderDrafts = data.drafts || [];
+      renderAgenticOrderDrafts();
+    } catch (error) {
+      state.orderDrafts = [];
+      list.innerHTML = '<div class="empty-state">订单草案加载失败</div>';
+    }
+  }
+
+  async function createAgenticOrderDrafts(executionId) {
+    if (!executionId) return;
+    try {
+      const resp = await fetch(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/order-drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume_per_code: 100 }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'create order drafts failed');
+      state.orderDrafts = [...(data.drafts || []), ...state.orderDrafts];
+      renderAgenticOrderDrafts();
+    } catch (error) {
+      const list = document.querySelector('[data-agentic-order-drafts]');
+      if (list) list.innerHTML = '<div class="empty-state">生成订单草案失败：' + esc(error.message || error) + '</div>';
     }
   }
 
@@ -372,6 +421,7 @@
     if (action === 'confirm-paper-strategy') confirmPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     if (action === 'run-paper-strategy') runPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     if (action === 'confirm-paper-execution') confirmPaperStrategyExecution(event.target?.dataset?.paperExecutionId);
+    if (action === 'create-order-drafts') createAgenticOrderDrafts(event.target?.dataset?.paperExecutionId);
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -380,11 +430,12 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, loadAgenticOrderDrafts, createAgenticOrderDrafts, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();
     loadPaperStrategyCandidates();
     loadPaperStrategyExecutions();
+    loadAgenticOrderDrafts();
   });
 })();

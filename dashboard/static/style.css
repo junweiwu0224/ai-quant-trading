@@ -7677,3 +7677,20 @@ tbody tr:nth-child(even):hover {
   margin-top: 4px;
   color: var(--text-muted, #6b7280);
 }
+
+.agentic-order-draft-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.agentic-order-draft-row {
+  border: 1px dashed rgba(37, 99, 235, 0.45);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(37, 99, 235, 0.04);
+}
+.agentic-order-draft-row span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted, #6b7280);
+}

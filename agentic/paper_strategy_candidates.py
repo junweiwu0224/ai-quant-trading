@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from agentic.models import PaperStrategyCandidate, PaperStrategyExecution
+from agentic.models import AgenticPaperOrderDraft, PaperStrategyCandidate, PaperStrategyExecution
 from agentic.portfolio_risk import PortfolioRiskGate, PortfolioRiskLimits
 from agentic.repository import AgenticRepository
 
@@ -97,6 +97,29 @@ class PaperStrategyCandidateService:
             reason="risk gate passed; ready for simulated order adapter",
             requires_confirmation=False,
         )
+
+
+    def create_order_drafts(self, execution_id: str, volume_per_code: int = 100) -> list[AgenticPaperOrderDraft]:
+        execution = self.repository.get_paper_strategy_execution(execution_id)
+        if execution.status != "paper_intent_confirmed":
+            raise ValueError("only paper_intent_confirmed executions can create order drafts")
+        drafts: list[AgenticPaperOrderDraft] = []
+        for code in execution.codes:
+            draft = AgenticPaperOrderDraft(
+                id=f"agentic_order_draft_{uuid4().hex}",
+                execution_id=execution.id,
+                code=str(code),
+                direction="buy",
+                order_type="market",
+                volume=volume_per_code,
+                status="draft_pending",
+                strategy_name=f"agentic:{execution.candidate_id}",
+                signal_reason=f"confirmed agentic paper intent {execution.id}",
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            self.repository.save_agentic_order_draft(draft)
+            drafts.append(draft)
+        return drafts
 
     def list_executions(self, limit: int = 100) -> list[PaperStrategyExecution]:
         return self.repository.list_paper_strategy_executions(limit=limit)

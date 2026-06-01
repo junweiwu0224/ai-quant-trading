@@ -137,3 +137,35 @@ def test_paper_strategy_execution_confirm_rejects_risk_failure(tmp_path):
     assert rejected.requires_confirmation is False
     assert "blacklisted code: 600519" in rejected.reason
     assert "strategy cash pct" in rejected.reason
+
+
+def test_confirmed_execution_can_create_paper_order_drafts(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001", "600519"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+    confirmed = service.confirm_execution(execution.id, portfolio={"total_equity": 100000, "positions": {}}, risk_context={"cash_pct": 0.05})
+
+    drafts = service.create_order_drafts(confirmed.id, volume_per_code=100)
+
+    assert [draft.code for draft in drafts] == ["000001", "600519"]
+    assert all(draft.status == "draft_pending" for draft in drafts)
+    assert all(draft.direction == "buy" and draft.order_type == "market" for draft in drafts)
+    assert all(draft.volume == 100 for draft in drafts)
+    assert repo.list_agentic_order_drafts()[0].execution_id == confirmed.id
+
+
+def test_order_drafts_require_confirmed_execution(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"]})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+
+    try:
+        service.create_order_drafts(execution.id)
+    except ValueError as exc:
+        assert "paper_intent_confirmed" in str(exc)
+    else:
+        raise AssertionError("unconfirmed execution should not create drafts")

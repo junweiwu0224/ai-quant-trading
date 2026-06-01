@@ -84,6 +84,10 @@ class ConfirmPaperExecutionPayload(BaseModel):
     risk_context: dict[str, Any] = {}
 
 
+class CreateOrderDraftsPayload(BaseModel):
+    volume_per_code: int = 100
+
+
 @router.get("/agents")
 def list_agents():
     return {"success": True, "agents": [asdict(agent) for agent in registry.list()]}
@@ -199,6 +203,28 @@ def confirm_paper_strategy_execution(execution_id: str, payload: ConfirmPaperExe
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "execution": asdict(execution)}
+
+
+@router.get("/strategy/order-drafts")
+def list_agentic_order_drafts(limit: int = 100):
+    return {
+        "success": True,
+        "drafts": [asdict(item) for item in agentic_repository.list_agentic_order_drafts(limit=limit)],
+    }
+
+
+@router.post("/strategy/paper-executions/{execution_id}/order-drafts")
+def create_agentic_order_drafts(execution_id: str, payload: CreateOrderDraftsPayload):
+    try:
+        drafts = paper_strategy_candidate_service.create_order_drafts(
+            execution_id,
+            volume_per_code=payload.volume_per_code,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "drafts": [asdict(item) for item in drafts]}
 
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):

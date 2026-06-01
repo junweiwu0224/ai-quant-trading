@@ -371,3 +371,40 @@ def test_agentic_paper_execution_can_be_confirmed_with_risk_gate(client, monkeyp
     assert body["success"] is True
     assert body["execution"]["status"] == "paper_intent_confirmed"
     assert body["execution"]["requires_confirmation"] is False
+
+
+def test_agentic_confirmed_execution_can_create_order_drafts(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import AgenticPaperOrderDraft
+
+    class FakeService:
+        def create_order_drafts(self, execution_id, volume_per_code=100):
+            assert execution_id == "paper_execution_1"
+            assert volume_per_code == 200
+            return [
+                AgenticPaperOrderDraft(
+                    id="agentic_order_draft_1",
+                    execution_id=execution_id,
+                    code="000001",
+                    direction="buy",
+                    order_type="market",
+                    volume=200,
+                    status="draft_pending",
+                    strategy_name="agentic:qlib_ranked_core",
+                    signal_reason="confirmed agentic paper intent paper_execution_1",
+                    created_at="2026-06-01T22:20:00+00:00",
+                )
+            ]
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-executions/paper_execution_1/order-drafts",
+        json={"volume_per_code": 200},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["drafts"][0]["status"] == "draft_pending"
+    assert body["drafts"][0]["volume"] == 200

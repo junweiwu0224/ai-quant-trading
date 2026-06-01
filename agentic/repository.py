@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agentic.models import PaperStrategyCandidate, PaperStrategyExecution, ResearchJob, TradingSignal, normalize_signal_code
+from agentic.models import AgenticPaperOrderDraft, PaperStrategyCandidate, PaperStrategyExecution, ResearchJob, TradingSignal, normalize_signal_code
 from utils.db import get_connection
 
 
@@ -81,6 +81,23 @@ class AgenticRepository:
                     status TEXT NOT NULL,
                     reason TEXT NOT NULL,
                     requires_confirmation INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agentic_paper_order_drafts (
+                    id TEXT PRIMARY KEY,
+                    execution_id TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    order_type TEXT NOT NULL,
+                    volume INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    strategy_name TEXT NOT NULL,
+                    signal_reason TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )
                 """
@@ -311,6 +328,49 @@ class AgenticRepository:
             )
             conn.commit()
 
+
+    def save_agentic_order_draft(self, draft: AgenticPaperOrderDraft) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agentic_paper_order_drafts (
+                    id, execution_id, code, direction, order_type, volume,
+                    status, strategy_name, signal_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    execution_id = excluded.execution_id,
+                    code = excluded.code,
+                    direction = excluded.direction,
+                    order_type = excluded.order_type,
+                    volume = excluded.volume,
+                    status = excluded.status,
+                    strategy_name = excluded.strategy_name,
+                    signal_reason = excluded.signal_reason,
+                    created_at = excluded.created_at
+                """,
+                (
+                    draft.id, draft.execution_id, draft.code, draft.direction,
+                    draft.order_type, draft.volume, draft.status, draft.strategy_name,
+                    draft.signal_reason, draft.created_at,
+                ),
+            )
+            conn.commit()
+
+    def list_agentic_order_drafts(self, limit: int = 100) -> list[AgenticPaperOrderDraft]:
+        safe_limit = max(1, min(int(limit), 500))
+        with get_connection(self.db_path, readonly=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, execution_id, code, direction, order_type, volume,
+                       status, strategy_name, signal_reason, created_at
+                FROM agentic_paper_order_drafts
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [_row_to_agentic_order_draft(row) for row in rows]
+
     def get_paper_strategy_execution(self, execution_id: str) -> PaperStrategyExecution:
         with get_connection(self.db_path, readonly=True) as conn:
             row = conn.execute(
@@ -382,6 +442,21 @@ def _from_json(value: str | None, default: Any) -> Any:
     if value is None:
         return default
     return json.loads(value)
+
+
+def _row_to_agentic_order_draft(row: Any) -> AgenticPaperOrderDraft:
+    return AgenticPaperOrderDraft(
+        id=row["id"],
+        execution_id=row["execution_id"],
+        code=row["code"],
+        direction=row["direction"],
+        order_type=row["order_type"],
+        volume=row["volume"],
+        status=row["status"],
+        strategy_name=row["strategy_name"],
+        signal_reason=row["signal_reason"],
+        created_at=row["created_at"],
+    )
 
 
 def _row_to_paper_strategy_execution(row: Any) -> PaperStrategyExecution:

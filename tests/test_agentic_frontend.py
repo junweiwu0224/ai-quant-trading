@@ -154,3 +154,13 @@ def test_agentic_pending_execution_can_be_confirmed_from_frontend():
     assert "confirmPaperStrategyExecution" in js
     assert "/api/agentic/strategy/paper-executions" in js
     assert "risk_context" in js
+
+
+def test_agentic_confirmed_execution_can_create_order_drafts_from_frontend():
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="create-order-drafts"' in js
+    assert "createAgenticOrderDrafts" in js
+    assert "/api/agentic/strategy/order-drafts" in js
+    assert "loadAgenticOrderDrafts" in js
+    assert "agentic-order-draft-list" in read_styles()

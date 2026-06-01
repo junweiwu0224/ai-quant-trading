@@ -182,3 +182,28 @@ class PaperStrategyExecution:
         object.__setattr__(self, "codes", codes)
         object.__setattr__(self, "dsl", dict(self.dsl or {}))
         object.__setattr__(self, "requires_confirmation", bool(self.requires_confirmation))
+
+
+@dataclass(frozen=True)
+class AgenticPaperOrderDraft:
+    id: str
+    execution_id: str
+    code: str
+    direction: str
+    order_type: str
+    volume: int
+    status: str
+    strategy_name: str
+    signal_reason: str
+    created_at: str
+
+    def __post_init__(self) -> None:
+        if self.direction not in {"buy", "sell"}:
+            raise ValueError(f"unsupported draft direction: {self.direction}")
+        if self.order_type not in {"market", "limit"}:
+            raise ValueError(f"unsupported draft order_type: {self.order_type}")
+        if self.status not in {"draft_pending", "submitted", "rejected"}:
+            raise ValueError(f"unsupported draft status: {self.status}")
+        if int(self.volume) <= 0 or int(self.volume) % 100 != 0:
+            raise ValueError("draft volume must be a positive board lot")
+        object.__setattr__(self, "volume", int(self.volume))

@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=37">
+    <link rel="stylesheet" href="/static/style.css?v=38">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -1193,10 +1193,12 @@
                                 <h3>模拟盘推进区</h3>
                                 <button class="btn btn-secondary btn-sm" data-agentic-action="refresh-paper-candidates">刷新候选</button>
                             </div>
-                            <p class="text-muted text-sm">这里只显示最近需要处理的策略，历史记录会自动收起。</p>
-                            <div class="agentic-paper-candidate-list" data-agentic-paper-candidates></div>
-                            <div class="agentic-paper-execution-list" data-agentic-paper-executions></div>
-                            <div class="agentic-order-draft-list" data-agentic-order-drafts></div>
+                            <p class="text-muted text-sm">主视图只展示当前最该处理的一条策略，历史记录放在下方折叠区。</p>
+                            <div class="agentic-current-action" data-agentic-current-action></div>
+                            <details class="agentic-history-panel">
+                                <summary>历史 / 调试信息</summary>
+                                <div data-agentic-history></div>
+                            </details>
                         </div>
                     </div>
                     <div id="agentic-signal-pool" class="agentic-signal-pool">

@@ -7718,6 +7718,78 @@ tbody tr:nth-child(even):hover {
   padding-top: 12px;
   border-top: 1px solid var(--border-color, #d8dee9);
 }
+.agentic-current-action {
+  margin-top: 12px;
+}
+.agentic-current-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(37, 99, 235, 0.05);
+}
+.agentic-current-card h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.25;
+}
+.agentic-current-card p {
+  margin: 0;
+  color: var(--text-muted, #6b7280);
+}
+.agentic-current-card.is-actionable {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(22, 163, 74, 0.06);
+}
+.agentic-current-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.agentic-current-meta span {
+  min-width: 0;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+}
+.agentic-current-meta b {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--text-color, #111827);
+  font-size: 13px;
+  margin-top: 3px;
+}
+.agentic-history-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.agentic-history-panel summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: var(--text-muted, #6b7280);
+  font-size: 13px;
+}
+.agentic-history-panel[open] summary {
+  border-bottom: 1px solid var(--border-color, #d8dee9);
+}
+.agentic-history-group {
+  padding: 10px 12px 12px;
+}
+.agentic-history-group + .agentic-history-group {
+  border-top: 1px solid var(--border-color, #d8dee9);
+}
+.agentic-history-group h4 {
+  margin: 0 0 8px;
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+  font-weight: 700;
+}
 .agentic-paper-candidate-list {
   display: grid;
   gap: 10px;
@@ -7804,5 +7876,8 @@ tbody tr:nth-child(even):hover {
   .agentic-primary-action {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .agentic-current-meta {
+    grid-template-columns: 1fr;
   }
 }

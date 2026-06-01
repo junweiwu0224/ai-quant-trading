@@ -121,7 +121,7 @@ def test_agentic_paper_candidate_review_ui_is_registered():
     html = read_template()
     js = read_agentic_signals()
 
-    assert 'data-agentic-paper-candidates' in html
+    assert 'data-agentic-paper-candidates' in js
     assert 'data-agentic-action="refresh-paper-candidates"' in html
     assert "loadPaperStrategyCandidates" in js
     assert "confirmPaperStrategyCandidate" in js
@@ -156,6 +156,28 @@ def test_agentic_review_limits_history_noise():
 
     assert "AGENTIC_HISTORY_LIMIT" in js
     assert ".slice(0, AGENTIC_HISTORY_LIMIT)" in js
+
+
+def test_agentic_workbench_separates_current_action_from_history():
+    html = read_template()
+    js = read_agentic_signals()
+
+    assert "agentic-current-action" in html
+    assert "agentic-history-panel" in html
+    assert "data-agentic-current-action" in html
+    assert "data-agentic-history" in html
+    assert "renderCurrentAgenticAction" in js
+    assert "renderAgenticHistory" in js
+    assert "currentActionItem" in js
+    assert "historyItems" in js
+    assert "新候选已生成，先确认是否进入模拟盘" in js
+    review = html.split('data-agentic-current-action', 1)[1].split('id="agentic-signal-pool"', 1)[0]
+    assert 'data-agentic-paper-candidates' not in review
+    assert 'data-agentic-paper-executions' not in review
+    assert 'data-agentic-order-drafts' not in review
+    assert "renderPaperStrategyCandidates(history.candidates)" in js
+    assert "renderPaperStrategyExecutions(history.executions)" in js
+    assert "renderAgenticOrderDrafts(history.drafts)" in js
 
 
 def test_agentic_paper_candidate_review_styles_exist():

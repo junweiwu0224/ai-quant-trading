@@ -226,6 +226,20 @@ def create_agentic_order_drafts(execution_id: str, payload: CreateOrderDraftsPay
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "drafts": [asdict(item) for item in drafts]}
 
+
+@router.post("/strategy/paper-executions/{execution_id}/paper-orders")
+def submit_agentic_paper_orders(execution_id: str, payload: CreateOrderDraftsPayload):
+    try:
+        orders = paper_strategy_candidate_service.submit_confirmed_execution_orders(
+            execution_id,
+            volume_per_code=payload.volume_per_code,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "orders": [item.to_dict() for item in orders]}
+
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):
     batch = await candidate_backtester.run(

@@ -21,6 +21,26 @@
     };
   }
 
+  function authMessage(error) {
+    return error?.status === 401 ? '请先登录后查看 Agent 策略实验台' : '';
+  }
+
+  async function agenticFetchJson(url, options) {
+    const resp = await fetch(url, options);
+    let data = {};
+    try {
+      data = await resp.json();
+    } catch (error) {
+      data = {};
+    }
+    if (!resp.ok || !data.success) {
+      const error = new Error(data.detail || `request failed: ${resp.status}`);
+      error.status = resp.status;
+      throw error;
+    }
+    return data;
+  }
+
   function renderSampleStatus() {
     const el = document.querySelector('[data-agentic-sample-status]');
     if (!el) return;
@@ -105,15 +125,13 @@
     const holder = document.querySelector('[data-agentic-sample-status]');
     if (!holder) return;
     try {
-      const resp = await fetch('/api/agentic/backtest-sample?min_days=60&max_codes=5');
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'sample unavailable');
+      const data = await agenticFetchJson('/api/agentic/backtest-sample?min_days=60&max_codes=5');
       state.sample = data.sample;
       renderSampleStatus();
     } catch (error) {
       state.sample = null;
       renderSampleStatus();
-      renderBacktestResult('本地样本不可用，请先同步 Qlib/日线覆盖数据');
+      renderBacktestResult(authMessage(error) || '本地样本不可用，请先同步 Qlib/日线覆盖数据');
     }
   }
 
@@ -122,7 +140,7 @@
     if (!state.sample) return;
     renderBacktestResult('回测运行中...');
     try {
-      const resp = await fetch('/api/agentic/strategy/run-backtest', {
+      const data = await agenticFetchJson('/api/agentic/strategy/run-backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,20 +151,18 @@
           initial_cash: 1000000,
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'backtest failed');
       state.backtest = data;
       renderBacktestResult();
     } catch (error) {
       state.backtest = null;
-      renderBacktestResult('样本回测失败：' + (error.message || error));
+      renderBacktestResult(authMessage(error) || ('样本回测失败：' + (error.message || error)));
     }
   }
 
   async function runCandidateBacktests() {
     renderCandidateBacktestResults('候选策略回测运行中...');
     try {
-      const resp = await fetch('/api/agentic/strategy/run-candidates', {
+      const data = await agenticFetchJson('/api/agentic/strategy/run-candidates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -157,15 +173,13 @@
           initial_cash: 1000000,
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'candidate backtest failed');
       state.candidateBatch = data;
       state.sample = data.sample || state.sample;
       renderSampleStatus();
       renderCandidateBacktestResults();
     } catch (error) {
       state.candidateBatch = null;
-      renderCandidateBacktestResults('候选回测失败：' + (error.message || error));
+      renderCandidateBacktestResults(authMessage(error) || ('候选回测失败：' + (error.message || error)));
     }
   }
 
@@ -173,16 +187,14 @@
     const result = state.candidateBatch?.results?.[Number(index)];
     if (!result || !result.promotion?.promoted) return;
     try {
-      const resp = await fetch('/api/agentic/strategy/paper-candidates', {
+      const data = await agenticFetchJson('/api/agentic/strategy/paper-candidates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sample: state.candidateBatch.sample, result }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'queue failed');
       renderCandidateBacktestResults(`已加入模拟盘候选：${data.candidate?.name || result.candidate?.name || ''}`);
     } catch (error) {
-      renderCandidateBacktestResults('加入模拟盘候选失败：' + (error.message || error));
+      renderCandidateBacktestResults(authMessage(error) || ('加入模拟盘候选失败：' + (error.message || error)));
     }
   }
 
@@ -213,28 +225,24 @@
     if (!list) return;
     list.innerHTML = '<div class="empty-state">加载候选中...</div>';
     try {
-      const resp = await fetch('/api/agentic/strategy/paper-candidates?limit=20');
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'load failed');
+      const data = await agenticFetchJson('/api/agentic/strategy/paper-candidates?limit=20');
       state.paperCandidates = data.candidates || [];
       renderPaperStrategyCandidates();
     } catch (error) {
       state.paperCandidates = [];
-      list.innerHTML = '<div class="empty-state">候选加载失败</div>';
+      list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '候选加载失败') + '</div>';
     }
   }
 
   async function confirmPaperStrategyCandidate(candidateId) {
     if (!candidateId) return;
     try {
-      const resp = await fetch(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/confirm`, { method: 'POST' });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'confirm failed');
+      const data = await agenticFetchJson(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/confirm`, { method: 'POST' });
       state.paperCandidates = state.paperCandidates.map(item => item.id === candidateId ? data.candidate : item);
       renderPaperStrategyCandidates();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-candidates]');
-      if (list) list.innerHTML = '<div class="empty-state">确认失败：' + esc(error.message || error) + '</div>';
+      if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('确认失败：' + (error.message || error))) + '</div>';
     }
   }
 
@@ -252,6 +260,8 @@
         <p>${esc(item.reason || '')}</p>
         ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(item.id)}">确认意图</button>` : ''}
         ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-secondary btn-sm" data-agentic-action="create-order-drafts" data-paper-execution-id="${esc(item.id)}">生成订单草案</button>` : ''}
+        ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-primary btn-sm" data-agentic-action="submit-paper-orders" data-paper-execution-id="${esc(item.id)}">写入模拟盘订单</button>` : ''}
+        ${item.status === 'paper_orders_submitted' ? `<span class="badge success">已写入模拟盘订单</span>` : ''}
       </article>
     `).join('');
   }
@@ -260,35 +270,31 @@
     const list = document.querySelector('[data-agentic-paper-executions]');
     if (!list) return;
     try {
-      const resp = await fetch('/api/agentic/strategy/paper-executions?limit=20');
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'load executions failed');
+      const data = await agenticFetchJson('/api/agentic/strategy/paper-executions?limit=20');
       state.paperExecutions = data.executions || [];
       renderPaperStrategyExecutions();
     } catch (error) {
       state.paperExecutions = [];
-      list.innerHTML = '<div class="empty-state">执行记录加载失败</div>';
+      list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '执行记录加载失败') + '</div>';
     }
   }
 
   async function runPaperStrategyCandidate(candidateId) {
     if (!candidateId) return;
     try {
-      const resp = await fetch(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/run`, { method: 'POST' });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'run failed');
+      const data = await agenticFetchJson(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/run`, { method: 'POST' });
       state.paperExecutions = [data.execution, ...state.paperExecutions.filter(item => item.id !== data.execution.id)];
       renderPaperStrategyExecutions();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-executions]');
-      if (list) list.innerHTML = '<div class="empty-state">生成意图失败：' + esc(error.message || error) + '</div>';
+      if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('生成意图失败：' + (error.message || error))) + '</div>';
     }
   }
 
   async function confirmPaperStrategyExecution(executionId) {
     if (!executionId) return;
     try {
-      const resp = await fetch(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/confirm`, {
+      const data = await agenticFetchJson(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -303,13 +309,11 @@
           },
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'confirm execution failed');
       state.paperExecutions = state.paperExecutions.map(item => item.id === executionId ? data.execution : item);
       renderPaperStrategyExecutions();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-executions]');
-      if (list) list.innerHTML = '<div class="empty-state">确认意图失败：' + esc(error.message || error) + '</div>';
+      if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('确认意图失败：' + (error.message || error))) + '</div>';
     }
   }
 
@@ -332,32 +336,47 @@
     const list = document.querySelector('[data-agentic-order-drafts]');
     if (!list) return;
     try {
-      const resp = await fetch('/api/agentic/strategy/order-drafts?limit=20');
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'load order drafts failed');
+      const data = await agenticFetchJson('/api/agentic/strategy/order-drafts?limit=20');
       state.orderDrafts = data.drafts || [];
       renderAgenticOrderDrafts();
     } catch (error) {
       state.orderDrafts = [];
-      list.innerHTML = '<div class="empty-state">订单草案加载失败</div>';
+      list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '订单草案加载失败') + '</div>';
     }
   }
 
   async function createAgenticOrderDrafts(executionId) {
     if (!executionId) return;
     try {
-      const resp = await fetch(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/order-drafts`, {
+      const data = await agenticFetchJson(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/order-drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ volume_per_code: 100 }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.detail || 'create order drafts failed');
       state.orderDrafts = [...(data.drafts || []), ...state.orderDrafts];
       renderAgenticOrderDrafts();
     } catch (error) {
       const list = document.querySelector('[data-agentic-order-drafts]');
-      if (list) list.innerHTML = '<div class="empty-state">生成订单草案失败：' + esc(error.message || error) + '</div>';
+      if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('生成订单草案失败：' + (error.message || error))) + '</div>';
+    }
+  }
+
+  async function submitAgenticPaperOrders(executionId) {
+    if (!executionId) return;
+    const list = document.querySelector('[data-agentic-paper-executions]');
+    try {
+      const data = await agenticFetchJson(`/api/agentic/strategy/paper-executions/${encodeURIComponent(executionId)}/paper-orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume_per_code: 100 }),
+      });
+      if (list) {
+        list.insertAdjacentHTML('afterbegin', `<div class="empty-state">已写入模拟盘订单 ${esc((data.orders || []).length)} 笔</div>`);
+      }
+      state.paperExecutions = state.paperExecutions.map(item => item.id === executionId ? { ...item, status: 'paper_orders_submitted', reason: `submitted ${(data.orders || []).length} paper orders from confirmed agentic intent` } : item);
+      renderPaperStrategyExecutions();
+    } catch (error) {
+      if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('写入模拟盘订单失败：' + (error.message || error))) + '</div>';
     }
   }
 
@@ -400,12 +419,11 @@
     if (!list) return;
     list.innerHTML = '<div class="empty-state">加载中...</div>';
     try {
-      const resp = await fetch('/api/agentic/signals');
-      const data = await resp.json();
+      const data = await agenticFetchJson('/api/agentic/signals');
       state.signals = data.signals || [];
     } catch (error) {
       state.signals = [];
-      list.innerHTML = '<div class="empty-state">信号加载失败</div>';
+      list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '信号加载失败') + '</div>';
       return;
     }
     render();
@@ -422,6 +440,7 @@
     if (action === 'run-paper-strategy') runPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     if (action === 'confirm-paper-execution') confirmPaperStrategyExecution(event.target?.dataset?.paperExecutionId);
     if (action === 'create-order-drafts') createAgenticOrderDrafts(event.target?.dataset?.paperExecutionId);
+    if (action === 'submit-paper-orders') submitAgenticPaperOrders(event.target?.dataset?.paperExecutionId);
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -430,7 +449,7 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, loadAgenticOrderDrafts, createAgenticOrderDrafts, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, loadAgenticOrderDrafts, createAgenticOrderDrafts, submitAgenticPaperOrders, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();

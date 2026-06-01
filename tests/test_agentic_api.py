@@ -408,3 +408,38 @@ def test_agentic_confirmed_execution_can_create_order_drafts(client, monkeypatch
     assert body["success"] is True
     assert body["drafts"][0]["status"] == "draft_pending"
     assert body["drafts"][0]["volume"] == 200
+
+
+def test_agentic_confirmed_execution_can_submit_real_paper_orders(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from engine.models import Direction, OrderStatus, OrderType, PaperOrder
+
+    class FakeService:
+        def submit_confirmed_execution_orders(self, execution_id, volume_per_code=100):
+            assert execution_id == "paper_execution_1"
+            assert volume_per_code == 200
+            return [
+                PaperOrder(
+                    order_id="ORD-AGENTIC1",
+                    code="000001",
+                    direction=Direction.LONG,
+                    order_type=OrderType.MARKET,
+                    volume=200,
+                    status=OrderStatus.PENDING,
+                    strategy_name="agentic:qlib_ranked_core",
+                    signal_reason="confirmed agentic paper intent paper_execution_1",
+                )
+            ]
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-executions/paper_execution_1/paper-orders",
+        json={"volume_per_code": 200},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["orders"][0]["order_id"] == "ORD-AGENTIC1"
+    assert body["orders"][0]["status"] == "pending"

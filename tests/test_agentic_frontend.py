@@ -164,3 +164,20 @@ def test_agentic_confirmed_execution_can_create_order_drafts_from_frontend():
     assert "/api/agentic/strategy/order-drafts" in js
     assert "loadAgenticOrderDrafts" in js
     assert "agentic-order-draft-list" in read_styles()
+
+
+def test_agentic_confirmed_execution_can_submit_real_paper_orders_from_frontend():
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="submit-paper-orders"' in js
+    assert "submitAgenticPaperOrders" in js
+    assert "/paper-orders" in js
+    assert "已写入模拟盘订单" in js
+
+
+def test_agentic_frontend_shows_auth_prompt_for_unauthorized_api():
+    js = read_agentic_signals()
+
+    assert "agenticFetchJson" in js
+    assert "请先登录后查看 Agent 策略实验台" in js
+    assert "status === 401" in js

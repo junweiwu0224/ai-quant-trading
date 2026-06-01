@@ -174,7 +174,7 @@ class PaperStrategyExecution:
     created_at: str
 
     def __post_init__(self) -> None:
-        if self.status not in {"paper_intent_pending", "paper_intent_confirmed", "rejected"}:
+        if self.status not in {"paper_intent_pending", "paper_intent_confirmed", "paper_orders_submitted", "rejected"}:
             raise ValueError(f"unsupported paper strategy execution status: {self.status}")
         if not self.candidate_record_id:
             raise ValueError("candidate_record_id is required")

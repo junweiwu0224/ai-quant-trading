@@ -1,6 +1,7 @@
 from agentic.paper_strategy_candidates import PaperStrategyCandidateService
 from agentic.repository import AgenticRepository
 from agentic.strategy_candidates import StrategyCandidateGenerator
+from engine.order_manager import OrderManager
 
 
 def _promoted_result():
@@ -169,3 +170,61 @@ def test_order_drafts_require_confirmed_execution(tmp_path):
         assert "paper_intent_confirmed" in str(exc)
     else:
         raise AssertionError("unconfirmed execution should not create drafts")
+
+
+def test_confirmed_execution_can_submit_real_paper_orders(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    order_manager = OrderManager(str(tmp_path / "paper_trading.db"))
+    service = PaperStrategyCandidateService(repo, order_manager=order_manager)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001", "600519"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+    confirmed = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context={"cash_pct": 0.05},
+    )
+
+    orders = service.submit_confirmed_execution_orders(confirmed.id, volume_per_code=100)
+
+    assert [order.code for order in orders] == ["000001", "600519"]
+    assert all(order.status.value == "pending" for order in orders)
+    assert all(order.strategy_name == "agentic:qlib_ranked_core" for order in orders)
+    persisted = order_manager.get_orders(page_size=10)["items"]
+    assert [order["code"] for order in persisted] == ["600519", "000001"]
+    assert repo.get_paper_strategy_execution(confirmed.id).status == "paper_orders_submitted"
+
+
+def test_real_paper_order_submission_is_idempotency_guarded(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    order_manager = OrderManager(str(tmp_path / "paper_trading.db"))
+    service = PaperStrategyCandidateService(repo, order_manager=order_manager)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+    confirmed = service.confirm_execution(execution.id, portfolio={"total_equity": 100000, "positions": {}}, risk_context={"cash_pct": 0.05})
+
+    service.submit_confirmed_execution_orders(confirmed.id)
+
+    try:
+        service.submit_confirmed_execution_orders(confirmed.id)
+    except ValueError as exc:
+        assert "paper_intent_confirmed" in str(exc)
+    else:
+        raise AssertionError("submitted execution should not submit duplicate orders")
+    assert order_manager.get_orders(page_size=10)["total"] == 1
+
+
+def test_real_paper_orders_require_confirmed_execution(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo, order_manager=OrderManager(str(tmp_path / "paper_trading.db")))
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"]})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+
+    try:
+        service.submit_confirmed_execution_orders(execution.id)
+    except ValueError as exc:
+        assert "paper_intent_confirmed" in str(exc)
+    else:
+        raise AssertionError("unconfirmed execution should not submit real orders")

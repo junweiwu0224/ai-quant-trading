@@ -6,11 +6,14 @@ from uuid import uuid4
 from agentic.models import AgenticPaperOrderDraft, PaperStrategyCandidate, PaperStrategyExecution
 from agentic.portfolio_risk import PortfolioRiskGate, PortfolioRiskLimits
 from agentic.repository import AgenticRepository
+from engine.models import Direction, OrderType, PaperOrder
+from engine.order_manager import OrderManager
 
 
 class PaperStrategyCandidateService:
-    def __init__(self, repository: AgenticRepository):
+    def __init__(self, repository: AgenticRepository, order_manager: OrderManager | None = None):
         self.repository = repository
+        self.order_manager = order_manager or OrderManager()
 
     def enqueue(self, result: dict, sample: dict) -> PaperStrategyCandidate:
         promotion = dict(result.get("promotion") or {})
@@ -103,6 +106,7 @@ class PaperStrategyCandidateService:
         execution = self.repository.get_paper_strategy_execution(execution_id)
         if execution.status != "paper_intent_confirmed":
             raise ValueError("only paper_intent_confirmed executions can create order drafts")
+        volume_per_code = self._validate_volume(volume_per_code)
         drafts: list[AgenticPaperOrderDraft] = []
         for code in execution.codes:
             draft = AgenticPaperOrderDraft(
@@ -120,6 +124,38 @@ class PaperStrategyCandidateService:
             self.repository.save_agentic_order_draft(draft)
             drafts.append(draft)
         return drafts
+
+    def submit_confirmed_execution_orders(self, execution_id: str, volume_per_code: int = 100) -> list[PaperOrder]:
+        execution = self.repository.get_paper_strategy_execution(execution_id)
+        if execution.status != "paper_intent_confirmed":
+            raise ValueError("only paper_intent_confirmed executions can submit real paper orders")
+        volume_per_code = self._validate_volume(volume_per_code)
+        orders: list[PaperOrder] = []
+        for code in execution.codes:
+            orders.append(
+                self.order_manager.create_order(
+                    code=str(code),
+                    direction=Direction.LONG,
+                    order_type=OrderType.MARKET,
+                    volume=volume_per_code,
+                    strategy_name=f"agentic:{execution.candidate_id}",
+                    signal_reason=f"confirmed agentic paper intent {execution.id}",
+                )
+            )
+        self.repository.update_paper_strategy_execution_status(
+            execution_id,
+            status="paper_orders_submitted",
+            reason=f"submitted {len(orders)} paper orders from confirmed agentic intent",
+            requires_confirmation=False,
+        )
+        return orders
+
+    @staticmethod
+    def _validate_volume(volume_per_code: int) -> int:
+        volume = int(volume_per_code)
+        if volume <= 0 or volume % 100 != 0:
+            raise ValueError("volume_per_code must be a positive board lot")
+        return volume
 
     def list_executions(self, limit: int = 100) -> list[PaperStrategyExecution]:
         return self.repository.list_paper_strategy_executions(limit=limit)

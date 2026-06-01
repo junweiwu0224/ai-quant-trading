@@ -140,6 +140,16 @@ def test_agentic_paper_flow_uses_plain_chinese_status_copy():
     assert "renderNextAgenticAction" in js
 
 
+def test_agentic_candidate_summary_explains_rejection_causes():
+    js = read_agentic_signals()
+
+    assert "buildCandidateDiagnosis" in js
+    assert "产生交易为 0" in js
+    assert "Qlib 历史预测覆盖不足" in js
+    assert "Sharpe 没达标" in js
+    assert "agentic-diagnosis-list" in js
+
+
 def test_agentic_review_limits_history_noise():
     js = read_agentic_signals()
 

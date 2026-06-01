@@ -82,6 +82,28 @@
     })[reason] || reason || '-';
   }
 
+  function buildCandidateDiagnosis(results) {
+    const items = Array.isArray(results) ? results : [];
+    const promoted = items.filter(item => item.promotion?.promoted).length;
+    const zeroTrade = items.filter(item => Number(item.metrics?.trades || 0) === 0).length;
+    const insufficientTrades = items.filter(item => item.promotion?.reason === 'insufficient trades').length;
+    const sharpeFailed = items.filter(item => item.promotion?.reason === 'sharpe below threshold').length;
+    const drawdownFailed = items.filter(item => item.promotion?.reason === 'max drawdown exceeded').length;
+    const notes = [];
+    if (promoted) notes.push(`${promoted} 个策略可以进入模拟盘候选`);
+    if (zeroTrade) notes.push(`${zeroTrade} 个策略产生交易为 0，常见原因是 Qlib 历史预测覆盖不足，回测期内没有可用信号`);
+    if (insufficientTrades && insufficientTrades > zeroTrade) notes.push(`${insufficientTrades - zeroTrade} 个策略交易次数不足，样本太少时不建议实跑`);
+    if (sharpeFailed) notes.push(`${sharpeFailed} 个策略 Sharpe 没达标，说明收益波动后不够稳`);
+    if (drawdownFailed) notes.push(`${drawdownFailed} 个策略回撤超过门槛`);
+    if (!notes.length) notes.push('本轮候选没有明显错误，但尚未达到模拟盘晋级门槛');
+    const action = promoted
+      ? '下一步：选择晋级策略加入模拟盘候选。'
+      : zeroTrade
+        ? '下一步：先补齐 Qlib 历史预测，或缩短回测区间到已有预测覆盖日期附近，再重新回测。'
+        : '下一步：降低策略风险或调整候选参数后重新回测。';
+    return { promoted, zeroTrade, insufficientTrades, sharpeFailed, drawdownFailed, notes, action };
+  }
+
   function renderNextAgenticAction() {
     const el = document.querySelector('[data-agentic-next-action]');
     if (!el) return;
@@ -159,8 +181,16 @@
       if (summary) summary.textContent = '等待候选回测';
       return;
     }
-    const promoted = results.filter(item => item.promotion?.promoted).length;
-    if (summary) summary.textContent = promoted ? `候选 ${results.length} 个，其中 ${promoted} 个可以进入模拟盘候选` : `候选 ${results.length} 个，本轮没有策略达到模拟盘门槛`;
+    const diagnosis = buildCandidateDiagnosis(results);
+    if (summary) {
+      summary.innerHTML = `
+        <strong>${diagnosis.promoted ? `候选 ${results.length} 个，其中 ${diagnosis.promoted} 个可以进入模拟盘候选` : `候选 ${results.length} 个，暂时不要进模拟盘`}</strong>
+        <div class="agentic-diagnosis-list">
+          ${diagnosis.notes.map(note => `<span>${esc(note)}</span>`).join('')}
+        </div>
+        <em>${esc(diagnosis.action)}</em>
+      `;
+    }
     list.innerHTML = results.map((item, index) => {
       const candidate = item.candidate || {};
       const metrics = item.metrics || {};

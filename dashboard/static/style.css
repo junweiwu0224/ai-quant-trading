@@ -7637,6 +7637,22 @@ tbody tr:nth-child(even):hover {
   display: block;
   margin-top: 4px;
 }
+.agentic-backtest-result em {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-color, #111827);
+  font-style: normal;
+  font-weight: 700;
+}
+.agentic-diagnosis-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.agentic-diagnosis-list span {
+  display: block;
+  color: var(--text-muted, #6b7280);
+}
 
 .agentic-candidate-list {
   display: grid;

@@ -166,12 +166,13 @@ async def favicon():
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402
-    account, alerts, alpha, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, openclaw, optimization, paper_control,
+    agentic, account, alerts, alpha, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, openclaw, optimization, paper_control,
     paper_trading, portfolio, portfolio_opt, qlib, realtime_quotes, screener, stock_detail, strategy,
     strategy_version, system, valuation, watchlist,
 )
 
 app.include_router(account.router, prefix="/api/account", tags=["用户与工作区"])
+app.include_router(agentic.router, prefix="/api/agentic", tags=["Agentic 交易平台"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["回测"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["持仓"])
 app.include_router(system.router, prefix="/api/system", tags=["系统"])

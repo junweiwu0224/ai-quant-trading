@@ -839,6 +839,7 @@
                 <button class="research-sub-tab" data-subtab="formula" role="tab" aria-selected="false">公式</button>
                 <button class="research-sub-tab" data-subtab="basket" role="tab" aria-selected="false">篮子</button>
                 <button class="research-sub-tab" data-subtab="strategy" role="tab" aria-selected="false">策略</button>
+                <button class="research-sub-tab" data-subtab="agentic" role="tab" aria-selected="false">Agent 信号</button>
             </div>
             <div class="research-sub-panels">
                 <div class="research-sub-panel" id="research-panel-screener" role="tabpanel">
@@ -1160,6 +1161,23 @@
                         <div class="chart-container chart-h-lg">
                             <canvas id="compare-chart" aria-label="多股对比图"></canvas>
                         </div>
+                    </div>
+                </div>                <div class="research-sub-panel" id="research-panel-agentic" role="tabpanel">
+                    <div id="agentic-signal-pool" class="agentic-signal-pool">
+                        <div class="card-header-row">
+                            <div>
+                                <h2>Agent 信号池</h2>
+                                <p class="text-muted text-sm">统一查看 Qlib、热点、问财、OpenClaw 和策略 Agent 发布的结构化信号。</p>
+                            </div>
+                            <button class="btn btn-primary btn-sm" data-agentic-action="refresh-signals">刷新信号</button>
+                        </div>
+                        <div class="agentic-signal-toolbar" role="toolbar" aria-label="Agent 信号筛选">
+                            <button class="segmented active" data-agentic-filter="all">全部</button>
+                            <button class="segmented" data-agentic-filter="new">新信号</button>
+                            <button class="segmented" data-agentic-filter="paper_active">模拟盘</button>
+                            <button class="segmented" data-agentic-filter="expired">已过期</button>
+                        </div>
+                        <div class="agentic-signal-list" data-agentic-signal-list></div>
                     </div>
                 </div>
                 <div class="research-sub-panel" id="research-panel-strategy" role="tabpanel">

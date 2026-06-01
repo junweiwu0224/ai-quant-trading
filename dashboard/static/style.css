@@ -7486,3 +7486,36 @@ tbody tr:nth-child(even):hover {
         flex-wrap: wrap;
     }
 }
+
+.agentic-signal-toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.agentic-signal-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.agentic-signal-card {
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-bg, #fff);
+}
+.agentic-signal-card header,
+.agentic-signal-meta,
+.agentic-signal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.agentic-signal-card p {
+  margin: 10px 0;
+  min-height: 20px;
+}
+.agentic-signal-actions button {
+  min-height: 32px;
+}

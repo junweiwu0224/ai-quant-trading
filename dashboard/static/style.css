@@ -7526,6 +7526,81 @@ tbody tr:nth-child(even):hover {
   margin-bottom: 14px;
   background: linear-gradient(180deg, rgba(28, 39, 62, 0.04), rgba(255, 255, 255, 0.02));
 }
+.agentic-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.agentic-workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  background: var(--panel-bg, #fff);
+  color: var(--text-muted, #6b7280);
+  font-size: 13px;
+}
+.agentic-workflow-step strong {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--primary-color, #2563eb);
+}
+.agentic-workflow-step.is-current {
+  border-color: rgba(37, 99, 235, 0.45);
+  color: var(--text-color, #111827);
+}
+.agentic-primary-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 54px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: rgba(37, 99, 235, 0.07);
+  margin-bottom: 12px;
+}
+.agentic-primary-action span {
+  flex: 1;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.45;
+}
+.agentic-status-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.agentic-status-pill.is-pending {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+.agentic-status-pill.is-ready {
+  background: rgba(37, 99, 235, 0.13);
+  color: #1d4ed8;
+}
+.agentic-status-pill.is-done {
+  background: rgba(22, 163, 74, 0.14);
+  color: #166534;
+}
+.agentic-status-pill.is-danger {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
 .agentic-sample-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -7642,6 +7717,10 @@ tbody tr:nth-child(even):hover {
   padding: 12px;
   background: rgba(22, 163, 74, 0.06);
 }
+.agentic-paper-candidate-row.is-actionable {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.05);
+}
 .agentic-paper-candidate-row p {
   margin: 4px 0;
   color: var(--text-muted, #6b7280);
@@ -7671,6 +7750,14 @@ tbody tr:nth-child(even):hover {
   padding: 10px 12px;
   background: rgba(37, 99, 235, 0.05);
 }
+.agentic-paper-execution-row.is-ready {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.07);
+}
+.agentic-paper-execution-row.is-done {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(22, 163, 74, 0.06);
+}
 .agentic-paper-execution-row span,
 .agentic-paper-execution-row p {
   display: block;
@@ -7693,4 +7780,13 @@ tbody tr:nth-child(even):hover {
   display: block;
   margin-top: 4px;
   color: var(--text-muted, #6b7280);
+}
+@media (max-width: 760px) {
+  .agentic-workflow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .agentic-primary-action {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

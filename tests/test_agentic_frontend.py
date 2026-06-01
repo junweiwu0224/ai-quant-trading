@@ -55,6 +55,9 @@ def test_agentic_strategy_lab_ui_is_registered():
     html = read_template()
 
     assert 'id="agentic-strategy-lab"' in html
+    assert 'agentic-workflow-steps' in html
+    assert 'agentic-primary-action' in html
+    assert 'data-agentic-next-action' in html
     assert 'data-agentic-sample-status' in html
     assert 'data-agentic-action="run-candidate-backtests"' in html
     assert 'data-agentic-backtest-result' in html
@@ -124,6 +127,24 @@ def test_agentic_paper_candidate_review_ui_is_registered():
     assert "confirmPaperStrategyCandidate" in js
     assert "/api/agentic/strategy/paper-candidates" in js
     assert "/confirm" in js
+
+
+def test_agentic_paper_flow_uses_plain_chinese_status_copy():
+    js = read_agentic_signals()
+
+    assert "paperStatusLabel" in js
+    assert "等待你确认" in js
+    assert "已进入模拟盘" in js
+    assert "已写入订单" in js
+    assert "下一步" in js
+    assert "renderNextAgenticAction" in js
+
+
+def test_agentic_review_limits_history_noise():
+    js = read_agentic_signals()
+
+    assert "AGENTIC_HISTORY_LIMIT" in js
+    assert ".slice(0, AGENTIC_HISTORY_LIMIT)" in js
 
 
 def test_agentic_paper_candidate_review_styles_exist():

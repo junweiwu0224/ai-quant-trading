@@ -1,4 +1,5 @@
 (function () {
+  const AGENTIC_HISTORY_LIMIT = 3;
   const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [], paperExecutions: [], orderDrafts: [] };
 
   function esc(value) {
@@ -39,6 +40,69 @@
       throw error;
     }
     return data;
+  }
+
+  function paperStatusLabel(status) {
+    return ({
+      paper_candidate: '等待你确认',
+      paper_active: '已进入模拟盘候选',
+      paper_intent_pending: '等待风控确认',
+      paper_intent_confirmed: '可写入模拟盘订单',
+      paper_orders_submitted: '已写入订单',
+      draft_pending: '订单草案',
+      submitted: '已提交',
+      rejected: '已拒绝',
+    })[status] || status || '-';
+  }
+
+  function paperStatusTone(status) {
+    if (status === 'paper_intent_confirmed') return 'is-ready';
+    if (status === 'paper_orders_submitted' || status === 'submitted') return 'is-done';
+    if (status === 'rejected') return 'is-danger';
+    return 'is-pending';
+  }
+
+  function formatCodes(codes) {
+    const list = Array.isArray(codes) ? codes : [];
+    return list.length ? list.join(' / ') : '-';
+  }
+
+  function formatRange(source) {
+    const start = source?.start_date || '-';
+    const end = source?.end_date || '-';
+    return `${start} 至 ${end}`;
+  }
+
+  function promotionReason(reason) {
+    return ({
+      'insufficient trades': '交易次数不足，暂不建议进入模拟盘',
+      'sharpe below threshold': '收益稳定性不够，暂不建议进入模拟盘',
+      'drawdown above threshold': '回撤偏大，暂不建议进入模拟盘',
+      'passed promotion gate': '通过晋级门槛，可以加入模拟盘候选',
+    })[reason] || reason || '-';
+  }
+
+  function renderNextAgenticAction() {
+    const el = document.querySelector('[data-agentic-next-action]');
+    if (!el) return;
+    const readyExecution = state.paperExecutions.find(item => item.status === 'paper_intent_confirmed');
+    const pendingExecution = state.paperExecutions.find(item => item.status === 'paper_intent_pending');
+    const pendingCandidate = state.paperCandidates.find(item => item.requires_confirmation);
+    const activeCandidate = state.paperCandidates.find(item => item.status === 'paper_active');
+    const submittedExecution = state.paperExecutions.find(item => item.status === 'paper_orders_submitted');
+    if (readyExecution) {
+      el.innerHTML = `<strong>下一步</strong><span>策略已通过风控，可以写入模拟盘订单。</span><button class="btn btn-primary btn-sm" data-agentic-action="submit-paper-orders" data-paper-execution-id="${esc(readyExecution.id)}">写入模拟盘订单</button>`;
+    } else if (pendingExecution) {
+      el.innerHTML = `<strong>下一步</strong><span>策略已经生成交易意图，先做组合风控确认。</span><button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(pendingExecution.id)}">确认风控</button>`;
+    } else if (pendingCandidate) {
+      el.innerHTML = `<strong>下一步</strong><span>有策略等待进入模拟盘候选，确认后才会生成交易意图。</span><button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(pendingCandidate.id)}">确认策略</button>`;
+    } else if (activeCandidate) {
+      el.innerHTML = `<strong>下一步</strong><span>候选策略已确认，可以先生成交易意图，不会直接下单。</span><button class="btn btn-primary btn-sm" data-agentic-action="run-paper-strategy" data-paper-candidate-id="${esc(activeCandidate.id)}">生成交易意图</button>`;
+    } else if (submittedExecution) {
+      el.innerHTML = `<strong>当前状态</strong><span>最近一条策略已经写入模拟盘订单，可到“模拟盘”查看订单。</span>`;
+    } else {
+      el.innerHTML = `<strong>下一步</strong><span>先点击“重新回测候选”，系统会告诉你哪些策略能进入模拟盘。</span><button class="btn btn-primary btn-sm" data-agentic-action="run-candidate-backtests">重新回测候选</button>`;
+    }
   }
 
   function renderSampleStatus() {
@@ -96,7 +160,7 @@
       return;
     }
     const promoted = results.filter(item => item.promotion?.promoted).length;
-    if (summary) summary.textContent = `候选 ${results.length} 个 · 晋级 ${promoted} 个`;
+    if (summary) summary.textContent = promoted ? `候选 ${results.length} 个，其中 ${promoted} 个可以进入模拟盘候选` : `候选 ${results.length} 个，本轮没有策略达到模拟盘门槛`;
     list.innerHTML = results.map((item, index) => {
       const candidate = item.candidate || {};
       const metrics = item.metrics || {};
@@ -107,7 +171,7 @@
           <div>
             <strong>${esc(candidate.name || candidate.id || '-')}</strong>
             <p>${esc(candidate.thesis || '')}</p>
-            <span>${promotion.promoted ? '通过晋级' : '未晋级'} · ${esc(promotion.reason || '-')}</span>
+            <span>${promotion.promoted ? '可进入模拟盘候选' : '暂不进入模拟盘'} · ${esc(promotionReason(promotion.reason))}</span>
             ${promotion.promoted ? `<button class="btn btn-primary btn-sm" data-agentic-action="queue-paper-strategy" data-candidate-index="${index}">加入模拟盘候选</button>` : ''}
           </div>
           <div class="agentic-candidate-metrics">
@@ -128,10 +192,12 @@
       const data = await agenticFetchJson('/api/agentic/backtest-sample?min_days=60&max_codes=5');
       state.sample = data.sample;
       renderSampleStatus();
+      renderNextAgenticAction();
     } catch (error) {
       state.sample = null;
       renderSampleStatus();
       renderBacktestResult(authMessage(error) || '本地样本不可用，请先同步 Qlib/日线覆盖数据');
+      renderNextAgenticAction();
     }
   }
 
@@ -177,9 +243,11 @@
       state.sample = data.sample || state.sample;
       renderSampleStatus();
       renderCandidateBacktestResults();
+      renderNextAgenticAction();
     } catch (error) {
       state.candidateBatch = null;
       renderCandidateBacktestResults(authMessage(error) || ('候选回测失败：' + (error.message || error)));
+      renderNextAgenticAction();
     }
   }
 
@@ -192,6 +260,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sample: state.candidateBatch.sample, result }),
       });
+      state.paperCandidates = [data.candidate, ...state.paperCandidates.filter(item => item.id !== data.candidate.id)];
+      renderPaperStrategyCandidates();
+      renderNextAgenticAction();
       renderCandidateBacktestResults(`已加入模拟盘候选：${data.candidate?.name || result.candidate?.name || ''}`);
     } catch (error) {
       renderCandidateBacktestResults(authMessage(error) || ('加入模拟盘候选失败：' + (error.message || error)));
@@ -203,18 +274,19 @@
     const list = document.querySelector('[data-agentic-paper-candidates]');
     if (!list) return;
     if (!state.paperCandidates.length) {
-      list.innerHTML = '<div class="empty-state">暂无待审核策略候选</div>';
+      list.innerHTML = '<div class="empty-state">暂无需要确认的策略。先在上方跑候选回测。</div>';
       return;
     }
-    list.innerHTML = state.paperCandidates.map(item => `
-      <article class="agentic-paper-candidate-row" data-paper-candidate-id="${esc(item.id)}">
+    list.innerHTML = state.paperCandidates.slice(0, AGENTIC_HISTORY_LIMIT).map(item => `
+      <article class="agentic-paper-candidate-row ${item.requires_confirmation ? 'is-actionable' : ''}" data-paper-candidate-id="${esc(item.id)}">
         <div>
+          <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
           <strong>${esc(item.name || item.candidate_id)}</strong>
-          <p>${esc((item.sample?.codes || []).join(' / '))} · ${esc(item.sample?.start_date || '-')} 至 ${esc(item.sample?.end_date || '-')}</p>
-          <span>${esc(item.status)} · Sharpe ${esc(item.metrics?.sharpe ?? '-')}</span>
+          <p>${esc(formatCodes(item.sample?.codes))} · ${esc(formatRange(item.sample))}</p>
+          <span>回测 Sharpe ${esc(item.metrics?.sharpe ?? '-')}</span>
         </div>
         <div class="agentic-paper-candidate-actions">
-          ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(item.id)}">确认实跑</button>` : `<button class="btn btn-secondary btn-sm" data-agentic-action="run-paper-strategy" data-paper-candidate-id="${esc(item.id)}">生成意图</button>`}
+          ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(item.id)}">确认进入模拟盘</button>` : `<button class="btn btn-secondary btn-sm" data-agentic-action="run-paper-strategy" data-paper-candidate-id="${esc(item.id)}">生成交易意图</button>`}
         </div>
       </article>
     `).join('');
@@ -228,9 +300,11 @@
       const data = await agenticFetchJson('/api/agentic/strategy/paper-candidates?limit=20');
       state.paperCandidates = data.candidates || [];
       renderPaperStrategyCandidates();
+      renderNextAgenticAction();
     } catch (error) {
       state.paperCandidates = [];
       list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '候选加载失败') + '</div>';
+      renderNextAgenticAction();
     }
   }
 
@@ -240,6 +314,7 @@
       const data = await agenticFetchJson(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/confirm`, { method: 'POST' });
       state.paperCandidates = state.paperCandidates.map(item => item.id === candidateId ? data.candidate : item);
       renderPaperStrategyCandidates();
+      renderNextAgenticAction();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-candidates]');
       if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('确认失败：' + (error.message || error))) + '</div>';
@@ -250,18 +325,19 @@
     const list = document.querySelector('[data-agentic-paper-executions]');
     if (!list) return;
     if (!state.paperExecutions.length) {
-      list.innerHTML = '<div class="empty-state">暂无策略执行意图</div>';
+      list.innerHTML = '<div class="empty-state">还没有交易意图。先确认候选策略，再生成意图。</div>';
       return;
     }
-    list.innerHTML = state.paperExecutions.map(item => `
-      <article class="agentic-paper-execution-row">
+    list.innerHTML = state.paperExecutions.slice(0, AGENTIC_HISTORY_LIMIT).map(item => `
+      <article class="agentic-paper-execution-row ${paperStatusTone(item.status)}">
+        <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
         <strong>${esc(item.name || item.candidate_id)}</strong>
-        <span>${esc(item.status)} · ${esc((item.codes || []).join(' / '))}</span>
-        <p>${esc(item.reason || '')}</p>
+        <span>${esc(formatCodes(item.codes))}</span>
+        <p>${esc(item.status === 'paper_orders_submitted' ? '已生成模拟盘订单，可到模拟盘页查看。' : item.status === 'paper_intent_confirmed' ? '已通过风控，可以写入模拟盘订单。' : item.status === 'paper_intent_pending' ? '等待组合风控确认，不会直接下单。' : (item.reason || ''))}</p>
         ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(item.id)}">确认意图</button>` : ''}
         ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-secondary btn-sm" data-agentic-action="create-order-drafts" data-paper-execution-id="${esc(item.id)}">生成订单草案</button>` : ''}
         ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-primary btn-sm" data-agentic-action="submit-paper-orders" data-paper-execution-id="${esc(item.id)}">写入模拟盘订单</button>` : ''}
-        ${item.status === 'paper_orders_submitted' ? `<span class="badge success">已写入模拟盘订单</span>` : ''}
+        ${item.status === 'paper_orders_submitted' ? `<span class="badge success">已完成</span>` : ''}
       </article>
     `).join('');
   }
@@ -273,9 +349,11 @@
       const data = await agenticFetchJson('/api/agentic/strategy/paper-executions?limit=20');
       state.paperExecutions = data.executions || [];
       renderPaperStrategyExecutions();
+      renderNextAgenticAction();
     } catch (error) {
       state.paperExecutions = [];
       list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '执行记录加载失败') + '</div>';
+      renderNextAgenticAction();
     }
   }
 
@@ -285,6 +363,7 @@
       const data = await agenticFetchJson(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/run`, { method: 'POST' });
       state.paperExecutions = [data.execution, ...state.paperExecutions.filter(item => item.id !== data.execution.id)];
       renderPaperStrategyExecutions();
+      renderNextAgenticAction();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-executions]');
       if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('生成意图失败：' + (error.message || error))) + '</div>';
@@ -311,6 +390,7 @@
       });
       state.paperExecutions = state.paperExecutions.map(item => item.id === executionId ? data.execution : item);
       renderPaperStrategyExecutions();
+      renderNextAgenticAction();
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-executions]');
       if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('确认意图失败：' + (error.message || error))) + '</div>';
@@ -321,13 +401,14 @@
     const list = document.querySelector('[data-agentic-order-drafts]');
     if (!list) return;
     if (!state.orderDrafts.length) {
-      list.innerHTML = '<div class="empty-state">暂无订单草案</div>';
+      list.innerHTML = '<div class="empty-state">暂无订单草案。草案只是预览，真正写入请点“写入模拟盘订单”。</div>';
       return;
     }
-    list.innerHTML = state.orderDrafts.map(item => `
+    list.innerHTML = state.orderDrafts.slice(0, AGENTIC_HISTORY_LIMIT).map(item => `
       <article class="agentic-order-draft-row">
-        <strong>${esc(item.code)} · ${esc(item.direction)} · ${esc(item.order_type)}</strong>
-        <span>${esc(item.status)} · ${esc(item.volume)} 股 · ${esc(item.strategy_name)}</span>
+        <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
+        <strong>${esc(item.code)} · 买入 · 市价</strong>
+        <span>${esc(item.volume)} 股 · ${esc(item.strategy_name)}</span>
       </article>
     `).join('');
   }
@@ -339,9 +420,11 @@
       const data = await agenticFetchJson('/api/agentic/strategy/order-drafts?limit=20');
       state.orderDrafts = data.drafts || [];
       renderAgenticOrderDrafts();
+      renderNextAgenticAction();
     } catch (error) {
       state.orderDrafts = [];
       list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '订单草案加载失败') + '</div>';
+      renderNextAgenticAction();
     }
   }
 
@@ -355,6 +438,7 @@
       });
       state.orderDrafts = [...(data.drafts || []), ...state.orderDrafts];
       renderAgenticOrderDrafts();
+      renderNextAgenticAction();
     } catch (error) {
       const list = document.querySelector('[data-agentic-order-drafts]');
       if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('生成订单草案失败：' + (error.message || error))) + '</div>';
@@ -375,6 +459,7 @@
       }
       state.paperExecutions = state.paperExecutions.map(item => item.id === executionId ? { ...item, status: 'paper_orders_submitted', reason: `submitted ${(data.orders || []).length} paper orders from confirmed agentic intent` } : item);
       renderPaperStrategyExecutions();
+      renderNextAgenticAction();
     } catch (error) {
       if (list) list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || ('写入模拟盘订单失败：' + (error.message || error))) + '</div>';
     }

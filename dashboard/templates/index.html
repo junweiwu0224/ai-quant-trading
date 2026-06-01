@@ -1167,9 +1167,19 @@
                         <div class="card-header-row">
                             <div>
                                 <h2>Agent 策略实验台</h2>
-                                <p class="text-muted text-sm">使用本地可回测样本验证 AI 策略，通过晋级门槛后再进入模拟盘候选。</p>
+                                <p class="text-muted text-sm">按步骤把 AI 策略从回测筛选推进到模拟盘订单。</p>
                             </div>
-                            <button class="btn btn-primary btn-sm" data-agentic-action="run-candidate-backtests">候选回测</button>
+                            <button class="btn btn-primary btn-sm" data-agentic-action="run-candidate-backtests">重新回测候选</button>
+                        </div>
+                        <div class="agentic-workflow-steps" aria-label="Agent 策略进入模拟盘流程">
+                            <div class="agentic-workflow-step is-current"><strong>1</strong><span>回测候选</span></div>
+                            <div class="agentic-workflow-step"><strong>2</strong><span>确认策略</span></div>
+                            <div class="agentic-workflow-step"><strong>3</strong><span>通过风控</span></div>
+                            <div class="agentic-workflow-step"><strong>4</strong><span>写入模拟盘</span></div>
+                        </div>
+                        <div class="agentic-primary-action" data-agentic-next-action>
+                            <strong>下一步</strong>
+                            <span>先点击“重新回测候选”，系统会告诉你哪些策略能进入模拟盘。</span>
                         </div>
                         <div class="agentic-sample-grid" data-agentic-sample-status>
                             <div class="agentic-sample-pill"><span>样本</span><strong>加载中</strong></div>
@@ -1180,9 +1190,10 @@
                         <div class="agentic-candidate-list" data-agentic-candidate-results></div>
                         <div class="agentic-paper-review">
                             <div class="card-header-row">
-                                <h3>模拟盘候选审核</h3>
+                                <h3>模拟盘推进区</h3>
                                 <button class="btn btn-secondary btn-sm" data-agentic-action="refresh-paper-candidates">刷新候选</button>
                             </div>
+                            <p class="text-muted text-sm">这里只显示最近需要处理的策略，历史记录会自动收起。</p>
                             <div class="agentic-paper-candidate-list" data-agentic-paper-candidates></div>
                             <div class="agentic-paper-execution-list" data-agentic-paper-executions></div>
                             <div class="agentic-order-draft-list" data-agentic-order-drafts></div>

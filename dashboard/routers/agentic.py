@@ -79,6 +79,11 @@ class PaperStrategyCandidatePayload(BaseModel):
     result: dict[str, Any]
 
 
+class ConfirmPaperExecutionPayload(BaseModel):
+    portfolio: dict[str, Any] = {}
+    risk_context: dict[str, Any] = {}
+
+
 @router.get("/agents")
 def list_agents():
     return {"success": True, "agents": [asdict(agent) for agent in registry.list()]}
@@ -174,6 +179,21 @@ def list_paper_strategy_executions(limit: int = 100):
 def run_paper_strategy_candidate(candidate_id: str):
     try:
         execution = paper_strategy_candidate_service.run_active(candidate_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "execution": asdict(execution)}
+
+
+@router.post("/strategy/paper-executions/{execution_id}/confirm")
+def confirm_paper_strategy_execution(execution_id: str, payload: ConfirmPaperExecutionPayload):
+    try:
+        execution = paper_strategy_candidate_service.confirm_execution(
+            execution_id,
+            portfolio=payload.portfolio,
+            risk_context=payload.risk_context,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

@@ -99,3 +99,41 @@ def test_paper_strategy_candidate_service_refuses_to_run_unconfirmed_candidate(t
         assert "only paper_active" in str(exc)
     else:
         raise AssertionError("unconfirmed candidate should not run")
+
+
+def test_paper_strategy_execution_confirm_passes_risk_gate(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+
+    confirmed = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context={"cash_pct": 0.05, "industry_map": {"000001": "bank"}},
+    )
+
+    assert confirmed.id == execution.id
+    assert confirmed.status == "paper_intent_confirmed"
+    assert confirmed.requires_confirmation is False
+    assert "risk gate passed" in confirmed.reason
+
+
+def test_paper_strategy_execution_confirm_rejects_risk_failure(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["600519"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+
+    rejected = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context={"cash_pct": 0.3, "blacklist": ["600519"]},
+    )
+
+    assert rejected.status == "rejected"
+    assert rejected.requires_confirmation is False
+    assert "blacklisted code: 600519" in rejected.reason
+    assert "strategy cash pct" in rejected.reason

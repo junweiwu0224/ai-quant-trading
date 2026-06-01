@@ -336,3 +336,38 @@ def test_agentic_active_paper_strategy_candidate_can_generate_pending_intent(cli
     assert body["success"] is True
     assert body["execution"]["status"] == "paper_intent_pending"
     assert body["execution"]["requires_confirmation"] is True
+
+
+def test_agentic_paper_execution_can_be_confirmed_with_risk_gate(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyExecution
+
+    class FakeService:
+        def confirm_execution(self, execution_id, portfolio=None, risk_context=None):
+            assert execution_id == "paper_execution_1"
+            assert risk_context["cash_pct"] == 0.05
+            return PaperStrategyExecution(
+                id="paper_execution_1",
+                candidate_record_id="paper_strategy_1",
+                candidate_id="qlib_ranked_core",
+                name="Qlib 核心轮动",
+                dsl={"strategy_type": "ranked_rotation"},
+                codes=("000001",),
+                status="paper_intent_confirmed",
+                reason="risk gate passed; ready for simulated order adapter",
+                requires_confirmation=False,
+                created_at="2026-06-01T22:00:00+00:00",
+            )
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-executions/paper_execution_1/confirm",
+        json={"portfolio": {"total_equity": 100000, "positions": {}}, "risk_context": {"cash_pct": 0.05}},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["execution"]["status"] == "paper_intent_confirmed"
+    assert body["execution"]["requires_confirmation"] is False

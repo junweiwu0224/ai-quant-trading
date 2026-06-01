@@ -145,3 +145,12 @@ def test_agentic_active_paper_candidate_can_generate_execution_intent():
     assert "/api/agentic/strategy/paper-executions" in js
     assert "loadPaperStrategyExecutions" in js
     assert "agentic-paper-execution-list" in read_styles()
+
+
+def test_agentic_pending_execution_can_be_confirmed_from_frontend():
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="confirm-paper-execution"' in js
+    assert "confirmPaperStrategyExecution" in js
+    assert "/api/agentic/strategy/paper-executions" in js
+    assert "risk_context" in js

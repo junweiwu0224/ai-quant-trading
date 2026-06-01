@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from agentic.models import PaperStrategyCandidate, PaperStrategyExecution
+from agentic.portfolio_risk import PortfolioRiskGate, PortfolioRiskLimits
 from agentic.repository import AgenticRepository
 
 
@@ -63,6 +64,39 @@ class PaperStrategyCandidateService:
         )
         self.repository.save_paper_strategy_execution(execution)
         return execution
+
+    def confirm_execution(
+        self, execution_id: str, portfolio: dict | None = None, risk_context: dict | None = None
+    ) -> PaperStrategyExecution:
+        execution = self.repository.get_paper_strategy_execution(execution_id)
+        if execution.status != "paper_intent_pending":
+            raise ValueError("only paper_intent_pending executions can be confirmed")
+        risk_context = dict(risk_context or {})
+        limits = PortfolioRiskLimits(
+            max_strategy_cash_pct=float(risk_context.get("max_strategy_cash_pct", 0.2)),
+            max_position_pct=float(risk_context.get("max_position_pct", 0.1)),
+            max_holdings=int(risk_context.get("max_holdings", 10)),
+            blacklist=set(risk_context.get("blacklist", [])),
+            max_industry_pct=float(risk_context.get("max_industry_pct", 0.35)),
+        )
+        result = PortfolioRiskGate(limits).evaluate(
+            intent={"cash_pct": risk_context.get("cash_pct", 0.1), "codes": list(execution.codes)},
+            portfolio=portfolio or {},
+            industry_map=risk_context.get("industry_map", {}),
+        )
+        if not result.allowed:
+            return self.repository.update_paper_strategy_execution_status(
+                execution_id,
+                status="rejected",
+                reason="; ".join(result.reasons),
+                requires_confirmation=False,
+            )
+        return self.repository.update_paper_strategy_execution_status(
+            execution_id,
+            status="paper_intent_confirmed",
+            reason="risk gate passed; ready for simulated order adapter",
+            requires_confirmation=False,
+        )
 
     def list_executions(self, limit: int = 100) -> list[PaperStrategyExecution]:
         return self.repository.list_paper_strategy_executions(limit=limit)

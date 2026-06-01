@@ -161,6 +161,25 @@ def confirm_paper_strategy_candidate(candidate_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "candidate": asdict(candidate)}
 
+
+@router.get("/strategy/paper-executions")
+def list_paper_strategy_executions(limit: int = 100):
+    return {
+        "success": True,
+        "executions": [asdict(item) for item in paper_strategy_candidate_service.list_executions(limit=limit)],
+    }
+
+
+@router.post("/strategy/paper-candidates/{candidate_id}/run")
+def run_paper_strategy_candidate(candidate_id: str):
+    try:
+        execution = paper_strategy_candidate_service.run_active(candidate_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "execution": asdict(execution)}
+
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):
     batch = await candidate_backtester.run(

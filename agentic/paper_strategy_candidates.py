@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from agentic.models import PaperStrategyCandidate
+from agentic.models import PaperStrategyCandidate, PaperStrategyExecution
 from agentic.repository import AgenticRepository
 
 
@@ -43,6 +43,29 @@ class PaperStrategyCandidateService:
             status="paper_active",
             requires_confirmation=False,
         )
+
+    def run_active(self, candidate_id: str) -> PaperStrategyExecution:
+        candidate = self.repository.get_paper_strategy_candidate(candidate_id)
+        if candidate.status != "paper_active":
+            raise ValueError("only paper_active strategy candidates can be run")
+        sample_codes = tuple(str(code) for code in candidate.sample.get("codes", []))
+        execution = PaperStrategyExecution(
+            id=f"paper_execution_{uuid4().hex}",
+            candidate_record_id=candidate.id,
+            candidate_id=candidate.candidate_id,
+            name=candidate.name,
+            dsl=candidate.dsl,
+            codes=sample_codes,
+            status="paper_intent_pending",
+            reason="manual trigger generated a pending paper strategy intent",
+            requires_confirmation=True,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.repository.save_paper_strategy_execution(execution)
+        return execution
+
+    def list_executions(self, limit: int = 100) -> list[PaperStrategyExecution]:
+        return self.repository.list_paper_strategy_executions(limit=limit)
 
     def list(self, limit: int = 100) -> list[PaperStrategyCandidate]:
         return self.repository.list_paper_strategy_candidates(limit=limit)

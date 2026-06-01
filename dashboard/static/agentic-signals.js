@@ -1,5 +1,5 @@
 (function () {
-  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [] };
+  const state = { signals: [], filter: 'all', sample: null, backtest: null, candidateBatch: null, paperCandidates: [], paperExecutions: [] };
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"]/g, ch => ({
@@ -202,7 +202,7 @@
           <span>${esc(item.status)} · Sharpe ${esc(item.metrics?.sharpe ?? '-')}</span>
         </div>
         <div class="agentic-paper-candidate-actions">
-          ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(item.id)}">确认实跑</button>` : '<span>已确认</span>'}
+          ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-strategy" data-paper-candidate-id="${esc(item.id)}">确认实跑</button>` : `<button class="btn btn-secondary btn-sm" data-agentic-action="run-paper-strategy" data-paper-candidate-id="${esc(item.id)}">生成意图</button>`}
         </div>
       </article>
     `).join('');
@@ -235,6 +235,51 @@
     } catch (error) {
       const list = document.querySelector('[data-agentic-paper-candidates]');
       if (list) list.innerHTML = '<div class="empty-state">确认失败：' + esc(error.message || error) + '</div>';
+    }
+  }
+
+  function renderPaperStrategyExecutions() {
+    const list = document.querySelector('[data-agentic-paper-executions]');
+    if (!list) return;
+    if (!state.paperExecutions.length) {
+      list.innerHTML = '<div class="empty-state">暂无策略执行意图</div>';
+      return;
+    }
+    list.innerHTML = state.paperExecutions.map(item => `
+      <article class="agentic-paper-execution-row">
+        <strong>${esc(item.name || item.candidate_id)}</strong>
+        <span>${esc(item.status)} · ${esc((item.codes || []).join(' / '))}</span>
+        <p>${esc(item.reason || '')}</p>
+      </article>
+    `).join('');
+  }
+
+  async function loadPaperStrategyExecutions() {
+    const list = document.querySelector('[data-agentic-paper-executions]');
+    if (!list) return;
+    try {
+      const resp = await fetch('/api/agentic/strategy/paper-executions?limit=20');
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'load executions failed');
+      state.paperExecutions = data.executions || [];
+      renderPaperStrategyExecutions();
+    } catch (error) {
+      state.paperExecutions = [];
+      list.innerHTML = '<div class="empty-state">执行记录加载失败</div>';
+    }
+  }
+
+  async function runPaperStrategyCandidate(candidateId) {
+    if (!candidateId) return;
+    try {
+      const resp = await fetch(`/api/agentic/strategy/paper-candidates/${encodeURIComponent(candidateId)}/run`, { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.detail || 'run failed');
+      state.paperExecutions = [data.execution, ...state.paperExecutions.filter(item => item.id !== data.execution.id)];
+      renderPaperStrategyExecutions();
+    } catch (error) {
+      const list = document.querySelector('[data-agentic-paper-executions]');
+      if (list) list.innerHTML = '<div class="empty-state">生成意图失败：' + esc(error.message || error) + '</div>';
     }
   }
 
@@ -296,6 +341,7 @@
     if (action === 'queue-paper-strategy') queuePaperStrategyCandidate(event.target?.dataset?.candidateIndex);
     if (action === 'refresh-paper-candidates') loadPaperStrategyCandidates();
     if (action === 'confirm-paper-strategy') confirmPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
+    if (action === 'run-paper-strategy') runPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     const filter = event.target?.dataset?.agenticFilter;
     if (filter) {
       state.filter = filter;
@@ -304,10 +350,11 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, buildDefaultStrategyDSL };
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, buildDefaultStrategyDSL };
   document.addEventListener('DOMContentLoaded', () => {
     loadBacktestSample();
     loadSignals();
     loadPaperStrategyCandidates();
+    loadPaperStrategyExecutions();
   });
 })();

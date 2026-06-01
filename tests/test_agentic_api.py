@@ -305,3 +305,34 @@ def test_agentic_paper_strategy_candidate_can_be_confirmed(client, monkeypatch):
     assert body["success"] is True
     assert body["candidate"]["status"] == "paper_active"
     assert body["candidate"]["requires_confirmation"] is False
+
+
+def test_agentic_active_paper_strategy_candidate_can_generate_pending_intent(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyExecution
+
+    class FakeService:
+        def run_active(self, candidate_id):
+            assert candidate_id == "paper_strategy_1"
+            return PaperStrategyExecution(
+                id="paper_execution_1",
+                candidate_record_id="paper_strategy_1",
+                candidate_id="qlib_ranked_core",
+                name="Qlib 核心轮动",
+                dsl={"strategy_type": "ranked_rotation"},
+                codes=("000001", "600519"),
+                status="paper_intent_pending",
+                reason="manual trigger generated a pending paper strategy intent",
+                requires_confirmation=True,
+                created_at="2026-06-01T21:50:00+00:00",
+            )
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post("/api/agentic/strategy/paper-candidates/paper_strategy_1/run")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["execution"]["status"] == "paper_intent_pending"
+    assert body["execution"]["requires_confirmation"] is True

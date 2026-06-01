@@ -158,3 +158,27 @@ class PaperStrategyCandidate:
         object.__setattr__(self, "metrics", dict(self.metrics or {}))
         object.__setattr__(self, "promotion", dict(self.promotion or {}))
         object.__setattr__(self, "requires_confirmation", bool(self.requires_confirmation))
+
+
+@dataclass(frozen=True)
+class PaperStrategyExecution:
+    id: str
+    candidate_record_id: str
+    candidate_id: str
+    name: str
+    dsl: dict
+    codes: tuple[str, ...] | list[str]
+    status: str
+    reason: str
+    requires_confirmation: bool
+    created_at: str
+
+    def __post_init__(self) -> None:
+        if self.status not in {"paper_intent_pending", "paper_intent_confirmed", "rejected"}:
+            raise ValueError(f"unsupported paper strategy execution status: {self.status}")
+        if not self.candidate_record_id:
+            raise ValueError("candidate_record_id is required")
+        codes = tuple(str(code) for code in (self.codes or ()))
+        object.__setattr__(self, "codes", codes)
+        object.__setattr__(self, "dsl", dict(self.dsl or {}))
+        object.__setattr__(self, "requires_confirmation", bool(self.requires_confirmation))

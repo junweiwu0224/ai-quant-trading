@@ -67,3 +67,35 @@ def test_paper_strategy_candidate_service_rejects_missing_confirm(tmp_path):
         assert "paper strategy candidate not found" in str(exc)
     else:
         raise AssertionError("missing candidate should raise")
+
+
+def test_paper_strategy_candidate_service_runs_active_candidate_as_pending_intent(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(
+        _promoted_result(),
+        sample={"codes": ["000001", "600519"], "start_date": "2024-01-01", "end_date": "2024-03-31", "trading_days": 60},
+    )
+    service.confirm(record.id)
+
+    execution = service.run_active(record.id)
+
+    assert execution.candidate_record_id == record.id
+    assert execution.status == "paper_intent_pending"
+    assert execution.requires_confirmation is True
+    assert execution.codes == ("000001", "600519")
+    assert "manual trigger" in execution.reason
+    assert repo.list_paper_strategy_executions()[0] == execution
+
+
+def test_paper_strategy_candidate_service_refuses_to_run_unconfirmed_candidate(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"]})
+
+    try:
+        service.run_active(record.id)
+    except ValueError as exc:
+        assert "only paper_active" in str(exc)
+    else:
+        raise AssertionError("unconfirmed candidate should not run")

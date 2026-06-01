@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agentic.models import PaperStrategyCandidate, ResearchJob, TradingSignal, normalize_signal_code
+from agentic.models import PaperStrategyCandidate, PaperStrategyExecution, ResearchJob, TradingSignal, normalize_signal_code
 from utils.db import get_connection
 
 
@@ -63,6 +63,23 @@ class AgenticRepository:
                     metrics TEXT NOT NULL,
                     promotion TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    requires_confirmation INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agentic_paper_strategy_executions (
+                    id TEXT PRIMARY KEY,
+                    candidate_record_id TEXT NOT NULL,
+                    candidate_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    dsl TEXT NOT NULL,
+                    codes TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    reason TEXT NOT NULL,
                     requires_confirmation INTEGER NOT NULL,
                     created_at TEXT NOT NULL
                 )
@@ -260,6 +277,55 @@ class AgenticRepository:
             raise KeyError(f"paper strategy candidate not found: {candidate_id}")
         return self.get_paper_strategy_candidate(candidate_id)
 
+    def save_paper_strategy_execution(self, execution: PaperStrategyExecution) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agentic_paper_strategy_executions (
+                    id, candidate_record_id, candidate_id, name, dsl, codes,
+                    status, reason, requires_confirmation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    candidate_record_id = excluded.candidate_record_id,
+                    candidate_id = excluded.candidate_id,
+                    name = excluded.name,
+                    dsl = excluded.dsl,
+                    codes = excluded.codes,
+                    status = excluded.status,
+                    reason = excluded.reason,
+                    requires_confirmation = excluded.requires_confirmation,
+                    created_at = excluded.created_at
+                """,
+                (
+                    execution.id,
+                    execution.candidate_record_id,
+                    execution.candidate_id,
+                    execution.name,
+                    _to_json(execution.dsl),
+                    _to_json(list(execution.codes)),
+                    execution.status,
+                    execution.reason,
+                    1 if execution.requires_confirmation else 0,
+                    execution.created_at,
+                ),
+            )
+            conn.commit()
+
+    def list_paper_strategy_executions(self, limit: int = 100) -> list[PaperStrategyExecution]:
+        safe_limit = max(1, min(int(limit), 500))
+        with get_connection(self.db_path, readonly=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, candidate_record_id, candidate_id, name, dsl, codes,
+                       status, reason, requires_confirmation, created_at
+                FROM agentic_paper_strategy_executions
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [_row_to_paper_strategy_execution(row) for row in rows]
+
     def list_paper_strategy_candidates(self, limit: int = 100) -> list[PaperStrategyCandidate]:
         safe_limit = max(1, min(int(limit), 500))
         with get_connection(self.db_path, readonly=True) as conn:
@@ -284,6 +350,21 @@ def _from_json(value: str | None, default: Any) -> Any:
     if value is None:
         return default
     return json.loads(value)
+
+
+def _row_to_paper_strategy_execution(row: Any) -> PaperStrategyExecution:
+    return PaperStrategyExecution(
+        id=row["id"],
+        candidate_record_id=row["candidate_record_id"],
+        candidate_id=row["candidate_id"],
+        name=row["name"],
+        dsl=_from_json(row["dsl"], {}),
+        codes=_from_json(row["codes"], []),
+        status=row["status"],
+        reason=row["reason"],
+        requires_confirmation=bool(row["requires_confirmation"]),
+        created_at=row["created_at"],
+    )
 
 
 def _row_to_paper_strategy_candidate(row: Any) -> PaperStrategyCandidate:

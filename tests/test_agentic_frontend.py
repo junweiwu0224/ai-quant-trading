@@ -135,3 +135,13 @@ def test_agentic_paper_candidate_review_styles_exist():
         ".agentic-paper-candidate-actions",
     ]:
         assert selector in styles
+
+
+def test_agentic_active_paper_candidate_can_generate_execution_intent():
+    js = read_agentic_signals()
+
+    assert 'data-agentic-action="run-paper-strategy"' in js
+    assert "runPaperStrategyCandidate" in js
+    assert "/api/agentic/strategy/paper-executions" in js
+    assert "loadPaperStrategyExecutions" in js
+    assert "agentic-paper-execution-list" in read_styles()

@@ -7659,3 +7659,21 @@ tbody tr:nth-child(even):hover {
     justify-content: flex-start;
   }
 }
+
+.agentic-paper-execution-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.agentic-paper-execution-row {
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(37, 99, 235, 0.05);
+}
+.agentic-paper-execution-row span,
+.agentic-paper-execution-row p {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted, #6b7280);
+}

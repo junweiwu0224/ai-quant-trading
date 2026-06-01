@@ -116,3 +116,20 @@ class TradingSignal:
         object.__setattr__(self, "entry_reasons", entry_reasons)
         object.__setattr__(self, "risk_notes", risk_notes)
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
+
+
+@dataclass(frozen=True)
+class ResearchJob:
+    id: str
+    code: str
+    status: str
+    roles: tuple[str, ...] | list[str]
+    final_report: dict
+    created_at: str
+    updated_at: str
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", normalize_signal_code(self.code))
+        object.__setattr__(self, "roles", tuple(self.roles or ()))
+        object.__setattr__(self, "final_report", dict(self.final_report or {}))

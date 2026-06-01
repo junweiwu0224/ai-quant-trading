@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+from agentic.models import ResearchJob
 from agentic.repository import AgenticRepository
 
 
@@ -60,3 +61,22 @@ def test_repository_get_signal_raises_for_missing_id(tmp_path):
         assert "signal not found" in str(exc)
     else:
         raise AssertionError("missing signal should raise")
+
+
+def test_repository_saves_and_gets_research_jobs(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    job = ResearchJob(
+        id="research_1",
+        code="605066.SH",
+        status="completed",
+        roles=["qlib", "market", "theme", "bear", "decision"],
+        final_report={"decision": "paper_candidate", "qlib_score": 0.72},
+        created_at="2026-06-01T20:30:00+08:00",
+        updated_at="2026-06-01T20:31:00+08:00",
+    )
+
+    repo.save_research_job(job)
+    restored = repo.get_research_job("research_1")
+
+    assert restored == job
+    assert restored.code == "605066"

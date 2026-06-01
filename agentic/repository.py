@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agentic.models import TradingSignal, normalize_signal_code
+from agentic.models import ResearchJob, TradingSignal, normalize_signal_code
 from utils.db import get_connection
 
 
@@ -34,6 +34,20 @@ class AgenticRepository:
                     created_at TEXT NOT NULL,
                     expires_at TEXT,
                     metadata TEXT NOT NULL DEFAULT '{}'
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agentic_research_jobs (
+                    id TEXT PRIMARY KEY,
+                    code TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    roles TEXT NOT NULL,
+                    final_report TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    error TEXT
                 )
                 """
             )
@@ -119,6 +133,50 @@ class AgenticRepository:
             ).fetchall()
         return [_row_to_signal(row) for row in rows]
 
+    def save_research_job(self, job: ResearchJob) -> None:
+        normalized_code = normalize_signal_code(job.code)
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agentic_research_jobs (
+                    id, code, status, roles, final_report, created_at, updated_at, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    code = excluded.code,
+                    status = excluded.status,
+                    roles = excluded.roles,
+                    final_report = excluded.final_report,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    error = excluded.error
+                """,
+                (
+                    job.id,
+                    normalized_code,
+                    job.status,
+                    _to_json(list(job.roles)),
+                    _to_json(job.final_report),
+                    job.created_at,
+                    job.updated_at,
+                    job.error,
+                ),
+            )
+            conn.commit()
+
+    def get_research_job(self, job_id: str) -> ResearchJob:
+        with get_connection(self.db_path, readonly=True) as conn:
+            row = conn.execute(
+                """
+                SELECT id, code, status, roles, final_report, created_at, updated_at, error
+                FROM agentic_research_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"research job not found: {job_id}")
+        return _row_to_research_job(row)
+
 
 def _to_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
@@ -148,4 +206,17 @@ def _row_to_signal(row: Any) -> TradingSignal:
         row["created_at"],
         row["expires_at"],
         _from_json(row["metadata"], {}),
+    )
+
+
+def _row_to_research_job(row: Any) -> ResearchJob:
+    return ResearchJob(
+        row["id"],
+        row["code"],
+        row["status"],
+        _from_json(row["roles"], []),
+        _from_json(row["final_report"], {}),
+        row["created_at"],
+        row["updated_at"],
+        row["error"],
     )

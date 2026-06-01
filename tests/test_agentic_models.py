@@ -1,4 +1,4 @@
-from agentic.models import AgentProfile, TradingSignal, normalize_signal_code
+from agentic.models import AgentProfile, ResearchJob, TradingSignal, normalize_signal_code
 
 
 def test_normalize_signal_code_accepts_exchange_suffix():
@@ -74,3 +74,18 @@ def test_agent_profile_permissions_are_immutable_tuple():
     profile = AgentProfile("a", "Agent", "signal", "desc", ["read_market"])
 
     assert profile.permissions == ("read_market",)
+
+
+def test_research_job_normalizes_code_and_roles():
+    job = ResearchJob(
+        id="research_1",
+        code="SH605066",
+        status="completed",
+        roles=["qlib", "market", "theme", "bear", "decision"],
+        final_report={"decision": "paper_candidate"},
+        created_at="2026-06-01T20:30:00+08:00",
+        updated_at="2026-06-01T20:30:00+08:00",
+    )
+
+    assert job.code == "605066"
+    assert job.roles == ("qlib", "market", "theme", "bear", "decision")

@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from agentic.models import ResearchJob, normalize_signal_code
+from agentic.repository import AgenticRepository
+
+RESEARCH_ROLES = ("qlib", "market", "theme", "bear", "decision")
+PAPER_CANDIDATE_THRESHOLD = 0.6
+
+
+class ResearchPipeline:
+    def __init__(self, repository: AgenticRepository):
+        self.repository = repository
+
+    def run(self, code: str, context: dict | None = None) -> ResearchJob:
+        context = dict(context or {})
+        normalized_code = normalize_signal_code(code)
+        qlib_score = _as_score(context.get("qlib_score", 0.0))
+        decision = "paper_candidate" if qlib_score >= PAPER_CANDIDATE_THRESHOLD else "observe"
+        now = _utc_now_iso()
+        final_report = {
+            "code": normalized_code,
+            "decision": decision,
+            "qlib_score": qlib_score,
+            "roles": {
+                "qlib": {"score": qlib_score},
+                "market": {"summary": context.get("market", "market context unavailable")},
+                "theme": {"theme": context.get("theme", "unclassified")},
+                "bear": {"risk": context.get("risk", "position sizing and stop-loss required")},
+                "decision": {"rationale": _decision_rationale(decision)},
+            },
+        }
+        job = ResearchJob(
+            id=f"research_{uuid4().hex}",
+            code=normalized_code,
+            status="completed",
+            roles=RESEARCH_ROLES,
+            final_report=final_report,
+            created_at=now,
+            updated_at=now,
+        )
+        self.repository.save_research_job(job)
+        return job
+
+
+def _as_score(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("qlib_score must be numeric") from exc
+
+
+def _decision_rationale(decision: str) -> str:
+    if decision == "paper_candidate":
+        return "qlib_score meets paper threshold"
+    return "qlib_score below paper threshold"
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()

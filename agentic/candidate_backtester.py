@@ -17,6 +17,7 @@ class CandidateBacktestResult:
     backtest_response: dict[str, Any]
     metrics: dict[str, Any]
     promotion: StrategyIterationResult
+    gate_checks: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,6 +30,7 @@ class CandidateBacktestResult:
                 "reason": self.promotion.reason,
                 "metrics": dict(self.promotion.metrics),
             },
+            "gate_checks": list(self.gate_checks),
         }
 
 
@@ -87,7 +89,44 @@ def _attach_candidate(candidate: StrategyCandidate, result: AgenticBacktestResul
         backtest_response=result.backtest_response,
         metrics=result.metrics,
         promotion=result.promotion,
+        gate_checks=_build_gate_checks(candidate, result.metrics, result.promotion),
     )
+
+
+def _build_gate_checks(
+    candidate: StrategyCandidate,
+    metrics: dict[str, Any],
+    promotion: StrategyIterationResult,
+) -> list[dict[str, Any]]:
+    trades = int(_float_metric(metrics.get("trades")))
+    drawdown = _float_metric(metrics.get("max_drawdown"))
+    sharpe = _float_metric(metrics.get("sharpe"))
+    return [
+        {
+            "id": "data_quality",
+            "label": "数据质量",
+            "passed": trades >= 10,
+            "detail": f"有效交易 {trades} 笔，避免只靠单次信号晋级",
+        },
+        {
+            "id": "backtest_quality",
+            "label": "回测表现",
+            "passed": bool(promotion.promoted),
+            "detail": f"Sharpe {sharpe:g}，晋级结果：{promotion.reason}",
+        },
+        {
+            "id": "risk_boundary",
+            "label": "风控边界",
+            "passed": drawdown <= 0.15,
+            "detail": f"最大回撤 {drawdown:g}，模拟盘前仍需组合风控确认",
+        },
+        {
+            "id": "qlib_baseline_only",
+            "label": "Qlib 仅基线",
+            "passed": True,
+            "detail": "Qlib 分数只提供基线因子，不单独决定是否进入模拟盘",
+        },
+    ]
 
 
 def _rank_key(result: CandidateBacktestResult) -> tuple[int, float, float, int]:

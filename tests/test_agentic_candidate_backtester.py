@@ -70,3 +70,37 @@ def test_candidate_backtester_returns_serializable_payload():
         assert payload["results"][0]["metrics"]["sharpe"] == 1.2
 
     asyncio.run(scenario())
+
+
+def test_candidate_backtester_marks_qlib_as_baseline_and_reports_gate_checks():
+    async def scenario():
+        sample = BacktestSample(codes=["000001"], start_date="2024-01-01", end_date="2024-03-31", trading_days=60)
+
+        class FakeSampleSelector:
+            def select(self, min_days=60, max_codes=5):
+                return sample
+
+        class FakeRunner:
+            async def run_and_evaluate(self, request):
+                metrics = {"trades": 10, "max_drawdown": 0.05, "sharpe": 1.2}
+                return SimpleNamespace(
+                    compiled_request={"strategy": "qlib_signal"},
+                    backtest_response={"total_trades": 10},
+                    metrics=metrics,
+                    promotion=StrategyIterationResult(request.dsl, metrics, True, "passed promotion gate"),
+                )
+
+        batch = await StrategyCandidateBacktester(sample_selector=FakeSampleSelector(), runner=FakeRunner()).run(limit=1)
+        result = batch.to_dict()["results"][0]
+
+        assert result["candidate"]["signal_role"] == "baseline_factor"
+        assert "不是最终裁判" in result["candidate"]["thesis"]
+        assert {item["id"] for item in result["gate_checks"]} >= {
+            "data_quality",
+            "backtest_quality",
+            "risk_boundary",
+            "qlib_baseline_only",
+        }
+        assert all(item["passed"] is True for item in result["gate_checks"])
+
+    asyncio.run(scenario())

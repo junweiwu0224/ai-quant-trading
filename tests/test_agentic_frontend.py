@@ -164,6 +164,19 @@ def test_agentic_strategy_lab_explains_candidate_logic_and_stock_names():
     assert "stock_names" in js
 
 
+def test_agentic_strategy_lab_presents_qlib_as_baseline_not_decision_engine():
+    html = read_template()
+    js = read_agentic_signals()
+
+    assert "Qlib 只是基线因子" in html
+    assert "不是最终裁判" in html
+    assert "renderGateChecks" in js
+    assert "gate_checks" in js
+    assert "数据质量" in js
+    assert "回测表现" in js
+    assert "风控边界" in js
+
+
 def test_agentic_review_limits_history_noise():
     js = read_agentic_signals()
 

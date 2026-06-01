@@ -13,6 +13,7 @@ class StrategyCandidate:
     thesis: str
     dsl: StrategyDSL
     risk_notes: list[str]
+    signal_role: str = "candidate_signal"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -31,8 +32,8 @@ class StrategyCandidateGenerator:
         templates = [
             StrategyCandidate(
                 id="qlib_ranked_core",
-                name="Qlib 核心轮动",
-                thesis="优先验证 Qlib Top 中预测分最高的一组股票，适合作为 Agent 默认基线。",
+                name="Qlib 基线轮动",
+                thesis="用 Qlib 分数做基线因子，不是最终裁判；必须再通过数据质量、回测表现和风控边界检查。",
                 dsl=StrategyDSL(
                     strategy_type="ranked_rotation",
                     universe=universe,
@@ -44,12 +45,13 @@ class StrategyCandidateGenerator:
                     take_profit=take_profit,
                     max_holding_days=10,
                 ),
-                risk_notes=["依赖 Qlib 覆盖率", "需要样本回测确认换手和回撤"],
+                risk_notes=["Qlib 只作基线因子", "需要样本回测确认换手和回撤", "模拟盘前必须通过组合风控"],
+                signal_role="baseline_factor",
             ),
             StrategyCandidate(
                 id="qlib_threshold_quality",
-                name="Qlib 阈值质量筛选",
-                thesis="只在 Qlib 分数达到阈值时参与，降低低置信度信号进入组合的概率。",
+                name="Qlib 阈值基线",
+                thesis="用 Qlib 分数阈值过滤低置信度样本，但 Qlib 不是最终裁判，还要通过回测与风控。",
                 dsl=StrategyDSL(
                     strategy_type="threshold_signal",
                     universe=universe,
@@ -61,7 +63,8 @@ class StrategyCandidateGenerator:
                     take_profit=take_profit,
                     max_holding_days=8,
                 ),
-                risk_notes=["可能减少交易次数", "强行情中可能漏掉早期趋势"],
+                risk_notes=["Qlib 只作基线因子", "可能减少交易次数", "强行情中可能漏掉早期趋势"],
+                signal_role="baseline_factor",
             ),
             StrategyCandidate(
                 id="hotspot_volume_rotation",

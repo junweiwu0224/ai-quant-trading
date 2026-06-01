@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=39">
+    <link rel="stylesheet" href="/static/style.css?v=40">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -1190,7 +1190,8 @@
                             <summary>候选依据</summary>
                             <div>
                                 <p>系统先从本地日线覆盖最完整、共同交易日足够的股票中抽取样本，再生成 4 个策略模板做同一区间回测。</p>
-                                <p>当前默认候选包括 Qlib 分数轮动、Qlib 阈值筛选、热点量能轮动和防守均值回复；只有交易次数、Sharpe 和最大回撤同时过线的策略，才允许进入模拟盘候选。</p>
+                                <p>Qlib 只是基线因子，不是最终裁判；当前默认候选还包括热点量能轮动和防守均值回复。</p>
+                                <p>只有数据质量、回测表现、风控边界都过线的策略，才允许进入模拟盘候选；进入候选后仍需人工确认和组合风控。</p>
                             </div>
                         </details>
                         <div class="agentic-backtest-result" data-agentic-backtest-result>等待候选回测</div>

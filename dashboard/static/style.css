@@ -7712,6 +7712,41 @@ tbody tr:nth-child(even):hover {
   display: block;
   color: var(--text-muted, #6b7280);
 }
+.agentic-gate-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.agentic-gate-check {
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.62);
+}
+.agentic-gate-check.is-pass {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.06);
+}
+.agentic-gate-check.is-blocked {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.06);
+}
+.agentic-gate-check b,
+.agentic-gate-check em {
+  display: block;
+}
+.agentic-gate-check b {
+  color: var(--text-color, #111827);
+  font-size: 12px;
+}
+.agentic-gate-check em {
+  margin-top: 3px;
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+}
 
 .agentic-candidate-list {
   display: grid;

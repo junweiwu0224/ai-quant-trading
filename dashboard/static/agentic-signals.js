@@ -257,6 +257,25 @@
     `;
   }
 
+  function renderGateChecks(checks) {
+    const items = Array.isArray(checks) && checks.length ? checks : [
+      { label: '数据质量', passed: false, detail: '等待候选回测' },
+      { label: '回测表现', passed: false, detail: '等待 Sharpe、回撤和交易次数' },
+      { label: '风控边界', passed: false, detail: '模拟盘前需要组合风控' },
+      { label: 'Qlib 仅基线', passed: true, detail: 'Qlib 不是最终裁判' },
+    ];
+    return `
+      <div class="agentic-gate-checks">
+        ${items.map(item => `
+          <span class="agentic-gate-check ${item.passed ? 'is-pass' : 'is-blocked'}">
+            <b>${esc(item.label)}</b>
+            <em>${esc(item.detail || '')}</em>
+          </span>
+        `).join('')}
+      </div>
+    `;
+  }
+
   function renderCandidateBacktestResults(message) {
     const list = document.querySelector('[data-agentic-candidate-results]');
     const summary = document.querySelector('[data-agentic-backtest-result]');
@@ -292,6 +311,7 @@
           <div>
             <strong>${esc(candidate.name || candidate.id || '-')}</strong>
             <p>${esc(candidate.thesis || '')}</p>
+            ${renderGateChecks(item.gate_checks)}
             <span>${promotion.promoted ? '可进入模拟盘候选' : '暂不进入模拟盘'} · ${esc(promotionReason(promotion.reason))}</span>
             ${promotion.promoted ? `<button class="btn btn-primary btn-sm" data-agentic-action="queue-paper-strategy" data-candidate-index="${index}">加入模拟盘候选</button>` : ''}
           </div>

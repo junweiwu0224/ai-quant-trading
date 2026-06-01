@@ -91,7 +91,7 @@
     const drawdownFailed = items.filter(item => item.promotion?.reason === 'max drawdown exceeded').length;
     const notes = [];
     if (promoted) notes.push(`${promoted} 个策略可以进入模拟盘候选`);
-    if (zeroTrade) notes.push(`${zeroTrade} 个策略产生交易为 0，常见原因是 Qlib 历史预测覆盖不足，回测期内没有可用信号`);
+    if (zeroTrade) notes.push(`${zeroTrade} 个策略产生交易为 0，可能是预测覆盖不足，也可能是该策略条件在样本内没有触发`);
     if (insufficientTrades && insufficientTrades > zeroTrade) notes.push(`${insufficientTrades - zeroTrade} 个策略交易次数不足，样本太少时不建议实跑`);
     if (sharpeFailed) notes.push(`${sharpeFailed} 个策略 Sharpe 没达标，说明收益波动后不够稳`);
     if (drawdownFailed) notes.push(`${drawdownFailed} 个策略回撤超过门槛`);
@@ -99,7 +99,7 @@
     const action = promoted
       ? '下一步：选择晋级策略加入模拟盘候选。'
       : zeroTrade
-        ? '下一步：先补齐 Qlib 历史预测，或缩短回测区间到已有预测覆盖日期附近，再重新回测。'
+        ? '下一步：先确认 Qlib 历史预测已覆盖回测期；若已覆盖，就调整没有触发交易的策略参数。'
         : '下一步：降低策略风险或调整候选参数后重新回测。';
     return { promoted, zeroTrade, insufficientTrades, sharpeFailed, drawdownFailed, notes, action };
   }

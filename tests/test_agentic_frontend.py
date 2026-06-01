@@ -145,7 +145,8 @@ def test_agentic_candidate_summary_explains_rejection_causes():
 
     assert "buildCandidateDiagnosis" in js
     assert "产生交易为 0" in js
-    assert "Qlib 历史预测覆盖不足" in js
+    assert "预测覆盖不足" in js
+    assert "策略条件在样本内没有触发" in js
     assert "Sharpe 没达标" in js
     assert "agentic-diagnosis-list" in js
 

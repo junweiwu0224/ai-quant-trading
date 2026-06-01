@@ -140,6 +140,71 @@ def _build_predictions(
     return latest_date, dict(scored[: max(1, int(limit))])
 
 
+def _fetch_historical_daily_rows(db_path: Path, start_date: str, end_date: str) -> list[sqlite3.Row]:
+    if not db_path.exists():
+        return []
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT code, date, open, high, low, close, volume, amount
+            FROM stock_daily
+            WHERE date <= ?
+            ORDER BY code, date
+            """,
+            (str(end_date),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [row for row in rows if str(row["date"]) <= str(end_date)]
+
+
+def _build_historical_predictions(
+    rows: list[sqlite3.Row],
+    start_date: str,
+    end_date: str,
+    lookback_days: int,
+    limit: int,
+    min_history_days: int,
+    min_universe_size: int,
+) -> dict[str, dict[str, float]]:
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    dates: set[str] = set()
+    for row in rows:
+        code = _plain_code(str(row["code"]))
+        date = str(row["date"])
+        if not code:
+            continue
+        grouped.setdefault(code, []).append(row)
+        if str(start_date) <= date <= str(end_date):
+            dates.add(date)
+
+    predictions: dict[str, dict[str, float]] = {}
+    safe_lookback = max(2, int(lookback_days))
+    safe_limit = max(1, int(limit))
+    safe_min_history = max(2, int(min_history_days))
+    safe_min_universe = max(1, int(min_universe_size))
+    for date in sorted(dates):
+        scored: list[tuple[str, float]] = []
+        for code, series in grouped.items():
+            history = [row for row in series if str(row["date"]) <= date]
+            if len(history) < safe_min_history:
+                continue
+            window = history[-safe_lookback:]
+            if not any(str(row["date"]) == date for row in window):
+                continue
+            score = _score_series(window)
+            if score is not None:
+                scored.append((code, round(score, 6)))
+        if len(scored) < safe_min_universe:
+            continue
+        scored.sort(key=lambda item: item[1], reverse=True)
+        predictions[date] = dict(scored[:safe_limit])
+    return predictions
+
+
 def write_predictions_cache(
     predictions: dict[str, dict[str, float]],
     cache_path: Path = QLIB_PRED_CACHE,
@@ -209,6 +274,62 @@ def generate_predictions(
 
     return write_predictions_cache(
         predictions={str(latest_date): latest_predictions},
+        cache_path=cache_path,
+        method=METHOD_NAME,
+    )
+
+
+def generate_historical_predictions(
+    db_path: Path = DB_PATH,
+    cache_path: Path = QLIB_PRED_CACHE,
+    start_date: str = "",
+    end_date: str = "",
+    lookback_days: int = 60,
+    limit: int = 300,
+    min_history_days: int = 20,
+    min_universe_size: int = MIN_UNIVERSE_SIZE,
+) -> QlibPredictionSummary:
+    db_path = Path(db_path)
+    cache_path = Path(cache_path)
+    if not start_date or not end_date:
+        return QlibPredictionSummary(
+            success=False,
+            latest_date=None,
+            total=0,
+            cache_path=cache_path,
+            message="start_date and end_date are required",
+        )
+    if str(start_date) > str(end_date):
+        return QlibPredictionSummary(
+            success=False,
+            latest_date=None,
+            total=0,
+            cache_path=cache_path,
+            message="start_date must be <= end_date",
+        )
+
+    rows = _fetch_historical_daily_rows(db_path, start_date=start_date, end_date=end_date)
+    predictions = _build_historical_predictions(
+        rows,
+        start_date=start_date,
+        end_date=end_date,
+        lookback_days=lookback_days,
+        limit=limit,
+        min_history_days=min_history_days,
+        min_universe_size=min_universe_size,
+    )
+    if not predictions:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        _remove_stale_cache(cache_path)
+        return QlibPredictionSummary(
+            success=False,
+            latest_date=None,
+            total=0,
+            cache_path=cache_path,
+            message=f"no usable historical predictions in {db_path}",
+        )
+    return write_predictions_cache(
+        predictions=predictions,
         cache_path=cache_path,
         method=METHOD_NAME,
     )

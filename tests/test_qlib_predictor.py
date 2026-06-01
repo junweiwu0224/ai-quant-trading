@@ -2,6 +2,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from click.testing import CliRunner
+
 
 def _seed_daily_db(db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
@@ -75,6 +77,89 @@ def test_generate_predictions_writes_dashboard_cache(tmp_path):
     assert set(latest_predictions.keys()) == {"600519", "000001"}
     assert latest_predictions["600519"] > latest_predictions["000001"]
     assert all(0.0 <= score <= 1.0 for score in latest_predictions.values())
+
+
+def test_generate_historical_predictions_writes_daily_series(tmp_path):
+    from data.qlib.predictor import generate_historical_predictions
+
+    db_path = tmp_path / "quant.db"
+    cache_path = tmp_path / "predictions_cache.json"
+    _seed_daily_db(db_path)
+
+    summary = generate_historical_predictions(
+        db_path=db_path,
+        cache_path=cache_path,
+        start_date="2026-05-20",
+        end_date="2026-05-22",
+        lookback_days=2,
+        min_history_days=2,
+        limit=20,
+    )
+
+    assert summary.success is True
+    assert summary.latest_date == "2026-05-22"
+    assert summary.total == 2
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert payload["method"] == "local_momentum_v1"
+    assert payload["latest_date"] == "2026-05-22"
+    assert sorted(payload["predictions"].keys()) == ["2026-05-21", "2026-05-22"]
+    assert set(payload["predictions"]["2026-05-21"].keys()) == {"600519", "000001"}
+    assert set(payload["predictions"]["2026-05-22"].keys()) == {"600519", "000001"}
+    assert payload["predictions"]["2026-05-22"]["600519"] > payload["predictions"]["2026-05-22"]["000001"]
+
+
+def test_generate_historical_predictions_refuses_sparse_history(tmp_path):
+    from data.qlib.predictor import generate_historical_predictions
+
+    db_path = tmp_path / "quant.db"
+    cache_path = tmp_path / "predictions_cache.json"
+    _seed_daily_db(db_path)
+
+    summary = generate_historical_predictions(
+        db_path=db_path,
+        cache_path=cache_path,
+        start_date="2026-05-20",
+        end_date="2026-05-20",
+        lookback_days=3,
+        min_history_days=2,
+        min_universe_size=2,
+    )
+
+    assert summary.success is False
+    assert summary.total == 0
+    assert "no usable historical predictions" in summary.message
+    assert not cache_path.exists()
+
+
+def test_generate_historical_predictions_cli_writes_cache(tmp_path):
+    from scripts.generate_qlib_historical_predictions import main
+
+    db_path = tmp_path / "quant.db"
+    cache_path = tmp_path / "predictions_cache.json"
+    _seed_daily_db(db_path)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "--db-path",
+            str(db_path),
+            "--cache-path",
+            str(cache_path),
+            "--start",
+            "2026-05-20",
+            "--end",
+            "2026-05-22",
+            "--lookback",
+            "2",
+            "--min-history-days",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "historical predictions: success=True latest=2026-05-22 total=2" in result.output
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert sorted(payload["predictions"].keys()) == ["2026-05-21", "2026-05-22"]
 
 
 def test_write_predictions_cache_creates_parent_directory(tmp_path):

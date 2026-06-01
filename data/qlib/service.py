@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from loguru import logger
 
 from config.settings import DB_PATH, QLIB_PRED_CACHE
-from data.qlib.predictor import generate_predictions
+from data.qlib.predictor import generate_historical_predictions, generate_predictions
 
 
 app = FastAPI(title="Junwei Quant Qlib Service")
@@ -95,7 +95,19 @@ def train_now() -> dict[str, Any]:
         }
     )
     try:
-        summary = generate_predictions(db_path=DB_PATH, cache_path=QLIB_PRED_CACHE)
+        start_date, end_date = _stock_daily_range(DB_PATH)
+        if start_date and end_date:
+            summary = generate_historical_predictions(
+                db_path=DB_PATH,
+                cache_path=QLIB_PRED_CACHE,
+                start_date=start_date,
+                end_date=end_date,
+                lookback_days=60,
+                limit=300,
+                min_history_days=2,
+            )
+        else:
+            summary = generate_predictions(db_path=DB_PATH, cache_path=QLIB_PRED_CACHE)
         if not summary.success:
             TRAIN_STATE.update(
                 {
@@ -139,6 +151,24 @@ def train_now() -> dict[str, Any]:
         )
         logger.exception("qlib training failed")
         return {"success": False, "training": False, "message": str(exc)}
+
+
+def _stock_daily_range(db_path: Path = DB_PATH) -> tuple[str | None, str | None]:
+    import sqlite3
+
+    path = Path(db_path)
+    if not path.exists():
+        return None, None
+    try:
+        conn = sqlite3.connect(path)
+        row = conn.execute("SELECT MIN(date), MAX(date) FROM stock_daily").fetchone()
+        conn.close()
+    except Exception as exc:
+        logger.warning(f"failed to inspect stock_daily range: {exc}")
+        return None, None
+    if not row or not row[0] or not row[1]:
+        return None, None
+    return str(row[0]), str(row[1])
 
 
 @app.get("/health")

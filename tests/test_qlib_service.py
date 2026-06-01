@@ -73,6 +73,8 @@ def test_qlib_service_train_generates_cache(tmp_path, monkeypatch):
     assert payload["latest_date"] == "2026-05-22"
     assert payload["total"] == 2
     assert cache_path.exists()
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert sorted(cache["predictions"].keys()) == ["2026-05-21", "2026-05-22"]
 
     status = client.get("/train/status").json()
     assert status["training"] is False
@@ -137,3 +139,5 @@ def test_service_main_runs_current_app_after_auto_train(monkeypatch, tmp_path):
     assert captured == {"app": qlib_service.app, "host": "127.0.0.1", "port": 8313}
     assert qlib_service.TRAIN_STATE["last_success"] is not None
     assert qlib_service.TRAIN_STATE["latest_date"] == "2026-05-22"
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert sorted(cache["predictions"].keys()) == ["2026-05-21", "2026-05-22"]

@@ -24,6 +24,15 @@ def _create_stock_daily(db_path):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE stock_info (
+                code TEXT PRIMARY KEY,
+                name TEXT,
+                industry TEXT
+            )
+            """
+        )
         conn.commit()
 
 
@@ -55,6 +64,24 @@ def test_sample_selector_picks_codes_with_sufficient_common_coverage(tmp_path):
     assert sample.start_date == "2024-01-05"
     assert sample.end_date == "2024-03-20"
     assert sample.source == "local_stock_daily"
+
+
+def test_sample_selector_enriches_selected_codes_with_stock_names(tmp_path):
+    db_path = tmp_path / "quant.db"
+    _create_stock_daily(db_path)
+    _insert_days(db_path, "sh600519", date(2024, 1, 1), 80)
+    _insert_days(db_path, "000001", date(2024, 1, 5), 80)
+    with get_connection(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO stock_info (code, name, industry) VALUES (?, ?, ?)",
+            [("sh600519", "贵州茅台", "白酒"), ("000001", "平安银行", "银行")],
+        )
+        conn.commit()
+
+    sample = BacktestSampleSelector(db_path).select(min_days=60, max_codes=2)
+
+    assert sample.names == {"000001": "平安银行", "600519": "贵州茅台"}
+    assert sample.to_dict()["stock_names"] == sample.names
 
 
 def test_sample_selector_rejects_when_no_stock_daily_coverage(tmp_path):

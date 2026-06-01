@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=38">
+    <link rel="stylesheet" href="/static/style.css?v=39">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -1186,6 +1186,13 @@
                             <div class="agentic-sample-pill"><span>区间</span><strong>-</strong></div>
                             <div class="agentic-sample-pill"><span>交易日</span><strong>-</strong></div>
                         </div>
+                        <details class="agentic-logic-panel">
+                            <summary>候选依据</summary>
+                            <div>
+                                <p>系统先从本地日线覆盖最完整、共同交易日足够的股票中抽取样本，再生成 4 个策略模板做同一区间回测。</p>
+                                <p>当前默认候选包括 Qlib 分数轮动、Qlib 阈值筛选、热点量能轮动和防守均值回复；只有交易次数、Sharpe 和最大回撤同时过线的策略，才允许进入模拟盘候选。</p>
+                            </div>
+                        </details>
                         <div class="agentic-backtest-result" data-agentic-backtest-result>等待候选回测</div>
                         <div class="agentic-candidate-list" data-agentic-candidate-results></div>
                         <div class="agentic-paper-review">
@@ -1210,10 +1217,10 @@
                             <button class="btn btn-primary btn-sm" data-agentic-action="refresh-signals">刷新信号</button>
                         </div>
                         <div class="agentic-signal-toolbar" role="toolbar" aria-label="Agent 信号筛选">
-                            <button class="segmented active" data-agentic-filter="all">全部</button>
-                            <button class="segmented" data-agentic-filter="new">新信号</button>
-                            <button class="segmented" data-agentic-filter="paper_active">模拟盘</button>
-                            <button class="segmented" data-agentic-filter="expired">已过期</button>
+                            <button class="agentic-signal-filter active" data-agentic-filter="all">全部</button>
+                            <button class="agentic-signal-filter" data-agentic-filter="new">新信号</button>
+                            <button class="agentic-signal-filter" data-agentic-filter="paper_active">模拟盘</button>
+                            <button class="agentic-signal-filter" data-agentic-filter="expired">已过期</button>
                         </div>
                         <div class="agentic-signal-list" data-agentic-signal-list></div>
                     </div>

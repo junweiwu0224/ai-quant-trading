@@ -44,9 +44,11 @@ def test_agentic_signal_styles_exist():
 
     for selector in [
         ".agentic-signal-toolbar",
+        ".agentic-signal-filter",
         ".agentic-signal-list",
         ".agentic-signal-card",
         ".agentic-signal-actions",
+        ".agentic-signal-empty",
     ]:
         assert selector in styles
 
@@ -149,6 +151,17 @@ def test_agentic_candidate_summary_explains_rejection_causes():
     assert "策略条件在样本内没有触发" in js
     assert "Sharpe 没达标" in js
     assert "agentic-diagnosis-list" in js
+
+
+def test_agentic_strategy_lab_explains_candidate_logic_and_stock_names():
+    html = read_template()
+    js = read_agentic_signals()
+
+    assert "候选依据" in html
+    assert "本地日线覆盖" in html
+    assert "formatStockLabel" in js
+    assert "formatStockList" in js
+    assert "stock_names" in js
 
 
 def test_agentic_review_limits_history_noise():

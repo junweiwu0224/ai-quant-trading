@@ -62,9 +62,16 @@
     return 'is-pending';
   }
 
-  function formatCodes(codes) {
+  function formatStockLabel(code, source) {
+    const raw = String(code || '').trim();
+    const names = { ...(state.sample?.stock_names || {}), ...(source?.stock_names || source?.names || {}) };
+    const name = names[raw] || names[raw.replace(/^(sh|sz)/i, '')] || '';
+    return name && name !== raw ? `${name}（${raw}）` : raw;
+  }
+
+  function formatStockList(codes, source) {
     const list = Array.isArray(codes) ? codes : [];
-    return list.length ? list.join(' / ') : '-';
+    return list.length ? list.map(code => formatStockLabel(code, source)).join(' / ') : '-';
   }
 
   function formatRange(source) {
@@ -144,7 +151,7 @@
           <h3>${esc(item.name || item.candidate_id)}</h3>
           <p>${isPending ? '新候选已生成，先确认是否进入模拟盘。确认后仍不会直接下单。' : '策略已进入模拟盘候选，下一步先生成交易意图。'}</p>
           <div class="agentic-current-meta">
-            <span>股票池 <b>${esc(formatCodes(item.sample?.codes))}</b></span>
+            <span>股票池 <b>${esc(formatStockList(item.sample?.codes, item.sample))}</b></span>
             <span>回测区间 <b>${esc(formatRange(item.sample))}</b></span>
             <span>Sharpe <b>${esc(item.metrics?.sharpe ?? '-')}</b></span>
           </div>
@@ -161,7 +168,7 @@
         <h3>${esc(item.name || item.candidate_id)}</h3>
         <p>${esc(item.status === 'paper_orders_submitted' ? '这条策略已经写入模拟盘订单，可以去模拟盘查看。' : canSubmit ? '风控已经通过，现在可以写入模拟盘订单。' : pendingRisk ? '交易意图已生成，先做组合风控确认。' : (item.reason || ''))}</p>
         <div class="agentic-current-meta">
-          <span>股票 <b>${esc(formatCodes(item.codes))}</b></span>
+          <span>股票 <b>${esc(formatStockList(item.codes, item.sample))}</b></span>
           <span>状态 <b>${esc(paperStatusLabel(item.status))}</b></span>
         </div>
         ${pendingRisk ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(item.id)}">确认风控</button>` : ''}
@@ -222,7 +229,7 @@
       `;
       return;
     }
-    const codes = (state.sample.codes || []).join(' / ');
+    const codes = formatStockList(state.sample.codes, state.sample);
     el.innerHTML = `
       <div class="agentic-sample-pill"><span>样本</span><strong>${esc(codes || '-')}</strong></div>
       <div class="agentic-sample-pill"><span>区间</span><strong>${esc(state.sample.start_date)} 至 ${esc(state.sample.end_date)}</strong></div>
@@ -396,7 +403,7 @@
         <div>
           <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
           <strong>${esc(item.name || item.candidate_id)}</strong>
-          <p>${esc(formatCodes(item.sample?.codes))} · ${esc(formatRange(item.sample))}</p>
+          <p>${esc(formatStockList(item.sample?.codes, item.sample))} · ${esc(formatRange(item.sample))}</p>
           <span>回测 Sharpe ${esc(item.metrics?.sharpe ?? '-')}</span>
         </div>
         <div class="agentic-paper-candidate-actions">
@@ -445,7 +452,7 @@
       <article class="agentic-paper-execution-row ${paperStatusTone(item.status)}">
         <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
         <strong>${esc(item.name || item.candidate_id)}</strong>
-        <span>${esc(formatCodes(item.codes))}</span>
+        <span>${esc(formatStockList(item.codes, item.sample))}</span>
         <p>${esc(item.status === 'paper_orders_submitted' ? '已生成模拟盘订单，可到模拟盘页查看。' : item.status === 'paper_intent_confirmed' ? '已通过风控，可以写入模拟盘订单。' : item.status === 'paper_intent_pending' ? '等待组合风控确认，不会直接下单。' : (item.reason || ''))}</p>
         ${item.requires_confirmation ? `<button class="btn btn-primary btn-sm" data-agentic-action="confirm-paper-execution" data-paper-execution-id="${esc(item.id)}">确认意图</button>` : ''}
         ${item.status === 'paper_intent_confirmed' ? `<button class="btn btn-secondary btn-sm" data-agentic-action="create-order-drafts" data-paper-execution-id="${esc(item.id)}">生成订单草案</button>` : ''}
@@ -604,7 +611,7 @@
       : state.signals.filter(item => item.status === state.filter);
     list.innerHTML = items.length
       ? items.map(renderSignalCard).join('')
-      : '<div class="empty-state">暂无 Agent 信号</div>';
+      : '<div class="agentic-signal-empty"><strong>暂无 Agent 信号</strong><span>这里会汇总 Qlib、热点、问财、OpenClaw 和策略 Agent 的结构化信号；当前没有新信号，不影响上方策略实验台继续推进。</span></div>';
   }
 
   async function loadSignals() {
@@ -616,7 +623,7 @@
       state.signals = data.signals || [];
     } catch (error) {
       state.signals = [];
-      list.innerHTML = '<div class="empty-state">' + esc(authMessage(error) || '信号加载失败') + '</div>';
+      list.innerHTML = '<div class="agentic-signal-empty"><strong>' + esc(authMessage(error) || '信号加载失败') + '</strong><span>信号池是独立看板，不影响上方策略候选和模拟盘推进。</span></div>';
       return;
     }
     render();

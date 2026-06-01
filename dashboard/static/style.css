@@ -7493,10 +7493,46 @@ tbody tr:nth-child(even):hover {
   margin: 12px 0;
   flex-wrap: wrap;
 }
+.agentic-signal-filter {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 999px;
+  background: var(--panel-bg, #fff);
+  color: var(--text-muted, #6b7280);
+  font-weight: 700;
+  cursor: pointer;
+}
+.agentic-signal-filter.active {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary-color, #2563eb);
+}
 .agentic-signal-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
+}
+.agentic-signal-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  min-height: 110px;
+  align-content: center;
+  justify-items: center;
+  border: 1px dashed var(--border-color, #d8dee9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--text-muted, #6b7280);
+  text-align: center;
+  padding: 20px;
+}
+.agentic-signal-empty strong {
+  color: var(--text-color, #111827);
+}
+.agentic-signal-empty span {
+  max-width: 620px;
+  line-height: 1.6;
 }
 .agentic-signal-card {
   border: 1px solid var(--border-color, #d8dee9);
@@ -7625,6 +7661,29 @@ tbody tr:nth-child(even):hover {
   font-size: 13px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+.agentic-logic-panel {
+  margin: 12px 0;
+  border: 1px solid var(--border-color, #d8dee9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.agentic-logic-panel summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: var(--text-muted, #6b7280);
+  font-size: 13px;
+  font-weight: 700;
+}
+.agentic-logic-panel div {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+.agentic-logic-panel p {
+  margin: 0;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.55;
 }
 .agentic-backtest-result {
   border-left: 3px solid var(--primary-color, #2563eb);

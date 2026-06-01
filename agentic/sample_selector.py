@@ -15,9 +15,12 @@ class BacktestSample:
     end_date: str
     trading_days: int
     source: str = "local_stock_daily"
+    names: dict[str, str] | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        payload["stock_names"] = payload.pop("names") or {}
+        return payload
 
 
 class BacktestSampleSelector:
@@ -37,11 +40,13 @@ class BacktestSampleSelector:
         if not selected:
             raise ValueError("no local stock_daily coverage with enough overlapping history for agentic backtest")
 
+        codes = sorted(item["code"] for item in selected)
         return BacktestSample(
-            codes=sorted(item["code"] for item in selected),
+            codes=codes,
             start_date=common_start,
             end_date=common_end,
             trading_days=trading_days,
+            names=self._load_stock_names(codes),
         )
 
     def _find_common_window(self, selected: list[dict], min_days: int) -> tuple[list[dict], int, str, str]:
@@ -125,6 +130,28 @@ class BacktestSampleSelector:
                 (*all_codes, start_date, end_date, *codes, len(codes)),
             ).fetchall()
         return len(rows)
+
+    def _load_stock_names(self, codes: list[str]) -> dict[str, str]:
+        if not codes:
+            return {}
+        all_codes = codes + [_to_storage_code(code) for code in codes]
+        placeholders = ",".join("?" for _ in all_codes)
+        try:
+            with get_connection(self.db_path, readonly=True) as conn:
+                rows = conn.execute(
+                    f"SELECT code, name FROM stock_info WHERE code IN ({placeholders})",
+                    all_codes,
+                ).fetchall()
+        except sqlite3.Error:
+            return {}
+
+        result: dict[str, str] = {}
+        for row in rows:
+            plain = _normalize_plain_code(row["code"])
+            name = str(row["name"] or "").strip()
+            if plain and name:
+                result[plain] = name
+        return result
 
 
 def _normalize_plain_code(code: str) -> str:

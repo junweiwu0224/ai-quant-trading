@@ -163,7 +163,7 @@
                 this.fetchJSON('/api/portfolio/trades/recent?limit=100', so),
                 this.fetchJSON('/api/watchlist', so),
                 this.fetchJSON('/api/alerts/rules', so),
-                this.fetchJSON('/api/qlib/top?top_n=50', so),
+                this.fetchJSON('/api/signals/top?limit=50', so),
                 this.fetchJSON('/api/system/status', so),
             ]);
 

@@ -13,6 +13,7 @@ from data.collector.data_source import DataSource
 from data.providers.astock_data_adapter import AStockDataAdapter
 from data.qlib.daily_sync import sync_qlib_daily
 from data.storage import DataStorage
+from data.sync.full_stock_daily import sync_full_stock_daily
 
 
 class DataScheduler:
@@ -83,25 +84,13 @@ class DataScheduler:
     def sync_all(self):
         """同步所有已知股票的日K数据（手动触发用）"""
         logger.info("=== 开始全量数据同步 ===")
-        codes = self._storage.get_all_stock_codes()
-        if not codes:
-            logger.warning("数据库中无股票信息，请先运行 init_db 初始化")
-            return
-
-        success, fail = 0, 0
-        for code in codes:
-            try:
-                latest = self._storage.get_latest_date(code)
-                start = latest.strftime("%Y%m%d") if latest else None
-                df = self._fetch_daily(code, start_date=start)
-                if not df.empty:
-                    self._storage.save_stock_daily(code, df)
-                success += 1
-            except Exception as e:
-                logger.error(f"[{code}] 同步失败: {e}")
-                fail += 1
-
-        logger.info(f"全量同步完成: 成功 {success}, 失败 {fail}, 共 {len(codes)}")
+        summary = sync_full_stock_daily(storage=self._storage)
+        logger.info(
+            "全量同步完成: "
+            f"成功 {summary.success_count}, 失败 {summary.fail_count}, 共 {summary.target_count}, "
+            f"覆盖 {summary.coverage.get('daily_covered')}/{summary.coverage.get('stock_count')}"
+        )
+        return summary
 
     def sync_qlib_coverage(self):
         """同步 Qlib 覆盖池并刷新预测缓存。"""

@@ -40,7 +40,7 @@
                         type: 'intelligence',
                         iwencaiResult: summary,
                         currentTab: 'intelligence',
-                        pageDesc: '情报页：市场情绪、新闻流、板块热力图、热点概念、问财自然语言选股、Qlib AI T+1预测池',
+                        pageDesc: '情报页：市场情绪、新闻流、板块热力图、热点概念、问财自然语言选股、AI 信号候选池',
                     };
                 });
                 this.state.contextRegistered = true;
@@ -120,7 +120,7 @@
                     e.preventDefault();
                     e.stopPropagation();
                     const { code, name, score, industry } = mimoButton.dataset;
-                    const msg = `Qlib 模型今天给 ${name}(${code}) 打出了 ${score} 的高分，属于 ${industry} 板块。请帮我分析：\n1. 这只票最近有没有股东减持、负面研报或重大风险？\n2. 当前技术面是否支持介入？\n3. 如果买入，建议的止损位和目标位是多少？`;
+                    const msg = `AI 信号今天给 ${name}(${code}) 打出了 ${score} 的候选分，属于 ${industry} 板块。请帮我分析：\n1. 这只票最近有没有股东减持、负面研报或重大风险？\n2. 当前技术面是否支持介入？\n3. 如果买入，建议的止损位和目标位是多少？`;
                     if (typeof App.emit === 'function') {
                         App.emit('iwencai:analyze', { query: msg, data: null });
                     }
@@ -131,7 +131,7 @@
                 if (qlibRow && !e.target.closest('.qlib-btn')) {
                     const code = typeof qlibRow.dataset.code === 'string' ? qlibRow.dataset.code.trim() : '';
                     if (code && typeof App.openStockDetail === 'function') {
-                        App.openStockDetail(code, { source: 'intelligence:qlib-row' });
+                        App.openStockDetail(code, { source: 'intelligence:signal-row' });
                     }
                 }
             });
@@ -148,8 +148,17 @@
             ].filter((fn) => typeof fn === 'function');
 
             if (this.state.loaded || loaders.length === 0) return;
-            this.state.loaded = true;
-            await Promise.allSettled(loaders.map((fn) => fn.call(this)));
+            if (this.state.loadingPromise) return this.state.loadingPromise;
+
+            this.state.loadingPromise = Promise.allSettled(loaders.map((fn) => fn.call(this)))
+                .then((results) => {
+                    this.state.loaded = results.some((result) => result.status === 'fulfilled');
+                    return results;
+                })
+                .finally(() => {
+                    this.state.loadingPromise = null;
+                });
+            return this.state.loadingPromise;
         },
 
         getLastResult() {

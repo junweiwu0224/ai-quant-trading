@@ -2,6 +2,7 @@
 
 端点：
 - GET /api/market/radar       — 综合雷达（涨跌幅/振幅/换手率/量比 TOP 10）
+- GET /api/market/breadth     — 全市场涨跌广度（本地 stock_daily 覆盖池）
 - GET /api/market/sectors     — 板块轮动排名
 - GET /api/market/heatmap     — 板块热力图数据（行业+概念，含涨跌幅/市值/涨跌家数）
 - GET /api/market/northbound  — 北向资金净流入
@@ -24,11 +25,13 @@ from data.storage.storage import DataStorage
 router = APIRouter()
 _cache = TTLCache(max_size=100)
 _TTL_RADAR = 30   # 30 秒缓存
+_TTL_BREADTH = 60
 _TTL_SECTOR = 60
 _TTL_NORTH = 120
 
 # 上一次成功数据（休市时回退用）
 _last_radar: dict | None = None
+_last_breadth: dict | None = None
 _last_sectors: dict | None = None
 _last_heatmap: dict | None = None
 _last_northbound: dict | None = None
@@ -290,6 +293,50 @@ def _build_local_radar_result() -> dict[str, Any] | None:
     return _build_radar_result(stocks, source="local_stock_daily", local=True)
 
 
+def _build_market_breadth_result() -> dict[str, Any]:
+    breadth = DataStorage().get_market_breadth()
+    return {
+        "success": True,
+        **breadth,
+        "source": "local_stock_daily",
+        "universe": "local_stock_info_all_a",
+        "coverage_note": "基于本地 stock_daily 全量覆盖池的最新/上一交易日涨跌统计",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+@router.get("/breadth")
+async def get_market_breadth():
+    """市场情绪广度：本地全量覆盖池上涨/下跌/平盘/涨跌停统计。"""
+    global _last_breadth
+    cache_key = "market_breadth"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        result = await asyncio.to_thread(_build_market_breadth_result)
+        _cache.set(cache_key, result, _TTL_BREADTH)
+        _last_breadth = result
+        return result
+    except Exception as e:
+        logger.error(f"市场广度统计失败: {e}")
+        if _last_breadth:
+            return {**_last_breadth, "stale": True, "stale_reason": "breadth_refresh_failed"}
+        return {
+            "success": False,
+            "error": str(e),
+            "source": "local_stock_daily",
+            "universe": "local_stock_info_all_a",
+            "total_stocks": 0,
+            "up_count": 0,
+            "down_count": 0,
+            "flat_count": 0,
+            "limit_up": 0,
+            "limit_down": 0,
+        }
+
+
 @router.get("/radar")
 async def get_market_radar():
     """市场雷达：全A股涨跌幅/振幅/换手率 TOP 10"""
@@ -427,32 +474,70 @@ async def get_sector_ranking(type: str = "industry"):
 
 # ── 板块热力图 ──
 
-def _fetch_sector_heatmap() -> list[dict]:
-    """获取板块热力图数据（行业板块，含涨跌幅/涨跌家数/总市值）"""
+def _normalize_sector_heatmap_item(item: dict[str, Any]) -> dict[str, Any]:
+    total_mv = float(item.get("f20", 0) or 0)
+    return {
+        "code": item.get("f12", ""),
+        "name": item.get("f14", ""),
+        "change_pct": round(float(item.get("f3", 0) or 0), 2),
+        "up_count": int(item.get("f104", 0) or 0),
+        "down_count": int(item.get("f105", 0) or 0),
+        "leader": item.get("f128", "") or item.get("f140", ""),
+        "leader_code": item.get("f140", ""),
+        "leader_change": round(float(item.get("f136", 0) or 0), 2) if item.get("f136") else 0,
+        "total_mv": round(total_mv / 1e8, 0) if total_mv else 0,  # 亿
+        "main_net_inflow": round(float(item.get("f109", 0) or 0) / 1e4, 2),  # 万→亿
+        "source": "eastmoney_sector_board",
+    }
+
+
+def _sector_heatmap_summary(sectors: list[dict[str, Any]]) -> dict[str, Any]:
+    changes = [float(s.get("change_pct") or 0) for s in sectors]
+    return {
+        "up_count": len([v for v in changes if v > 0]),
+        "down_count": len([v for v in changes if v < 0]),
+        "flat_count": len([v for v in changes if v == 0]),
+        "avg_change_pct": round(sum(changes) / len(changes), 2) if changes else 0,
+    }
+
+
+def _fetch_sector_heatmap() -> dict[str, Any]:
+    """获取完整板块热力图数据（行业板块，含涨跌幅/涨跌家数/总市值）"""
+    page_size = 100
+    fields = "f2,f3,f12,f14,f104,f105,f109,f110,f111,f128,f136,f140,f20"
     url = (
         "https://push2delay.eastmoney.com/api/qt/clist/get"
-        "?pn=1&pz=100&po=1&np=1&fltt=2&invt=2"
-        "&fid=f3&fs=m:90+t:2&fields=f2,f3,f12,f14,f104,f105,f109,f110,f111,f128,f136,f140,f20"
+        f"?pn=1&pz={page_size}&po=1&np=1&fltt=2&invt=2"
+        f"&fid=f3&fs=m:90+t:2&fields={fields}"
     )
     data = fetch_json(url, timeout=10)
-    items = ((data.get("data") or {}).get("diff") or [])
+    payload = data.get("data") or {}
+    items = payload.get("diff") or []
+    total = int(payload.get("total") or len(items))
 
-    sectors = []
-    for item in items:
-        total_mv = float(item.get("f20", 0) or 0)
-        sectors.append({
-            "code": item.get("f12", ""),
-            "name": item.get("f14", ""),
-            "change_pct": round(float(item.get("f3", 0) or 0), 2),
-            "up_count": int(item.get("f104", 0) or 0),
-            "down_count": int(item.get("f105", 0) or 0),
-            "leader": item.get("f128", "") or item.get("f140", ""),
-            "leader_code": item.get("f140", ""),
-            "leader_change": round(float(item.get("f136", 0) or 0), 2) if item.get("f136") else 0,
-            "total_mv": round(total_mv / 1e8, 0) if total_mv else 0,  # 亿
-            "main_net_inflow": round(float(item.get("f109", 0) or 0) / 1e4, 2),  # 万→亿
-        })
-    return sectors
+    for page in range(2, (total + page_size - 1) // page_size + 1):
+        page_url = (
+            "https://push2delay.eastmoney.com/api/qt/clist/get"
+            f"?pn={page}&pz={page_size}&po=1&np=1&fltt=2&invt=2"
+            f"&fid=f3&fs=m:90+t:2&fields={fields}"
+        )
+        page_data = fetch_json(page_url, timeout=10)
+        page_items = ((page_data.get("data") or {}).get("diff") or [])
+        items.extend(page_items)
+
+    sectors = [_normalize_sector_heatmap_item(item) for item in items]
+    sectors = [item for item in sectors if item.get("name")]
+    summary = _sector_heatmap_summary(sectors)
+    return {
+        "sectors": sectors,
+        "total": total,
+        "fetched": len(sectors),
+        "source": "eastmoney_sector_board",
+        "universe": "eastmoney_industry_boards_all",
+        "coverage_note": "东方财富行业板块全量分页快照，热力图按市值权重展示",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        **summary,
+    }
 
 
 @router.get("/heatmap")
@@ -465,8 +550,8 @@ async def get_sector_heatmap():
         return cached
 
     try:
-        sectors = await asyncio.to_thread(_fetch_sector_heatmap)
-        result = {"success": True, "sectors": sectors, "total": len(sectors)}
+        data = await asyncio.to_thread(_fetch_sector_heatmap)
+        result = {"success": True, **data}
         _cache.set(cache_key, result, _TTL_SECTOR)
         _last_heatmap = result
         return result
@@ -476,14 +561,18 @@ async def get_sector_heatmap():
             return {**_last_heatmap, "stale": True}
         sectors = await asyncio.to_thread(_build_local_sector_rows)
         if sectors:
+            summary = _sector_heatmap_summary(sectors)
             result = {
                 "success": True,
                 "sectors": sectors,
                 "total": len(sectors),
+                "fetched": len(sectors),
                 "source": "local_stock_daily",
                 "local_fallback": True,
                 "stale": True,
                 "coverage_note": "本地 stock_daily 覆盖股票池行业热力",
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                **summary,
             }
             _cache.set(cache_key, result, _TTL_SECTOR)
             _last_heatmap = result

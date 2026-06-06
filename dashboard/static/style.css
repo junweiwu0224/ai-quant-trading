@@ -1410,6 +1410,7 @@ input:focus, select:focus, textarea:focus {
     max-height: 360px;
     display: none;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .sb-filter-wrap {
@@ -1434,33 +1435,126 @@ input:focus, select:focus, textarea:focus {
 .sb-list {
     overflow-y: auto;
     max-height: 280px;
+    padding: 4px;
 }
 
 .sb-item {
-    display: block;
-    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 10px;
     font-size: var(--font-size-base);
     color: var(--text-primary);
     cursor: pointer;
     transition: background var(--transition);
-    border-bottom: 1px solid var(--border-color);
+    border-radius: 6px;
+    border-bottom: 0;
 }
-.sb-item:last-child { border-bottom: none; }
 .sb-item:hover { background: var(--bg-secondary); }
 .sb-item.active { background: var(--count-badge-bg); color: var(--primary-active); }
 
+.sb-item-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.sb-code {
+    flex: 0 0 auto;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+.sb-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sb-item-meta {
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sb-empty {
-    padding: 16px;
+    padding: 18px 14px;
     text-align: center;
     color: var(--text-tertiary);
     font-size: var(--font-size-base);
 }
 
 .sb-loading {
-    padding: 16px;
+    padding: 18px 14px;
     text-align: center;
     color: var(--text-tertiary);
     font-size: var(--font-size-base);
+}
+
+.sb-no-inline-filter .sb-list {
+    max-height: 320px;
+}
+
+.basket-selected-tags {
+    min-height: 36px;
+    align-items: center;
+    margin-top: 8px;
+    padding: 6px;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+}
+
+.basket-selected-tags:empty::before {
+    content: '已选股票会显示在这里';
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+}
+
+.basket-candidate-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.basket-advanced-json {
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+}
+
+.basket-advanced-json summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    list-style: none;
+}
+
+.basket-advanced-json summary::-webkit-details-marker {
+    display: none;
+}
+
+.basket-advanced-json summary::before {
+    content: '+';
+    display: inline-block;
+    width: 1em;
+    color: var(--primary-color);
+}
+
+.basket-advanced-json[open] summary::before {
+    content: '-';
+}
+
+.basket-candidate-json {
+    margin-top: 8px;
+    font-size: var(--font-size-sm);
 }
 
 .sb-loading::after {
@@ -1491,17 +1585,20 @@ input:focus, select:focus, textarea:focus {
 .sb-tag {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
+    gap: 6px;
+    max-width: 100%;
+    padding: 5px 8px;
     font-size: var(--font-size-sm);
-    background: var(--bg-tertiary);
-    border-radius: 4px;
+    background: var(--floating-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
     color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .sb-tag-remove {
     cursor: pointer;
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-lg);
     color: var(--text-tertiary);
     line-height: 1;
 }
@@ -4552,6 +4649,20 @@ th[data-sort].sort-desc::after {
     font-size: var(--font-size-lg);
     font-weight: 700;
 }
+.intel-sent-meta {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: center;
+    padding: 6px 2px 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    line-height: 1.35;
+}
+.intel-sent-meta span {
+    white-space: nowrap;
+}
 
 /* AI 预测池 */
 .intel-ml-pred-card {
@@ -7414,6 +7525,13 @@ tbody tr:nth-child(even):hover {
     font-size: 12px;
 }
 
+.datahub-stock-meta {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
 .datahub-mini-tag,
 .datahub-reason-tag,
 .datahub-risk-tag,
@@ -7431,6 +7549,29 @@ tbody tr:nth-child(even):hover {
     font-size: 11px;
     line-height: 1.2;
     white-space: nowrap;
+}
+
+.datahub-missing-badge,
+.datahub-qlib-rank {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.datahub-missing-badge {
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+
+.datahub-qlib-rank {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 
 .datahub-actions .btn-xs {

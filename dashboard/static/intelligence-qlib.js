@@ -3,6 +3,43 @@
     'use strict';
 
     const Intelligence = globalThis.Intelligence || (globalThis.Intelligence = {});
+    const fetchShared = (key, url, opts = {}) => {
+        if (typeof Intelligence.fetchMarketJSON === 'function') {
+            return Intelligence.fetchMarketJSON(key, url, opts);
+        }
+        return App.fetchJSON(url, { silent: true, ...opts });
+    };
+    const withTimeout = (promise, timeoutMs = 2500) => new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        Promise.resolve(promise).then(finish).catch(() => finish(null));
+    });
+    const scoreFromBreadth = (data) => {
+        if (typeof Intelligence.scoreFromBreadth === 'function') {
+            return Intelligence.scoreFromBreadth(data);
+        }
+        const up = Number(data?.up_count) || 0;
+        const down = Number(data?.down_count) || 0;
+        const flat = Number(data?.flat_count) || 0;
+        const total = up + down + flat;
+        return total > 0 ? ((up - down) / total) * 100 : null;
+    };
+    const formatCount = (value) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? Math.round(num).toLocaleString('zh-CN') : '--';
+    };
+    const formatSigned = (value) => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '--';
+        return `${num >= 0 ? '+' : ''}${Math.round(num)}`;
+    };
+    const signalColor = (score) => (score >= 10 ? '#22c55e' : score <= -10 ? '#dc2626' : '#f59e0b');
 
     Object.assign(Intelligence, {
         heatLevel(rank, total) {
@@ -19,8 +56,8 @@
 
             try {
                 const [data, consistData] = await Promise.all([
-                    App.fetchJSON('/api/qlib/top?top_n=50', { silent: true }),
-                    App.fetchJSON('/api/qlib/consistency?top_n=50', { silent: true }).catch(() => null),
+                    fetchShared('signalTop50', '/api/signals/top?limit=50'),
+                    fetchShared('signalValidation50', '/api/signals/validation?top_n=50').catch(() => null),
                 ]);
 
                 if (!data || !data.predictions || data.predictions.length === 0) {
@@ -28,12 +65,13 @@
                     return;
                 }
 
-                const consistMap = {};
-                if (consistData?.success && consistData.items) {
-                    for (const item of consistData.items) {
-                        consistMap[item.code] = item;
-                    }
-                }
+                const validation = consistData?.success ? consistData : null;
+                const confidenceLabel = {
+                    validated_positive: '验证偏正',
+                    validated_neutral: '验证中性',
+                    validated_weak: '验证偏弱',
+                    unverified: '未验证',
+                }[validation?.confidence] || '未验证';
 
                 const preds = data.predictions;
                 const total = preds.length;
@@ -52,9 +90,8 @@
                     const amtStr = p.amount ? (p.amount >= 1e8 ? (p.amount / 1e8).toFixed(1) + '亿' : (p.amount / 1e4).toFixed(0) + '万') : '--';
                     const code = App.escapeHTML(p.code || '');
                     const name = App.escapeHTML(p.name || p.code || '');
-                    const consist = consistMap[p.code];
-                    const diamond = consist?.diamond ? '<span class="qlib-diamond" title="高一致性 IC_adj=' + (consist.ic_adj?.toFixed(2) || '--') + '">💎</span>' : '';
-                    const icAdjStr = consist?.ic_adj != null ? consist.ic_adj.toFixed(2) : '--';
+	                    const diamond = p.signal_confidence?.startsWith?.('validated') ? '<span class="qlib-diamond" title="信号已通过历史验证">✓</span>' : '';
+	                    const icAdjStr = p.signal_confidence || 'unverified';
 
                     return `<tr class="qlib-row ${heat.cls}" data-code="${code}">
                         <td class="qlib-td qlib-td-rank">${i + 1}</td>
@@ -87,11 +124,11 @@
                 el.innerHTML = `
                     <div class="qlib-header">
                         <div class="qlib-header-left">
-                            <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">预测日期: ${App.escapeHTML(dateStr)}</span>
-                            <span class="qlib-total">全市场 ${data.total} 只 · Top ${total}</span>
+	                            <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">信号日期: ${App.escapeHTML(dateStr)}</span>
+	                            <span class="qlib-total">${App.escapeHTML(data.provider || 'local_momentum')} · ${App.escapeHTML(data.model_version || '--')} · 全市场 ${data.total} 只 · Top ${total} · ${App.escapeHTML(confidenceLabel)}</span>
                         </div>
                         <button class="qlib-btn qlib-btn-push" id="qlib-push-screener">
-                            📤 推送 Top 50 至选股器
+	                            📤 推送 Top 50 至选股器
                         </button>
                     </div>
                     <div class="qlib-legend">
@@ -109,8 +146,8 @@
                                 <th class="qlib-th">行业</th>
                                 <th class="qlib-th qlib-td-price">价格</th>
                                 <th class="qlib-th qlib-td-vol">成交额</th>
-                                <th class="qlib-th qlib-td-bar">预测力</th>
-                                <th class="qlib-th qlib-td-ic" title="一致性 IC_adj = Score/σ(Hist)">一致性</th>
+                                <th class="qlib-th qlib-td-bar">信号分</th>
+                                <th class="qlib-th qlib-td-ic" title="历史验证状态，不代表上涨概率">验证</th>
                                 <th class="qlib-th qlib-td-actions">操作</th>
                             </tr></thead>
                             <tbody>${rows}</tbody>
@@ -122,7 +159,7 @@
                     if (typeof App.emit === 'function') {
                         App.emit('iwencai:send-to-screener', {
                             pool: codes,
-                            query: `Qlib Top ${total} 预测金股池 (${dateStr})`,
+                            query: `AI 信号 Top ${total} 候选池 (${dateStr})`,
                         });
                     }
                     App.toast(`已推送 ${codes.length} 只股票至选股器`, 'success');
@@ -136,90 +173,62 @@
             const bar = document.getElementById('signal-bar');
             if (!bar) return;
 
-            const sources = [];
-            let compositeScore = 0;
-            let validSources = 0;
-
-            const [radarRes, heatmapRes, qlibRes, newsRes, hotspotRes] = await Promise.allSettled([
-                App.fetchJSON('/api/market/radar', { silent: true }),
-                App.fetchJSON('/api/market/heatmap', { silent: true }),
-                App.fetchJSON('/api/qlib/top?top_n=50', { silent: true }),
-                App.fetchJSON('/api/market/news', { silent: true }),
-                App.fetchJSON('/api/market/hotspot', { silent: true }),
-            ]);
-
-            if (radarRes.status === 'fulfilled' && radarRes.value?.success) {
-                const r = radarRes.value;
-                const g = (r.top_gainers || []).length;
-                const l = (r.top_losers || []).length;
-                const total = g + l;
-                if (total > 0) {
-                    const ratio = (g / total - 0.5) * 200;
-                    compositeScore += ratio;
-                    validSources++;
-                    sources.push({ name: '情绪', score: ratio, color: ratio >= 0 ? '#22c55e' : '#dc2626' });
-                }
-            }
-
-            if (heatmapRes.status === 'fulfilled' && heatmapRes.value?.success) {
-                const sectors = heatmapRes.value.sectors || [];
-                if (sectors.length > 0) {
-                    const avg = sectors.reduce((s, sec) => s + (sec.change_pct || 0), 0) / sectors.length;
-                    const score = Math.max(-100, Math.min(100, avg * 20));
-                    compositeScore += score;
-                    validSources++;
-                    sources.push({ name: '板块', score, color: score >= 0 ? '#22c55e' : '#dc2626' });
-                }
-            }
-
-            if (qlibRes.status === 'fulfilled' && qlibRes.value?.predictions?.length) {
-                const preds = qlibRes.value.predictions;
-                const scores = preds.map((p) => p.score);
-                const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-                const normalized = (avgScore - 0.5) * 200;
-                const score = Math.max(-100, Math.min(100, normalized));
-                compositeScore += score;
-                validSources++;
-                sources.push({ name: 'AI预测', score, color: score >= 0 ? '#22c55e' : '#dc2626' });
-            }
-
-            if (newsRes.status === 'fulfilled' && newsRes.value?.success) {
-                const count = (newsRes.value.news || []).length;
-                const score = Math.min(100, count * 5);
-                compositeScore += score - 50;
-                validSources++;
-                sources.push({ name: '新闻', score: score - 50, color: score > 50 ? '#f59e0b' : '#94a3b8' });
-            }
-
-            if (hotspotRes.status === 'fulfilled' && hotspotRes.value?.success) {
-                const topics = (hotspotRes.value.hotspots || hotspotRes.value.topics || []).length;
-                const score = Math.min(100, topics * 10);
-                compositeScore += score - 50;
-                validSources++;
-                sources.push({ name: '热点', score: score - 50, color: score > 50 ? '#f59e0b' : '#94a3b8' });
-            }
-
-            const avgScore = validSources > 0 ? compositeScore / validSources : 0;
-            const displayScore = Math.round(avgScore);
-
+            const breadth = await withTimeout(fetchShared('breadth', '/api/market/breadth'), 1500);
             const marker = document.getElementById('signal-bar-marker');
             const scoreEl = document.getElementById('signal-bar-score');
             const sourcesEl = document.getElementById('signal-bar-sources');
 
+            if (!breadth?.success) {
+                if (marker) marker.style.left = '50%';
+                if (scoreEl) {
+                    scoreEl.textContent = '--';
+                    scoreEl.style.color = '#f59e0b';
+                }
+                if (sourcesEl) {
+                    sourcesEl.innerHTML = '<span class="signal-src"><span class="signal-src-dot" style="background:#f59e0b"></span>广度不可用</span>';
+                }
+                return;
+            }
+
+            const score = scoreFromBreadth(breadth);
+            if (score === null) {
+                if (marker) marker.style.left = '50%';
+                if (scoreEl) scoreEl.textContent = '--';
+                if (sourcesEl) sourcesEl.textContent = '';
+                return;
+            }
+
+            const up = Number(breadth.up_count) || 0;
+            const down = Number(breadth.down_count) || 0;
+            const flat = Number(breadth.flat_count) || 0;
+            const effective = Number(breadth.effective_count) || Number(breadth.latest_date_covered) || up + down + flat;
+            const stockCount = Number(breadth.stock_count) || Number(breadth.total_stocks) || effective;
+            const upRatio = up + down + flat > 0 ? ((up / (up + down + flat)) * 100).toFixed(0) : '--';
+            const advanceDecline = down > 0 ? (up / down).toFixed(2) : '--';
+            const displayScore = Math.round(score);
+            const color = signalColor(displayScore);
+
             if (marker) {
-                const pct = Math.max(0, Math.min(100, (avgScore + 100) / 2));
+                const pct = Math.max(0, Math.min(100, (score + 100) / 2));
                 marker.style.left = pct + '%';
             }
 
             if (scoreEl) {
-                scoreEl.textContent = displayScore > 0 ? '+' + displayScore : String(displayScore);
-                scoreEl.style.color = displayScore >= 10 ? '#22c55e' : displayScore <= -10 ? '#dc2626' : '#f59e0b';
+                scoreEl.textContent = formatSigned(displayScore);
+                scoreEl.title = `全市场广度 = (上涨 ${formatCount(up)} - 下跌 ${formatCount(down)}) / (上涨 + 下跌 + 平盘)`;
+                scoreEl.style.color = color;
             }
 
             if (sourcesEl) {
+                const sources = [
+                    { text: '全市场广度', color },
+                    { text: `上涨占比 ${upRatio}%`, color },
+                    { text: `涨跌比 ${advanceDecline}`, color },
+                    { text: `涨停/跌停 ${formatCount(breadth.limit_up)}/${formatCount(breadth.limit_down)}`, color: '#f59e0b' },
+                    { text: `有效 ${formatCount(effective)}/${formatCount(stockCount)}`, color: '#94a3b8' },
+                ];
                 sourcesEl.innerHTML = sources.map((s) => {
-                    const dotColor = s.score >= 10 ? '#22c55e' : s.score <= -10 ? '#dc2626' : '#f59e0b';
-                    return `<span class="signal-src"><span class="signal-src-dot" style="background:${dotColor}"></span>${s.name}</span>`;
+                    return `<span class="signal-src"><span class="signal-src-dot" style="background:${s.color}"></span>${App.escapeHTML(s.text)}</span>`;
                 }).join('');
             }
         },

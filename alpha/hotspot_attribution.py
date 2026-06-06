@@ -66,12 +66,33 @@ def _fetch_board_ranking(board_type: str, top_n: int) -> list[dict]:
 
 def _fetch_sector_fund_flow(top_n: int) -> list[dict]:
     """从东方财富资金流接口获取行业主力净流入。"""
-    url = (
-        "https://push2.eastmoney.com/api/qt/clist/get"
-        f"?pn=1&pz={max(top_n, 1)}&po=1&np=1&fltt=2&invt=2"
-        "&fid=f62&fs=m:90+t:2&fields=f12,f14,f3,f62,f184"
+    hosts = (
+        "https://push2delay.eastmoney.com/api/qt/clist/get",
+        "https://push2.eastmoney.com/api/qt/clist/get",
     )
-    data = fetch_json(url, timeout=10)
+    fields = "f12,f14,f3,f62,f184"
+    last_error: Exception | None = None
+    data: dict | None = None
+    for host in hosts:
+        url = (
+            f"{host}?pn=1&pz={max(top_n, 1)}&po=1&np=1&fltt=2&invt=2"
+            f"&fid=f62&fs=m:90+t:2&fields={fields}"
+        )
+        try:
+            data = fetch_json(url, timeout=10)
+            items = ((data.get("data") or {}).get("diff") or [])
+            if items:
+                break
+        except Exception as e:
+            last_error = e
+            logger.warning(f"行业资金流数据源失败({host}): {e}")
+            continue
+
+    if data is None:
+        if last_error:
+            raise last_error
+        return []
+
     items = ((data.get("data") or {}).get("diff") or [])
 
     records: list[dict] = []

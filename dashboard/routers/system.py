@@ -21,11 +21,13 @@ async def get_system_status():
         codes = storage.get_all_stock_codes()
         stock_count = len(codes)
         watchlist_count = len(storage.get_watchlist())
+        stock_daily = storage.get_stock_daily_coverage()
         latest = storage.get_global_latest_date()
         if latest:
             data_range = str(latest)
     except Exception as e:
         logger.warning(f"获取系统状态失败: {e}")
+        stock_daily = {}
 
     paper_running = False
     try:
@@ -39,6 +41,7 @@ async def get_system_status():
             "stock_count": stock_count,
             "watchlist_count": watchlist_count,
             "latest_date": data_range,
+            "stock_daily": stock_daily,
         },
         "paper_running": paper_running,
         "ai_model": "LightGBM + XGBoost",

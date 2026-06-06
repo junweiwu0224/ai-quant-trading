@@ -37,6 +37,44 @@ Object.assign(App, {
         `).join('');
     },
 
+    initFormulaBasketPickers() {
+        if (this._formulaBasketPickersBound) return;
+        this._formulaBasketPickersBound = true;
+
+        if (document.getElementById('formula-code') && document.getElementById('formula-code-dropdown') && typeof SearchBox !== 'undefined') {
+            this.formulaCodeSearch = new SearchBox('formula-code', 'formula-code-dropdown', {
+                maxResults: 30,
+                idleMessage: '自选股为空，输入代码或名称搜索全市场',
+                formatItem: (s) => `${s.code} ${s.name || ''}`,
+            });
+            this.formulaCodeSearch.setDataSource((q) => this.searchStockPickerCandidates(q, {
+                limit: 50,
+                emptyLimit: 50,
+                emptyScope: 'watchlist',
+                silent: true,
+            }));
+            this.formulaCodeSearch.onSelect((item) => {
+                const input = document.getElementById('formula-code');
+                if (input) input.value = item.code;
+            });
+        }
+
+        if (document.getElementById('basket-code-input') && document.getElementById('basket-code-dropdown') && document.getElementById('basket-code-tags') && typeof MultiSearchBox !== 'undefined') {
+            this.basketMultiSearch = new MultiSearchBox('basket-code-input', 'basket-code-dropdown', 'basket-code-tags', {
+                maxResults: 40,
+                idleMessage: '自选股为空，输入代码或名称搜索全市场',
+                formatItem: (s) => `${s.code} ${s.name || ''}`,
+            });
+            this.basketMultiSearch.setDataSource((q) => this.searchStockPickerCandidates(q, {
+                limit: 50,
+                emptyLimit: 50,
+                emptyScope: 'watchlist',
+                silent: true,
+            }));
+            this.basketMultiSearch.onToggle = () => this._syncBasketCandidatesFromPicker();
+        }
+    },
+
     // ── 公式系统 ──
 
     async loadFormulaEvaluate() {
@@ -63,10 +101,10 @@ Object.assign(App, {
         if (!formula) { this.toast('请先填写公式', 'error'); return; }
 
         try {
-            this.toast('公式选股中...', 'info');
+            this.toast('全市场公式选股中...', 'info');
             const data = await this.postJSON('/api/alpha/formula/screen', { formula, start_date: startDate, end_date: endDate });
             this.renderFormulaScreen(data);
-            this.toast('公式选股完成', 'success');
+            this.toast('全市场选股完成', 'success');
         } catch (e) {
             this.toast('公式选股失败: ' + e.message, 'error');
         }
@@ -137,11 +175,63 @@ Object.assign(App, {
 
     // ── 篮子交易 ──
 
+    _normalizeBasketCandidate(item, index = 0) {
+        const code = String(item?.code || '').trim();
+        if (!/^\d{6}$/.test(code)) return null;
+        const probability = Number(item?.probability);
+        return {
+            code,
+            name: String(item?.name || code).trim(),
+            industry: String(item?.industry || item?.sector || '').trim(),
+            probability: Number.isFinite(probability) ? probability : Math.max(0.5, 0.82 - index * 0.03),
+        };
+    },
+
+    _setBasketCandidates(items, { syncPicker = true } = {}) {
+        const seen = new Set();
+        const candidates = (Array.isArray(items) ? items : [])
+            .map((item, index) => this._normalizeBasketCandidate(item, index))
+            .filter(Boolean)
+            .filter((item) => {
+                if (seen.has(item.code)) return false;
+                seen.add(item.code);
+                return true;
+            });
+        const textarea = document.getElementById('basket-candidates');
+        if (textarea) {
+            textarea.value = candidates.length ? JSON.stringify(candidates, null, 2) : '';
+        }
+        if (syncPicker && this.basketMultiSearch) {
+            this.basketMultiSearch.setSelected(candidates);
+        }
+        return candidates;
+    },
+
+    _syncBasketCandidatesFromPicker() {
+        const selected = this.basketMultiSearch ? this.basketMultiSearch.getSelected() : [];
+        this._setBasketCandidates(selected, { syncPicker: false });
+    },
+
+    useWatchlistForBasket() {
+        const watchlist = Array.isArray(this.watchlistCache) ? this.watchlistCache : [];
+        if (!watchlist.length) {
+            this.toast('自选股为空，请先添加自选股或搜索加入篮子', 'warning');
+            return;
+        }
+        const candidates = this._setBasketCandidates(watchlist.slice(0, 30));
+        this.toast(`已导入 ${candidates.length} 只自选股`, 'success');
+    },
+
+    clearBasketCandidates() {
+        this._setBasketCandidates([]);
+        this.toast('篮子候选已清空', 'success');
+    },
+
     _parseBasketCandidates() {
         const raw = document.getElementById('basket-candidates')?.value?.trim() || '';
         if (!raw) return [];
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        return this._setBasketCandidates(Array.isArray(parsed) ? parsed : []);
     },
 
     async loadBasketPlan() {
@@ -267,3 +357,12 @@ Object.assign(App, {
         }
     },
 });
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        if (globalThis.__AUTH_GATE_REQUIRED__ === true) return;
+        App.initAlpha?.();
+    });
+} else if (globalThis.__AUTH_GATE_REQUIRED__ !== true) {
+    App.initAlpha?.();
+}

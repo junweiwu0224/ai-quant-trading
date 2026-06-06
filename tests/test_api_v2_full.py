@@ -466,10 +466,118 @@ class TestMarket:
             market_router._cache.delete("market_radar")
             market_router._last_radar = previous_last_radar
 
+    def test_market_breadth_uses_local_full_daily_coverage(self, client, monkeypatch):
+        """GET /api/market/breadth — 返回本地全量覆盖池涨跌广度"""
+        from dashboard.routers import market as market_router
+
+        previous_last_breadth = market_router._last_breadth
+        market_router._cache.delete("market_breadth")
+        market_router._last_breadth = None
+
+        class FakeStorage:
+            def get_market_breadth(self):
+                return {
+                    "stock_count": 5525,
+                    "total_stocks": 5525,
+                    "effective_count": 5515,
+                    "daily_covered": 5525,
+                    "daily_missing": 0,
+                    "coverage_pct": 100.0,
+                    "latest_date": "2026-06-05",
+                    "previous_date": "2026-06-04",
+                    "latest_date_covered": 5515,
+                    "latest_date_missing": 10,
+                    "up_count": 2310,
+                    "down_count": 2860,
+                    "flat_count": 355,
+                    "no_prev_count": 0,
+                    "limit_up": 68,
+                    "limit_down": 21,
+                    "avg_change_pct": -0.12,
+                    "up_ratio": 41.81,
+                }
+
+        monkeypatch.setattr(market_router, "DataStorage", lambda: FakeStorage())
+
+        try:
+            resp = client.get("/api/market/breadth")
+            data = resp.json()
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["universe"] == "local_stock_info_all_a"
+            assert data["stock_count"] == 5525
+            assert data["total_stocks"] == 5525
+            assert data["effective_count"] == 5515
+            assert data["up_count"] == 2310
+            assert data["down_count"] == 2860
+            assert data["flat_count"] == 355
+            assert data["limit_up"] == 68
+            assert data["limit_down"] == 21
+            assert data["latest_date"] == "2026-06-05"
+            assert data["latest_date_missing"] == 10
+        finally:
+            market_router._cache.delete("market_breadth")
+            market_router._last_breadth = previous_last_breadth
+
     def test_market_sectors(self, client):
         """GET /api/market/sectors — 板块数据"""
         resp = client.get("/api/market/sectors")
         assert resp.status_code == 200
+
+    def test_market_heatmap_fetches_all_eastmoney_pages(self, client, monkeypatch):
+        """GET /api/market/heatmap — 不只统计涨幅榜第一页前 100 个板块"""
+        from dashboard.routers import market as market_router
+
+        previous_last_heatmap = market_router._last_heatmap
+        market_router._cache.delete("sector_heatmap")
+        market_router._last_heatmap = None
+        calls = []
+
+        def fake_fetch_json(url, timeout=10):
+            calls.append(url)
+            if "pn=1" in url:
+                return {
+                    "data": {
+                        "total": 205,
+                        "diff": [
+                            {"f12": "BK001", "f14": "强势板块", "f3": 3.2, "f104": 10, "f105": 0, "f20": 100_000_000_000},
+                        ],
+                    }
+                }
+            if "pn=2" in url:
+                return {
+                    "data": {
+                        "diff": [
+                            {"f12": "BK002", "f14": "中性板块", "f3": 0.0, "f104": 5, "f105": 5, "f20": 80_000_000_000},
+                        ],
+                    }
+                }
+            return {
+                "data": {
+                    "diff": [
+                        {"f12": "BK003", "f14": "弱势板块", "f3": -2.4, "f104": 1, "f105": 12, "f20": 60_000_000_000},
+                    ],
+                }
+            }
+
+        monkeypatch.setattr(market_router, "fetch_json", fake_fetch_json)
+
+        try:
+            resp = client.get("/api/market/heatmap")
+            data = resp.json()
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["total"] == 205
+            assert data["fetched"] == 3
+            assert data["up_count"] == 1
+            assert data["down_count"] == 1
+            assert data["flat_count"] == 1
+            assert data["source"] == "eastmoney_sector_board"
+            assert len(calls) == 3
+        finally:
+            market_router._cache.delete("sector_heatmap")
+            market_router._last_heatmap = previous_last_heatmap
 
     def test_market_rules_list(self, client):
         """GET /api/market-rules/list — 市场规则"""

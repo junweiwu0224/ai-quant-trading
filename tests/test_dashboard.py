@@ -130,8 +130,27 @@ class TestValuationDataHubAPI:
         )
 
         assert "AI未覆盖" not in decision["risk_tags"]
-        assert "AI前10" in decision["reason_tags"]
-        assert decision["decision_score"] >= 70
+        assert "AI候选" in decision["reason_tags"]
+        assert "AI未验证" in decision["risk_tags"]
+        assert decision["decision_score"] >= 60
+
+    def test_load_qlib_context_keeps_full_items_when_ordered_codes_are_limited(self, monkeypatch):
+        from dashboard.routers import datahub
+
+        monkeypatch.setattr(
+            "dashboard.routers.qlib._load_predictions",
+            lambda: {
+                "2026-06-04": {"600519": 0.7, "000001": 0.6, "002475": 0.5},
+                "2026-06-05": {"600519": 0.9, "000001": 0.8, "002475": 0.7},
+            },
+        )
+
+        ctx = datahub._load_qlib_context(top_limit=1)
+
+        assert ctx["total"] == 3
+        assert ctx["ordered_codes"] == ["600519"]
+        assert ctx["items"]["002475"]["qlib_rank"] == 3
+        assert ctx["items"]["002475"]["qlib_score"] == 0.7
 
     def test_stock_detail_includes_source_provenance(self, monkeypatch):
         from data.collector import quote_service
@@ -226,7 +245,7 @@ class TestValuationDataHubAPI:
         snapshot = service.build_snapshot("000001", report_limit=3)
 
         assert snapshot["source"] == "local_derived"
-        assert snapshot["source_version"] == "stock_daily+qlib+momentum"
+        assert snapshot["source_version"] == "stock_daily+signal+momentum"
         assert snapshot["report_count"] == 1
         assert snapshot["report_source"] == "local_derived"
         assert snapshot["reports"][0]["source_note"]
@@ -242,6 +261,9 @@ class TestValuationDataHubAPI:
         assert "valuation" in data
         assert "quote" in data
         assert "temporary_subscriptions" in data["quote"]
+        assert "stock_daily" in data
+        assert "daily_covered" in data["stock_daily"]
+        assert "full_daily_sync" in data
 
     def test_datahub_decision_matrix_includes_snapshot_metadata(self, monkeypatch):
         storage = DataStorage()
@@ -268,6 +290,33 @@ class TestValuationDataHubAPI:
         assert item["source_version"] == "v-test"
         assert item["quality_status"] == "warn"
         assert item["snapshot_at"]
+
+    def test_datahub_decision_matrix_uses_full_qlib_items_beyond_display_top(self, monkeypatch):
+        storage = DataStorage()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=None: {
+            "latest_date": "2026-06-05",
+            "total": 3,
+            "items": {
+                "600519": {"qlib_rank": 1, "qlib_score": 0.91},
+                "000001": {"qlib_rank": 2, "qlib_score": 0.82},
+                "002475": {"qlib_rank": 3, "qlib_score": 0.73},
+            },
+            "ordered_codes": ["600519"],
+        })
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=002475&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        item = res.json()["items"][0]
+        assert item["code"] == "002475"
+        assert item["qlib_rank"] == 3
+        assert item["qlib_score"] == 0.73
+        assert "AI未覆盖" not in item["risk_tags"]
 
     def test_datahub_decision_matrix_summary_includes_ledger_health(self, monkeypatch):
         storage = DataStorage()
@@ -459,6 +508,22 @@ class TestValuationDataHubAPI:
             storage,
             "get_latest_market_rows",
             lambda: [
+                {
+                    "code": "000001",
+                    "date": "2026-06-05",
+                    "close": 11.0,
+                    "prev_close": 10.0,
+                    "high": 11.2,
+                    "low": 10.8,
+                    "amount": 100000,
+                    "volume": 1000,
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            storage,
+            "get_latest_market_rows_for_codes",
+            lambda codes: [
                 {
                     "code": "000001",
                     "date": "2026-06-05",

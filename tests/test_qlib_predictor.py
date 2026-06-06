@@ -45,6 +45,39 @@ def _seed_daily_db(db_path: Path) -> None:
     conn.close()
 
 
+def _seed_many_daily_codes(db_path: Path, count: int = 305) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """CREATE TABLE stock_daily (
+            code TEXT,
+            date TEXT,
+            open REAL,
+            high REAL,
+            low REAL,
+            close REAL,
+            volume REAL,
+            amount REAL
+        )"""
+    )
+    rows = []
+    for index in range(count):
+        code = f"sz{index:06d}"
+        base = 10.0 + index * 0.01
+        rows.extend(
+            [
+                (code, "2026-05-20", base, base + 0.2, base - 0.1, base, 1000 + index, 100000 + index),
+                (code, "2026-05-21", base, base + 0.3, base - 0.1, base + 0.1, 1100 + index, 110000 + index),
+                (code, "2026-05-22", base + 0.1, base + 0.4, base, base + 0.2, 1200 + index, 120000 + index),
+            ]
+        )
+    conn.executemany(
+        "INSERT INTO stock_daily (code, date, open, high, low, close, volume, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
 def test_generate_predictions_writes_dashboard_cache(tmp_path):
     from data.qlib.predictor import generate_predictions
 
@@ -77,6 +110,45 @@ def test_generate_predictions_writes_dashboard_cache(tmp_path):
     assert set(latest_predictions.keys()) == {"600519", "000001"}
     assert latest_predictions["600519"] > latest_predictions["000001"]
     assert all(0.0 <= score <= 1.0 for score in latest_predictions.values())
+
+
+def test_generate_predictions_defaults_to_full_universe_not_top_300(tmp_path):
+    from data.qlib.predictor import generate_predictions
+
+    db_path = tmp_path / "quant.db"
+    cache_path = tmp_path / "predictions_cache.json"
+    _seed_many_daily_codes(db_path, count=305)
+
+    summary = generate_predictions(db_path=db_path, cache_path=cache_path, lookback_days=3)
+
+    assert summary.success is True
+    assert summary.latest_date == "2026-05-22"
+    assert summary.total == 305
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert len(payload["predictions"]["2026-05-22"]) == 305
+
+
+def test_generate_predictions_ignores_partial_newer_date(tmp_path):
+    from data.qlib.predictor import generate_predictions
+
+    db_path = tmp_path / "quant.db"
+    cache_path = tmp_path / "predictions_cache.json"
+    _seed_daily_db(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO stock_daily (code, date, open, high, low, close, volume, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("sh600519", "2026-05-25", 109.0, 111.0, 108.0, 110.0, 1500.0, 165000.0),
+    )
+    conn.commit()
+    conn.close()
+
+    summary = generate_predictions(db_path=db_path, cache_path=cache_path, lookback_days=4)
+
+    assert summary.success is True
+    assert summary.latest_date == "2026-05-22"
+    assert summary.total == 2
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert set(payload["predictions"]["2026-05-22"]) == {"600519", "000001"}
 
 
 def test_generate_historical_predictions_writes_daily_series(tmp_path):

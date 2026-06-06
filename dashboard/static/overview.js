@@ -63,7 +63,7 @@ Object.assign(App, {
             if (aiEl) aiEl.textContent = status.ai_model || '--';
 
             // Qlib 心跳检查（异步，不阻塞）
-            this._checkQlibHealth();
+            this._checkSignalHealth();
             this._loadDataHubHealth();
 
             this._updateQuoteStatus();
@@ -165,7 +165,7 @@ Object.assign(App, {
         if (!tbody) return;
         tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
         const hint = document.getElementById('ov-opportunity-hint');
-        if (hint) hint.textContent = 'PEG、机构预测、Qlib 与风险标签合成的优先研究清单。';
+        if (hint) hint.textContent = 'PEG、机构预测、AI 信号与风险标签合成的优先研究清单。';
         const status = document.getElementById('ov-opportunity-status');
         if (status) status.innerHTML = '<span class="opportunity-status-item">正在加载</span>';
         try {
@@ -181,7 +181,7 @@ Object.assign(App, {
             if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
             const fastItems = (fastData.items || []).slice(0, 5);
             if (!fastItems.length) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无候选，先加入自选或生成 Qlib 缓存</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">暂无候选，先加入自选或生成 AI 信号缓存</td></tr>';
                 this._renderOverviewOpportunityStatus(fastData.summary || {}, 0, true);
                 return;
             }
@@ -283,11 +283,11 @@ Object.assign(App, {
             if (data.summary?.used_fallback) {
                 hint.textContent = isFast
                     ? '当前使用默认候选快速预览；完整估值正在后台补齐。'
-                    : '当前使用默认候选；加入自选股或生成 Qlib 缓存后会自动切换。';
+                    : '当前使用默认候选；加入自选股或生成 AI 信号缓存后会自动切换。';
             } else if (isFast) {
                 hint.textContent = '快速预览已加载，PEG 和机构预测正在后台补齐。';
             } else {
-                hint.textContent = 'PEG、机构预测、Qlib 与风险标签合成的优先研究清单。';
+                hint.textContent = 'PEG、机构预测、AI 信号与风险标签合成的优先研究清单。';
             }
         }
     },
@@ -295,21 +295,24 @@ Object.assign(App, {
     _renderOverviewOpportunityStatus(summary = {}, itemCount = 0, isFast = false) {
         const status = document.getElementById('ov-opportunity-status');
         if (!status) return;
-        const qlibStatusMap = { fresh: '在线', stale: '过期', offline: '离线', empty: '离线' };
+        const qlibStatusMap = { fresh: '在线', online: '在线', stale: '过期', offline: '离线', empty: '离线' };
         const total = summary.total ?? itemCount;
         const valuation = this._fmtOverviewPct(summary.valuation_coverage_pct);
-        const qlibCoverage = this._fmtOverviewPct(summary.qlib_coverage_pct);
-        const qlibStatus = qlibStatusMap[summary.qlib_status] || summary.qlib_status || '未知';
+        const qlibCoverage = this._fmtOverviewPct(summary.signal_coverage_pct ?? summary.qlib_coverage_pct);
+        const qlibStatus = qlibStatusMap[summary.signal_status || summary.qlib_status] || summary.signal_status || summary.qlib_status || '未知';
         const scopeLabel = summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
-        const cacheAge = summary.qlib_cache_age_label ? ` · ${this.escapeHTML(summary.qlib_cache_age_label)}` : '';
+        const cacheAge = (summary.signal_cache_age_label || summary.qlib_cache_age_label) ? ` · ${this.escapeHTML(summary.signal_cache_age_label || summary.qlib_cache_age_label)}` : '';
+        const validation = summary.signal_validation || {};
+        const validationText = validation.confidence ? `验证 ${this.escapeHTML(validation.confidence)}` : '验证 未验证';
         const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
         const syncStatus = this._formatOverviewQlibSyncStatus(summary.qlib_sync_status);
         const items = [
             `候选 ${this.escapeHTML(total)} 只`,
             `范围 ${this.escapeHTML(scopeLabel)}`,
             `估值 ${this.escapeHTML(valuation)}`,
-            `Qlib ${this.escapeHTML(qlibStatus)}${cacheAge}`,
-            `Qlib覆盖 ${this.escapeHTML(qlibCoverage)}`,
+            `AI信号 ${this.escapeHTML(qlibStatus)}${cacheAge}`,
+            `AI覆盖 ${this.escapeHTML(qlibCoverage)}`,
+            validationText,
             mode,
         ];
         if (syncStatus) items.splice(5, 0, syncStatus);
@@ -334,8 +337,8 @@ Object.assign(App, {
     _overviewOpportunityScopeLabel(scope) {
         return {
             watchlist: '自选',
-            qlib: 'Qlib Top',
-        }[scope] || 'Qlib Top';
+            qlib: 'AI信号 Top',
+        }[scope] || 'AI信号 Top';
     },
 
     _renderOpportunityRow(item) {
@@ -611,12 +614,12 @@ Object.assign(App, {
         PollManager.cancel('overview:quote-status');
     },
 
-    /** Qlib 心跳检查 */
-    async _checkQlibHealth() {
+    /** AI 信号心跳检查 */
+    async _checkSignalHealth() {
         const el = document.getElementById('ov-qlib-status');
         if (!el) return;
         try {
-            const data = await this.fetchJSON('/api/qlib/health', { silent: true });
+            const data = await this.fetchJSON('/api/signals/health', { silent: true });
             if (data?.status === 'online') {
                 el.textContent = '🟢 在线';
                 el.className = 'stat-value text-up';
@@ -640,7 +643,9 @@ Object.assign(App, {
                 const data = await this.fetchJSON('/api/datahub/health', { silent: true, timeout: 20000 });
                 const quote = data.quote || {};
                 const valuation = data.valuation || {};
-                const qlib = data.qlib || {};
+	                const qlib = data.signal || data.qlib || {};
+                const stockDaily = data.stock_daily || {};
+                const fullDailySync = data.full_daily_sync || {};
                 const shadow = data.shadow || {};
                 const age = quote.last_update_age_sec;
                 const quoteLabel = quote.running
@@ -662,13 +667,23 @@ Object.assign(App, {
                 const qualityLabel = qualitySummary.total != null
                     ? `${qualitySummary.total} 条`
                     : '--';
+                const dailyCoverageLabel = stockDaily.coverage_pct == null
+                    ? '--'
+                    : `${stockDaily.daily_covered ?? 0}/${stockDaily.stock_count ?? data.stock_count ?? '--'} · ${stockDaily.coverage_pct}%`;
+                const latestDailyLabel = stockDaily.latest_date
+                    ? `${stockDaily.latest_date} · ${stockDaily.latest_date_covered ?? 0}只`
+                    : '无数据';
+                const syncLabel = fullDailySync.status_label || '未同步';
                 root.innerHTML = `
-                <div class="datahub-health-item"><span>股票覆盖</span><strong>${this.escapeHTML(data.stock_count ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>股票名录</span><strong>${this.escapeHTML(data.stock_count ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>日线覆盖</span><strong>${this.escapeHTML(dailyCoverageLabel)}</strong></div>
+                <div class="datahub-health-item"><span>最新日线</span><strong>${this.escapeHTML(latestDailyLabel)}</strong></div>
+                <div class="datahub-health-item"><span>全量同步</span><strong>${this.escapeHTML(syncLabel)}</strong></div>
                 <div class="datahub-health-item"><span>自选覆盖</span><strong>${this.escapeHTML(data.watchlist_count ?? '--')}</strong></div>
                 <div class="datahub-health-item"><span>行情缓存</span><strong>${this.escapeHTML(quote.cache_count ?? '--')} / ${this.escapeHTML(quote.subscriptions ?? '--')}</strong></div>
                 <div class="datahub-health-item"><span>行情新鲜度</span><strong>${this.escapeHTML(quoteLabel)}</strong></div>
                 <div class="datahub-health-item"><span>估值覆盖</span><strong>${valuation.coverage_pct == null ? '--' : `${valuation.coverage_pct}%`}</strong></div>
-                <div class="datahub-health-item"><span>Qlib缓存</span><strong>${this.escapeHTML(qlibLabel)}</strong></div>
+	                <div class="datahub-health-item"><span>AI信号</span><strong>${this.escapeHTML(qlibLabel)}</strong></div>
                 <div class="datahub-health-item"><span>影子对账</span><strong>${this.escapeHTML(shadowLabel)}</strong></div>
                 <div class="datahub-health-item"><span>数据源在线</span><strong>${this.escapeHTML(sourceLabel)}</strong></div>
                 <div class="datahub-health-item"><span>质量记录</span><strong>${this.escapeHTML(qualityLabel)}</strong></div>

@@ -16,6 +16,7 @@ APPROVED_BRIDGE_TOOLS = {
     "quant.paper.summary",
     "quant.valuation.peg",
     "quant.data.snapshot",
+    "quant.signals.top",
     "quant.qlib.top",
     "quant.report.generate_daily",
     "quant.report.open",

@@ -712,7 +712,7 @@
                 }
             } else if (subtab === 'model' || subtab === 'formula' || subtab === 'basket') {
                 await this.ensureBundle?.('research');
-                if (typeof App.initAlpha === 'function' && !this._tabCache[subtab]) {
+                if (typeof App.initAlpha === 'function') {
                     App.initAlpha();
                     this._tabCache[subtab] = Date.now();
                 }

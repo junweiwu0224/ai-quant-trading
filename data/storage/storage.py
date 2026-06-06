@@ -19,15 +19,17 @@ Base = declarative_base()
 
 
 def _to_prefix_code(code: str) -> str:
-    """统一代码格式为 sh/sz 前缀: 600519 → sh600519, 000001 → sz000001
+    """统一代码格式为交易所前缀: 600519 → sh600519, 000001 → sz000001
 
     已有前缀的原样返回。指数代码 (000xxx/399xxx) 不加前缀。
     """
     if not code:
         return code
-    if code[:2] in ("sh", "sz", "SH", "SZ"):
+    if code[:2] in ("sh", "sz", "bj", "SH", "SZ", "BJ"):
         return code.lower()
     # 纯数字：根据规则加前缀
+    if code.startswith(("43", "83", "87", "88", "92")):
+        return f"bj{code}"
     if code.startswith("6"):
         return f"sh{code}"
     if code.startswith(("0", "3", "9")):
@@ -36,10 +38,10 @@ def _to_prefix_code(code: str) -> str:
 
 
 def _to_plain_code(code: str) -> str:
-    """去掉 sh/sz 前缀，统一为 6 位代码"""
+    """去掉交易所前缀，统一为 6 位代码"""
     if not code:
         return code
-    if code[:2] in ("sh", "sz", "SH", "SZ"):
+    if code[:2] in ("sh", "sz", "bj", "SH", "SZ", "BJ"):
         return code[2:]
     return code
 
@@ -531,8 +533,8 @@ class DataStorage:
     def _get_session(self) -> Session:
         return self._Session()
 
-    def save_stock_daily(self, code: str, df: pd.DataFrame) -> int:
-        """保存日K线数据，跳过已存在的记录"""
+    def save_stock_daily(self, code: str, df: pd.DataFrame, update_existing: bool = False) -> int:
+        """保存日K线数据，默认跳过已存在记录，可选择更新已有日期。"""
         if df.empty:
             return 0
         prefixed_code, plain_code = _normalize_storage_code(code)
@@ -547,6 +549,7 @@ class DataStorage:
                 .all()
             )
             canonical_dates = set()
+            existing_by_date: dict[date, StockDaily] = {}
             for row in existing_rows:
                 if row.code != prefixed_code:
                     duplicate = (
@@ -555,12 +558,15 @@ class DataStorage:
                         .first()
                     )
                     if duplicate:
+                        existing_by_date[row.date] = duplicate
                         session.delete(row)
                         continue
                     row.code = prefixed_code
                 canonical_dates.add(row.date)
+                existing_by_date[row.date] = row
 
             new_rows = []
+            updated = 0
             for _, row in df.iterrows():
                 row_date = pd.Timestamp(row["date"]).date()
                 if row_date not in canonical_dates:
@@ -577,13 +583,34 @@ class DataStorage:
                             adj_factor=row.get("adj_factor", 1.0),
                         )
                     )
+                    canonical_dates.add(row_date)
+                elif update_existing:
+                    existing = existing_by_date.get(row_date)
+                    if existing is None:
+                        continue
+                    changed = False
+                    for field in ("open", "high", "low", "close", "volume", "amount", "adj_factor"):
+                        if field not in row:
+                            continue
+                        value = row.get(field)
+                        if pd.isna(value):
+                            continue
+                        if field == "amount" and float(value or 0) == 0 and (existing.amount or 0) != 0:
+                            continue
+                        if getattr(existing, field) != value:
+                            setattr(existing, field, value)
+                            changed = True
+                    if changed:
+                        updated += 1
 
             if new_rows:
                 session.add_all(new_rows)
             session.commit()
             if new_rows:
                 logger.info(f"[{prefixed_code}] 写入 {len(new_rows)} 条日K数据")
-            return len(new_rows)
+            if updated:
+                logger.info(f"[{prefixed_code}] 更新 {updated} 条日K数据")
+            return len(new_rows) + updated
         except Exception as e:
             session.rollback()
             logger.error(f"[{prefixed_code}] 保存日K数据失败: {e}")
@@ -806,14 +833,74 @@ class DataStorage:
         finally:
             session.close()
 
+    def get_stock_daily_coverage(self) -> dict[str, Any]:
+        """返回 stock_daily 相对 stock_info 的覆盖情况。"""
+        plain_info_expr = (
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') "
+            "THEN substr(code, 3) ELSE code END"
+        )
+        plain_daily_expr = (
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') "
+            "THEN substr(code, 3) ELSE code END"
+        )
+        sql = text(
+            f"""
+            WITH info AS (
+                SELECT DISTINCT {plain_info_expr} AS plain_code
+                FROM stock_info
+                WHERE code IS NOT NULL AND code != ''
+            ),
+            daily AS (
+                SELECT
+                    {plain_daily_expr} AS plain_code,
+                    MAX(date) AS latest_date,
+                    COUNT(*) AS row_count
+                FROM stock_daily
+                WHERE close IS NOT NULL
+                GROUP BY {plain_daily_expr}
+            ),
+            latest AS (
+                SELECT MAX(latest_date) AS latest_date FROM daily
+            )
+            SELECT
+                (SELECT COUNT(*) FROM info) AS stock_count,
+                (SELECT COUNT(*) FROM daily) AS daily_covered,
+                (SELECT latest_date FROM latest) AS latest_date,
+                (
+                    SELECT COUNT(*)
+                    FROM daily, latest
+                    WHERE daily.latest_date = latest.latest_date
+                ) AS latest_date_covered,
+                COALESCE((SELECT SUM(row_count) FROM daily), 0) AS row_count
+            """
+        )
+        with self._engine.connect() as conn:
+            row = conn.execute(sql).mappings().first() or {}
+        stock_count = int(row.get("stock_count") or 0)
+        daily_covered = int(row.get("daily_covered") or 0)
+        latest_date_covered = int(row.get("latest_date_covered") or 0)
+        return {
+            "stock_count": stock_count,
+            "daily_covered": daily_covered,
+            "daily_missing": max(stock_count - daily_covered, 0),
+            "coverage_pct": round(daily_covered / stock_count * 100, 2) if stock_count else None,
+            "latest_date": str(row.get("latest_date") or "") or None,
+            "latest_date_covered": latest_date_covered,
+            "latest_date_coverage_pct": round(latest_date_covered / stock_count * 100, 2) if stock_count else None,
+            "row_count": int(row.get("row_count") or 0),
+        }
+
     def get_latest_market_rows(self, limit: int | None = None) -> list[dict[str, Any]]:
         """返回每只股票最新/上一交易日行情，用于本地市场雷达兜底。"""
         plain_expr = (
-            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz') "
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') "
             "THEN substr(code, 3) ELSE code END"
         )
         prefixed_expr = (
-            "CASE WHEN l.plain_code LIKE '6%' THEN 'sh' || l.plain_code "
+            "CASE "
+            "WHEN l.plain_code LIKE '43%' OR l.plain_code LIKE '83%' OR l.plain_code LIKE '87%' "
+            "OR l.plain_code LIKE '88%' OR l.plain_code LIKE '92%' THEN 'bj' || l.plain_code "
+            "WHEN l.plain_code LIKE '6%' THEN 'sh' || l.plain_code "
             "ELSE 'sz' || l.plain_code END"
         )
         limit_sql = " LIMIT :limit" if limit else ""
@@ -822,7 +909,7 @@ class DataStorage:
             WITH normalized AS (
                 SELECT
                     {plain_expr} AS plain_code,
-                    CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz') THEN 1 ELSE 0 END AS pref_score,
+                    CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') THEN 1 ELSE 0 END AS pref_score,
                     date, open, high, low, close, volume, amount
                 FROM stock_daily
                 WHERE close IS NOT NULL
@@ -875,6 +962,211 @@ class DataStorage:
         with self._engine.connect() as conn:
             rows = conn.execute(sql, params).mappings().all()
         return [dict(row) for row in rows]
+
+    def get_latest_market_rows_for_codes(self, codes: list[str]) -> list[dict[str, Any]]:
+        """返回指定股票最新/上一交易日行情，避免小列表场景扫描全市场。"""
+        plain_codes: list[str] = []
+        seen: set[str] = set()
+        storage_codes: list[str] = []
+        for code in codes or []:
+            plain = _to_plain_code(code)
+            if plain and plain not in seen:
+                seen.add(plain)
+                plain_codes.append(plain)
+                for candidate in {plain, _to_prefix_code(plain)}:
+                    if candidate:
+                        storage_codes.append(candidate)
+        if not plain_codes:
+            return []
+
+        plain_expr = (
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') "
+            "THEN substr(code, 3) ELSE code END"
+        )
+        prefixed_expr = (
+            "CASE "
+            "WHEN l.plain_code LIKE '43%' OR l.plain_code LIKE '83%' OR l.plain_code LIKE '87%' "
+            "OR l.plain_code LIKE '88%' OR l.plain_code LIKE '92%' THEN 'bj' || l.plain_code "
+            "WHEN l.plain_code LIKE '6%' THEN 'sh' || l.plain_code "
+            "ELSE 'sz' || l.plain_code END"
+        )
+        placeholders = ", ".join(f":code_{index}" for index in range(len(storage_codes)))
+        params = {f"code_{index}": code for index, code in enumerate(storage_codes)}
+        sql = text(
+            f"""
+            WITH normalized AS (
+                SELECT
+                    {plain_expr} AS plain_code,
+                    CASE WHEN lower(substr(sd.code, 1, 2)) IN ('sh', 'sz', 'bj') THEN 1 ELSE 0 END AS pref_score,
+                    sd.date, sd.open, sd.high, sd.low, sd.close, sd.volume, sd.amount
+                FROM stock_daily sd
+                WHERE sd.close IS NOT NULL
+                  AND sd.code IN ({placeholders})
+            ),
+            deduped AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY plain_code, date
+                        ORDER BY pref_score DESC
+                    ) AS date_rn
+                FROM normalized
+            ),
+            ranked AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY plain_code
+                        ORDER BY date DESC
+                    ) AS rn
+                FROM deduped
+                WHERE date_rn = 1
+            ),
+            latest AS (
+                SELECT * FROM ranked WHERE rn = 1
+            ),
+            previous AS (
+                SELECT * FROM ranked WHERE rn = 2
+            )
+            SELECT
+                l.plain_code AS code,
+                COALESCE(si_pref.name, si_plain.name, '') AS name,
+                COALESCE(si_pref.industry, si_plain.industry, '') AS industry,
+                l.date AS date,
+                l.open AS open,
+                l.high AS high,
+                l.low AS low,
+                l.close AS close,
+                l.volume AS volume,
+                l.amount AS amount,
+                p.date AS prev_date,
+                p.close AS prev_close
+            FROM latest l
+            LEFT JOIN previous p ON p.plain_code = l.plain_code
+            LEFT JOIN stock_info si_pref ON si_pref.code = {prefixed_expr}
+            LEFT JOIN stock_info si_plain ON si_plain.code = l.plain_code
+            ORDER BY l.plain_code
+            """
+        )
+        with self._engine.connect() as conn:
+            rows = conn.execute(sql, params).mappings().all()
+        return [dict(row) for row in rows]
+
+    def get_market_breadth(self) -> dict[str, Any]:
+        """返回本地 stock_daily 覆盖池的最新交易日涨跌广度。"""
+        plain_daily_expr = (
+            "CASE WHEN lower(substr(sd.code, 1, 2)) IN ('sh', 'sz', 'bj') "
+            "THEN substr(sd.code, 3) ELSE sd.code END"
+        )
+        plain_info_expr = (
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz', 'bj') "
+            "THEN substr(code, 3) ELSE code END"
+        )
+        sql = text(
+            f"""
+            WITH latest_day AS (
+                SELECT MAX(date) AS date FROM stock_daily WHERE close IS NOT NULL
+            ),
+            previous_day AS (
+                SELECT MAX(sd.date) AS date
+                FROM stock_daily sd, latest_day
+                WHERE sd.close IS NOT NULL AND sd.date < latest_day.date
+            ),
+            info AS (
+                SELECT COUNT(DISTINCT {plain_info_expr}) AS stock_count
+                FROM stock_info
+                WHERE code IS NOT NULL AND code != ''
+            ),
+            latest_raw AS (
+                SELECT
+                    {plain_daily_expr} AS plain_code,
+                    CASE WHEN lower(substr(sd.code, 1, 2)) IN ('sh', 'sz', 'bj') THEN 1 ELSE 0 END AS pref_score,
+                    sd.close
+                FROM stock_daily sd, latest_day
+                WHERE sd.date = latest_day.date AND sd.close IS NOT NULL
+            ),
+            latest AS (
+                SELECT plain_code, close
+                FROM (
+                    SELECT *,
+                        ROW_NUMBER() OVER (PARTITION BY plain_code ORDER BY pref_score DESC) AS rn
+                    FROM latest_raw
+                )
+                WHERE rn = 1
+            ),
+            previous_raw AS (
+                SELECT
+                    {plain_daily_expr} AS plain_code,
+                    CASE WHEN lower(substr(sd.code, 1, 2)) IN ('sh', 'sz', 'bj') THEN 1 ELSE 0 END AS pref_score,
+                    sd.close
+                FROM stock_daily sd, previous_day
+                WHERE sd.date = previous_day.date AND sd.close IS NOT NULL
+            ),
+            previous AS (
+                SELECT plain_code, close
+                FROM (
+                    SELECT *,
+                        ROW_NUMBER() OVER (PARTITION BY plain_code ORDER BY pref_score DESC) AS rn
+                    FROM previous_raw
+                )
+                WHERE rn = 1
+            ),
+            paired AS (
+                SELECT
+                    l.plain_code,
+                    l.close AS latest_close,
+                    p.close AS prev_close,
+                    CASE
+                        WHEN p.close IS NULL OR p.close = 0 THEN NULL
+                        ELSE (l.close / p.close - 1) * 100
+                    END AS change_pct
+                FROM latest l
+                LEFT JOIN previous p ON p.plain_code = l.plain_code
+            )
+            SELECT
+                (SELECT date FROM latest_day) AS latest_date,
+                (SELECT date FROM previous_day) AS previous_date,
+                (SELECT stock_count FROM info) AS stock_count,
+                COUNT(*) AS effective_count,
+                SUM(CASE WHEN change_pct > 0 THEN 1 ELSE 0 END) AS up_count,
+                SUM(CASE WHEN change_pct < 0 THEN 1 ELSE 0 END) AS down_count,
+                SUM(CASE WHEN change_pct = 0 THEN 1 ELSE 0 END) AS flat_count,
+                SUM(CASE WHEN change_pct IS NULL THEN 1 ELSE 0 END) AS no_prev_count,
+                SUM(CASE WHEN change_pct >= 9.9 THEN 1 ELSE 0 END) AS limit_up,
+                SUM(CASE WHEN change_pct <= -9.9 THEN 1 ELSE 0 END) AS limit_down,
+                AVG(change_pct) AS avg_change_pct
+            FROM paired
+            """
+        )
+        with self._engine.connect() as conn:
+            row = conn.execute(sql).mappings().first() or {}
+
+        effective_count = int(row.get("effective_count") or 0)
+        stock_count = int(row.get("stock_count") or 0)
+        up_count = int(row.get("up_count") or 0)
+        down_count = int(row.get("down_count") or 0)
+        flat_count = int(row.get("flat_count") or 0)
+        no_prev_count = int(row.get("no_prev_count") or 0)
+        directional_total = up_count + down_count + flat_count
+        return {
+            "total_stocks": stock_count,
+            "effective_count": effective_count,
+            "stock_count": stock_count,
+            "daily_covered": stock_count if stock_count else 0,
+            "daily_missing": 0 if stock_count else 0,
+            "coverage_pct": 100.0 if stock_count else None,
+            "latest_date": str(row.get("latest_date") or "") or None,
+            "previous_date": str(row.get("previous_date") or "") or None,
+            "latest_date_covered": effective_count,
+            "latest_date_missing": max(stock_count - effective_count, 0),
+            "latest_date_coverage_pct": round(effective_count / stock_count * 100, 2) if stock_count else None,
+            "up_count": up_count,
+            "down_count": down_count,
+            "flat_count": flat_count,
+            "no_prev_count": no_prev_count,
+            "limit_up": int(row.get("limit_up") or 0),
+            "limit_down": int(row.get("limit_down") or 0),
+            "avg_change_pct": round(float(row.get("avg_change_pct") or 0), 2) if directional_total else None,
+            "up_ratio": round(up_count / directional_total * 100, 2) if directional_total else None,
+        }
 
     # ── 数据来源与质量台账 ──
 

@@ -7,60 +7,78 @@
     }
 
     Object.assign(App, {
+        _normalizeStockSearchResults(payload) {
+            const normalizer = globalThis.Utils && typeof globalThis.Utils.normalizeStockSearchResults === 'function'
+                ? globalThis.Utils.normalizeStockSearchResults
+                : ((raw) => {
+                    const list = Array.isArray(raw)
+                        ? raw
+                        : raw && typeof raw === 'object'
+                            ? (raw.results ?? raw.data ?? raw.items ?? raw.list)
+                            : [];
+                    if (!Array.isArray(list)) return [];
+                    return list.filter((item) => {
+                        if (!item || typeof item !== 'object') return false;
+                        const code = typeof item.code === 'string'
+                            ? item.code.trim()
+                            : String(item.code ?? '').trim();
+                        return code.length > 0;
+                    });
+                });
+            return normalizer(payload);
+        },
+
+        _watchlistStockCandidates(limit = 50) {
+            const list = this._normalizeStockSearchResults(this.watchlistCache || []);
+            return Number.isFinite(limit) && limit > 0 ? list.slice(0, limit) : list;
+        },
+
+        async searchStockPickerCandidates(q, options = {}) {
+            const query = String(q || '').trim();
+            const limit = Number.isFinite(options.limit) && options.limit > 0 ? options.limit : 50;
+            const emptyLimit = Number.isFinite(options.emptyLimit) && options.emptyLimit > 0 ? options.emptyLimit : limit;
+            const emptyScope = options.emptyScope || 'watchlist';
+
+            if (!query) {
+                return emptyScope === 'watchlist' ? this._watchlistStockCandidates(emptyLimit) : [];
+            }
+
+            const payload = await this.fetchJSON(
+                `/api/stock/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+                { silent: options.silent !== false }
+            );
+            return this._normalizeStockSearchResults(payload);
+        },
+
         async loadStockList() {
             try {
-                // 并行加载自选股和全市场股票
-                const [watchlist, allStocks] = await Promise.all([
-                    this.fetchJSON('/api/watchlist').catch(() => []),
-                    this.fetchJSON('/api/stock/search?q=&limit=6000').catch(() => []),
-                ]);
-                const normalizeStockSearchResults = globalThis.Utils && typeof globalThis.Utils.normalizeStockSearchResults === 'function'
-                    ? globalThis.Utils.normalizeStockSearchResults
-                    : ((payload) => {
-                        const list = Array.isArray(payload)
-                            ? payload
-                            : payload && typeof payload === 'object'
-                                ? (payload.results ?? payload.data ?? payload.items ?? payload.list)
-                                : [];
-                        if (!Array.isArray(list)) return [];
-                        return list.filter((item) => {
-                            if (!item || typeof item !== 'object') return false;
-                            const code = typeof item.code === 'string'
-                                ? item.code.trim()
-                                : String(item.code ?? '').trim();
-                            return code.length > 0;
-                        });
-                    });
-                this.watchlistCache = normalizeStockSearchResults(watchlist);
-                this.stockCache = normalizeStockSearchResults(allStocks);
-                this._allStocks = this.stockCache;
+                const watchlist = await this.fetchJSON('/api/watchlist', { silent: true }).catch(() => []);
+                this.watchlistCache = this._normalizeStockSearchResults(watchlist);
+                this.stockCache = this.watchlistCache;
+                this._allStocks = [];
 
-                // 全市场搜索数据源（本地过滤，响应快）
-                const fullMarketFilter = (q) => {
-                    const list = Array.isArray(this._allStocks) ? this._allStocks : [];
-                    if (!list || list.length === 0) return [];
-                    if (!q) return list.slice(0, 50);
-                    const ql = q.toLowerCase();
-                    return list.filter(s =>
-                        s.code.includes(q) || (s.name && s.name.toLowerCase().includes(ql))
-                    ).slice(0, 50);
-                };
+                const watchlistFirstSource = (q) => this.searchStockPickerCandidates(q, {
+                    limit: 50,
+                    emptyLimit: 50,
+                    emptyScope: 'watchlist',
+                    silent: true,
+                });
 
                 this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', { maxResults: 30 });
-                this.btMultiSearch.setDataSource(fullMarketFilter);
+                this.btMultiSearch.setDataSource(watchlistFirstSource);
                 this._bindBacktestSnapshotInvalidation?.();
 
                 const alphaSearch = new SearchBox('alpha-code', 'alpha-code-dropdown', {
                     maxResults: 30,
                     formatItem: (s) => `${s.code} ${s.name || ''}`,
                 });
-                alphaSearch.setDataSource(fullMarketFilter);
+                alphaSearch.setDataSource(watchlistFirstSource);
                 alphaSearch.onSelect((item) => {
                     document.getElementById('alpha-code').value = item.code;
                 });
 
                 this.paperMultiSearch = new MultiSearchBox('pp-codes', 'pp-codes-dropdown', 'pp-codes-tags', { maxResults: 30 });
-                this.paperMultiSearch.setDataSource(fullMarketFilter);
+                this.paperMultiSearch.setDataSource(watchlistFirstSource);
 
                 Watchlist.setSelected(this.watchlistCache.map(s => s.code));
             } catch (e) {

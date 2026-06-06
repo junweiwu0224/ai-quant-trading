@@ -206,16 +206,12 @@ const PaperTrading = {
                 formatItem: (s) => `${s.code} ${s.name}`,
                 maxResults: 15,
             });
-            // 数据源：全市场股票（与Console子Tab一致）
-            const fullMarketSource = (query) => {
-                const list = App._allStocks || [];
-                if (!query) return list.slice(0, 50).map(s => ({ code: s.code, name: s.name || s.code }));
-                const q = query.toLowerCase();
-                return list.filter(s =>
-                    (s.code && s.code.includes(q)) || (s.name && s.name.toLowerCase().includes(q))
-                ).slice(0, 50).map(s => ({ code: s.code, name: s.name || s.code }));
-            };
-            this._codeSearch.setDataSource(fullMarketSource);
+            this._codeSearch.setDataSource((query) => App.searchStockPickerCandidates(query, {
+                limit: 50,
+                emptyLimit: 15,
+                emptyScope: 'watchlist',
+                silent: true,
+            }));
             this._codeSearch.onSelect((item) => {
                 codeInput.value = item.code;
                 this._loadQuotePreview(item.code);

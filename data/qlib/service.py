@@ -13,7 +13,11 @@ from fastapi import FastAPI
 from loguru import logger
 
 from config.settings import DB_PATH, QLIB_PRED_CACHE
-from data.qlib.predictor import generate_historical_predictions, generate_predictions
+from data.qlib.predictor import (
+    FULL_UNIVERSE_PREDICTION_LIMIT,
+    generate_historical_predictions,
+    generate_predictions,
+)
 
 
 app = FastAPI(title="Junwei Quant Qlib Service")
@@ -103,7 +107,7 @@ def train_now() -> dict[str, Any]:
                 start_date=start_date,
                 end_date=end_date,
                 lookback_days=60,
-                limit=300,
+                limit=FULL_UNIVERSE_PREDICTION_LIMIT,
                 min_history_days=2,
             )
         else:

@@ -15,7 +15,29 @@
         if (!Number.isFinite(num)) return '--';
         return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}${suffix}`;
     };
+    const formatCount = (value) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? Math.round(num).toLocaleString('zh-CN') : '--';
+    };
     const safeHTML = (value) => App.escapeHTML(value ?? '');
+    const fetchOnce = (key, url, opts = {}) => {
+        const state = Intelligence.state || (Intelligence.state = {});
+        const requests = state.marketRequests || (state.marketRequests = {});
+        if (!requests[key]) {
+            requests[key] = App.fetchJSON(url, { silent: true, ...opts }).finally(() => {
+                delete requests[key];
+            });
+        }
+        return requests[key];
+    };
+    const scoreFromBreadth = (data) => {
+        const up = Number(data?.up_count) || 0;
+        const down = Number(data?.down_count) || 0;
+        const flat = Number(data?.flat_count) || 0;
+        const total = up + down + flat;
+        if (total <= 0) return null;
+        return ((up - down) / total) * 100;
+    };
     const heatColor = (value) => {
         const v = clampNumber(value, -5, 5);
         const strength = Math.min(1, Math.abs(v) / 5);
@@ -98,34 +120,52 @@
     };
 
     Object.assign(Intelligence, {
+        fetchMarketJSON: fetchOnce,
+        scoreFromBreadth,
+
         async loadSentiment() {
             const el = document.getElementById('intel-sentiment');
             if (!el) return;
 
             try {
-                const data = await App.fetchJSON('/api/market/radar', { silent: true });
+                const data = await fetchOnce('breadth', '/api/market/breadth');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;
                 }
 
-                const gainers = (data.top_gainers || []).length;
-                const losers = (data.top_losers || []).length;
-                const total = gainers + losers;
+                const gainers = Number(data.up_count) || 0;
+                const losers = Number(data.down_count) || 0;
+                const flat = Number(data.flat_count) || 0;
+                const total = gainers + losers + flat;
                 const upPct = total > 0 ? ((gainers / total) * 100).toFixed(0) : '--';
+                const effective = Number(data.effective_count) || Number(data.latest_date_covered) || total;
+                const staleCount = Math.max(0, (Number(data.stock_count) || Number(data.total_stocks) || effective) - effective);
+                const coverage = data.stock_count
+                    ? `${formatCount(effective)}/${formatCount(data.stock_count)}`
+                    : formatCount(effective);
+                const stale = data.stale ? ' · 缓存' : '';
 
                 el.innerHTML = `
                     <div class="intel-sent-stat">
                         <span class="label">上涨</span>
-                        <span class="value text-up">${gainers}</span>
+                        <span class="value text-up">${formatCount(gainers)}</span>
                     </div>
                     <div class="intel-sent-stat">
                         <span class="label">下跌</span>
-                        <span class="value text-down">${losers}</span>
+                        <span class="value text-down">${formatCount(losers)}</span>
                     </div>
                     <div class="intel-sent-stat">
-                        <span class="label">涨跌比</span>
+                        <span class="label">上涨占比</span>
                         <span class="value">${upPct}%</span>
+                    </div>
+                    <div class="intel-sent-meta">
+                        <span>有效/全量 ${safeHTML(coverage)}</span>
+                        <span>平盘 ${formatCount(flat)}</span>
+                        ${staleCount ? `<span>未更新 ${formatCount(staleCount)}</span>` : ''}
+                        <span>涨停 ${formatCount(data.limit_up)}</span>
+                        <span>跌停 ${formatCount(data.limit_down)}</span>
+                        ${data.latest_date ? `<span>${safeHTML(data.latest_date)}${stale}</span>` : ''}
                     </div>
                 `;
             } catch {
@@ -139,7 +179,7 @@
             if (!el) return;
 
             try {
-                const data = await App.fetchJSON('/api/market/news', { silent: true });
+                const data = await fetchOnce('news', '/api/market/news');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;
@@ -163,11 +203,13 @@
                     const tags = (n.stocks || []).slice(0, 3).map((s) => (
                         `<span class="intel-news-tag ${sentCls}" data-intel-action="open-news-stock" data-code="${App.escapeHTML(s.code || '')}">${App.escapeHTML(s.name || s.code || '')}</span>`
                     )).join('');
+                    const source = n.source ? `<span>${App.escapeHTML(n.source)}</span>` : '';
                     return `<div class="intel-news-item">
                         <span class="intel-news-icon ${iconCls}">${icon}</span>
                         <div class="intel-news-body">
                             <div class="intel-news-title">${App.escapeHTML(n.title || '')}</div>
                             <div class="intel-news-meta">
+                                ${source}
                                 <span>${App.escapeHTML(n.time || '')}</span>
                                 ${tags}
                             </div>
@@ -192,7 +234,7 @@
             if (!el) return;
 
             try {
-                const data = await App.fetchJSON('/api/market/heatmap', { silent: true });
+                const data = await fetchOnce('heatmap', '/api/market/heatmap');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;
@@ -205,10 +247,21 @@
                     return;
                 }
 
-                const upCount = sectors.filter((s) => Number(s.change_pct) > 0).length;
-                const downCount = sectors.filter((s) => Number(s.change_pct) < 0).length;
-                const avgChange = sectors.reduce((sum, s) => sum + (Number(s.change_pct) || 0), 0) / sectors.length;
+                const upCount = Number.isFinite(Number(data.up_count))
+                    ? Number(data.up_count)
+                    : sectors.filter((s) => Number(s.change_pct) > 0).length;
+                const downCount = Number.isFinite(Number(data.down_count))
+                    ? Number(data.down_count)
+                    : sectors.filter((s) => Number(s.change_pct) < 0).length;
+                const flatCount = Number.isFinite(Number(data.flat_count))
+                    ? Number(data.flat_count)
+                    : sectors.filter((s) => Number(s.change_pct) === 0).length;
+                const avgChange = Number.isFinite(Number(data.avg_change_pct))
+                    ? Number(data.avg_change_pct)
+                    : sectors.reduce((sum, s) => sum + (Number(s.change_pct) || 0), 0) / sectors.length;
                 const strongest = [...sectors].sort((a, b) => Math.abs(Number(b.change_pct) || 0) - Math.abs(Number(a.change_pct) || 0))[0];
+                const totalCount = Number(data.total) || sectors.length;
+                const displayCount = tiles.length;
 
                 const tileHtml = tiles.map(({ sector, span, rowSpan, share }) => {
                     const change = Number(sector.change_pct) || 0;
@@ -227,7 +280,9 @@
                         <div class="intel-heatmap-stats">
                             <span>上涨 ${upCount}</span>
                             <span>下跌 ${downCount}</span>
+                            <span>平盘 ${flatCount}</span>
                             <span>均值 ${formatPct(avgChange)}</span>
+                            <span>全量 ${formatCount(totalCount)} · 展示 ${formatCount(displayCount)}</span>
                             ${strongest ? `<span>最活跃 ${safeHTML(strongest.name)} ${formatPct(strongest.change_pct)}</span>` : ''}
                         </div>
                         <div class="intel-heatmap-legend">
@@ -245,7 +300,7 @@
             if (!el) return;
 
             try {
-                const data = await App.fetchJSON('/api/market/hotspot', { silent: true });
+                const data = await fetchOnce('hotspot', '/api/market/hotspot');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;

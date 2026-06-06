@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,8 @@ from config.settings import DB_PATH, QLIB_PRED_CACHE
 
 METHOD_NAME = "local_momentum_v1"
 MIN_UNIVERSE_SIZE = 2
+FULL_UNIVERSE_PREDICTION_LIMIT = 6000
+MIN_PREDICTION_DATE_COVERAGE_RATIO = 0.8
 
 
 @dataclass(frozen=True)
@@ -52,7 +55,7 @@ def _safe_float(value: Any) -> float | None:
 def _fetch_daily_rows(
     db_path: Path,
     lookback_days: int,
-    limit: int,
+    limit: int | None = None,
 ) -> list[sqlite3.Row]:
     if not db_path.exists():
         return []
@@ -77,8 +80,7 @@ def _fetch_daily_rows(
     finally:
         conn.close()
 
-    max_rows = max(1, int(limit)) * max(2, int(lookback_days)) * 4
-    return rows[:max_rows]
+    return rows
 
 
 def _score_series(rows: list[sqlite3.Row]) -> float | None:
@@ -111,7 +113,35 @@ def _score_series(rows: list[sqlite3.Row]) -> float | None:
 
     raw_score = 0.5 + momentum * 4.0 + avg_return * 6.0 - volatility * 2.0
     raw_score += liquidity * 0.12
-    return max(0.0, min(1.0, raw_score))
+    return raw_score
+
+
+def _normalize_cross_section(scored: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Convert raw daily signals into rank-based 0..1 scores for that date."""
+    if not scored:
+        return []
+    ordered = sorted(scored, key=lambda item: item[1], reverse=True)
+    if len(ordered) == 1:
+        return [(ordered[0][0], 1.0)]
+
+    normalized: list[tuple[str, float]] = []
+    index = 0
+    total = len(ordered)
+    while index < total:
+        end = index + 1
+        while end < total and math.isclose(
+            ordered[end][1],
+            ordered[index][1],
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            end += 1
+        avg_rank = (index + end - 1) / 2
+        score = 1.0 - (avg_rank / (total - 1))
+        for code, _ in ordered[index:end]:
+            normalized.append((code, round(max(0.0, min(1.0, score)), 6)))
+        index = end
+    return normalized
 
 
 def _build_predictions(
@@ -121,23 +151,38 @@ def _build_predictions(
     if not rows:
         return None, {}
 
-    latest_date = max(str(row["date"]) for row in rows)
     grouped: dict[str, list[sqlite3.Row]] = {}
+    date_codes: dict[str, set[str]] = {}
     for row in rows:
         code = _plain_code(str(row["code"]))
+        date = str(row["date"])
         if code:
             grouped.setdefault(code, []).append(row)
+            date_codes.setdefault(date, set()).add(code)
+
+    if not date_codes:
+        return None, {}
+    max_coverage = max(len(codes) for codes in date_codes.values())
+    coverage_floor = max(
+        1,
+        int(math.ceil(max_coverage * MIN_PREDICTION_DATE_COVERAGE_RATIO)),
+    )
+    eligible_dates = [
+        date for date, codes in date_codes.items() if len(codes) >= coverage_floor
+    ]
+    latest_date = max(eligible_dates or date_codes.keys())
 
     scored: list[tuple[str, float]] = []
     for code, series in grouped.items():
-        if not any(str(row["date"]) == latest_date for row in series):
+        usable_series = [row for row in series if str(row["date"]) <= latest_date]
+        if not any(str(row["date"]) == latest_date for row in usable_series):
             continue
-        score = _score_series(series)
+        score = _score_series(usable_series)
         if score is not None:
             scored.append((code, round(score, 6)))
 
-    scored.sort(key=lambda item: item[1], reverse=True)
-    return latest_date, dict(scored[: max(1, int(limit))])
+    normalized = _normalize_cross_section(scored)
+    return latest_date, dict(normalized[: max(1, int(limit))])
 
 
 def _fetch_historical_daily_rows(db_path: Path, start_date: str, end_date: str) -> list[sqlite3.Row]:
@@ -171,7 +216,7 @@ def _build_historical_predictions(
     min_universe_size: int,
 ) -> dict[str, dict[str, float]]:
     grouped: dict[str, list[sqlite3.Row]] = {}
-    dates: set[str] = set()
+    date_codes: dict[str, set[str]] = {}
     for row in rows:
         code = _plain_code(str(row["code"]))
         date = str(row["date"])
@@ -179,29 +224,42 @@ def _build_historical_predictions(
             continue
         grouped.setdefault(code, []).append(row)
         if str(start_date) <= date <= str(end_date):
-            dates.add(date)
+            date_codes.setdefault(date, set()).add(code)
 
     predictions: dict[str, dict[str, float]] = {}
     safe_lookback = max(2, int(lookback_days))
     safe_limit = max(1, int(limit))
     safe_min_history = max(2, int(min_history_days))
     safe_min_universe = max(1, int(min_universe_size))
-    for date in sorted(dates):
-        scored: list[tuple[str, float]] = []
-        for code, series in grouped.items():
-            history = [row for row in series if str(row["date"]) <= date]
-            if len(history) < safe_min_history:
+    max_coverage = max((len(codes) for codes in date_codes.values()), default=0)
+    coverage_floor = max(
+        safe_min_universe,
+        int(math.ceil(max_coverage * MIN_PREDICTION_DATE_COVERAGE_RATIO)) if max_coverage else safe_min_universe,
+    )
+    eligible_dates = {
+        date for date, codes in date_codes.items() if len(codes) >= coverage_floor
+    }
+    scored_by_date: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for code, series in grouped.items():
+        ordered = sorted(series, key=lambda row: str(row["date"]))
+        for index, row in enumerate(ordered):
+            date = str(row["date"])
+            if date not in eligible_dates:
                 continue
-            window = history[-safe_lookback:]
-            if not any(str(row["date"]) == date for row in window):
+            history_count = index + 1
+            if history_count < safe_min_history:
                 continue
+            window = ordered[max(0, history_count - safe_lookback):history_count]
             score = _score_series(window)
             if score is not None:
-                scored.append((code, round(score, 6)))
+                scored_by_date[date].append((code, round(score, 6)))
+
+    for date in sorted(eligible_dates):
+        scored = scored_by_date.get(date, [])
         if len(scored) < safe_min_universe:
             continue
-        scored.sort(key=lambda item: item[1], reverse=True)
-        predictions[date] = dict(scored[:safe_limit])
+        normalized = _normalize_cross_section(scored)
+        predictions[date] = dict(normalized[:safe_limit])
     return predictions
 
 
@@ -238,7 +296,7 @@ def generate_predictions(
     db_path: Path = DB_PATH,
     cache_path: Path = QLIB_PRED_CACHE,
     lookback_days: int = 60,
-    limit: int = 300,
+    limit: int = FULL_UNIVERSE_PREDICTION_LIMIT,
     min_universe_size: int = MIN_UNIVERSE_SIZE,
 ) -> QlibPredictionSummary:
     db_path = Path(db_path)
@@ -285,7 +343,7 @@ def generate_historical_predictions(
     start_date: str = "",
     end_date: str = "",
     lookback_days: int = 60,
-    limit: int = 300,
+    limit: int = FULL_UNIVERSE_PREDICTION_LIMIT,
     min_history_days: int = 20,
     min_universe_size: int = MIN_UNIVERSE_SIZE,
 ) -> QlibPredictionSummary:

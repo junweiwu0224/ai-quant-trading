@@ -2,10 +2,25 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from loguru import logger
+from sklearn.ensemble import GradientBoostingClassifier
+
+try:
+    import lightgbm as lgb
+    LIGHTGBM_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - depends on native runtime
+    lgb = None
+    LIGHTGBM_IMPORT_ERROR = exc
+
+
+def is_lightgbm_available() -> bool:
+    return LIGHTGBM_IMPORT_ERROR is None
+
+
+def lightgbm_backend_error() -> str:
+    return "" if LIGHTGBM_IMPORT_ERROR is None else str(LIGHTGBM_IMPORT_ERROR)
 
 
 @dataclass
@@ -30,9 +45,10 @@ class LGBModel:
     def __init__(self, config: Optional[LGBConfig] = None, params: Optional[dict] = None):
         self._config = config or LGBConfig()
         self._params = params or {}
-        self._model: Optional[lgb.LGBMClassifier] = None
+        self._model = None
         self._feature_names: list[str] = []
         self._evals_result: dict = {}
+        self._backend = "lightgbm" if is_lightgbm_available() else "sklearn_gradient_boosting"
 
     def train(
         self,
@@ -58,18 +74,30 @@ class LGBModel:
         }
         params.update(self._params)
 
-        self._model = lgb.LGBMClassifier(**params)
+        if is_lightgbm_available():
+            self._model = lgb.LGBMClassifier(**params)
 
-        self._evals_result = {}
-        fit_params = {}
-        if X_val is not None and y_val is not None:
-            fit_params["eval_set"] = [(X_val, y_val)]
-            fit_params["callbacks"] = [
-                lgb.early_stopping(self._config.early_stopping_rounds),
-                lgb.record_evaluation(self._evals_result),
-            ]
+            self._evals_result = {}
+            fit_params = {}
+            if X_val is not None and y_val is not None:
+                fit_params["eval_set"] = [(X_val, y_val)]
+                fit_params["callbacks"] = [
+                    lgb.early_stopping(self._config.early_stopping_rounds),
+                    lgb.record_evaluation(self._evals_result),
+                ]
 
-        self._model.fit(X_train, y_train, **fit_params)
+            self._model.fit(X_train, y_train, **fit_params)
+        else:
+            fallback_params = {
+                "n_estimators": self._config.n_estimators,
+                "learning_rate": self._config.learning_rate,
+                "max_depth": int(self._params.get("max_depth", 3)),
+                "random_state": int(self._params.get("random_state", 42)),
+            }
+            self._model = GradientBoostingClassifier(**fallback_params)
+            self._evals_result = {}
+            logger.warning(f"LightGBM 后端不可用，使用 sklearn 降级模型: {lightgbm_backend_error()}")
+            self._model.fit(X_train, y_train)
 
         metrics = {}
         if X_val is not None and y_val is not None:
@@ -77,7 +105,8 @@ class LGBModel:
             from sklearn.metrics import roc_auc_score
             metrics["val_auc"] = roc_auc_score(y_val, val_pred)
 
-        logger.info(f"训练完成: {self._model.n_estimators_} 棵树, 特征 {len(self._feature_names)}")
+        n_estimators = getattr(self._model, "n_estimators_", self._config.n_estimators)
+        logger.info(f"训练完成: {self._backend} {n_estimators} 棵树, 特征 {len(self._feature_names)}")
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -106,12 +135,16 @@ class LGBModel:
 
     def save(self, path: str):
         """保存模型"""
-        if self._model is not None:
+        if self._model is not None and self._backend == "lightgbm":
             self._model.booster_.save_model(path)
             logger.info(f"模型已保存: {path}")
+        elif self._model is not None:
+            logger.info("sklearn 降级模型不写入 LightGBM 缓存")
 
     def load(self, path: str):
         """加载模型"""
+        if not is_lightgbm_available():
+            raise RuntimeError(f"LightGBM 后端不可用，无法读取 LightGBM 缓存: {lightgbm_backend_error()}")
         self._model = lgb.LGBMClassifier()
         self._model.booster_ = lgb.Booster(model_file=path)
         logger.info(f"模型已加载: {path}")

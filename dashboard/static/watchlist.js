@@ -6,32 +6,19 @@ const Watchlist = {
     _sortKey: null,
     _sortDir: 'desc',
     _lastData: [],
-    _stockListCache: null,
-    _stockListCacheTime: 0,
-    _STOCK_CACHE_TTL: 5 * 60 * 1000, // 5 分钟
 
     init() {
         this._multiSearch = new MultiSearchBox('watchlist-input', 'watchlist-search-results', 'watchlist-tags', {
-            maxResults: 200,
+            maxResults: 50,
+            minQueryLength: 1,
             formatItem: (s) => `${s.code} ${s.name || ''}`,
         });
 
-        // 数据源：全量股票缓存 5 分钟，搜索关键词实时请求
+        // 添加自选股只在输入代码或名称后搜索全市场，避免空下拉拉取全量列表。
         this._multiSearch.setDataSource(async (q) => {
             try {
-                if (!q) {
-                    // 无关键词：使用缓存
-                    const now = Date.now();
-                    if (this._stockListCache && (now - this._stockListCacheTime) < this._STOCK_CACHE_TTL) {
-                        return this._stockListCache;
-                    }
-                    const results = await App.fetchJSON('/api/stock/search?q=&limit=6000');
-                    this._stockListCache = Utils.normalizeStockSearchResults(results);
-                    this._stockListCacheTime = now;
-                    return this._stockListCache;
-                }
-                // 有关键词：实时搜索
-                const results = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`);
+                if (!q) return [];
+                const results = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q)}&limit=50`, { silent: true });
                 return Utils.normalizeStockSearchResults(results);
             } catch (e) {
                 console.error('搜索失败:', e);

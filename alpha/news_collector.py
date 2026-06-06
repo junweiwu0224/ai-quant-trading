@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Any, Callable
 
 import numpy as np
 from loguru import logger
@@ -26,6 +26,18 @@ except ImportError:
 # 情绪关键词（降级方案）
 _POSITIVE_KEYWORDS = {"增长", "盈利", "突破", "利好", "创新高", "超预期", "增持", "回购", "分红", "大涨", "涨停"}
 _NEGATIVE_KEYWORDS = {"亏损", "下跌", "利空", "减持", "违规", "处罚", "暴跌", "风险", "退市", "业绩下滑", "跌停"}
+
+_TITLE_FIELDS = ("标题", "新闻标题", "title", "summary", "摘要", "内容", "content", "事件")
+_CONTENT_FIELDS = ("摘要", "内容", "content", "summary", "新闻内容", "digest")
+_TIME_FIELDS = ("发布时间", "时间", "time", "日期", "date", "发布日期", "showTime")
+_URL_FIELDS = ("链接", "新闻链接", "url", "detailUrl", "uniqueUrl")
+_STOCK_NEWS_SOURCE_LABELS = {
+    "stock_zh_a_alerts_cls": "财联社A股电报",
+    "stock_info_global_em": "东方财富快讯",
+    "stock_info_global_ths": "同花顺快讯",
+    "stock_news_main_cx": "财新数据通",
+    "news_cctv": "央视新闻",
+}
 
 
 def _analyze_text(text: str) -> float:
@@ -45,6 +57,75 @@ def _analyze_text(text: str) -> float:
     if total == 0:
         return 0.0
     return (pos - neg) / total
+
+
+def _first_present(row: Any, fields: tuple[str, ...]) -> str:
+    for field in fields:
+        try:
+            value = row.get(field, "")
+        except AttributeError:
+            value = ""
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text and text.lower() != "nan":
+            return text
+    return ""
+
+
+def _normalize_market_news_row(row: Any, source_key: str) -> dict | None:
+    title = _first_present(row, _TITLE_FIELDS)
+    content = _first_present(row, _CONTENT_FIELDS)
+    if not title and content:
+        title = content
+    title = title.strip()
+    if not title:
+        return None
+
+    time_text = _first_present(row, _TIME_FIELDS)
+    url = _first_present(row, _URL_FIELDS)
+    sentiment_text = f"{title} {content}".strip()
+    sentiment = _analyze_text(sentiment_text)
+
+    return {
+        "title": title,
+        "time": time_text,
+        "url": url,
+        "source": _STOCK_NEWS_SOURCE_LABELS.get(source_key, source_key),
+        "source_key": source_key,
+        "sentiment": round(sentiment, 4),
+    }
+
+
+def _normalize_market_news_frame(df: Any, source_key: str, max_items: int) -> list[dict]:
+    if df is None or getattr(df, "empty", True):
+        return []
+
+    records: list[dict] = []
+    for _, row in df.head(max(max_items, 1)).iterrows():
+        record = _normalize_market_news_row(row, source_key)
+        if record:
+            records.append(record)
+    return records
+
+
+def _build_market_news_sources(ak: Any) -> list[tuple[str, Callable[[], Any]]]:
+    sources: list[tuple[str, Callable[[], Any]]] = []
+
+    legacy_alerts = getattr(ak, "stock_zh_a_alerts_cls", None)
+    if callable(legacy_alerts):
+        sources.append(("stock_zh_a_alerts_cls", legacy_alerts))
+
+    for name in ("stock_info_global_em", "stock_info_global_ths", "stock_news_main_cx"):
+        fn = getattr(ak, name, None)
+        if callable(fn):
+            sources.append((name, fn))
+
+    news_cctv = getattr(ak, "news_cctv", None)
+    if callable(news_cctv):
+        sources.append(("news_cctv", lambda: news_cctv(date=datetime.now().strftime("%Y%m%d"))))
+
+    return sources
 
 
 async def fetch_stock_news(code: str, max_items: int = 20) -> list[dict]:
@@ -165,36 +246,52 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
             "summary": "今日市场情绪偏正面..."
         }
     """
+    timestamp = datetime.now().isoformat()
+    errors: list[str] = []
+    records: list[dict] = []
+    seen_titles: set[str] = set()
+    source_counts: dict[str, int] = {}
+
     try:
         import akshare as ak
-        loop = asyncio.get_event_loop()
-        # 获取市场快讯
-        df = await loop.run_in_executor(None, ak.stock_zh_a_alerts_cls)
+    except ImportError:
+        logger.warning("AKShare 未安装，市场新闻采集不可用")
+        return {"timestamp": timestamp, "news": [], "overall_sentiment": 0, "sources": [], "errors": ["akshare_missing"]}
 
-        if df is None or df.empty:
-            return {"timestamp": datetime.now().isoformat(), "news": [], "overall_sentiment": 0}
+    loop = asyncio.get_event_loop()
+    sources = _build_market_news_sources(ak)
+    if not sources:
+        return {"timestamp": timestamp, "news": [], "overall_sentiment": 0, "sources": [], "errors": ["no_news_source"]}
 
-        records = []
-        scores = []
-        for _, row in df.head(max_items).iterrows():
-            title = str(row.get("标题", "") or row.get("内容", "") or "")
-            sentiment = _analyze_text(title)
-            records.append({
-                "title": title,
-                "time": str(row.get("发布时间", "") or ""),
-                "sentiment": round(sentiment, 4),
-            })
-            if sentiment != 0:
-                scores.append(sentiment)
+    for source_key, fetcher in sources:
+        if len(records) >= max_items:
+            break
+        try:
+            df = await loop.run_in_executor(None, fetcher)
+            source_records = _normalize_market_news_frame(df, source_key, max_items)
+        except Exception as e:
+            errors.append(f"{source_key}: {e}")
+            logger.warning(f"市场新闻源失败({source_key}): {e}")
+            continue
 
-        overall = float(np.mean(scores)) if scores else 0
+        for record in source_records:
+            key = record["title"].strip()
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            records.append(record)
+            source_counts[record["source"]] = source_counts.get(record["source"], 0) + 1
+            if len(records) >= max_items:
+                break
 
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "news": records,
-            "overall_sentiment": round(overall, 4),
-        }
-
-    except Exception as e:
-        logger.warning(f"获取市场新闻失败: {e}")
-        return {"timestamp": datetime.now().isoformat(), "news": [], "overall_sentiment": 0}
+    scores = [item["sentiment"] for item in records if item["sentiment"] != 0]
+    overall = float(np.mean(scores)) if scores else 0
+    result = {
+        "timestamp": timestamp,
+        "news": records,
+        "overall_sentiment": round(overall, 4),
+        "sources": [{"name": name, "count": count} for name, count in source_counts.items()],
+    }
+    if errors:
+        result["partial_errors"] = errors[:3]
+    return result

@@ -119,7 +119,7 @@ def test_overview_opportunity_query_and_rendering():
 
         assert.match(elements['ov-opportunity-status'].innerHTML, /候选 1 只/);
         assert.match(elements['ov-opportunity-status'].innerHTML, /估值 100%/);
-        assert.match(elements['ov-opportunity-status'].innerHTML, /Qlib 离线/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /AI信号 离线/);
         assert.match(tbody.innerHTML, /PEG≤1/);
         assert.match(tbody.innerHTML, /短线涨幅过热/);
         assert.match(tbody.innerHTML, /opportunity-evidence-tags/);
@@ -319,9 +319,9 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert 'data-ov-opportunity-scope="watchlist"' in template
     assert 'data-ov-opportunity-scope="qlib"' in template
     assert 'data-ov-opportunity-scope="default"' not in template
-    assert 'data-ov-opportunity-scope="qlib" aria-pressed="true">Qlib Top</button>' in template
+    assert 'data-ov-opportunity-scope="qlib" aria-pressed="true">AI信号 Top</button>' in template
     assert 'data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>' in template
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=14" in scripts
+    assert "/static/overview.js?v=15" in scripts

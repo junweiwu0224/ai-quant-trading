@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=41">
+    <link rel="stylesheet" href="/static/style.css?v=45">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -277,11 +277,11 @@
                 <div class="card-header-row">
                     <div>
                         <h2>数据机会池</h2>
-                        <p class="text-muted text-sm" id="ov-opportunity-hint">PEG、机构预测、Qlib 与风险标签合成的优先研究清单。</p>
+                        <p class="text-muted text-sm" id="ov-opportunity-hint">PEG、机构预测、AI 信号与风险标签合成的优先研究清单。</p>
                     </div>
                     <div class="opportunity-card-actions">
                         <div class="opportunity-scope-toggle" role="group" aria-label="机会池范围">
-                            <button class="active" type="button" data-ov-opportunity-scope="qlib" aria-pressed="true">Qlib Top</button>
+                            <button class="active" type="button" data-ov-opportunity-scope="qlib" aria-pressed="true">AI信号 Top</button>
                             <button type="button" data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>
                         </div>
                         <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
@@ -341,7 +341,7 @@
                         <div class="stat-value" id="ov-ai-status">--</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Qlib 预测</div>
+                        <div class="stat-label">AI 信号</div>
                         <div class="stat-value" id="ov-qlib-status">--</div>
                     </div>
                     <div class="stat-card">
@@ -821,7 +821,7 @@
                         </div>
                     </div>
                     <div class="card intel-ml-pred-card">
-                        <h3>AI 预测池 <span class="text-muted text-sm">qlib LightGBM</span></h3>
+                        <h3>AI 信号池 <span class="text-muted text-sm">Signal Engine · local_momentum_v1</span></h3>
                         <div id="intel-ml-pred" class="intel-ml-pred-wrap">
                             <div class="skeleton-block skeleton-pulse" style="height:120px;border-radius:6px"></div>
                         </div>
@@ -891,7 +891,7 @@
                         <div class="card-header-row">
                             <div>
                                 <h2>数据中枢</h2>
-                                <p class="text-muted text-sm">把行情健康、机构预测、PEG 和 Qlib 预测合成一张可行动清单。</p>
+                                <p class="text-muted text-sm">把行情健康、机构预测、PEG 和 AI 信号合成一张可行动清单。</p>
                                 <div class="coverage-strip" id="datahub-scope-note" aria-live="polite">
                                     <span class="coverage-pill">范围 自选股</span>
                                     <span class="coverage-pill">行情/估值/AI 合成矩阵</span>
@@ -900,7 +900,7 @@
                             <div class="datahub-toolbar">
                                 <select id="datahub-scope" aria-label="数据中枢范围">
                                     <option value="watchlist" selected>自选股</option>
-                                    <option value="qlib">Qlib Top</option>
+                                    <option value="qlib">AI 信号 Top</option>
                                     <option value="codes">指定股票</option>
                                 </select>
                                 <button class="btn btn-sm" id="datahub-refresh-btn">刷新</button>
@@ -941,7 +941,7 @@
                                 <thead>
                                     <tr>
                                         <th>#</th><th>股票</th><th>决策</th><th>PEG</th><th>明年增速</th>
-                                        <th>目标空间</th><th>Qlib</th><th>风险</th><th>下一步</th><th>操作</th>
+                                        <th>目标空间</th><th>AI信号</th><th>风险</th><th>下一步</th><th>操作</th>
                                     </tr>
                                 </thead>
                                 <tbody><tr><td colspan="10" class="text-muted text-center">加载中...</td></tr></tbody>
@@ -955,13 +955,13 @@
                             <div>
                                 <h2>估值数据中心</h2>
                                 <div class="coverage-strip" id="valuation-scope-note" aria-live="polite">
-                                    <span class="coverage-pill">范围 Qlib覆盖池</span>
+                                    <span class="coverage-pill">范围 AI信号覆盖池</span>
                                     <span class="coverage-pill">机构预测覆盖池，不等同全量日线</span>
                                 </div>
                             </div>
                             <div class="valuation-toolbar">
                                 <select id="valuation-scope" aria-label="估值范围">
-                                    <option value="qlib" selected>Qlib覆盖池</option>
+                                    <option value="qlib" selected>AI信号覆盖池</option>
                                     <option value="watchlist">自选股</option>
                                     <option value="codes">指定股票</option>
                                     <option value="all">全市场</option>
@@ -1042,8 +1042,11 @@
                                 <textarea id="formula-source" class="code-input" rows="6" placeholder="例如：CLOSE > MA(CLOSE, 20) AND RSI(CLOSE, 14) < 30"></textarea>
                             </div>
                             <div class="form-group">
-                                <label for="formula-code">股票代码</label>
-                                <input type="text" id="formula-code" placeholder="000001">
+                                <label for="formula-code">验证标的</label>
+                                <div class="search-box" id="formula-code-box">
+                                    <input type="text" id="formula-code" class="search-input" placeholder="输入代码或名称" autocomplete="off" aria-label="公式验证标的">
+                                    <div class="search-dropdown" id="formula-code-dropdown"></div>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="formula-start">开始日期</label>
@@ -1056,7 +1059,7 @@
                         </div>
                         <div class="compact-action-row research-tool-actions research-param-actions">
                             <button class="btn btn-primary btn-sm" data-alpha-action="formula-evaluate">执行公式</button>
-                            <button class="btn btn-ghost btn-sm" data-alpha-action="formula-screen">公式选股</button>
+                            <button class="btn btn-ghost btn-sm" data-alpha-action="formula-screen">全市场选股</button>
                             <button class="btn btn-sm" data-alpha-action="formula-catalog">公式目录</button>
                         </div>
                     </div>
@@ -1101,8 +1104,20 @@
                         <h2>篮子交易</h2>
                         <div class="form-row research-tool-form research-form-grid">
                             <div class="form-group min-w-sm research-tool-primary">
-                                <label for="basket-candidates">候选股票</label>
-                                <textarea id="basket-candidates" class="code-input" rows="6" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]'></textarea>
+                                <label for="basket-code-input">候选池</label>
+                                <div class="search-box" id="basket-code-box">
+                                    <input type="text" id="basket-code-input" class="search-input" placeholder="输入代码或名称添加" autocomplete="off" aria-label="搜索并加入篮子候选股票">
+                                    <div class="search-dropdown" id="basket-code-dropdown"></div>
+                                </div>
+                                <div class="sb-tags basket-selected-tags" id="basket-code-tags"></div>
+                                <div class="basket-candidate-actions">
+                                    <button class="btn btn-xs" type="button" data-alpha-action="basket-use-watchlist">导入自选股</button>
+                                    <button class="btn btn-xs" type="button" data-alpha-action="basket-clear-candidates">清空候选</button>
+                                </div>
+                                <details class="basket-advanced-json">
+                                    <summary>高级参数</summary>
+                                    <textarea id="basket-candidates" class="code-input basket-candidate-json" rows="4" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]'></textarea>
+                                </details>
                             </div>
                             <div class="form-group">
                                 <label for="basket-cash">初始资金</label>

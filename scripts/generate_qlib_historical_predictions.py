@@ -10,7 +10,7 @@ import click
 
 from config.logging import setup_logging
 from config.settings import DB_PATH, QLIB_PRED_CACHE
-from data.qlib.predictor import generate_historical_predictions
+from data.qlib.predictor import FULL_UNIVERSE_PREDICTION_LIMIT, generate_historical_predictions
 
 
 @click.command()
@@ -19,7 +19,7 @@ from data.qlib.predictor import generate_historical_predictions
 @click.option("--start", "start_date", required=True, help="历史预测开始日期，YYYY-MM-DD")
 @click.option("--end", "end_date", required=True, help="历史预测结束日期，YYYY-MM-DD")
 @click.option("--lookback", default=60, show_default=True, type=int, help="每个预测日向前看的交易日数量")
-@click.option("--limit", default=300, show_default=True, type=int, help="每天最多写入的股票数量")
+@click.option("--limit", default=FULL_UNIVERSE_PREDICTION_LIMIT, show_default=True, type=int, help="每天最多写入的股票数量")
 @click.option("--min-history-days", default=20, show_default=True, type=int, help="单只股票生成分数所需最少历史天数")
 @click.option("--min-universe-size", default=2, show_default=True, type=int, help="每天最少可评分股票数")
 def main(

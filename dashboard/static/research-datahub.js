@@ -30,8 +30,12 @@
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
             this._searchBox.setDataSource(async (q) => {
-                const payload = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q || '')}&limit=80`, { silent: true });
-                return Utils.normalizeStockSearchResults(payload);
+                return App.searchStockPickerCandidates(q, {
+                    limit: 50,
+                    emptyLimit: 50,
+                    emptyScope: 'watchlist',
+                    silent: true,
+                });
             });
             this._searchBox.onSelect((item) => this._addCode(item));
         },
@@ -118,6 +122,9 @@
             tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">加载中...</td></tr>';
 
             const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
+            if (scope === 'watchlist') {
+                await this._refreshWatchlistCache();
+            }
             const codes = this._selected.map((item) => item.code).join(',');
             const query = new URLSearchParams({ scope, limit: scope === 'qlib' ? '50' : '30' });
             if (scope === 'codes') query.set('codes', codes);
@@ -137,40 +144,50 @@
             }
         },
 
+        async _refreshWatchlistCache() {
+            try {
+                const watchlist = await App.fetchJSON('/api/watchlist', { silent: true, timeout: 15000 });
+                if (Array.isArray(watchlist)) {
+                    App.watchlistCache = watchlist;
+                }
+            } catch {
+                // Keep the last known cache; the matrix API is still authoritative.
+            }
+        },
+
         _render(items, summary) {
             this._renderStats(summary, items);
             const tbody = document.querySelector('#datahub-matrix-table tbody');
             if (!tbody) return;
             if (!items.length) {
-                tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">暂无数据，请加入自选股或切到 Qlib Top</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">暂无数据，请加入自选股或切到 AI 信号 Top</td></tr>';
                 return;
             }
 
             tbody.innerHTML = items.map((item) => {
                 const score = Number(item.decision_score || 0);
                 const scoreCls = score >= 78 ? 'score-hot' : score >= 62 ? 'score-warm' : score >= 45 ? 'score-neutral' : 'score-cold';
-                const qlibText = item.qlib_rank ? `#${item.qlib_rank} · ${this._fmtNum(item.qlib_score, 3)}` : '--';
                 const reasons = item.reason_tags || [];
                 const risks = item.risk_tags || [];
+                const displayRisks = this._displayRiskTags(risks);
                 const riskCls = item.risk_level === '高' ? 'risk-high' : item.risk_level === '中' ? 'risk-mid' : 'risk-low';
                 const nextActions = item.next_actions || [];
-                const metaLine = this._metaLine(item);
+                const stockMeta = this._stockMetaLine(item);
                 return `<tr>
                     <td>${item.matrix_rank || '--'}</td>
                     <td>
                         <button class="link-button datahub-stock-link" data-datahub-action="stock" data-code="${App.escapeHTML(item.code)}">${App.escapeHTML(item.name || item.code)}</button>
-                        <div class="text-muted text-xs">${App.escapeHTML(item.code || '')} ${App.escapeHTML(item.industry || '')}</div>
-                        ${metaLine ? `<div class="text-muted text-xs">${App.escapeHTML(metaLine)}</div>` : ''}
+                        ${stockMeta ? `<div class="datahub-stock-meta">${App.escapeHTML(stockMeta)}</div>` : ''}
                         <div class="datahub-evidence-tags">${reasons.slice(0, 3).map((tag) => `<span class="datahub-reason-tag">${App.escapeHTML(tag)}</span>`).join('')}</div>
                     </td>
                     <td><span class="datahub-score ${scoreCls}">${score}</span><span class="datahub-decision-label">${App.escapeHTML(item.decision_label || '--')}</span></td>
-                    <td>${this._fmtNum(item.peg_next_year, 2)}</td>
+                    <td>${this._fmtPeg(item.peg_next_year)}</td>
                     <td class="${this._numClass(item.growth_next_year_pct)}">${this._fmtPct(item.growth_next_year_pct)}</td>
                     <td class="${this._numClass(item.upside_pct)}">${this._fmtPct(item.upside_pct)}</td>
-                    <td>${item.qlib_diamond ? '<span class="datahub-diamond">高一致</span>' : ''}${App.escapeHTML(qlibText)}</td>
+                    <td>${this._fmtQlib(item)}</td>
                     <td>
                         <span class="datahub-risk-pill ${riskCls}">${App.escapeHTML(item.risk_level || '--')}</span>
-                        <div>${risks.slice(0, 3).map((tag) => `<span class="datahub-risk-tag">${App.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无明显风险</span>'}</div>
+                        <div>${displayRisks.slice(0, 3).map((tag) => `<span class="datahub-risk-tag">${App.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无明显风险</span>'}</div>
                     </td>
                     <td>${nextActions.slice(0, 3).map((tag) => `<span class="datahub-next-tag">${App.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted">--</span>'}</td>
                     <td class="datahub-actions">
@@ -191,15 +208,19 @@
             set('datahub-total', String(summary.total ?? items.length ?? 0));
             set('datahub-high-score', String(summary.high_score ?? 0));
             set('datahub-cheap', String(summary.peg_le_1 ?? 0));
-            set('datahub-qlib-top', String(summary.qlib_top_50 ?? 0));
+            set('datahub-qlib-top', String(summary.signal_top_50 ?? summary.qlib_top_50 ?? 0));
             set('datahub-valuation-cov', summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}%`);
-            set('datahub-qlib-cov', summary.qlib_coverage_pct == null ? '--' : `${summary.qlib_coverage_pct}%`);
+            const signalCoverage = summary.signal_coverage_pct ?? summary.qlib_coverage_pct;
+            set('datahub-qlib-cov', signalCoverage == null ? '--' : `${signalCoverage}%`);
             set('datahub-actionable', String(summary.actionable ?? 0));
             set('datahub-high-risk', String(summary.high_risk ?? 0));
             set('datahub-pipe-quote', `${items.length || 0} 只`);
             set('datahub-pipe-valuation', summary.valuation_error ? '估值降级' : (summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}% 覆盖`));
-            const qlibAge = summary.qlib_cache_age_label ? ` · ${summary.qlib_cache_age_label}` : '';
-            set('datahub-pipe-ai', summary.qlib_date ? `${summary.qlib_date}${qlibAge}` : '未生成');
+            const signalAge = summary.signal_cache_age_label || summary.qlib_cache_age_label;
+            const ageLabel = signalAge ? ` · ${signalAge}` : '';
+            const validation = summary.signal_validation || {};
+            const validationLabel = validation.confidence ? ` · ${validation.confidence}` : '';
+            set('datahub-pipe-ai', summary.signal_date ? `${summary.signal_date}${ageLabel}${validationLabel}` : '未生成');
             const shadow = summary.shadow || {};
             set('datahub-pipe-shadow', shadow.total_checks ? `${shadow.total_diffs || 0} 条差异 · ${shadow.codes_with_diffs || 0} 只股票` : '暂无差异日志');
             const sourceHealth = summary.source_health || {};
@@ -219,19 +240,22 @@
             const note = document.getElementById('datahub-scope-note');
             if (!note) return;
             const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
-            const labels = { watchlist: '自选股', qlib: 'Qlib Top', codes: '指定股票' };
+            const labels = { watchlist: '自选股', qlib: 'AI 信号 Top', codes: '指定股票' };
             const desc = {
                 watchlist: '当前账号自选，不代表全市场',
-                qlib: 'Qlib 预测覆盖池，受 AI 缓存限制',
+                qlib: 'AI 信号候选池，未验证信号已降权',
                 codes: '手动指定股票，逐只拉取数据',
             };
             const total = summary.total ?? items.length ?? 0;
+            const watchlistCount = scope === 'watchlist' && Array.isArray(App.watchlistCache)
+                ? App.watchlistCache.length
+                : null;
             const valuation = summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}%`;
-            const qlib = summary.qlib_coverage_pct == null ? '--' : `${summary.qlib_coverage_pct}%`;
+            const qlib = (summary.signal_coverage_pct ?? summary.qlib_coverage_pct) == null ? '--' : `${summary.signal_coverage_pct ?? summary.qlib_coverage_pct}%`;
             note.innerHTML = [
                 `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
                 `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
-                `<span class="coverage-pill">样本 ${App.escapeHTML(String(total))} 只</span>`,
+                `<span class="coverage-pill">${watchlistCount == null ? '' : `自选 ${App.escapeHTML(String(watchlistCount))} 只 · `}样本 ${App.escapeHTML(String(total))} 只</span>`,
                 `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · AI ${App.escapeHTML(qlib)}</span>`,
             ].join('');
         },
@@ -250,7 +274,7 @@
                 `请基于数据中枢帮我分析 ${item.name || code}(${code})。`,
                 `决策评分：${item.decision_score ?? '--'}，标签：${item.decision_label || '--'}。`,
                 `PEG：${this._fmtNum(item.peg_next_year, 2)}，明年增速：${this._fmtPct(item.growth_next_year_pct)}，目标空间：${this._fmtPct(item.upside_pct)}。`,
-                `Qlib：${item.qlib_rank ? `排名 ${item.qlib_rank}，分数 ${this._fmtNum(item.qlib_score, 3)}` : '暂无覆盖'}。`,
+                `AI信号：${item.signal_rank || item.qlib_rank ? `排名 ${item.signal_rank || item.qlib_rank}，分数 ${this._fmtNum(item.signal_score ?? item.qlib_score, 3)}，来源 ${item.signal_provider || 'local_momentum'}` : '暂无覆盖'}。`,
                 '请给我一个适合模拟盘的观察结论、风险点和下一步动作。',
             ].join('\n');
             await App.switchTab('openclaw');
@@ -259,26 +283,56 @@
         },
 
         _fmtNum(value, digits = 2) {
-            return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '--';
+            return this._hasNumber(value) ? Number(value).toFixed(digits) : '--';
         },
 
         _fmtPct(value) {
-            return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : '--';
+            return this._hasNumber(value) ? `${Number(value).toFixed(2)}%` : '--';
         },
 
         _numClass(value) {
+            if (!this._hasNumber(value)) return '';
             const num = Number(value);
-            if (!Number.isFinite(num)) return '';
             return num > 0 ? 'text-up' : num < 0 ? 'text-down' : 'text-muted';
         },
 
-        _metaLine(item) {
-            const parts = [];
-            if (item.source) parts.push(item.source);
-            if (item.source_version) parts.push(item.source_version);
-            if (item.quality_status) parts.push(item.quality_status);
-            if (item.snapshot_at) parts.push(item.snapshot_at);
-            return parts.join(' · ');
+        _hasNumber(value) {
+            if (value === null || value === undefined || value === '' || value === '-' || value === '--') return false;
+            return Number.isFinite(Number(value));
+        },
+
+        _fmtPeg(value) {
+            if (!this._hasNumber(value) || Number(value) <= 0) {
+                return '<span class="datahub-missing-badge">缺失</span>';
+            }
+            return App.escapeHTML(Number(value).toFixed(2));
+        },
+
+        _fmtQlib(item) {
+            const rank = item.signal_rank || item.qlib_rank;
+            if (!rank) {
+                return '<span class="datahub-missing-badge">未覆盖</span>';
+            }
+            const score = this._fmtNum(item.signal_score ?? item.qlib_score, 3);
+            const confidence = item.signal_confidence || 'unverified';
+            const label = confidence.startsWith('validated') ? '已验证' : '未验证';
+            const diamond = confidence.startsWith('validated') ? '<span class="datahub-diamond">已验证</span>' : '';
+            return `${diamond}<span class="datahub-qlib-rank">#${App.escapeHTML(rank)} · ${App.escapeHTML(score)}</span><div class="text-muted text-xs">${App.escapeHTML(item.signal_provider || 'local_momentum')} · ${App.escapeHTML(label)}</div>`;
+        },
+
+        _displayRiskTags(risks) {
+            const technicalMissing = new Set(['PEG缺失', 'AI未覆盖']);
+            return (Array.isArray(risks) ? risks : []).filter((tag) => !technicalMissing.has(tag));
+        },
+
+        _stockMetaLine(item) {
+            const code = String(item.code || '').trim();
+            const industry = String(item.industry || '')
+                .trim()
+                .replace(/^制造业[-·\s]*/, '')
+                .replace(/制造业$/, '')
+                .trim();
+            return [code, industry].filter(Boolean).join(' · ');
         },
 
         _latestSourceVersion(sourceHealth) {

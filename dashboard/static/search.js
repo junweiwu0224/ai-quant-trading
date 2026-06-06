@@ -1,4 +1,4 @@
-/* ── 通用搜索下拉组件（搜索内置在下拉中） ── */
+/* ── 通用搜索下拉组件 ── */
 
 const normalizeStockSearchResults = (payload) => {
     if (globalThis.Utils && typeof globalThis.Utils.normalizeStockSearchResults === 'function') {
@@ -28,11 +28,15 @@ class SearchBox {
         this.dropdown = document.getElementById(dropdownId);
         if (!this.trigger || !this.dropdown) return;
 
+        const defaultInlineFilter = this.trigger.readOnly === true;
         this.options = {
             maxResults: 20,
             placeholder: '搜索代码或名称...',
             formatItem: (s) => `${s.code} ${s.name}`,
             debounceMs: 300,
+            minQueryLength: 0,
+            idleMessage: '输入代码或名称开始搜索',
+            inlineFilter: defaultInlineFilter,
             ...options,
         };
 
@@ -51,15 +55,22 @@ class SearchBox {
 
     _build() {
         const listId = this.trigger.id + '-list';
-        this.dropdown.innerHTML = `
-            <div class="sb-filter-wrap">
-                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
-                    role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
-            </div>
-            <div class="sb-list" id="${listId}" role="listbox"></div>
-        `;
-        this.filterInput = this.dropdown.querySelector('.sb-filter');
+        this.dropdown.classList.toggle('sb-no-inline-filter', !this.options.inlineFilter);
+        this.dropdown.innerHTML = this.options.inlineFilter
+            ? `
+                <div class="sb-filter-wrap">
+                    <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
+                        role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
+                </div>
+                <div class="sb-list" id="${listId}" role="listbox"></div>
+            `
+            : `<div class="sb-list" id="${listId}" role="listbox"></div>`;
+        this.filterInput = this.options.inlineFilter ? this.dropdown.querySelector('.sb-filter') : this.trigger;
         this.listEl = this.dropdown.querySelector('.sb-list');
+        this.trigger.setAttribute('role', 'combobox');
+        this.trigger.setAttribute('aria-expanded', 'false');
+        this.trigger.setAttribute('aria-controls', listId);
+        this.trigger.setAttribute('aria-autocomplete', 'list');
     }
 
     _bind() {
@@ -69,12 +80,16 @@ class SearchBox {
         // 输入框也可直接输入过滤
         this.trigger.addEventListener('input', () => {
             if (!this._isOpen) this.open();
-            this.filterInput.value = this.trigger.value;
+            if (this.options.inlineFilter) {
+                this.filterInput.value = this.trigger.value;
+            }
             this._debouncedSearch();
         });
 
         // 下拉内搜索框输入
-        this.filterInput.addEventListener('input', () => this._debouncedSearch());
+        if (this.options.inlineFilter) {
+            this.filterInput.addEventListener('input', () => this._debouncedSearch());
+        }
 
         // 键盘导航
         this.filterInput.addEventListener('keydown', (e) => {
@@ -121,16 +136,24 @@ class SearchBox {
         if (this._isOpen) return;
         this._isOpen = true;
         this.dropdown.style.display = 'flex';
-        this.filterInput.setAttribute('aria-expanded', 'true');
-        this.filterInput.value = '';
+        this.trigger.setAttribute('aria-expanded', 'true');
+        if (this.options.inlineFilter) {
+            this.filterInput.setAttribute('aria-expanded', 'true');
+            this.filterInput.value = '';
+        }
         this._search();
-        setTimeout(() => this.filterInput.focus(), 50);
+        if (this.options.inlineFilter) {
+            setTimeout(() => this.filterInput.focus(), 50);
+        }
     }
 
     close() {
         this._isOpen = false;
         this.dropdown.style.display = 'none';
-        this.filterInput.setAttribute('aria-expanded', 'false');
+        this.trigger.setAttribute('aria-expanded', 'false');
+        if (this.options.inlineFilter) {
+            this.filterInput.setAttribute('aria-expanded', 'false');
+        }
         this._searchVersion++;  // 使旧的异步搜索请求失效
         this.listEl.innerHTML = '';
         this._items = [];
@@ -160,6 +183,13 @@ class SearchBox {
         const q = this.filterInput.value.trim().toLowerCase();
         const version = ++this._searchVersion;
 
+        if (q.length < this.options.minQueryLength) {
+            this._items = [];
+            this._activeIdx = -1;
+            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(this.options.idleMessage)}</div>`;
+            return;
+        }
+
         // 显示加载状态
         this.listEl.innerHTML = '<div class="sb-loading">搜索中...</div>';
 
@@ -180,12 +210,22 @@ class SearchBox {
                 return;
             }
 
-            this.listEl.innerHTML = sliced.map((s, i) =>
-                `<div class="sb-item${i === 0 ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${i === 0}">${App.escapeHTML(this.options.formatItem(s))}</div>`
-            ).join('');
+            this.listEl.innerHTML = sliced.map((s, i) => this._renderItem(s, i, i === 0)).join('');
         } catch (e) {
             this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
+    }
+
+    _renderItem(s, i, active) {
+        const code = App.escapeHTML(String(s.code || ''));
+        const name = App.escapeHTML(String(s.name || '').trim());
+        const meta = [s.industry, s.sector].map((item) => String(item || '').trim()).filter(Boolean).slice(0, 2);
+        const fallback = App.escapeHTML(this.options.formatItem(s));
+        const body = code
+            ? `<div class="sb-item-main"><span class="sb-code">${code}</span><span class="sb-name">${name || fallback}</span></div>`
+            : `<div class="sb-item-main"><span class="sb-name">${fallback}</span></div>`;
+        const metaHtml = meta.length ? `<div class="sb-item-meta">${App.escapeHTML(meta.join(' · '))}</div>` : '';
+        return `<div class="sb-item${active ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${active}">${body}${metaHtml}</div>`;
     }
 
     _select(item) {
@@ -217,11 +257,15 @@ class MultiSearchBox {
         this.tagsContainer = document.getElementById(tagsId);
         if (!this.trigger || !this.dropdown) return;
 
+        const defaultInlineFilter = this.trigger.readOnly === true;
         this.options = {
             maxResults: 30,
             placeholder: '搜索代码或名称...',
             formatItem: (s) => `${s.code} ${s.name || ''}`,
             debounceMs: 300,
+            minQueryLength: 0,
+            idleMessage: '输入代码或名称开始搜索',
+            inlineFilter: defaultInlineFilter,
             ...options,
         };
 
@@ -239,25 +283,36 @@ class MultiSearchBox {
 
     _build() {
         const listId = this.trigger.id + '-list';
-        this.dropdown.innerHTML = `
-            <div class="sb-filter-wrap">
-                <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
-                    role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
-            </div>
-            <div class="sb-list" id="${listId}" role="listbox"></div>
-        `;
-        this.filterInput = this.dropdown.querySelector('.sb-filter');
+        this.dropdown.classList.toggle('sb-no-inline-filter', !this.options.inlineFilter);
+        this.dropdown.innerHTML = this.options.inlineFilter
+            ? `
+                <div class="sb-filter-wrap">
+                    <input type="text" class="sb-filter" placeholder="${this.options.placeholder}" autocomplete="off"
+                        role="combobox" aria-expanded="false" aria-controls="${listId}" aria-autocomplete="list">
+                </div>
+                <div class="sb-list" id="${listId}" role="listbox"></div>
+            `
+            : `<div class="sb-list" id="${listId}" role="listbox"></div>`;
+        this.filterInput = this.options.inlineFilter ? this.dropdown.querySelector('.sb-filter') : this.trigger;
         this.listEl = this.dropdown.querySelector('.sb-list');
+        this.trigger.setAttribute('role', 'combobox');
+        this.trigger.setAttribute('aria-expanded', 'false');
+        this.trigger.setAttribute('aria-controls', listId);
+        this.trigger.setAttribute('aria-autocomplete', 'list');
     }
 
     _bind() {
         this.trigger.addEventListener('click', () => this.open());
         this.trigger.addEventListener('input', () => {
             if (!this._isOpen) this.open();
-            this.filterInput.value = this.trigger.value;
+            if (this.options.inlineFilter) {
+                this.filterInput.value = this.trigger.value;
+            }
             this._debouncedSearch();
         });
-        this.filterInput.addEventListener('input', () => this._debouncedSearch());
+        if (this.options.inlineFilter) {
+            this.filterInput.addEventListener('input', () => this._debouncedSearch());
+        }
         this.filterInput.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -316,16 +371,24 @@ class MultiSearchBox {
         if (this._isOpen) return;
         this._isOpen = true;
         this.dropdown.style.display = 'flex';
-        this.filterInput.setAttribute('aria-expanded', 'true');
-        this.filterInput.value = '';
+        this.trigger.setAttribute('aria-expanded', 'true');
+        if (this.options.inlineFilter) {
+            this.filterInput.setAttribute('aria-expanded', 'true');
+            this.filterInput.value = '';
+        }
         this._search();
-        setTimeout(() => this.filterInput.focus(), 50);
+        if (this.options.inlineFilter) {
+            setTimeout(() => this.filterInput.focus(), 50);
+        }
     }
 
     close() {
         this._isOpen = false;
         this.dropdown.style.display = 'none';
-        this.filterInput.setAttribute('aria-expanded', 'false');
+        this.trigger.setAttribute('aria-expanded', 'false');
+        if (this.options.inlineFilter) {
+            this.filterInput.setAttribute('aria-expanded', 'false');
+        }
         this._searchVersion++;  // 使旧的异步搜索请求失效
         this.listEl.innerHTML = '';
         this._items = [];
@@ -380,6 +443,13 @@ class MultiSearchBox {
         const q = this.filterInput.value.trim().toLowerCase();
         const version = ++this._searchVersion;
 
+        if (q.length < this.options.minQueryLength) {
+            this._items = [];
+            this._activeIdx = -1;
+            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(this.options.idleMessage)}</div>`;
+            return;
+        }
+
         // 显示加载状态
         this.listEl.innerHTML = '<div class="sb-loading">搜索中...</div>';
 
@@ -403,12 +473,22 @@ class MultiSearchBox {
                 return;
             }
 
-            this.listEl.innerHTML = this._items.map((s, i) =>
-                `<div class="sb-item${i === 0 ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${i === 0}">${App.escapeHTML(this.options.formatItem(s))}</div>`
-            ).join('');
+            this.listEl.innerHTML = this._items.map((s, i) => this._renderItem(s, i, i === 0)).join('');
         } catch (e) {
             this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
+    }
+
+    _renderItem(s, i, active) {
+        const code = App.escapeHTML(String(s.code || ''));
+        const name = App.escapeHTML(String(s.name || '').trim());
+        const meta = [s.industry, s.sector].map((item) => String(item || '').trim()).filter(Boolean).slice(0, 2);
+        const fallback = App.escapeHTML(this.options.formatItem(s));
+        const body = code
+            ? `<div class="sb-item-main"><span class="sb-code">${code}</span><span class="sb-name">${name || fallback}</span></div>`
+            : `<div class="sb-item-main"><span class="sb-name">${fallback}</span></div>`;
+        const metaHtml = meta.length ? `<div class="sb-item-meta">${App.escapeHTML(meta.join(' · '))}</div>` : '';
+        return `<div class="sb-item${active ? ' active' : ''}" data-idx="${i}" role="option" aria-selected="${active}">${body}${metaHtml}</div>`;
     }
 
     _highlight() {

@@ -84,6 +84,17 @@ class TestStorage:
         result = db.get_stock_daily("000001")
         assert len(result) == 3
 
+    def test_save_daily_can_update_existing_rows(self, db, sample_daily_df):
+        db.save_stock_daily("000001", sample_daily_df)
+        updated = sample_daily_df.copy()
+        updated.loc[updated.index[-1], "amount"] = 999999
+
+        count = db.save_stock_daily("000001", updated, update_existing=True)
+
+        result = db.get_stock_daily("000001")
+        assert count == 1
+        assert result.iloc[-1]["amount"] == 999999
+
     def test_save_daily_dedup_legacy_plain_code_rows(self, db, sample_daily_df):
         """旧库无前缀记录再次写入时应避免逻辑重复"""
         session = db._get_session()
@@ -159,6 +170,87 @@ class TestStorage:
 
         codes = db.get_all_stock_codes()
         assert set(codes) == {"000001", "600519"}
+
+    def test_stock_daily_coverage_reports_daily_gap(self, db, sample_info_df, sample_daily_df):
+        db.save_stock_info(sample_info_df)
+        db.save_stock_daily("000001", sample_daily_df)
+
+        coverage = db.get_stock_daily_coverage()
+
+        assert coverage["stock_count"] == 2
+        assert coverage["daily_covered"] == 1
+        assert coverage["daily_missing"] == 1
+        assert coverage["coverage_pct"] == 50.0
+        assert coverage["latest_date"] == "2024-01-04"
+        assert coverage["latest_date_covered"] == 1
+
+    def test_market_breadth_counts_full_local_daily_universe(self, db):
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["000001", "600519", "920001"],
+                    "name": ["平安银行", "贵州茅台", "北证样本"],
+                    "industry": ["银行", "白酒", "北交所"],
+                    "list_date": ["1991-04-03", "2001-08-27", "2024-01-01"],
+                }
+            )
+        )
+        db.save_stock_daily(
+            "000001",
+            pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "open": [10.0, 10.0],
+                    "high": [10.0, 11.0],
+                    "low": [10.0, 10.0],
+                    "close": [10.0, 11.0],
+                    "volume": [100, 100],
+                    "amount": [1000, 1100],
+                }
+            ),
+        )
+        db.save_stock_daily(
+            "600519",
+            pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "open": [20.0, 20.0],
+                    "high": [20.0, 20.0],
+                    "low": [20.0, 18.0],
+                    "close": [20.0, 18.0],
+                    "volume": [100, 100],
+                    "amount": [2000, 1800],
+                }
+            ),
+        )
+        db.save_stock_daily(
+            "920001",
+            pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "open": [5.0, 5.0],
+                    "high": [5.0, 5.0],
+                    "low": [5.0, 5.0],
+                    "close": [5.0, 5.0],
+                    "volume": [100, 100],
+                    "amount": [500, 500],
+                }
+            ),
+        )
+
+        breadth = db.get_market_breadth()
+
+        assert breadth["stock_count"] == 3
+        assert breadth["total_stocks"] == 3
+        assert breadth["effective_count"] == 3
+        assert breadth["up_count"] == 1
+        assert breadth["down_count"] == 1
+        assert breadth["flat_count"] == 1
+        assert breadth["limit_up"] == 1
+        assert breadth["limit_down"] == 1
+        assert breadth["latest_date"] == "2024-01-03"
+        assert breadth["previous_date"] == "2024-01-02"
+        assert breadth["coverage_pct"] == 100.0
 
     def test_save_info_update(self, db, sample_info_df):
         """重复保存股票信息应更新"""

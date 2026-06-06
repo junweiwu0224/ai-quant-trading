@@ -21,17 +21,44 @@ SYNC_STATUS_FILE = QLIB_SYNC_STATUS
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "db" / "quant.db"
 QLIB_TRAIN_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train"
 QLIB_TRAIN_STATUS_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train/status"
+_PREDICTIONS_CACHE: dict[str, object] = {
+    "path": None,
+    "mtime_ns": None,
+    "size": None,
+    "data": {},
+}
 
 
 def _load_predictions() -> dict:
     """读取预测缓存文件"""
     if not PRED_CACHE_FILE.exists():
+        _PREDICTIONS_CACHE.update({"path": None, "mtime_ns": None, "size": None, "data": {}})
         return {}
     try:
+        stat = PRED_CACHE_FILE.stat()
+        cache_path = str(PRED_CACHE_FILE)
+        if (
+            _PREDICTIONS_CACHE.get("path") == cache_path
+            and _PREDICTIONS_CACHE.get("mtime_ns") == stat.st_mtime_ns
+            and _PREDICTIONS_CACHE.get("size") == stat.st_size
+        ):
+            cached = _PREDICTIONS_CACHE.get("data")
+            return cached if isinstance(cached, dict) else {}
         data = json.loads(PRED_CACHE_FILE.read_text(encoding="utf-8"))
         if "predictions" in data:
-            return data["predictions"]
-        return data
+            predictions = data["predictions"]
+        else:
+            predictions = data
+        predictions = predictions if isinstance(predictions, dict) else {}
+        _PREDICTIONS_CACHE.update(
+            {
+                "path": cache_path,
+                "mtime_ns": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "data": predictions,
+            }
+        )
+        return predictions
     except Exception as e:
         logger.warning(f"读取预测缓存失败: {e}")
         return {}
@@ -161,39 +188,48 @@ async def get_top_predictions(top_n: int = 10):
     }
     """
     try:
-        cache = _load_predictions()
-        if not cache:
-            return {"success": True, "predictions": [], "date": None, "total": 0}
+        from data.signals.engine import get_signal_records
 
-        # 取最新日期
-        latest_date = max(cache.keys())
-        preds = cache[latest_date]
+        records, meta = get_signal_records(
+            provider="local_momentum",
+            top_n=top_n,
+            cache_path=PRED_CACHE_FILE,
+        )
+        if not records:
+            return {
+                "success": True,
+                "predictions": [],
+                "date": meta.get("latest_date"),
+                "total": meta.get("total") or 0,
+                "provider": meta.get("provider") or "local_momentum",
+                "model_version": meta.get("model_version") or "",
+                "legacy": True,
+            }
 
-        # 按分数降序排列，取 top_n
-        sorted_preds = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-        codes = [code for code, _ in sorted_preds]
-
-        # 批量关联股票信息
-        info_map = _enrich_with_stock_info(codes)
-
+        info_map = _enrich_with_stock_info([record.code for record in records])
         predictions = []
-        for code, score in sorted_preds:
-            info = info_map.get(code, {})
-            predictions.append({
-                "code": code,
-                "name": info.get("name", code),
-                "score": round(score, 6),
+        for record in records:
+            info = info_map.get(record.code, {})
+            row = record.to_dict(legacy_keys=True)
+            row.update({
+                "name": info.get("name", record.code),
                 "industry": info.get("industry", "--"),
                 "price": info.get("price"),
                 "volume": info.get("volume"),
                 "amount": info.get("amount"),
             })
+            predictions.append(row)
 
         return {
             "success": True,
             "predictions": predictions,
-            "date": latest_date,
-            "total": len(preds),
+            "signals": predictions,
+            "date": records[0].date,
+            "total": meta.get("total") or len(predictions),
+            "provider": meta.get("provider") or "local_momentum",
+            "model_version": meta.get("model_version") or "",
+            "raw_source": meta.get("raw_source") or "legacy_qlib",
+            "legacy": True,
         }
     except Exception as e:
         logger.error(f"获取预测数据失败: {e}")

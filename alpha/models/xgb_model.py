@@ -4,9 +4,24 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from loguru import logger
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import roc_auc_score
+
+try:
+    import xgboost as xgb
+    XGBOOST_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - depends on native runtime
+    xgb = None
+    XGBOOST_IMPORT_ERROR = exc
+
+
+def is_xgboost_available() -> bool:
+    return XGBOOST_IMPORT_ERROR is None
+
+
+def xgboost_backend_error() -> str:
+    return "" if XGBOOST_IMPORT_ERROR is None else str(XGBOOST_IMPORT_ERROR)
 
 
 @dataclass
@@ -29,9 +44,10 @@ class XGBModel:
     def __init__(self, config: Optional[XGBConfig] = None, params: Optional[dict] = None):
         self._config = config or XGBConfig()
         self._params = params or {}
-        self._model: Optional[xgb.XGBClassifier] = None
+        self._model = None
         self._feature_names: list[str] = []
         self._evals_result: dict = {}
+        self._backend = "xgboost" if is_xgboost_available() else "sklearn_gradient_boosting"
 
     def train(
         self,
@@ -55,37 +71,49 @@ class XGBModel:
         }
         params.update(self._params)
 
-        self._model = xgb.XGBClassifier(**params)
+        if is_xgboost_available():
+            self._model = xgb.XGBClassifier(**params)
 
-        fit_params = {}
-        if X_val is not None and y_val is not None:
-            fit_params["eval_set"] = [(X_val, y_val)]
-            fit_params["verbose"] = False
-            # EarlyStopping 通过构造函数传入（兼容旧版 XGBoost）
-            try:
-                early_stop = xgb.callback.EarlyStopping(
-                    rounds=self._config.early_stopping_rounds,
-                    metric_name="auc",
-                    maximize=True,
-                )
-                self._model.set_params(callbacks=[early_stop])
-            except Exception:
-                # 旧版 XGBoost 不支持 callbacks，回退到 early_stopping_rounds
-                fit_params["early_stopping_rounds"] = self._config.early_stopping_rounds
+            fit_params = {}
+            if X_val is not None and y_val is not None:
+                fit_params["eval_set"] = [(X_val, y_val)]
+                fit_params["verbose"] = False
+                # EarlyStopping 通过构造函数传入（兼容旧版 XGBoost）
+                try:
+                    early_stop = xgb.callback.EarlyStopping(
+                        rounds=self._config.early_stopping_rounds,
+                        metric_name="auc",
+                        maximize=True,
+                    )
+                    self._model.set_params(callbacks=[early_stop])
+                except Exception:
+                    # 旧版 XGBoost 不支持 callbacks，回退到 early_stopping_rounds
+                    fit_params["early_stopping_rounds"] = self._config.early_stopping_rounds
 
-        self._model.fit(X_train, y_train, **fit_params)
+            self._model.fit(X_train, y_train, **fit_params)
 
-        # 采集训练过程指标
-        self._evals_result = {}
-        if hasattr(self._model, "evals_result_"):
-            self._evals_result = self._model.evals_result_
+            # 采集训练过程指标
+            self._evals_result = {}
+            if hasattr(self._model, "evals_result_"):
+                self._evals_result = self._model.evals_result_
+        else:
+            fallback_params = {
+                "n_estimators": self._config.n_estimators,
+                "learning_rate": self._config.learning_rate,
+                "max_depth": int(self._params.get("max_depth", 3)),
+                "random_state": int(self._params.get("random_state", 42)),
+            }
+            self._model = GradientBoostingClassifier(**fallback_params)
+            self._evals_result = {}
+            logger.warning(f"XGBoost 后端不可用，使用 sklearn 降级模型: {xgboost_backend_error()}")
+            self._model.fit(X_train, y_train)
 
         metrics = {}
         if X_val is not None and y_val is not None:
             val_pred = self._model.predict_proba(X_val)[:, 1]
             metrics["val_auc"] = roc_auc_score(y_val, val_pred)
 
-        logger.info(f"XGB 训练完成: {self._config.n_estimators} 棵树, 特征 {len(self._feature_names)}")
+        logger.info(f"XGB 训练完成: {self._backend} {self._config.n_estimators} 棵树, 特征 {len(self._feature_names)}")
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -114,12 +142,16 @@ class XGBModel:
 
     def save(self, path: str):
         """保存模型"""
-        if self._model is not None:
+        if self._model is not None and self._backend == "xgboost":
             self._model.save_model(path)
             logger.info(f"XGB 模型已保存: {path}")
+        elif self._model is not None:
+            logger.info("sklearn 降级模型不写入 XGBoost 缓存")
 
     def load(self, path: str):
         """加载模型"""
+        if not is_xgboost_available():
+            raise RuntimeError(f"XGBoost 后端不可用，无法读取 XGBoost 缓存: {xgboost_backend_error()}")
         self._model = xgb.XGBClassifier()
         self._model.load_model(path)
         logger.info(f"XGB 模型已加载: {path}")

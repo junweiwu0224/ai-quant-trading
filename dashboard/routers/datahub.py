@@ -4,12 +4,14 @@ from __future__ import annotations
 import math
 import statistics
 import time
+import json
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
+from config.settings import FULL_STOCK_DAILY_SYNC_STATUS
 from dashboard.session import current_account, optional_account
 from data.providers.astock_data_adapter import normalize_stock_code
 from data.qlib.candidates import fallback_seed_codes
@@ -20,6 +22,7 @@ router = APIRouter()
 QUOTE_STALE_SECONDS = 15 * 60
 OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS = 30 * 60
 OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
+_SIGNAL_CONTEXT_CACHE: dict[tuple[str | None, int | None, int | None, int | None], dict[str, Any]] = {}
 
 
 def _plain_code(code: Any) -> str:
@@ -92,6 +95,94 @@ def _load_qlib_health() -> dict[str, Any]:
         }
 
 
+def _load_signal_health() -> dict[str, Any]:
+    try:
+        from data.signals.validation import validate_signal_provider
+        from dashboard.routers.qlib import PRED_CACHE_FILE, _load_sync_status
+
+        if not PRED_CACHE_FILE.exists():
+            return {
+                "status": "offline",
+                "cache_age_hours": None,
+                "cache_age_label": "无缓存",
+                "provider": "local_momentum",
+                "model_version": "",
+                "validation": {
+                    "status": "insufficient_data",
+                    "confidence": "unverified",
+                    "sample_days": 0,
+                    "metrics": {},
+                },
+                "sync_status": _load_sync_status(),
+            }
+        age_hours = (time.time() - PRED_CACHE_FILE.stat().st_mtime) / 3600
+        if age_hours < 24:
+            status = "online"
+        elif age_hours < 72:
+            status = "stale"
+        else:
+            status = "offline"
+        validation = validate_signal_provider(top_n=50).to_dict()
+        return {
+            "status": status,
+            "cache_age_hours": round(age_hours, 1),
+            "cache_age_label": _age_label(age_hours),
+            "provider": validation.get("provider") or "local_momentum",
+            "model_version": validation.get("model_version") or "",
+            "validation": validation,
+            "sync_status": _load_sync_status(),
+        }
+    except Exception:
+        return {
+            "status": "offline",
+            "cache_age_hours": None,
+            "cache_age_label": "未知",
+            "provider": "local_momentum",
+            "model_version": "",
+            "validation": {
+                "status": "insufficient_data",
+                "confidence": "unverified",
+                "sample_days": 0,
+                "metrics": {},
+            },
+            "sync_status": {},
+        }
+
+
+def _load_full_stock_daily_sync_status() -> dict[str, Any]:
+    if not FULL_STOCK_DAILY_SYNC_STATUS.exists():
+        return {"status": "not_started", "status_label": "未同步"}
+    try:
+        payload = json.loads(FULL_STOCK_DAILY_SYNC_STATUS.read_text(encoding="utf-8"))
+        finished = bool(payload.get("finished"))
+        success = bool(payload.get("success"))
+        processed = int(payload.get("processed_count") or 0)
+        target = int(payload.get("target_count") or 0)
+        if finished and success:
+            status = "complete"
+            label = "已完成"
+        elif finished:
+            status = "incomplete"
+            label = "有失败"
+        else:
+            status = "running"
+            label = f"{processed}/{target}" if target else "进行中"
+        return {
+            "status": status,
+            "status_label": label,
+            "started_at": payload.get("started_at"),
+            "finished_at": payload.get("finished_at"),
+            "processed_count": processed,
+            "target_count": target,
+            "success_count": payload.get("success_count"),
+            "fail_count": payload.get("fail_count"),
+            "duration_sec": payload.get("duration_sec"),
+            "snapshot_count": payload.get("snapshot_count"),
+        }
+    except Exception as exc:
+        return {"status": "invalid", "status_label": "状态异常", "error": str(exc)}
+
+
 def _load_shadow_summary() -> dict[str, Any]:
     try:
         from data.collector.shadow_validator import get_shadow_stats
@@ -114,72 +205,54 @@ def _load_shadow_summary() -> dict[str, Any]:
         }
 
 
-def _load_qlib_context(top_limit: int = 300) -> dict[str, Any]:
-    """Read local qlib prediction cache and build per-code rank/consistency."""
+def _load_qlib_context(top_limit: int | None = None) -> dict[str, Any]:
+    """Legacy wrapper for tests and old callers that patch qlib helpers directly."""
     try:
         from dashboard.routers.qlib import _load_predictions
+        from data.signals.engine import build_signal_context_from_predictions
 
-        cache = _load_predictions()
+        predictions = _load_predictions()
+        return build_signal_context_from_predictions(
+            predictions,
+            top_limit=top_limit,
+            provider="local_momentum",
+            model_version="local_momentum_v1",
+            raw_source="legacy_qlib",
+        )
     except Exception:
-        cache = {}
+        return _load_signal_context(top_limit=top_limit)
 
-    if not cache:
-        return {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []}
 
-    latest_date = max(cache.keys())
-    latest_preds = cache.get(latest_date) or {}
-    if not isinstance(latest_preds, dict) or not latest_preds:
-        return {"latest_date": latest_date, "total": 0, "items": {}, "ordered_codes": []}
+def _load_signal_context(top_limit: int | None = None) -> dict[str, Any]:
+    """Read unified signal context and keep legacy qlib keys for compatibility."""
+    try:
+        from dashboard.routers.qlib import PRED_CACHE_FILE
+        from data.signals.engine import build_signal_context
 
-    sorted_latest = sorted(
-        ((_plain_code(code), _safe_float(score)) for code, score in latest_preds.items()),
-        key=lambda item: item[1] if item[1] is not None else -1e9,
-        reverse=True,
-    )
-    sorted_latest = [(code, score) for code, score in sorted_latest if code and score is not None]
-    top_codes = {code for code, _ in sorted_latest[:top_limit]}
-
-    history: dict[str, list[float]] = defaultdict(list)
-    for day, preds in cache.items():
-        if day == latest_date or not isinstance(preds, dict):
-            continue
-        for raw_code, raw_score in preds.items():
-            code = _plain_code(raw_code)
-            score = _safe_float(raw_score)
-            if code in top_codes and score is not None:
-                history[code].append(score)
-
-    items: dict[str, dict[str, Any]] = {}
-    ordered_codes: list[str] = []
-    for rank, (code, score) in enumerate(sorted_latest, start=1):
-        if code in items:
-            continue
-        hist = history.get(code, [])
-        hist_std = None
-        ic_adj = None
-        if len(hist) >= 3:
-            try:
-                hist_std = statistics.pstdev(hist)
-                if hist_std > 0:
-                    ic_adj = round(float(score) / hist_std, 4)
-            except Exception:
-                hist_std = None
-                ic_adj = None
-        items[code] = {
-            "qlib_rank": rank,
-            "qlib_score": round(float(score), 6),
-            "qlib_ic_adj": ic_adj,
-            "qlib_diamond": bool(ic_adj is not None and ic_adj > 2),
-            "qlib_appearances": len(hist),
+        if PRED_CACHE_FILE.exists():
+            stat = PRED_CACHE_FILE.stat()
+            cache_key = (str(PRED_CACHE_FILE), stat.st_mtime_ns, stat.st_size, top_limit)
+            cached_ctx = _SIGNAL_CONTEXT_CACHE.get(cache_key)
+            if cached_ctx is not None:
+                return cached_ctx
+            if len(_SIGNAL_CONTEXT_CACHE) > 8:
+                _SIGNAL_CONTEXT_CACHE.clear()
+        else:
+            cache_key = (None, None, None, top_limit)
+        ctx = build_signal_context(top_limit=top_limit, cache_path=PRED_CACHE_FILE)
+    except Exception:
+        cache_key = (None, None, None, top_limit)
+        ctx = {
+            "latest_date": None,
+            "total": 0,
+            "provider": "local_momentum",
+            "model_version": "",
+            "items": {},
+            "ordered_codes": [],
+            "raw_source": "legacy_qlib",
         }
-        ordered_codes.append(code)
-
-    return {
-        "latest_date": latest_date,
-        "total": len(sorted_latest),
-        "items": items,
-        "ordered_codes": ordered_codes,
-    }
+    _SIGNAL_CONTEXT_CACHE[cache_key] = ctx
+    return ctx
 
 
 def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[str, Any]:
@@ -192,6 +265,8 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
     report_count = int(item.get("report_count") or 0)
     qlib_rank = int((qlib or {}).get("qlib_rank") or 0)
     qlib_diamond = bool((qlib or {}).get("qlib_diamond"))
+    signal_confidence = str((qlib or {}).get("signal_confidence") or "unverified")
+    signal_validated = signal_confidence.startswith("validated")
 
     score = 50
     reasons: list[str] = []
@@ -241,18 +316,20 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
 
     if qlib_rank:
         if qlib_rank <= 10:
-            score += 18
-            reasons.append("AI前10")
+            score += 10 if signal_validated else 4
+            reasons.append("AI前10" if signal_validated else "AI候选")
         elif qlib_rank <= 50:
-            score += 10
-            reasons.append("AI候选池")
+            score += 6 if signal_validated else 3
+            reasons.append("AI候选池" if signal_validated else "AI候选")
         elif qlib_rank <= 100:
-            score += 5
+            score += 3 if signal_validated else 1
             reasons.append("AI覆盖")
+        if not signal_validated:
+            risks.append("AI未验证")
     else:
         risks.append("AI未覆盖")
 
-    if qlib_diamond:
+    if qlib_diamond and signal_validated:
         score += 8
         reasons.append("AI一致性高")
 
@@ -376,7 +453,10 @@ def _local_quote_map(storage: DataStorage, codes: list[str]) -> dict[str, dict[s
         return {}
     result: dict[str, dict[str, Any]] = {}
     try:
-        rows = storage.get_latest_market_rows()
+        if hasattr(storage, "get_latest_market_rows_for_codes"):
+            rows = storage.get_latest_market_rows_for_codes(list(wanted))
+        else:
+            rows = storage.get_latest_market_rows()
     except Exception:
         return {}
     for row in rows:
@@ -437,8 +517,10 @@ def _attach_snapshot_metadata(storage: DataStorage, code: str, item: dict[str, A
 async def datahub_health(account: dict | None = Depends(optional_account)):
     storage = DataStorage()
     stock_count = len(storage.get_all_stock_codes())
+    stock_daily = storage.get_stock_daily_coverage()
     watchlist = storage.get_watchlist(account["workspace"]["id"]) if account else []
     qlib_health = _load_qlib_health()
+    full_daily_sync = _load_full_stock_daily_sync_status()
     shadow = _load_shadow_summary()
     quality_summary = storage.get_data_quality_summary()
     source_health = storage.get_data_source_health()
@@ -478,6 +560,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
     return {
         "success": True,
         "stock_count": stock_count,
+        "stock_daily": stock_daily,
         "watchlist_count": len(watchlist),
         "source_health": source_health,
         "quality_summary": quality_summary,
@@ -489,6 +572,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
         },
         "quote_quality": storage.get_data_quality_summary("quote"),
         "qlib": qlib_health,
+        "full_daily_sync": full_daily_sync,
         "shadow": shadow,
         "providers": {
             "market": "mootdx + eastmoney + tencent fallback",
@@ -510,12 +594,13 @@ async def decision_matrix(
     """Merge valuation, qlib prediction and quote health into one research table."""
 
     storage = DataStorage()
-    qlib_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
+    signal_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
+    signal_health = _load_signal_health()
     qlib_health = _load_qlib_health()
     shadow = _load_shadow_summary()
     source_health = storage.get_data_source_health()
     quality_summary = storage.get_data_quality_summary()
-    qlib_items: dict[str, dict[str, Any]] = qlib_ctx["items"]
+    qlib_items: dict[str, dict[str, Any]] = signal_ctx["items"]
 
     used_fallback = False
     fallback_reason = ""
@@ -526,7 +611,7 @@ async def decision_matrix(
     elif scope == "watchlist":
         selected_codes = storage.get_watchlist(account["workspace"]["id"])
     elif scope == "qlib":
-        selected_codes = qlib_ctx["ordered_codes"][:limit]
+        selected_codes = signal_ctx["ordered_codes"][:limit]
     else:
         selected_codes = [item.strip() for item in codes.split(",") if item.strip()]
     selected_codes = _dedupe_codes(selected_codes)[:limit]
@@ -635,6 +720,11 @@ async def decision_matrix(
             item.update(qlib)
         else:
             item.update({
+                "signal_rank": None,
+                "signal_score": None,
+                "signal_provider": None,
+                "signal_model_version": None,
+                "signal_confidence": None,
                 "qlib_rank": None,
                 "qlib_score": None,
                 "qlib_ic_adj": None,
@@ -680,10 +770,19 @@ async def decision_matrix(
             "total": total,
             "valuation_coverage_pct": round(covered_valuation / total * 100, 1) if total else None,
             "qlib_coverage_pct": round(covered_qlib / total * 100, 1) if total else None,
+            "signal_coverage_pct": round(covered_qlib / total * 100, 1) if total else None,
             "high_score": high_score,
             "peg_le_1": cheap,
             "qlib_top_50": qlib_top,
-            "qlib_date": qlib_ctx.get("latest_date"),
+            "signal_top_50": qlib_top,
+            "signal_date": signal_ctx.get("latest_date"),
+            "signal_provider": signal_ctx.get("provider") or signal_health.get("provider"),
+            "signal_model_version": signal_ctx.get("model_version") or signal_health.get("model_version"),
+            "signal_status": signal_health.get("status"),
+            "signal_cache_age_hours": signal_health.get("cache_age_hours"),
+            "signal_cache_age_label": signal_health.get("cache_age_label"),
+            "signal_validation": signal_health.get("validation") or {},
+            "qlib_date": signal_ctx.get("latest_date"),
             "qlib_status": qlib_health.get("status"),
             "qlib_cache_age_hours": qlib_health.get("cache_age_hours"),
             "qlib_cache_age_label": qlib_health.get("cache_age_label"),

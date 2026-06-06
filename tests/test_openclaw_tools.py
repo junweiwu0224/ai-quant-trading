@@ -114,6 +114,43 @@ def test_auto_record_research_memory_tracks_report_actions(monkeypatch):
     assert "2026-05-23" in memory["content"]
 
 
+def test_signals_top_tool_and_qlib_alias_share_signal_engine(monkeypatch):
+    account = {
+        "user": {"id": "user-1"},
+        "workspace": {"id": "workspace-1", "openclaw_workspace_id": "ocw_workspace_1"},
+        "permissions": {"read_market": True},
+    }
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "record_audit",
+        lambda *args, **kwargs: {"id": "audit-1"},
+    )
+
+    def fake_records(*args, **kwargs):
+        from data.signals.models import SignalRecord
+
+        return [
+            SignalRecord(
+                code="600519",
+                date="2026-06-05",
+                provider="local_momentum",
+                model_version="local_momentum_v1",
+                score=0.91,
+                rank=1,
+            )
+        ], {"latest_date": "2026-06-05", "total": 1, "provider": "local_momentum", "model_version": "local_momentum_v1"}
+
+    monkeypatch.setattr("data.signals.engine.get_signal_records", fake_records)
+    monkeypatch.setattr("dashboard.routers.qlib._enrich_with_stock_info", lambda codes: {"600519": {"name": "贵州茅台", "industry": "食品饮料", "price": 1600}})
+
+    new_result = asyncio.run(openclaw_tools.invoke_system_tool(account, "quant.signals.top", {"top_n": 1}))
+    legacy_result = asyncio.run(openclaw_tools.invoke_system_tool(account, "quant.qlib.top", {"top_n": 1}))
+
+    assert new_result["result"]["predictions"][0]["code"] == "600519"
+    assert new_result["result"]["predictions"][0]["provider"] == "local_momentum"
+    assert legacy_result["result"] == new_result["result"]
+
+
 def test_watchlist_chat_action_preserves_user_reason(monkeypatch):
     account = {
         "user": {"id": "user-1"},

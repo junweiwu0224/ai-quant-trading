@@ -38,20 +38,10 @@
             }
         };
 
-        // 数据源：优先全量股票列表，搜索时实时查询
+        // 空下拉只展示自选股；输入代码或名称后再搜索全市场。
         _multiSearch.setDataSource(async (q) => {
             if (!q) {
-                // 无搜索词时显示自选股 + 缓存的全量列表
-                const watchlist = Utils.normalizeStockSearchResults(App.watchlistCache || []);
-                if (watchlist.length > 0) return watchlist;
-                // 尝试获取全量列表
-                try {
-                    return Utils.normalizeStockSearchResults(
-                        await App.fetchJSON('/api/stock/search?limit=200', { silent: true })
-                    );
-                } catch {
-                    return [];
-                }
+                return Utils.normalizeStockSearchResults(App.watchlistCache || []);
             }
             try {
                 return Utils.normalizeStockSearchResults(

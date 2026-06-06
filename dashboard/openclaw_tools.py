@@ -101,10 +101,18 @@ SYSTEM_TOOLS = [
         "confirm": False,
     },
     {
-        "name": "quant.qlib.top",
-        "label": "Qlib 预测 Top",
+        "name": "quant.signals.top",
+        "label": "AI 信号 Top",
         "permission": "read_market",
-        "description": "读取 qlib 最新预测池 Top 股票。",
+        "description": "读取 Signal Engine 最新全市场候选 Top 股票。",
+        "schema": {"top_n": "返回数量，可选"},
+        "confirm": False,
+    },
+    {
+        "name": "quant.qlib.top",
+        "label": "AI 信号 Top（兼容 Qlib）",
+        "permission": "read_market",
+        "description": "兼容旧调用，读取 Signal Engine 最新候选 Top 股票。",
         "schema": {"top_n": "返回数量，可选"},
         "confirm": False,
     },
@@ -188,8 +196,8 @@ async def invoke_system_tool(account: dict, tool_name: str, arguments: dict[str,
             result = _valuation_peg(arguments)
         elif tool_name == "quant.data.snapshot":
             result = _data_snapshot(arguments)
-        elif tool_name == "quant.qlib.top":
-            result = _qlib_top(arguments)
+        elif tool_name in {"quant.signals.top", "quant.qlib.top"}:
+            result = _signals_top(arguments)
         elif tool_name == "quant.report.generate_daily":
             result = _generate_daily_report(account, arguments)
         elif tool_name == "quant.report.open":
@@ -396,35 +404,53 @@ def _data_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
         "providers": {
             "market": "mootdx + eastmoney + tencent fallback",
             "valuation": "eastmoney analyst consensus adapter",
-            "ml": "qlib prediction cache",
+            "ml": "Signal Engine local_momentum cache",
         },
     }
 
 
-def _qlib_top(arguments: dict[str, Any]) -> dict[str, Any]:
-    from dashboard.routers.qlib import _enrich_with_stock_info, _load_predictions
+def _signals_top(arguments: dict[str, Any]) -> dict[str, Any]:
+    from dashboard.routers.qlib import PRED_CACHE_FILE, _enrich_with_stock_info
+    from data.signals.engine import get_signal_records
 
     top_n = max(1, min(int(arguments.get("top_n") or 10), 50))
-    cache = _load_predictions()
-    if not cache:
-        return {"predictions": [], "date": None, "total": 0}
-    latest_date = max(cache.keys())
-    preds = cache[latest_date]
-    sorted_preds = sorted(preds.items(), key=lambda item: item[1], reverse=True)[:top_n]
-    codes = [code for code, _ in sorted_preds]
+    records, meta = get_signal_records(top_n=top_n, cache_path=PRED_CACHE_FILE)
+    if not records:
+        return {
+            "predictions": [],
+            "date": meta.get("latest_date"),
+            "total": meta.get("total") or 0,
+            "provider": meta.get("provider") or "local_momentum",
+            "model_version": meta.get("model_version") or "",
+        }
+    codes = [record.code for record in records]
     info_map = _enrich_with_stock_info(codes)
     predictions = []
-    for code, score in sorted_preds:
-        info = info_map.get(code, {})
+    for record in records:
+        info = info_map.get(record.code, {})
         predictions.append({
-            "code": code[-6:] if len(code) > 6 else code,
-            "raw_code": code,
-            "name": info.get("name", code),
-            "score": round(float(score), 6),
+            "code": record.code,
+            "raw_code": record.code,
+            "name": info.get("name", record.code),
+            "score": round(float(record.score), 6),
+            "rank": record.rank,
+            "provider": record.provider,
+            "model_version": record.model_version,
+            "confidence": record.confidence,
             "industry": info.get("industry", "--"),
             "price": info.get("price"),
         })
-    return {"predictions": predictions, "date": latest_date, "total": len(preds)}
+    return {
+        "predictions": predictions,
+        "date": meta.get("latest_date"),
+        "total": meta.get("total") or len(records),
+        "provider": meta.get("provider") or "local_momentum",
+        "model_version": meta.get("model_version") or "",
+    }
+
+
+def _qlib_top(arguments: dict[str, Any]) -> dict[str, Any]:
+    return _signals_top(arguments)
 
 
 def _generate_daily_report(account: dict, arguments: dict[str, Any]) -> dict[str, Any]:

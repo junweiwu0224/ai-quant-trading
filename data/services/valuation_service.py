@@ -169,16 +169,21 @@ class ValuationService:
         qlib = self._load_qlib_signal(context.code)
         qlib_score = _safe_float(qlib.get("qlib_score"))
         qlib_rank = int(qlib.get("qlib_rank") or 0)
+        signal_provider = str(qlib.get("signal_provider") or "local_momentum")
+        signal_confidence = str(qlib.get("signal_confidence") or "unverified")
+        signal_validated = signal_confidence.startswith("validated")
 
         trend_growth = momentum_60 * 0.55 + momentum_20 * 0.45
         if qlib_score is not None:
-            trend_growth += (qlib_score - 0.5) * 28
+            signal_weight = 10 if signal_validated else 4
+            trend_growth += (qlib_score - 0.5) * signal_weight
         growth_next_year_pct = round(max(-30, min(60, trend_growth)), 2)
         growth_this_year_pct = round(max(-30, min(55, trend_growth * 0.75)), 2)
         growth_next_two_year_pct = round(max(-30, min(55, growth_next_year_pct * 0.82)), 2)
 
         risk_discount = min(0.18, max(0, volatility - 22) / 220)
-        signal_premium = ((qlib_score or 0.5) - 0.5) * 0.18
+        signal_premium_weight = 0.08 if signal_validated else 0.025
+        signal_premium = ((qlib_score or 0.5) - 0.5) * signal_premium_weight
         target_price = round(float(current_price) * (1 + growth_next_year_pct / 100 * 0.38 + signal_premium - risk_discount), 2)
         if target_price <= 0:
             target_price = None
@@ -194,7 +199,7 @@ class ValuationService:
             forecast_next_year_eps = round(forecast_this_year_eps * (1 + growth_next_year_pct / 100), 3)
             forecast_next_two_year_eps = round(forecast_next_year_eps * (1 + growth_next_two_year_pct / 100), 3)
 
-        if qlib_rank and qlib_rank <= 10 and growth_next_year_pct >= 15:
+        if signal_validated and qlib_rank and qlib_rank <= 10 and growth_next_year_pct >= 15:
             rating = "重点跟踪"
         elif growth_next_year_pct >= 8:
             rating = "跟踪"
@@ -210,10 +215,12 @@ class ValuationService:
             f"60日动量 {round(momentum_60, 2)}%",
         ]
         if qlib_rank:
-            signal_bits.append(f"Qlib排名 #{qlib_rank}")
+            signal_bits.append(f"AI信号({signal_provider})排名 #{qlib_rank}")
+        if not signal_validated:
+            signal_bits.append("AI信号未验证，仅作候选排序")
         report = {
             "title": title,
-            "org": "本地行情+Qlib",
+            "org": "本地行情+AI信号",
             "author": "local-derived",
             "date": latest_date,
             "rating": rating,
@@ -228,7 +235,7 @@ class ValuationService:
             "summary": "；".join(signal_bits),
             "encode_url": "",
             "source": "local_derived",
-            "source_note": "由本地日线趋势、波动率和Qlib分数推导，不等同券商研报",
+            "source_note": "由本地日线趋势、波动率和AI信号推导，不等同券商研报；未验证信号已降权",
         }
 
         return ForecastSummary(
@@ -237,7 +244,7 @@ class ValuationService:
             report_count=1,
             latest_report_date=latest_date,
             latest_rating=rating,
-            latest_org="本地行情+Qlib",
+            latest_org="本地行情+AI信号",
             target_price=target_price,
             actual_last_year_eps=None,
             forecast_this_year_eps=forecast_this_year_eps,
@@ -585,7 +592,7 @@ class ValuationService:
             "latest_org": summary.latest_org,
             "report_count": summary.report_count,
             "report_source": "local_derived" if has_local_report else "analyst_consensus",
-            "report_source_note": "本地日线趋势、波动率和Qlib分数推导" if has_local_report else "东方财富研报共识",
+            "report_source_note": "本地日线趋势、波动率和AI信号推导" if has_local_report else "东方财富研报共识",
             "current_year_eps": summary.forecast_this_year_eps,
             "next_year_eps": summary.forecast_next_year_eps,
             "next_two_year_eps": summary.forecast_next_two_year_eps,
@@ -609,7 +616,7 @@ class ValuationService:
     def _persist_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         has_local_report = any((row.get("source") == "local_derived") for row in snapshot.get("reports", []))
         source = "local_derived" if has_local_report else getattr(self.adapter, "SOURCE_NAME", "astock")
-        source_version = "stock_daily+qlib+momentum" if has_local_report else getattr(self.adapter, "SOURCE_VERSION", "unknown")
+        source_version = "stock_daily+signal+momentum" if has_local_report else getattr(self.adapter, "SOURCE_VERSION", "unknown")
         enriched = dict(snapshot)
         enriched.update(
             {

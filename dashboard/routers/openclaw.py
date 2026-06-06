@@ -828,9 +828,9 @@ def _detect_direct_action(message: str, history: list[dict[str, str]]) -> dict[s
             "confirm_required": False,
         }
 
-    if any(token in text for token in ("Qlib", "预测Top", "预测池", "Top")):
+    if any(token in text for token in ("Qlib", "信号", "预测Top", "预测池", "Top")):
         return {
-            "tool": "quant.qlib.top",
+            "tool": "quant.signals.top",
             "arguments": {},
             "confirm_required": False,
         }
@@ -1014,9 +1014,9 @@ def _format_action_response(tool_name: str, result: dict[str, Any], arguments: d
             f"自选 {payload.get('watchlist_count', '--')} 只，"
             f"行情订阅 {quote.get('subscriptions', '--')} 条。"
         )
-    elif tool_name == "quant.qlib.top":
+    elif tool_name in {"quant.signals.top", "quant.qlib.top"}:
         total = payload.get("total", 0)
-        content = f"Qlib 最新预测池已返回，共 {total} 只。"
+        content = f"AI 信号池已返回，共 {total} 只。"
         predictions = payload.get("predictions") or []
         first = predictions[0] if predictions else {}
         first_code = str(first.get("code") or "").strip()

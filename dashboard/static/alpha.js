@@ -26,44 +26,49 @@ Object.assign(App, {
     },
 
     initAlpha() {
-        if (this._alphaInitDone) return;
-        this._alphaInitDone = true;
-        // 子 Tab 事件绑定
-        document.querySelectorAll('#alpha-sub-tabs .alpha-sub-tab').forEach(btn => {
-            btn.addEventListener('click', () => this.switchAlphaTab(btn.dataset.tab));
-        });
-        document.addEventListener('click', (event) => {
-            const actionButton = event.target.closest('[data-alpha-action]');
-            if (!actionButton) return;
-            event.preventDefault();
+        if (!this._alphaActionHandlersBound) {
+            this._alphaActionHandlersBound = true;
+            // 子 Tab 事件绑定
+            document.querySelectorAll('#alpha-sub-tabs .alpha-sub-tab').forEach(btn => {
+                btn.addEventListener('click', () => this.switchAlphaTab(btn.dataset.tab));
+            });
+            document.addEventListener('click', (event) => {
+                const actionButton = event.target.closest('[data-alpha-action]');
+                if (!actionButton) return;
+                event.preventDefault();
 
-            const actions = {
-                'load-alpha': () => this.loadAlpha(),
-                'optimize-alpha': () => this.optimizeAlpha(),
-                'load-shap': () => this.loadShap(),
-                'load-factor-eval': () => this.loadFactorEval(),
-                'load-factor-decay': () => this.loadFactorDecay(),
-                'load-factor-correlation': () => this.loadFactorCorrelation(),
-                'factor-analyze': () => {
-                    if (typeof Factor !== 'undefined') Factor.analyze();
-                },
-                'factor-correlation': () => {
-                    if (typeof Factor !== 'undefined') Factor.loadCorrelation();
-                },
-                'load-compare': () => this.loadCompare(),
-                'load-walk-forward': () => this.loadWalkForward(),
-                'load-mine': () => this.loadMine(),
-                'portopt-optimize': () => {
-                    if (typeof PortfolioOpt !== 'undefined') PortfolioOpt.optimize();
-                },
-                'formula-evaluate': () => this.loadFormulaEvaluate(),
-                'formula-screen': () => this.loadFormulaScreen(),
-                'formula-catalog': () => this.loadFormulaCatalog(),
-                'basket-plan': () => this.loadBasketPlan(),
-                'basket-backtest': () => this.loadBasketBacktest(),
-            };
-            actions[actionButton.dataset.alphaAction]?.();
-        });
+                const actions = {
+                    'load-alpha': () => this.loadAlpha(),
+                    'optimize-alpha': () => this.optimizeAlpha(),
+                    'load-shap': () => this.loadShap(),
+                    'load-factor-eval': () => this.loadFactorEval(),
+                    'load-factor-decay': () => this.loadFactorDecay(),
+                    'load-factor-correlation': () => this.loadFactorCorrelation(),
+                    'factor-analyze': () => {
+                        if (typeof Factor !== 'undefined') Factor.analyze();
+                    },
+                    'factor-correlation': () => {
+                        if (typeof Factor !== 'undefined') Factor.loadCorrelation();
+                    },
+                    'load-compare': () => this.loadCompare(),
+                    'load-walk-forward': () => this.loadWalkForward(),
+                    'load-mine': () => this.loadMine(),
+                    'portopt-optimize': () => {
+                        if (typeof PortfolioOpt !== 'undefined') PortfolioOpt.optimize();
+                    },
+                    'formula-evaluate': () => this.loadFormulaEvaluate(),
+                    'formula-screen': () => this.loadFormulaScreen(),
+                    'formula-catalog': () => this.loadFormulaCatalog(),
+                    'basket-use-watchlist': () => this.useWatchlistForBasket(),
+                    'basket-clear-candidates': () => this.clearBasketCandidates(),
+                    'basket-plan': () => this.loadBasketPlan(),
+                    'basket-backtest': () => this.loadBasketBacktest(),
+                };
+                actions[actionButton.dataset.alphaAction]?.();
+            });
+        }
+
+        this.initFormulaBasketPickers?.();
     },
 
     // ── 主分析入口 ──

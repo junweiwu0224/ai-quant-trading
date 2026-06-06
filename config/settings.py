@@ -85,3 +85,4 @@ QLIB_MODEL_DIR = PROJECT_ROOT / "data" / "qlib" / "models"
 QLIB_SERVICE_URL = os.getenv("QLIB_SERVICE_URL", "http://localhost:8002")
 QLIB_PRED_CACHE = PROJECT_ROOT / "data" / "qlib" / "predictions_cache.json"
 QLIB_SYNC_STATUS = PROJECT_ROOT / "data" / "qlib" / "sync_status.json"
+FULL_STOCK_DAILY_SYNC_STATUS = PROJECT_ROOT / "data" / "sync" / "full_stock_daily_status.json"

@@ -33,7 +33,8 @@
             'quant.report.open': '查看日报',
             'quant.valuation.peg': '查看估值快照',
             'quant.data.snapshot': '查看数据底座',
-            'quant.qlib.top': '查看 Qlib Top',
+            'quant.signals.top': '查看 AI信号 Top',
+            'quant.qlib.top': '查看 AI信号 Top',
         },
 
         async init(tab = 'openclaw') {

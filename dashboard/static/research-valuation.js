@@ -106,8 +106,12 @@
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
             this._searchBox.setDataSource(async (q) => {
-                const payload = await App.fetchJSON(`/api/stock/search?q=${encodeURIComponent(q || '')}&limit=80`, { silent: true });
-                return Utils.normalizeStockSearchResults(payload);
+                return App.searchStockPickerCandidates(q, {
+                    limit: 50,
+                    emptyLimit: 50,
+                    emptyScope: 'watchlist',
+                    silent: true,
+                });
             });
             this._searchBox.onSelect((item) => {
                 this._addCode(item);
@@ -319,9 +323,9 @@
             const note = document.getElementById('valuation-scope-note');
             if (!note) return;
             const scope = document.getElementById('valuation-scope')?.value || 'qlib';
-            const labels = { qlib: 'Qlib覆盖池', watchlist: '自选股', codes: '指定股票', all: '全市场估值' };
+            const labels = { qlib: 'AI信号覆盖池', watchlist: '自选股', codes: '指定股票', all: '全市场估值' };
             const desc = {
-                qlib: '机构预测 + Qlib 覆盖池，不等同全量日线',
+                qlib: '机构预测 + AI信号覆盖池，不等同全量日线',
                 watchlist: '当前账号自选范围',
                 codes: '手动指定股票对比',
                 all: '估值服务全市场扫描，非本地日线全量',

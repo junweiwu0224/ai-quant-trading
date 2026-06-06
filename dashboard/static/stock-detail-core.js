@@ -52,14 +52,26 @@ Object.assign(globalThis.StockDetail, {
     },
 
     /** 打开某只股票的详情 */
-    async open(code) {
+    async open(code, options = {}) {
         const gen = ++this._openGeneration;
         this._currentCode = code;
+        this._detailData = null;
+        const safeOptions = options && typeof options === 'object' ? options : {};
+        const optionStock = safeOptions.stock && typeof safeOptions.stock === 'object' ? safeOptions.stock : null;
+        const optionName = typeof safeOptions.name === 'string' && safeOptions.name.trim() ? safeOptions.name.trim() : '';
+        const source = typeof safeOptions.source === 'string' && safeOptions.source.trim() ? safeOptions.source.trim() : 'stock-detail:open';
 
         if (globalThis.App && typeof globalThis.App.syncActiveStockContext === 'function') {
+            const stockStoreIdentity = globalThis.GlobalStockStore?.getState?.()?.identity || {};
             const matchedStock = (App.watchlistCache || []).find((item) => item.code === code) || null;
-            globalThis.App.syncActiveStockContext(code, matchedStock, 'stock-detail:open', 'stock-detail');
+            const contextStock = matchedStock || optionStock || (optionName ? { code, name: optionName } : null) || (
+                stockStoreIdentity.code === code && stockStoreIdentity.name
+                    ? { code, name: stockStoreIdentity.name }
+                    : null
+            );
+            globalThis.App.syncActiveStockContext(code, contextStock, source, 'stock-detail');
         }
+        this._renderDetailPending(code, { stock: optionStock, name: optionName });
         // 连接 L2 十档行情
         this._connectL2(code);
         const content = document.getElementById('sd-content');
@@ -69,7 +81,9 @@ Object.assign(globalThis.StockDetail, {
 
         // 更新搜索框显示：代码 + 名称
         const wl = (App.watchlistCache || []).find(s => s.code === code);
-        const label = wl ? `${wl.code} ${wl.name || ''}` : code;
+        const stockStoreIdentity = globalThis.GlobalStockStore?.getState?.()?.identity || {};
+        const storeName = stockStoreIdentity.code === code ? stockStoreIdentity.name : '';
+        const label = wl ? `${wl.code} ${wl.name || ''}` : (storeName ? `${code} ${storeName}` : code);
         if (this._searchBox) this._searchBox.setValue(label);
 
         // 显示全局 loading
@@ -140,10 +154,73 @@ Object.assign(globalThis.StockDetail, {
             this._detailData = data;
             this._renderDetailHeader(data);
             this._renderDetailStats(data);
+            this._setDetailStatus('');
         } catch (e) {
+            if (!stale()) {
+                this._renderDetailUnavailable(code, e);
+            }
             console.error('加载股票详情失败:', e);
-            App.toast('加载股票详情失败', 'error');
+            App.toast(`${code} 基础资料缺失，已保留可用行情/研报模块`, 'warning');
         }
+    },
+
+    _fallbackStockName(code, options = {}) {
+        const safeCode = String(code || '').trim();
+        const safeOptions = options && typeof options === 'object' ? options : {};
+        const optionStock = safeOptions.stock && typeof safeOptions.stock === 'object' ? safeOptions.stock : null;
+        const optionName = typeof safeOptions.name === 'string' && safeOptions.name.trim() ? safeOptions.name.trim() : '';
+        const matchedStock = (App.watchlistCache || []).find((item) => item.code === safeCode) || null;
+        const stockStoreIdentity = globalThis.GlobalStockStore?.getState?.()?.identity || {};
+        return (matchedStock && typeof matchedStock.name === 'string' && matchedStock.name.trim())
+            || (optionStock && typeof optionStock.name === 'string' && optionStock.name.trim())
+            || optionName
+            || (stockStoreIdentity.code === safeCode && typeof stockStoreIdentity.name === 'string' ? stockStoreIdentity.name.trim() : '')
+            || '';
+    },
+
+    _renderDetailPending(code, options = {}) {
+        const safeCode = String(code || '').trim();
+        const fallbackName = this._fallbackStockName(safeCode, options);
+        this._renderDetailHeader({
+            code: safeCode,
+            name: fallbackName || safeCode,
+            concepts: [],
+        });
+        this._renderDetailStats({});
+        this._setDetailStatus('基础资料加载中，行情和研报模块会并行更新');
+    },
+
+    _renderDetailUnavailable(code, error) {
+        const safeCode = String(code || '').trim();
+        const fallbackName = this._fallbackStockName(safeCode);
+        this._detailData = null;
+        this._renderDetailHeader({
+            code: safeCode,
+            name: fallbackName || safeCode,
+            concepts: [],
+        });
+        this._renderDetailStats({});
+        const status = error && error.status === 404
+            ? '本地基础资料暂未覆盖该股票，下面仅展示已取到的行情、研报和估值数据'
+            : '基础资料加载失败，下面仅展示已取到的行情、研报和估值数据';
+        this._setDetailStatus(status);
+    },
+
+    _setDetailStatus(message) {
+        const header = document.querySelector('#tab-stock .stock-detail-header');
+        if (!header) return;
+        let el = document.getElementById('sd-detail-status');
+        if (!message) {
+            if (el) el.remove();
+            return;
+        }
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'sd-detail-status';
+            el.className = 'sd-detail-status';
+            header.appendChild(el);
+        }
+        el.textContent = message;
     },
 
     _renderDetailHeader(data) {

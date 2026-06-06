@@ -87,6 +87,7 @@ async def valuation_center(
         valuation_service.build_filtered_center,
         code_list,
         limit=limit,
+        max_wait_sec=max_wait_sec,
         max_peg=max_peg,
         min_growth=min_growth,
         min_upside=min_upside,
@@ -131,7 +132,24 @@ def _resolve_scope_codes(scope: str, codes: str, account: dict) -> list[str]:
 
     storage = DataStorage()
     if scope == "watchlist":
-        return storage.get_watchlist(account["workspace"]["id"])
+        watchlist = storage.get_watchlist(account["workspace"]["id"])
+        return watchlist or _qlib_scope_codes()
+    if scope == "qlib":
+        return _qlib_scope_codes()
     if scope == "codes":
         return [code.strip() for code in codes.split(",") if code.strip()]
-    return storage.get_all_stock_codes()
+    if scope == "all":
+        local_rows = storage.get_latest_market_rows()
+        local_codes = [str(row.get("code") or "") for row in local_rows if row.get("code")]
+        return local_codes or storage.get_all_stock_codes()
+    return _qlib_scope_codes() or storage.get_all_stock_codes()
+
+
+def _qlib_scope_codes() -> list[str]:
+    try:
+        from dashboard.routers.datahub import _load_qlib_context
+
+        ctx = _load_qlib_context(top_limit=300)
+        return list(ctx.get("ordered_codes") or [])
+    except Exception:
+        return []

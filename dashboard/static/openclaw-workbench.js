@@ -95,10 +95,6 @@
             this._renderMessages();
             this._state = await this._loadState();
             this._renderStatus(this._state);
-            const setupCompleted = this._state?.status?.setup_completed ?? this._state?.setup?.setup_completed;
-            if (setupCompleted === false && !this._setupDismissed() && this._messages.length === 0) {
-                this._showSetupWizard();
-            }
             await this._restoreConversationIfNeeded();
             Conversations?.render?.();
         },
@@ -840,17 +836,29 @@
             if (!convId || convId === state.lastLoadedConversationId) {
                 return;
             }
-            const conv = await Conversations.openConversation(convId);
+            const resp = await App.fetchJSON(`/api/openclaw/conversations/${encodeURIComponent(convId)}`, { silent: true }).catch(() => null);
+            if ((Conversations?.getActiveConversationId?.() || '') !== convId) {
+                return;
+            }
+            const currentMessages = state.messagesByConversation.get(convId) || [];
+            if (currentMessages.length > 0) {
+                state.currentConversationId = convId;
+                state.lastLoadedConversationId = convId;
+                return;
+            }
+            const conv = resp?.data || null;
             if (conv?.messages) {
                 state.messagesByConversation.set(convId, conv.messages.map((m) => ({ ...m })));
                 this._messages = state.messagesByConversation.get(convId);
                 this._renderMessages();
             }
+            state.currentConversationId = convId;
             state.lastLoadedConversationId = convId;
         },
 
         async startNewConversation(options = {}) {
             this.stop();
+            this._dismissSetupWizard();
             const id = Conversations?.createConversationId?.() || `oc_${Date.now()}`;
             Conversations?.setActiveConversationId?.(id);
             state.messagesByConversation.set(id, []);
@@ -866,6 +874,7 @@
 
         async openConversation(id) {
             this.stop();
+            this._dismissSetupWizard();
             const convId = String(id || '').trim();
             if (!convId) return;
             const conv = await Conversations?.openConversation?.(convId);
@@ -906,8 +915,7 @@
             if (state.pendingRequest) {
                 this.stop(true);
             }
-            this._setSetupDismissed(true);
-            document.getElementById('openclaw-setup-modal')?.remove();
+            this._dismissSetupWizard();
 
             const convId = this._ensureActiveConversation();
             const messages = state.messagesByConversation.get(convId) || [];
@@ -1245,6 +1253,11 @@
             return App.escapeHTML(text || '').replace(/\n/g, '<br>');
         },
 
+        _dismissSetupWizard() {
+            this._setSetupDismissed(true);
+            document.getElementById('openclaw-setup-modal')?.remove();
+        },
+
         _renderMessageMeta(msg) {
             if (msg.role === 'user') {
                 return msg.skillCommandHint ? '<div class="openclaw-message-meta"><span class="openclaw-status-chip is-local">技能命令候选</span></div>' : '';
@@ -1284,7 +1297,15 @@
             await Conversations?.saveConversation?.({
                 id,
                 title,
-                messages: messages.filter((m) => !m.pending).map((m) => ({ role: m.role, content: m.content })),
+                messages: messages.filter((m) => !m.pending).map((m) => ({
+                    role: m.role,
+                    content: m.content,
+                    mode: m.mode || '',
+                    skillCommand: m.skillCommand === true,
+                    skillCommandHint: m.skillCommandHint === true,
+                    canceled: m.canceled === true,
+                    error: m.error === true,
+                })),
             });
         },
 

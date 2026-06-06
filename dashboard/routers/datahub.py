@@ -370,6 +370,43 @@ def _stock_info_map(storage: DataStorage) -> dict[str, dict[str, str]]:
     }
 
 
+def _local_quote_map(storage: DataStorage, codes: list[str]) -> dict[str, dict[str, Any]]:
+    wanted = set(_dedupe_codes(codes))
+    if not wanted:
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    try:
+        rows = storage.get_latest_market_rows()
+    except Exception:
+        return {}
+    for row in rows:
+        code = _plain_code(row.get("code"))
+        if code not in wanted:
+            continue
+        close = _safe_float(row.get("close"))
+        prev_close = _safe_float(row.get("prev_close"))
+        high = _safe_float(row.get("high"))
+        low = _safe_float(row.get("low"))
+        amount = _safe_float(row.get("amount"))
+        volume = _safe_float(row.get("volume"))
+        change_pct = None
+        if close is not None and prev_close not in (None, 0):
+            change_pct = round((close / prev_close - 1) * 100, 2)
+        amplitude = None
+        if high is not None and low is not None and prev_close not in (None, 0):
+            amplitude = round((high - low) / prev_close * 100, 2)
+        result[code] = {
+            "price": close,
+            "change_pct": change_pct,
+            "amplitude": amplitude,
+            "amount": amount,
+            "volume": volume,
+            "quote_source": "local_stock_daily",
+            "quote_date": str(row.get("date") or ""),
+        }
+    return result
+
+
 def _fallback_seed_codes(storage: DataStorage, limit: int) -> list[str]:
     return fallback_seed_codes(storage, limit)
 
@@ -499,6 +536,7 @@ async def decision_matrix(
         fallback_reason = "watchlist_empty" if scope == "watchlist" else "qlib_empty"
 
     stock_map = _stock_info_map(storage)
+    local_quotes = _local_quote_map(storage, selected_codes)
     valuation_items: list[dict[str, Any]] = []
     valuation_error = ""
     if not fast:
@@ -523,20 +561,31 @@ async def decision_matrix(
 
     quote_map: dict[str, Any] = {}
     quote_batch_supported = False
+    can_fetch_quotes = False
     if quote_service and selected_codes:
         try:
-            if hasattr(quote_service, "add_temporary_subscriptions"):
+            can_fetch_quotes = (
+                not hasattr(quote_service, "is_running")
+                or bool(getattr(quote_service, "is_running", False))
+            )
+            if can_fetch_quotes and hasattr(quote_service, "add_temporary_subscriptions"):
                 quote_service.add_temporary_subscriptions(
                     selected_codes,
                     ttl_sec=OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS,
                 )
-            if hasattr(quote_service, "get_or_fetch_quotes"):
+            if can_fetch_quotes and hasattr(quote_service, "get_or_fetch_quotes"):
                 quote_batch_supported = True
                 quote_map = quote_service.get_or_fetch_quotes(
                     selected_codes,
                     max_age_sec=QUOTE_STALE_SECONDS,
                     refresh_timeout_sec=OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS,
                 )
+            elif hasattr(quote_service, "get_quote"):
+                quote_map = {
+                    code: quote
+                    for code in selected_codes
+                    if (quote := quote_service.get_quote(code)) is not None
+                }
         except Exception:
             quote_map = {}
 
@@ -547,11 +596,11 @@ async def decision_matrix(
         qlib = qlib_items.get(plain)
         item = dict(valuation_by_code.get(plain) or {})
         info = stock_map.get(plain, {})
-        quote_payload: dict[str, Any] = {}
+        quote_payload: dict[str, Any] = dict(local_quotes.get(plain) or {})
         if quote_service:
             try:
                 quote = quote_map.get(plain)
-                if quote is None and not quote_batch_supported:
+                if quote is None and can_fetch_quotes and not quote_batch_supported and hasattr(quote_service, "get_or_fetch_quote"):
                     quote = quote_service.get_or_fetch_quote(plain, max_age_sec=QUOTE_STALE_SECONDS)
                 if quote:
                     quote_payload = {

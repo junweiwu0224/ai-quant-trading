@@ -344,3 +344,56 @@ test('A-Stock valuation center surfaces ledger metadata across research and deta
     });
     await expect(page.locator('#sd-valuation-snapshot')).toContainText('估值源');
 });
+
+test('stock detail fallback never keeps stale header when base detail is missing', async ({ page }) => {
+    await ensureAuthenticated(page, 'stock_detail_fallback');
+    await page.route('**/api/stock/detail/920211', async (route) => {
+        await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({ detail: 'not found' }),
+        });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await page.evaluate(async () => {
+        await window.App.openStockDetail('002475', {
+            source: 'playwright:seed-stock',
+            name: '立讯精密',
+            preferDirectOpen: true,
+        });
+    });
+    await expect(page.locator('#sd-code')).toHaveText('002475');
+
+    await page.evaluate(async () => {
+        await window.App.openStockDetail('920211', {
+            source: 'playwright:missing-detail',
+            name: 'N新睿',
+            preferDirectOpen: true,
+        });
+    });
+
+    await expect(page.locator('#sd-code')).toHaveText('920211');
+    await expect(page.locator('#sd-name')).toHaveText('N新睿');
+    await expect(page.locator('#sd-detail-status')).toContainText('基础资料');
+    await expect(page.locator('.stock-detail-header')).not.toContainText('立讯精密');
+});
+
+test('datahub paper action opens the manual trade form with selected stock', async ({ page }) => {
+    await ensureAuthenticated(page, 'paper_entry');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+
+    await page.evaluate(async () => {
+        await window.App.openPaperBuy('002475', {
+            source: 'playwright:datahub-paper',
+        });
+    });
+
+    await expect(page.locator('#tab-paper')).toBeVisible();
+    await expect(page.locator('#paper-tab-trade')).toHaveClass(/active/);
+    await expect(page.locator('#paper-panel-trade')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#pt-code')).toHaveValue('002475');
+});

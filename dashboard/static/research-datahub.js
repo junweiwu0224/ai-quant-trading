@@ -40,6 +40,7 @@
             document.getElementById('datahub-refresh-btn')?.addEventListener('click', () => this.load({ force: true }));
             document.getElementById('datahub-scope')?.addEventListener('change', () => {
                 this._syncCodeRow();
+                this._renderScopeNote();
                 this.load({ force: true });
             });
             document.getElementById('datahub-add-code-btn')?.addEventListener('click', () => {
@@ -90,6 +91,7 @@
             const input = document.getElementById('datahub-code-input');
             if (input) input.value = '';
             this._syncCodeRow();
+            this._renderScopeNote();
             this._renderTags();
             this.load({ force: true });
         },
@@ -98,6 +100,7 @@
             const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
             const row = document.getElementById('datahub-code-row');
             if (row) row.classList.toggle('hidden', scope !== 'codes');
+            this._renderScopeNote();
         },
 
         _renderTags() {
@@ -118,6 +121,7 @@
             const codes = this._selected.map((item) => item.code).join(',');
             const query = new URLSearchParams({ scope, limit: scope === 'qlib' ? '50' : '30' });
             if (scope === 'codes') query.set('codes', codes);
+            this._renderScopeNote();
 
             try {
                 if (scope === 'codes' && !codes) {
@@ -208,6 +212,28 @@
             set('datahub-quality-summary', qualityCount);
             set('datahub-shadow-summary', shadowCount);
             set('datahub-version-summary', latestVersion);
+            this._renderScopeNote(summary, items);
+        },
+
+        _renderScopeNote(summary = {}, items = this._items || []) {
+            const note = document.getElementById('datahub-scope-note');
+            if (!note) return;
+            const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
+            const labels = { watchlist: '自选股', qlib: 'Qlib Top', codes: '指定股票' };
+            const desc = {
+                watchlist: '当前账号自选，不代表全市场',
+                qlib: 'Qlib 预测覆盖池，受 AI 缓存限制',
+                codes: '手动指定股票，逐只拉取数据',
+            };
+            const total = summary.total ?? items.length ?? 0;
+            const valuation = summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}%`;
+            const qlib = summary.qlib_coverage_pct == null ? '--' : `${summary.qlib_coverage_pct}%`;
+            note.innerHTML = [
+                `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
+                `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
+                `<span class="coverage-pill">样本 ${App.escapeHTML(String(total))} 只</span>`,
+                `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · AI ${App.escapeHTML(qlib)}</span>`,
+            ].join('');
         },
 
         async _openValuation(code) {

@@ -171,12 +171,12 @@ test('OpenClaw rail can create, search, switch, and reload its own history', asy
     await page.locator('[data-openclaw-conv-action="new-chat"]').first().click();
     await page.locator('#openclaw-input').fill('今天 600519 怎么样');
     await page.locator('[data-openclaw-action="send"]').click();
-    await expect(page.locator('.openclaw-message.is-assistant')).toContainText('600519');
+    await expect(page.locator('.openclaw-message.is-assistant').last()).toContainText('600519');
 
     await page.locator('[data-openclaw-conv-action="new-chat"]').first().click();
     await page.locator('#openclaw-input').fill('帮我看 000001');
     await page.locator('[data-openclaw-action="send"]').click();
-    await expect(page.locator('.openclaw-message.is-assistant')).toContainText('000001');
+    await expect(page.locator('.openclaw-message.is-assistant').last()).toContainText('000001');
 
     await page.locator('[data-openclaw-conv-action="toggle-rail"]').first().click();
     await page.locator('[data-openclaw-conv-action="search"]').fill('600519');
@@ -187,12 +187,12 @@ test('OpenClaw rail can create, search, switch, and reload its own history', asy
     await expect(page.locator('.openclaw-conversation-item.is-active')).toContainText('600519');
     await page.waitForTimeout(500);
     await expect(page.locator('.openclaw-conversation-item.is-active')).toContainText('600519');
-    await expect(page.locator('.openclaw-message.is-user')).toContainText('600519');
+    await expect(page.locator('.openclaw-message.is-user').last()).toContainText('600519');
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
     await expect(page.locator('.openclaw-conversation-item.is-active')).toContainText('600519');
-    await expect(page.locator('.openclaw-message.is-user')).toContainText('600519');
+    await expect(page.locator('.openclaw-message.is-user').last()).toContainText('600519');
 });
 
 test('OpenClaw skill commands show a local hint and backend skill-command status', async ({ page }) => {
@@ -239,9 +239,10 @@ test('OpenClaw skill commands show a local hint and backend skill-command status
     await expect(page.locator('#openclaw-composer-hint')).toContainText('技能命令');
     await page.locator('[data-openclaw-action="send"]').click();
 
-    await expect(page.locator('.openclaw-message.is-assistant')).toContainText('已处理：/skill record openclaw');
-    await expect(page.locator('.openclaw-message.is-assistant .openclaw-message-meta')).toContainText('skill-command');
-    await expect(page.locator('.openclaw-message.is-assistant .openclaw-message-meta')).toContainText('技能命令');
+    const latestAssistant = page.locator('.openclaw-message.is-assistant').last();
+    await expect(latestAssistant).toContainText('已处理：/skill record openclaw');
+    await expect(latestAssistant.locator('.openclaw-message-meta')).toContainText('skill-command');
+    await expect(latestAssistant.locator('.openclaw-message-meta')).toContainText('技能命令');
 
     await page.locator('[data-openclaw-action="open-settings"]').click();
     await expect(page.locator('#openclaw-skill-command-history .openclaw-item').first()).toContainText('/skill record');

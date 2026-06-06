@@ -178,6 +178,59 @@ class TestValuationDataHubAPI:
         assert "shadow" in data
         assert "coverage" in data
 
+    def test_valuation_service_builds_local_prediction_when_reports_missing(self, monkeypatch):
+        import pandas as pd
+
+        from data.services.valuation_service import ValuationService
+
+        class FakeStorage:
+            def get_stock_list(self):
+                return pd.DataFrame([{"code": "000001", "name": "平安银行", "industry": "银行"}])
+
+            def get_stock_daily(self, code):
+                return pd.DataFrame(
+                    [
+                        {
+                            "date": pd.Timestamp("2026-04-01") + pd.Timedelta(days=i),
+                            "open": 10 + i * 0.02,
+                            "high": 10.2 + i * 0.02,
+                            "low": 9.9 + i * 0.02,
+                            "close": 10 + i * 0.03,
+                            "volume": 1000 + i,
+                            "amount": 100000 + i,
+                        }
+                        for i in range(70)
+                    ]
+                )
+
+            def save_data_source_version(self, *args, **kwargs):
+                return 1
+
+            def save_data_snapshot(self, *args, **kwargs):
+                return 1
+
+            def get_latest_data_snapshot(self, *args, **kwargs):
+                return None
+
+        class EmptyAdapter:
+            SOURCE_NAME = "astock"
+            SOURCE_VERSION = "empty"
+
+            def get_valuation_snapshot(self, code, report_limit=8):
+                return {"code": code, "stock_name": "", "report_count": 0, "reports": []}
+
+        monkeypatch.setattr("data.services.valuation_service.ValuationService._load_qlib_signal", lambda self, code: {"qlib_rank": 1, "qlib_score": 0.9})
+
+        service = ValuationService(storage=FakeStorage())
+        service.adapter = EmptyAdapter()
+        snapshot = service.build_snapshot("000001", report_limit=3)
+
+        assert snapshot["source"] == "local_derived"
+        assert snapshot["source_version"] == "stock_daily+qlib+momentum"
+        assert snapshot["report_count"] == 1
+        assert snapshot["report_source"] == "local_derived"
+        assert snapshot["reports"][0]["source_note"]
+
     def test_datahub_health_includes_quality_summary(self):
         res = client.get("/api/datahub/health")
         assert res.status_code == 200
@@ -388,3 +441,47 @@ class TestValuationDataHubAPI:
 
         assert res.status_code == 200
         assert temporary_calls == [(["000001", "600519"], 1800)]
+
+    def test_datahub_decision_matrix_uses_local_quotes_when_quote_service_stopped(self, monkeypatch):
+        storage = DataStorage()
+
+        class FakeQuoteService:
+            is_running = False
+
+            def get_or_fetch_quotes(self, *args, **kwargs):
+                raise AssertionError("stopped quote service should not fetch live quotes")
+
+            def get_quote(self, code):
+                return None
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(
+            storage,
+            "get_latest_market_rows",
+            lambda: [
+                {
+                    "code": "000001",
+                    "date": "2026-06-05",
+                    "close": 11.0,
+                    "prev_close": 10.0,
+                    "high": 11.2,
+                    "low": 10.8,
+                    "amount": 100000,
+                    "volume": 1000,
+                }
+            ],
+        )
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        item = res.json()["items"][0]
+        assert item["price"] == 11.0
+        assert item["change_pct"] == 10.0
+        assert item["quote_source"] == "local_stock_daily"

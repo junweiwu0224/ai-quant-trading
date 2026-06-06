@@ -8,7 +8,7 @@
         OPEN_PAPER_BUY: 'paper-trade:open-buy',
     });
 
-    const PAPER_SUB_TAB_CANDIDATES = Object.freeze(['console', 'trade']);
+    const PAPER_SUB_TAB_CANDIDATES = Object.freeze(['trade', 'console']);
 
     function isPlainObject(value) {
         return Object.prototype.toString.call(value) === '[object Object]';
@@ -134,6 +134,11 @@
             return false;
         }
 
+        if (global.PaperTrading && typeof global.PaperTrading.switchSubTab === 'function') {
+            global.PaperTrading.switchSubTab(activeTab);
+            return document.getElementById(`paper-tab-${activeTab}`)?.classList.contains('active') === true
+                || !document.getElementById(`paper-tab-${activeTab}`);
+        }
         const targetButton = document.querySelector(`#paper-sub-tabs .paper-sub-tab[data-tab="${activeTab}"]`);
         return clickElement(targetButton);
     }
@@ -249,10 +254,19 @@
         const payload = normalizePayload(contextOrPayload);
         requireCode(payload, INTENT_TYPES.OPEN_PAPER_BUY);
 
+        payload.activeTab = payload.activeTab || 'trade';
         await switchMainTab('paper');
         await requireApp().ensureBundle?.('paper');
+        global.Paper?.init?.();
+        global.PaperTrading?.init?.();
         const activated = activatePaperSubTab(payload.activeTab) || activateDefaultPaperSubTab();
         await prefillPaperTradeForm(payload);
+        const codeInput = document.getElementById('pt-code');
+        if (codeInput && typeof codeInput.focus === 'function') {
+            codeInput.focus();
+            codeInput.select?.();
+        }
+        document.getElementById('pt-order-form')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
 
         if (!activated) {
             warnUnavailable('paper trading sub tab button was not found');

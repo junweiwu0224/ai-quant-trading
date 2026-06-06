@@ -5,7 +5,7 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 from loguru import logger
@@ -792,6 +792,89 @@ class DataStorage:
             return result[0] if result else None
         finally:
             session.close()
+
+    def get_global_latest_date(self) -> Optional[date]:
+        """获取全库日K最新数据日期"""
+        session = self._get_session()
+        try:
+            result = (
+                session.query(StockDaily.date)
+                .order_by(StockDaily.date.desc())
+                .first()
+            )
+            return result[0] if result else None
+        finally:
+            session.close()
+
+    def get_latest_market_rows(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """返回每只股票最新/上一交易日行情，用于本地市场雷达兜底。"""
+        plain_expr = (
+            "CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz') "
+            "THEN substr(code, 3) ELSE code END"
+        )
+        prefixed_expr = (
+            "CASE WHEN l.plain_code LIKE '6%' THEN 'sh' || l.plain_code "
+            "ELSE 'sz' || l.plain_code END"
+        )
+        limit_sql = " LIMIT :limit" if limit else ""
+        sql = text(
+            f"""
+            WITH normalized AS (
+                SELECT
+                    {plain_expr} AS plain_code,
+                    CASE WHEN lower(substr(code, 1, 2)) IN ('sh', 'sz') THEN 1 ELSE 0 END AS pref_score,
+                    date, open, high, low, close, volume, amount
+                FROM stock_daily
+                WHERE close IS NOT NULL
+            ),
+            deduped AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY plain_code, date
+                        ORDER BY pref_score DESC
+                    ) AS date_rn
+                FROM normalized
+            ),
+            ranked AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY plain_code
+                        ORDER BY date DESC
+                    ) AS rn
+                FROM deduped
+                WHERE date_rn = 1
+            ),
+            latest AS (
+                SELECT * FROM ranked WHERE rn = 1
+            ),
+            previous AS (
+                SELECT * FROM ranked WHERE rn = 2
+            )
+            SELECT
+                l.plain_code AS code,
+                COALESCE(si_pref.name, si_plain.name, '') AS name,
+                COALESCE(si_pref.industry, si_plain.industry, '') AS industry,
+                l.date AS date,
+                l.open AS open,
+                l.high AS high,
+                l.low AS low,
+                l.close AS close,
+                l.volume AS volume,
+                l.amount AS amount,
+                p.date AS prev_date,
+                p.close AS prev_close
+            FROM latest l
+            LEFT JOIN previous p ON p.plain_code = l.plain_code
+            LEFT JOIN stock_info si_pref ON si_pref.code = {prefixed_expr}
+            LEFT JOIN stock_info si_plain ON si_plain.code = l.plain_code
+            ORDER BY l.date DESC, l.plain_code
+            {limit_sql}
+            """
+        )
+        params = {"limit": int(limit)} if limit else {}
+        with self._engine.connect() as conn:
+            rows = conn.execute(sql, params).mappings().all()
+        return [dict(row) for row in rows]
 
     # ── 数据来源与质量台账 ──
 

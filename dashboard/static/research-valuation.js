@@ -59,6 +59,7 @@
                 root.dataset.activeStockCode = activeCode || '';
                 root.dataset.activeStockName = activeName || '';
             }
+            this._renderScopeNote();
         },
 
         _getActiveStockCode() {
@@ -91,6 +92,7 @@
                 root.dataset.activeStockCode = safeCode;
                 root.dataset.activeStockName = safeName;
             }
+            this._renderScopeNote();
             this._syncPublicContext();
         },
 
@@ -116,6 +118,7 @@
             document.getElementById('valuation-refresh-btn')?.addEventListener('click', () => this.load({ force: true }));
             document.getElementById('valuation-scope')?.addEventListener('change', () => {
                 this._syncCodeRow();
+                this._renderScopeNote();
                 this.load({ force: true });
             });
             ['valuation-max-peg', 'valuation-min-growth', 'valuation-min-upside', 'valuation-min-reports', 'valuation-bucket-filter'].forEach((id) => {
@@ -188,6 +191,7 @@
             const scope = document.getElementById('valuation-scope')?.value || 'watchlist';
             const row = document.getElementById('valuation-code-row');
             if (row) row.classList.toggle('hidden', scope !== 'codes');
+            this._renderScopeNote();
         },
 
         _renderTags() {
@@ -207,7 +211,7 @@
             const activeCode = this._getActiveStockCode();
             const currentStock = activeCode ? this._selected.find((item) => item.code === activeCode) || { code: activeCode, name: this._getActiveStockName(activeCode) } : null;
             let selectedCodes = this._selected.map((item) => item.code);
-            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '50' : '30' });
+            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '50' : scope === 'qlib' ? '50' : '30' });
             if (scope === 'codes') {
                 const preferredCodes = activeCode && !selectedCodes.includes(activeCode)
                     ? [activeCode, ...selectedCodes]
@@ -220,6 +224,7 @@
             }
             this._appendFilters(query);
             if (this._industryFilter) query.set('industry', this._industryFilter);
+            this._renderScopeNote();
 
             try {
                 if (scope === 'codes' && !query.get('codes')) {
@@ -307,13 +312,35 @@
             set('valuation-cheap-count', String(cheap));
             set('valuation-coverage', items.length ? `${Math.round(covered / items.length * 100)}%` : '--');
             set('valuation-median-peg', median != null ? Number(median).toFixed(2) : '--');
+            this._renderScopeNote(items);
+        },
+
+        _renderScopeNote(items = this._items || []) {
+            const note = document.getElementById('valuation-scope-note');
+            if (!note) return;
+            const scope = document.getElementById('valuation-scope')?.value || 'qlib';
+            const labels = { qlib: 'Qlib覆盖池', watchlist: '自选股', codes: '指定股票', all: '全市场估值' };
+            const desc = {
+                qlib: '机构预测 + Qlib 覆盖池，不等同全量日线',
+                watchlist: '当前账号自选范围',
+                codes: '手动指定股票对比',
+                all: '估值服务全市场扫描，非本地日线全量',
+            };
+            const activeCode = this._getActiveStockCode();
+            const active = activeCode ? `当前 ${activeCode}` : '未指定个股';
+            note.innerHTML = [
+                `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
+                `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
+                `<span class="coverage-pill">样本 ${App.escapeHTML(String(items.length || 0))} 只</span>`,
+                `<span class="coverage-pill">${App.escapeHTML(active)}</span>`,
+            ].join('');
         },
 
         async loadIndustries(scope, codes) {
             const root = document.getElementById('valuation-industry-strip');
             if (!root) return;
             root.innerHTML = '<div class="text-muted">行业热力加载中...</div>';
-            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '80' : '50' });
+            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '80' : scope === 'qlib' ? '80' : '50' });
             if (scope === 'codes' && codes) query.set('codes', codes);
             try {
                 const data = await App.fetchJSON(`/api/valuation/industries?${query.toString()}`, { silent: true, timeout: 20000 });
@@ -428,6 +455,7 @@
                     <div class="valuation-report-item">
                         <div class="valuation-report-title">${App.escapeHTML(report.title || '--')}</div>
                         <div class="valuation-report-meta">${App.escapeHTML(report.date || '')} · ${App.escapeHTML(report.org || '--')} · ${App.escapeHTML(report.rating || '--')}</div>
+                        ${report.source_note ? `<div class="text-muted text-xs">${App.escapeHTML(report.source_note)}</div>` : ''}
                         <div class="valuation-report-grid">
                             <span>本年EPS ${this._fmtNum(report.this_year_eps)}</span>
                             <span>明年EPS ${this._fmtNum(report.next_year_eps)}</span>

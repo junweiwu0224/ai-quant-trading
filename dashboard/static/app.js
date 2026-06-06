@@ -85,7 +85,7 @@ const App = {
     _pageBundles: {
         overview: [
             '/static/overview.js?v=7',
-            '/static/overview-radar.js?v=4',
+            '/static/overview-radar.js?v=5',
             '/static/alerts.js?v=1',
         ],
         trade: [
@@ -125,7 +125,7 @@ const App = {
         ],
         openclaw: [
             '/static/openclaw-conversations.js?v=2',
-            '/static/openclaw-workbench.js?v=17',
+            '/static/openclaw-workbench.js?v=19',
         ],
         research: [
             '/static/backtest.js?v=4',
@@ -150,12 +150,12 @@ const App = {
             '/static/intelligence-market.js?v=2',
             '/static/intelligence-iwencai.js?v=3',
             '/static/intelligence-qlib.js?v=2',
-            '/static/research-datahub.js?v=3',
-            '/static/research-valuation.js?v=9',
+            '/static/research-datahub.js?v=4',
+            '/static/research-valuation.js?v=10',
         ],
         stock: [
             '/static/stock-detail.js?v=7',
-            '/static/stock-detail-core.js?v=5',
+            '/static/stock-detail-core.js?v=6',
             '/static/stock-detail-drawings.js?v=1',
             '/static/stock-detail-insights.js?v=3',
             '/static/stock-detail-chips.js?v=1',

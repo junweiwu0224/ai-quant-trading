@@ -21,11 +21,9 @@ async def get_system_status():
         codes = storage.get_all_stock_codes()
         stock_count = len(codes)
         watchlist_count = len(storage.get_watchlist())
-        if codes:
-            from datetime import date
-            latest = storage.get_latest_date(codes[0])
-            if latest:
-                data_range = str(latest)
+        latest = storage.get_global_latest_date()
+        if latest:
+            data_range = str(latest)
     except Exception as e:
         logger.warning(f"获取系统状态失败: {e}")
 

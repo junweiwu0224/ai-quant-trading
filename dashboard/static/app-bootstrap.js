@@ -121,9 +121,11 @@
                     const codeMatch = rawCode.match(/^(?:sh|sz|bj)?(\d{6})(?:\.(?:SH|SZ|BJ))?$/i) || rawCode.match(/\b(\d{6})\b/);
                     const code = codeMatch ? codeMatch[1] : rawCode;
                     if (code) {
-                        this.syncActiveStockContext(code, null, 'app:stock-link', 'stock-link');
+                        const name = typeof link.dataset.name === 'string' ? link.dataset.name.trim() : '';
+                        this.syncActiveStockContext(code, name ? { code, name } : null, 'app:stock-link', 'stock-link');
                         this.openStockDetail(code, {
                             source: 'app:stock-link',
+                            name,
                         });
                     }
                 });

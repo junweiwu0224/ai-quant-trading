@@ -19,6 +19,12 @@
             const source = typeof options.source === 'string' && options.source.trim()
                 ? options.source.trim()
                 : 'app:open-stock-detail';
+            const optionStock = options.stock && typeof options.stock === 'object' ? options.stock : null;
+            const optionName = typeof options.name === 'string' && options.name.trim() ? options.name.trim() : '';
+            const currentIdentity = globalThis.GlobalStockStore?.getState?.()?.identity || {};
+            const contextStock = optionStock
+                || (optionName ? { code: normalizedCode, name: optionName } : null)
+                || (currentIdentity.code === normalizedCode && currentIdentity.name ? { code: normalizedCode, name: currentIdentity.name } : null);
             const preferDirectOpen = options && typeof options === 'object' && options.preferDirectOpen === true;
             try {
                 sessionStorage.setItem('last_stock_code', normalizedCode);
@@ -28,11 +34,14 @@
 
             const openDirectly = async (status) => {
                 this._activeStockCode = normalizedCode;
-                this.syncActiveStockContext?.(normalizedCode, null, source, 'open-stock-detail');
+                this.syncActiveStockContext?.(normalizedCode, contextStock, source, 'open-stock-detail');
                 await this.switchTab?.('stock', { autoOpenStock: false });
                 if (globalThis.StockDetail && typeof globalThis.StockDetail.open === 'function') {
                     globalThis.StockDetail.init?.();
-                    await globalThis.StockDetail.open(normalizedCode);
+                    await globalThis.StockDetail.open(normalizedCode, {
+                        stock: contextStock,
+                        source,
+                    });
                     return { ok: true, status, code: normalizedCode, source };
                 }
                 return { ok: false, status: 'unavailable', code: 'STOCK_DETAIL_UNAVAILABLE', source };

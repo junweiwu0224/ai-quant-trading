@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=40">
+    <link rel="stylesheet" href="/static/style.css?v=41">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -177,6 +177,11 @@
             <!-- Row 3.4: 市场雷达 -->
             <div class="card">
                 <h2>市场雷达 <span id="radar-market-status" class="market-status-badge"></span></h2>
+                <div class="coverage-strip" id="overview-radar-coverage">
+                    <span class="coverage-pill">范围 全A延迟快照</span>
+                    <span class="coverage-pill">排序 东方财富服务端</span>
+                    <span class="coverage-pill">详情 本地资料不足时降级展示</span>
+                </div>
                 <div class="radar-tabs">
                     <button class="radar-tab active" data-tab="gainers">涨幅榜</button>
                     <button class="radar-tab" data-tab="losers">跌幅榜</button>
@@ -887,6 +892,10 @@
                             <div>
                                 <h2>数据中枢</h2>
                                 <p class="text-muted text-sm">把行情健康、机构预测、PEG 和 Qlib 预测合成一张可行动清单。</p>
+                                <div class="coverage-strip" id="datahub-scope-note" aria-live="polite">
+                                    <span class="coverage-pill">范围 自选股</span>
+                                    <span class="coverage-pill">行情/估值/AI 合成矩阵</span>
+                                </div>
                             </div>
                             <div class="datahub-toolbar">
                                 <select id="datahub-scope" aria-label="数据中枢范围">
@@ -943,10 +952,17 @@
                 <div class="research-sub-panel active" id="research-panel-valuation" role="tabpanel">
                     <div class="card valuation-center-card">
                         <div class="card-header-row">
-                            <h2>估值数据中心</h2>
+                            <div>
+                                <h2>估值数据中心</h2>
+                                <div class="coverage-strip" id="valuation-scope-note" aria-live="polite">
+                                    <span class="coverage-pill">范围 Qlib覆盖池</span>
+                                    <span class="coverage-pill">机构预测覆盖池，不等同全量日线</span>
+                                </div>
+                            </div>
                             <div class="valuation-toolbar">
                                 <select id="valuation-scope" aria-label="估值范围">
-                                    <option value="watchlist" selected>自选股</option>
+                                    <option value="qlib" selected>Qlib覆盖池</option>
+                                    <option value="watchlist">自选股</option>
                                     <option value="codes">指定股票</option>
                                     <option value="all">全市场</option>
                                 </select>

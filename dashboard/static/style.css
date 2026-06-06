@@ -1726,6 +1726,19 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-secondary);
     border: 1px solid var(--floating-border);
 }
+.sd-detail-status {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border: 1px solid rgba(230, 168, 23, 0.28);
+    border-radius: 6px;
+    background: rgba(230, 168, 23, 0.08);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
 
 /* 股票链接 */
 .stock-link {
@@ -3908,6 +3921,26 @@ th[data-sort].sort-desc::after {
     font-size: var(--font-size-xs);
     color: var(--text-muted);
     text-align: center;
+}
+.coverage-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 10px;
+}
+
+.coverage-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 3px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.25;
 }
 .radar-northbound {
     padding: 8px 0;

@@ -45,6 +45,16 @@
     }
 
     function _staleBanner(data) {
+        if (data && data.local_fallback) {
+            const dateText = data.latest_date ? ` · ${App.escapeHTML(data.latest_date)}` : '';
+            const note = data.coverage_note || '本地缓存数据';
+            return `<div class="radar-stale-hint">${App.escapeHTML(note)}${dateText}</div>`;
+        }
+        if (data && data.source === 'eastmoney_full_market_rank') {
+            const note = data.coverage_note || '全A股延迟快照';
+            const total = data.total_stocks ? ` · ${Number(data.total_stocks).toLocaleString()}只` : '';
+            return `<div class="radar-stale-hint">${App.escapeHTML(note)}${total}</div>`;
+        }
         if (data && data.stale) {
             return '<div class="radar-stale-hint">数据截至上一交易日</div>';
         }
@@ -115,7 +125,11 @@
             gainers: { list: data.top_gainers, label: '涨幅', suffix: '%' },
             losers: { list: data.top_losers, label: '跌幅', suffix: '%' },
             amplitude: { list: data.top_amplitude, label: '振幅', suffix: '%' },
-            turnover: { list: data.top_turnover, label: '换手率', suffix: '%' },
+            turnover: {
+                list: data.top_turnover,
+                label: data.local_fallback ? '成交额' : '换手率',
+                suffix: data.local_fallback ? '亿' : '%',
+            },
         };
 
         const cfg = fieldMap[_currentTab] || fieldMap.gainers;
@@ -123,14 +137,14 @@
 
         container.innerHTML = _staleBanner(data) + `
             <div class="table-wrap">
-                <table>
+                <table id="overview-radar-table" data-testid="overview-radar-table">
                     <thead><tr><th>排名</th><th>代码</th><th>名称</th><th>${cfg.label}</th><th>操作</th></tr></thead>
                     <tbody>${items.map((s, i) => {
                         const val = s.value != null ? s.value.toFixed(2) + cfg.suffix : '--';
                         const cls = _currentTab === 'losers' ? 'text-down' : 'text-up';
                         return `<tr>
                             <td>${i + 1}</td>
-                            <td><a href="#" class="stock-link" data-code="${App.escapeHTML(s.code || '')}">${App.escapeHTML(s.code || '')}</a></td>
+                            <td><a href="#" class="stock-link" data-code="${App.escapeHTML(s.code || '')}" data-name="${App.escapeHTML(s.name || '')}">${App.escapeHTML(s.code || '')}</a></td>
                             <td>${App.escapeHTML(s.name || '')}</td>
                             <td class="${cls}">${val}</td>
                             <td><button class="btn btn-sm" data-overview-radar-action="add-watchlist" data-code="${App.escapeHTML(s.code || '')}">加自选</button></td>

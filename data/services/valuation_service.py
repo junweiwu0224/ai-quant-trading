@@ -103,7 +103,7 @@ class ValuationService:
         try:
             from data.collector.quote_service import get_quote_service
 
-            quote = get_quote_service().get_or_fetch_quote(normalized)
+            quote = get_quote_service().get_quote(normalized)
             if quote:
                 source = "realtime"
                 name = _latest_non_empty(quote.name, name) or name
@@ -132,9 +132,132 @@ class ValuationService:
             source=source,
         )
 
+    def _load_qlib_signal(self, code: str) -> dict[str, Any]:
+        try:
+            from dashboard.routers.datahub import _load_qlib_context
+
+            ctx = _load_qlib_context(top_limit=300)
+            return dict((ctx.get("items") or {}).get(code) or {})
+        except Exception:
+            return {}
+
+    def _build_local_forecast_summary(
+        self,
+        context: ValuationQuoteContext,
+        *,
+        report_limit: int = 8,
+    ) -> ForecastSummary | None:
+        df = self.storage.get_stock_daily(context.code)
+        if df.empty or len(df) < 30:
+            return None
+
+        closes = [float(v) for v in df["close"].tolist() if v not in (None, 0)]
+        if len(closes) < 30:
+            return None
+
+        current_price = context.price or closes[-1]
+        start_20 = closes[-21] if len(closes) >= 21 else closes[0]
+        start_60 = closes[-61] if len(closes) >= 61 else closes[0]
+        momentum_20 = (closes[-1] / start_20 - 1) * 100 if start_20 else 0
+        momentum_60 = (closes[-1] / start_60 - 1) * 100 if start_60 else momentum_20
+        returns = [
+            closes[idx] / closes[idx - 1] - 1
+            for idx in range(max(1, len(closes) - 60), len(closes))
+            if closes[idx - 1]
+        ]
+        volatility = statistics.pstdev(returns) * (252 ** 0.5) * 100 if len(returns) >= 5 else 0
+        qlib = self._load_qlib_signal(context.code)
+        qlib_score = _safe_float(qlib.get("qlib_score"))
+        qlib_rank = int(qlib.get("qlib_rank") or 0)
+
+        trend_growth = momentum_60 * 0.55 + momentum_20 * 0.45
+        if qlib_score is not None:
+            trend_growth += (qlib_score - 0.5) * 28
+        growth_next_year_pct = round(max(-30, min(60, trend_growth)), 2)
+        growth_this_year_pct = round(max(-30, min(55, trend_growth * 0.75)), 2)
+        growth_next_two_year_pct = round(max(-30, min(55, growth_next_year_pct * 0.82)), 2)
+
+        risk_discount = min(0.18, max(0, volatility - 22) / 220)
+        signal_premium = ((qlib_score or 0.5) - 0.5) * 0.18
+        target_price = round(float(current_price) * (1 + growth_next_year_pct / 100 * 0.38 + signal_premium - risk_discount), 2)
+        if target_price <= 0:
+            target_price = None
+
+        pe_ttm = context.pe_ttm
+        forecast_this_year_pe = pe_ttm
+        forecast_next_year_pe = pe_ttm
+        forecast_next_two_year_pe = pe_ttm
+        forecast_this_year_eps = round(current_price / forecast_this_year_pe, 3) if current_price and forecast_this_year_pe else None
+        forecast_next_year_eps = None
+        forecast_next_two_year_eps = None
+        if forecast_this_year_eps is not None:
+            forecast_next_year_eps = round(forecast_this_year_eps * (1 + growth_next_year_pct / 100), 3)
+            forecast_next_two_year_eps = round(forecast_next_year_eps * (1 + growth_next_two_year_pct / 100), 3)
+
+        if qlib_rank and qlib_rank <= 10 and growth_next_year_pct >= 15:
+            rating = "重点跟踪"
+        elif growth_next_year_pct >= 8:
+            rating = "跟踪"
+        elif growth_next_year_pct <= -8:
+            rating = "谨慎"
+        else:
+            rating = "观察"
+
+        latest_date = str(df.iloc[-1].get("date") or "")[:10]
+        title = f"{context.name} 本地研究预测预览"
+        signal_bits = [
+            f"20日动量 {round(momentum_20, 2)}%",
+            f"60日动量 {round(momentum_60, 2)}%",
+        ]
+        if qlib_rank:
+            signal_bits.append(f"Qlib排名 #{qlib_rank}")
+        report = {
+            "title": title,
+            "org": "本地行情+Qlib",
+            "author": "local-derived",
+            "date": latest_date,
+            "rating": rating,
+            "target_price": target_price,
+            "this_year_eps": forecast_this_year_eps,
+            "next_year_eps": forecast_next_year_eps,
+            "next_two_year_eps": forecast_next_two_year_eps,
+            "this_year_pe": forecast_this_year_pe,
+            "next_year_pe": forecast_next_year_pe,
+            "next_two_year_pe": forecast_next_two_year_pe,
+            "actual_last_year_eps": None,
+            "summary": "；".join(signal_bits),
+            "encode_url": "",
+            "source": "local_derived",
+            "source_note": "由本地日线趋势、波动率和Qlib分数推导，不等同券商研报",
+        }
+
+        return ForecastSummary(
+            code=context.code,
+            stock_name=context.name,
+            report_count=1,
+            latest_report_date=latest_date,
+            latest_rating=rating,
+            latest_org="本地行情+Qlib",
+            target_price=target_price,
+            actual_last_year_eps=None,
+            forecast_this_year_eps=forecast_this_year_eps,
+            forecast_next_year_eps=forecast_next_year_eps,
+            forecast_next_two_year_eps=forecast_next_two_year_eps,
+            forecast_this_year_pe=forecast_this_year_pe,
+            forecast_next_year_pe=forecast_next_year_pe,
+            forecast_next_two_year_pe=forecast_next_two_year_pe,
+            growth_this_year_pct=growth_this_year_pct,
+            growth_next_year_pct=growth_next_year_pct,
+            growth_next_two_year_pct=growth_next_two_year_pct,
+            consensus_label="本地预测",
+            reports=[report][: max(1, min(report_limit, 20))],
+        )
+
     def _valuation_bucket(self, growth_pct: float | None, peg: float | None) -> str:
-        if growth_pct is None or growth_pct <= 0 or peg is None:
+        if growth_pct is None or growth_pct <= 0:
             return "增长缺失"
+        if peg is None:
+            return "PEG缺失"
         if peg <= 1:
             return "高性价比"
         if peg <= 2:
@@ -162,6 +285,10 @@ class ValuationService:
         context = self._load_quote_context(normalized)
         summary_payload = self._load_valuation_payload(normalized, report_limit=report_limit)
         summary = self._summary_from_payload(summary_payload)
+        if summary is None:
+            summary = self._build_local_forecast_summary(context, report_limit=report_limit)
+        elif int(summary.report_count or 0) <= 0:
+            summary = self._build_local_forecast_summary(context, report_limit=report_limit) or summary
         if summary is None:
             raise ValueError("无法生成估值快照")
 
@@ -429,10 +556,17 @@ class ValuationService:
                     "this_year_pe": row.get("this_year_pe"),
                     "next_year_pe": row.get("next_year_pe"),
                     "summary": row.get("summary", ""),
-                    "url": f"https://data.eastmoney.com/report/zw/stock.jshtml?encodeUrl={row.get('encode_url', '')}",
+                    "source": row.get("source", ""),
+                    "source_note": row.get("source_note", ""),
+                    "url": (
+                        f"https://data.eastmoney.com/report/zw/stock.jshtml?encodeUrl={row.get('encode_url', '')}"
+                        if row.get("encode_url")
+                        else ""
+                    ),
                 }
             )
 
+        has_local_report = any((row.get("source") == "local_derived") for row in report_rows)
         return {
             "code": context.code,
             "name": summary.stock_name or context.name,
@@ -450,6 +584,8 @@ class ValuationService:
             "latest_rating": summary.latest_rating,
             "latest_org": summary.latest_org,
             "report_count": summary.report_count,
+            "report_source": "local_derived" if has_local_report else "analyst_consensus",
+            "report_source_note": "本地日线趋势、波动率和Qlib分数推导" if has_local_report else "东方财富研报共识",
             "current_year_eps": summary.forecast_this_year_eps,
             "next_year_eps": summary.forecast_next_year_eps,
             "next_two_year_eps": summary.forecast_next_two_year_eps,
@@ -471,8 +607,9 @@ class ValuationService:
         }
 
     def _persist_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
-        source = getattr(self.adapter, "SOURCE_NAME", "astock")
-        source_version = getattr(self.adapter, "SOURCE_VERSION", "unknown")
+        has_local_report = any((row.get("source") == "local_derived") for row in snapshot.get("reports", []))
+        source = "local_derived" if has_local_report else getattr(self.adapter, "SOURCE_NAME", "astock")
+        source_version = "stock_daily+qlib+momentum" if has_local_report else getattr(self.adapter, "SOURCE_VERSION", "unknown")
         enriched = dict(snapshot)
         enriched.update(
             {

@@ -9,12 +9,17 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
+from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter
 from loguru import logger
 
 from data.collector.cache import TTLCache
 from data.collector.http_client import fetch_json
+from data.storage.storage import DataStorage
 
 router = APIRouter()
 _cache = TTLCache(max_size=100)
@@ -30,6 +35,33 @@ _last_northbound: dict | None = None
 
 _radar_refresh_task: asyncio.Task | None = None
 
+_EASTMONEY_STOCK_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+_EASTMONEY_STOCK_FIELDS = "f2,f3,f5,f6,f7,f8,f9,f12,f14,f15,f16,f17,f20,f21,f23,f100"
+_EASTMONEY_FIELD_MAP = {
+    "f2": "price",
+    "f3": "change_pct",
+    "f5": "volume",
+    "f6": "amount",
+    "f7": "amplitude",
+    "f8": "turnover_rate",
+    "f9": "pe_ratio",
+    "f12": "code",
+    "f14": "name",
+    "f15": "high",
+    "f16": "low",
+    "f17": "open",
+    "f20": "market_cap",
+    "f21": "circulating_cap",
+    "f23": "pb_ratio",
+    "f100": "industry",
+}
+_EASTMONEY_RANK_FIELDS = {
+    "top_gainers": ("f3", True, "change_pct"),
+    "top_losers": ("f3", False, "change_pct"),
+    "top_amplitude": ("f7", True, "amplitude"),
+    "top_turnover": ("f8", True, "turnover_rate"),
+}
+
 
 def _schedule_radar_refresh() -> None:
     global _radar_refresh_task
@@ -40,24 +72,7 @@ def _schedule_radar_refresh() -> None:
     async def _refresh() -> None:
         global _last_radar
         try:
-            stocks = await asyncio.to_thread(_fetch_all_stocks)
-            if not stocks:
-                return
-
-            def pick(field, n=10, desc=True):
-                return [
-                    {"code": s["code"], "name": s.get("name", ""), "value": round(s[field], 2)}
-                    for s in _get_top_n(stocks, field, n, desc)
-                ]
-
-            result = {
-                "success": True,
-                "top_gainers": pick("change_pct"),
-                "top_losers": pick("change_pct", desc=False),
-                "top_amplitude": pick("amplitude"),
-                "top_turnover": pick("turnover_rate"),
-                "total_stocks": len(stocks),
-            }
+            result = await asyncio.to_thread(_fetch_market_radar_snapshot)
             _cache.set("market_radar", result, _TTL_RADAR)
             _last_radar = result
         except Exception as e:
@@ -74,6 +89,95 @@ def _fetch_all_stocks() -> list[dict]:
     return _fetch_market_stocks()
 
 
+def _parse_eastmoney_stock(item: dict[str, Any]) -> dict[str, Any]:
+    stock: dict[str, Any] = {}
+    for api_field, biz_field in _EASTMONEY_FIELD_MAP.items():
+        raw = item.get(api_field)
+        if raw in (None, "-"):
+            stock[biz_field] = None
+            continue
+        if biz_field in {"code", "name", "industry"}:
+            stock[biz_field] = str(raw)
+            continue
+        try:
+            value = float(raw)
+            if biz_field in {"market_cap", "circulating_cap"}:
+                value = round(value / 1e8, 2)
+            stock[biz_field] = value
+        except (TypeError, ValueError):
+            stock[biz_field] = None
+    return stock
+
+
+def _rank_item(stock: dict[str, Any], value_field: str) -> dict[str, Any]:
+    raw_value = stock.get(value_field)
+    value = round(float(raw_value), 2) if raw_value is not None else None
+    return {
+        "code": stock.get("code") or "",
+        "name": stock.get("name") or "",
+        "value": value,
+        "price": stock.get("price"),
+        "industry": stock.get("industry") or "",
+        "source": "eastmoney_full_market_rank",
+    }
+
+
+def _fetch_market_rank(fid: str, *, desc: bool, value_field: str, n: int = 10) -> tuple[list[dict[str, Any]], int]:
+    """Fetch one server-side sorted full-market rank page from Eastmoney."""
+    url = (
+        "https://push2delay.eastmoney.com/api/qt/clist/get"
+        f"?pn=1&pz={max(n, 20)}&po={1 if desc else 0}&np=1&fltt=2&invt=2"
+        f"&fid={fid}&fs={_EASTMONEY_STOCK_FS}&fields={_EASTMONEY_STOCK_FIELDS}"
+    )
+    data = fetch_json(url, timeout=8)
+    payload = data.get("data") or {}
+    rows = payload.get("diff") or []
+    total = int(payload.get("total") or 0)
+    ranked = []
+    for item in rows[:n]:
+        if not isinstance(item, dict):
+            continue
+        stock = _parse_eastmoney_stock(item)
+        if stock.get(value_field) is None:
+            continue
+        ranked.append(_rank_item(stock, value_field))
+    return ranked, total
+
+
+def _fetch_market_radar_snapshot(n: int = 10) -> dict[str, Any]:
+    """Build radar from full A-share server-side rankings, not local samples."""
+    result_parts: dict[str, list[dict[str, Any]]] = {}
+    totals: list[int] = []
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="market-radar-rank") as pool:
+        futures = {
+            pool.submit(_fetch_market_rank, fid, desc=desc, value_field=value_field, n=n): key
+            for key, (fid, desc, value_field) in _EASTMONEY_RANK_FIELDS.items()
+        }
+        for future in as_completed(futures):
+            key = futures[future]
+            rows, total = future.result()
+            result_parts[key] = rows
+            if total:
+                totals.append(total)
+
+    missing = [key for key in _EASTMONEY_RANK_FIELDS if not result_parts.get(key)]
+    if missing:
+        raise RuntimeError(f"全市场雷达榜单缺失: {', '.join(missing)}")
+
+    return {
+        "success": True,
+        "top_gainers": result_parts["top_gainers"],
+        "top_losers": result_parts["top_losers"],
+        "top_amplitude": result_parts["top_amplitude"],
+        "top_turnover": result_parts["top_turnover"],
+        "total_stocks": max(totals) if totals else None,
+        "source": "eastmoney_full_market_rank",
+        "universe": "all_a",
+        "coverage_note": "东方财富全A股延迟快照，按全市场服务端排序",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def _get_top_n(stocks: list[dict], field: str, n: int = 10, desc: bool = True) -> list[dict]:
     """获取指定字段 TOP N"""
     valid = [s for s in stocks if s.get(field) is not None]
@@ -81,9 +185,114 @@ def _get_top_n(stocks: list[dict], field: str, n: int = 10, desc: bool = True) -
     return valid[:n]
 
 
+def _safe_float(value: Any) -> float | None:
+    if value in (None, "", "-", "--"):
+        return None
+    try:
+        val = float(value)
+        return val if val == val else None
+    except Exception:
+        return None
+
+
+def _local_market_stock_rows(limit: int | None = None) -> list[dict[str, Any]]:
+    """Use local stock_daily rows when live full-market data is slow/unavailable."""
+    rows = DataStorage().get_latest_market_rows(limit=limit)
+    stocks: list[dict[str, Any]] = []
+    for row in rows:
+        close = _safe_float(row.get("close"))
+        prev_close = _safe_float(row.get("prev_close"))
+        high = _safe_float(row.get("high"))
+        low = _safe_float(row.get("low"))
+        amount = _safe_float(row.get("amount"))
+        volume = _safe_float(row.get("volume"))
+        estimated_amount = amount
+        if estimated_amount in (None, 0) and volume is not None and close is not None:
+            estimated_amount = volume * close * 100
+        change_pct = None
+        if close is not None and prev_close not in (None, 0):
+            change_pct = (close / prev_close - 1) * 100
+        amplitude = None
+        if high is not None and low is not None and prev_close not in (None, 0):
+            amplitude = (high - low) / prev_close * 100
+        activity = estimated_amount / 1e8 if estimated_amount not in (None, 0) else None
+        stocks.append(
+            {
+                "code": str(row.get("code") or ""),
+                "name": str(row.get("name") or ""),
+                "industry": str(row.get("industry") or ""),
+                "price": close,
+                "change_pct": change_pct,
+                "amplitude": amplitude,
+                "turnover_rate": activity,
+                "activity": activity,
+                "volume": volume,
+                "amount": estimated_amount,
+                "date": str(row.get("date") or ""),
+                "prev_date": str(row.get("prev_date") or ""),
+                "source": "local_stock_daily",
+            }
+        )
+    return stocks
+
+
+def _market_pick(
+    stocks: list[dict[str, Any]],
+    field: str,
+    n: int = 10,
+    desc: bool = True,
+    *,
+    value_field: str | None = None,
+) -> list[dict[str, Any]]:
+    items = []
+    for s in _get_top_n(stocks, field, n, desc):
+        raw_value = s.get(value_field or field)
+        if raw_value is None:
+            continue
+        items.append(
+            {
+                "code": s["code"],
+                "name": s.get("name", ""),
+                "value": round(float(raw_value), 2),
+                "price": s.get("price"),
+                "date": s.get("date"),
+                "source": s.get("source"),
+            }
+        )
+    return items
+
+
+def _build_radar_result(stocks: list[dict[str, Any]], *, source: str, local: bool = False) -> dict[str, Any]:
+    latest_dates = sorted({str(s.get("date") or "") for s in stocks if s.get("date")})
+    result = {
+        "success": True,
+        "top_gainers": _market_pick(stocks, "change_pct"),
+        "top_losers": _market_pick(stocks, "change_pct", desc=False),
+        "top_amplitude": _market_pick(stocks, "amplitude"),
+        "top_turnover": _market_pick(stocks, "turnover_rate"),
+        "total_stocks": len(stocks),
+        "source": source,
+        "latest_date": latest_dates[-1] if latest_dates else None,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if local:
+        result["local_fallback"] = True
+        result["stale"] = True
+        result["stale_reason"] = "live_market_slow_or_unavailable"
+        result["coverage_note"] = "本地 stock_daily 覆盖股票池，非全市场实时排行"
+    return result
+
+
+def _build_local_radar_result() -> dict[str, Any] | None:
+    stocks = _local_market_stock_rows()
+    if not stocks:
+        return None
+    return _build_radar_result(stocks, source="local_stock_daily", local=True)
+
+
 @router.get("/radar")
 async def get_market_radar():
-    """市场雷达：涨跌幅/振幅/换手率/量比 TOP 10"""
+    """市场雷达：全A股涨跌幅/振幅/换手率 TOP 10"""
     global _last_radar
     cache_key = "market_radar"
     hit, cached = _cache.get(cache_key)
@@ -91,36 +300,58 @@ async def get_market_radar():
         return cached
 
     if _last_radar:
-        _schedule_radar_refresh()
-        return {**_last_radar, "stale": True}
+        if _last_radar.get("source") == "eastmoney_full_market_rank":
+            _schedule_radar_refresh()
+            return {**_last_radar, "stale": True}
 
     try:
-        stocks = await asyncio.to_thread(_fetch_all_stocks)
-        if not stocks:
-            return {"success": False, "error": "无法获取行情数据"}
-
-        def pick(field, n=10, desc=True):
-            return [
-                {"code": s["code"], "name": s.get("name", ""), "value": round(s[field], 2)}
-                for s in _get_top_n(stocks, field, n, desc)
-            ]
-
-        result = {
-            "success": True,
-            "top_gainers": pick("change_pct"),
-            "top_losers": pick("change_pct", desc=False),
-            "top_amplitude": pick("amplitude"),
-            "top_turnover": pick("turnover_rate"),
-            "total_stocks": len(stocks),
-        }
+        result = await asyncio.to_thread(_fetch_market_radar_snapshot)
         _cache.set(cache_key, result, _TTL_RADAR)
         _last_radar = result
         return result
     except Exception as e:
         logger.error(f"市场雷达失败: {e}")
-        if _last_radar:
+        if _last_radar and _last_radar.get("source") == "eastmoney_full_market_rank":
             return {**_last_radar, "stale": True}
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": f"全市场行情源不可用: {e}",
+            "source": "eastmoney_full_market_rank",
+            "universe": "all_a",
+            "total_stocks": 0,
+        }
+
+
+def _build_local_sector_rows() -> list[dict[str, Any]]:
+    stocks = _local_market_stock_rows()
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for stock in stocks:
+        industry = str(stock.get("industry") or "本地覆盖池")
+        groups[industry].append(stock)
+
+    sectors = []
+    for industry, items in groups.items():
+        changes = [float(s["change_pct"]) for s in items if s.get("change_pct") is not None]
+        if not changes:
+            continue
+        leader = max(items, key=lambda s: s.get("change_pct") if s.get("change_pct") is not None else -999)
+        sectors.append(
+            {
+                "code": industry,
+                "name": industry,
+                "change_pct": round(sum(changes) / len(changes), 2),
+                "up_count": len([s for s in items if (s.get("change_pct") or 0) > 0]),
+                "down_count": len([s for s in items if (s.get("change_pct") or 0) < 0]),
+                "leader": leader.get("name") or leader.get("code") or "",
+                "leader_code": leader.get("code") or "",
+                "leader_change": round(float(leader.get("change_pct") or 0), 2),
+                "total_mv": round(sum(float(s.get("amount") or 0) for s in items) / 1e8, 2),
+                "main_net_inflow": 0,
+                "source": "local_stock_daily",
+            }
+        )
+    sectors.sort(key=lambda item: item["change_pct"], reverse=True)
+    return sectors
 
 
 # ── 板块轮动 ──
@@ -177,6 +408,20 @@ async def get_sector_ranking(type: str = "industry"):
         logger.error(f"板块排名失败: {e}")
         if _last_sectors:
             return {**_last_sectors, "stale": True}
+        sectors = await asyncio.to_thread(_build_local_sector_rows)
+        if sectors:
+            result = {
+                "success": True,
+                "sectors": sectors,
+                "type": type,
+                "source": "local_stock_daily",
+                "local_fallback": True,
+                "stale": True,
+                "coverage_note": "本地 stock_daily 覆盖股票池行业轮动",
+            }
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            _last_sectors = result
+            return result
         return {"success": False, "error": str(e), "sectors": []}
 
 
@@ -229,6 +474,20 @@ async def get_sector_heatmap():
         logger.error(f"板块热力图失败: {e}")
         if _last_heatmap:
             return {**_last_heatmap, "stale": True}
+        sectors = await asyncio.to_thread(_build_local_sector_rows)
+        if sectors:
+            result = {
+                "success": True,
+                "sectors": sectors,
+                "total": len(sectors),
+                "source": "local_stock_daily",
+                "local_fallback": True,
+                "stale": True,
+                "coverage_note": "本地 stock_daily 覆盖股票池行业热力",
+            }
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            _last_heatmap = result
+            return result
         return {"success": False, "error": str(e), "sectors": []}
 
 

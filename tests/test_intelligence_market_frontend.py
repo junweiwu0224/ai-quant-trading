@@ -176,7 +176,7 @@ def test_intelligence_market_assets_are_versioned_and_styled():
 
     assert "/static/intelligence-market.js?v=2" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/app.js?v=51" in scripts
+    assert "/static/app.js?v=52" in scripts
     assert "/static/app-ui-shell.js?v=12" in scripts
     assert "/sw.js?v=13" in app_ui_shell
     assert "ai-quant-v82" in service_worker

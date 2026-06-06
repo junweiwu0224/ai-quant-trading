@@ -409,13 +409,15 @@ class TestMarket:
             "top_amplitude": [],
             "top_turnover": [],
             "total_stocks": 0,
+            "source": "eastmoney_full_market_rank",
+            "universe": "all_a",
         }
         market_router._radar_refresh_task = None
 
         def fail_if_blocking():
             raise AssertionError("stale radar response should not fetch synchronously")
 
-        monkeypatch.setattr(market_router, "_fetch_all_stocks", fail_if_blocking)
+        monkeypatch.setattr(market_router, "_fetch_market_radar_snapshot", fail_if_blocking)
 
         try:
             resp = client.get("/api/market/radar")
@@ -428,6 +430,41 @@ class TestMarket:
             market_router._cache.delete("market_radar")
             market_router._last_radar = previous_last_radar
             market_router._radar_refresh_task = previous_refresh_task
+
+    def test_market_radar_uses_full_market_snapshot(self, client, monkeypatch):
+        """GET /api/market/radar — 首屏使用全A股排行快照"""
+        from dashboard.routers import market as market_router
+
+        previous_last_radar = market_router._last_radar
+        market_router._cache.delete("market_radar")
+        market_router._last_radar = None
+        monkeypatch.setattr(
+            market_router,
+            "_fetch_market_radar_snapshot",
+            lambda: {
+                "success": True,
+                "top_gainers": [{"code": "920211", "name": "N新睿", "value": 800.67}],
+                "top_losers": [],
+                "top_amplitude": [],
+                "top_turnover": [],
+                "total_stocks": 5861,
+                "source": "eastmoney_full_market_rank",
+                "universe": "all_a",
+            },
+        )
+
+        try:
+            resp = client.get("/api/market/radar")
+            data = resp.json()
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "eastmoney_full_market_rank"
+            assert data["universe"] == "all_a"
+            assert data["total_stocks"] == 5861
+            assert "local_fallback" not in data
+        finally:
+            market_router._cache.delete("market_radar")
+            market_router._last_radar = previous_last_radar
 
     def test_market_sectors(self, client):
         """GET /api/market/sectors — 板块数据"""

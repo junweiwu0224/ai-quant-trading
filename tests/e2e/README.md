@@ -19,6 +19,19 @@ npm install
 
 ## Run
 
+Local runner on this macOS workspace:
+
+```bash
+scripts/e2e-local.sh all
+```
+
+Targeted local runs:
+
+```bash
+scripts/e2e-local.sh smoke
+scripts/e2e-local.sh data-health
+```
+
 Preferred, reproducible Docker runner:
 
 ```bash

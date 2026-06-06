@@ -28,7 +28,7 @@ class BacktestCompiler:
         if not codes:
             raise ValueError("codes is required for backtest compilation")
 
-        if dsl.strategy_type == "ranked_rotation" and dsl.rank_by == "qlib_score":
+        if dsl.strategy_type == "ranked_rotation" and dsl.rank_by in {"signal_score", "qlib_score"}:
             strategy = "qlib_signal"
             params = {
                 "mode": "ranking",
@@ -36,11 +36,11 @@ class BacktestCompiler:
                 "position_pct": 0.9,
                 "score_normalize": True,
             }
-        elif dsl.strategy_type == "threshold_signal" and dsl.rank_by == "qlib_score":
+        elif dsl.strategy_type == "threshold_signal" and dsl.rank_by in {"signal_score", "qlib_score"}:
             strategy = "qlib_signal"
             params = {
                 "mode": "absolute",
-                "buy_threshold": _filter_value(dsl.filters, "qlib_score_min", 0.5),
+                "buy_threshold": _filter_value(dsl.filters, "signal_score_min", _filter_value(dsl.filters, "qlib_score_min", 0.5)),
                 "sell_threshold": -0.3,
                 "position_pct": 0.9,
                 "score_normalize": True,

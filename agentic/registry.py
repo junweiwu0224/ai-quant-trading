@@ -12,10 +12,17 @@ class AgentRegistry:
         return cls(
             [
                 AgentProfile(
-                    "qlib_agent",
-                    "Qlib Momentum Agent",
+                    "signal_agent",
+                    "Signal Engine Agent",
                     "signal",
-                    "Publishes ranked momentum signals from Qlib.",
+                    "Publishes ranked full-market signals from Signal Engine providers.",
+                    ["read_market", "publish_signal"],
+                ),
+                AgentProfile(
+                    "qlib_agent",
+                    "Signal Engine Agent",
+                    "signal",
+                    "Legacy alias for Signal Engine ranked momentum signals.",
                     ["read_market", "read_qlib", "publish_signal"],
                 ),
                 AgentProfile(
@@ -44,7 +51,7 @@ class AgentRegistry:
                     "OpenClaw Research Agent",
                     "research",
                     "Synthesizes structured research conclusions.",
-                    ["read_market", "read_qlib", "publish_signal", "create_research_job"],
+                    ["read_market", "publish_signal", "create_research_job"],
                 ),
             ]
         )

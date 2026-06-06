@@ -1,4 +1,4 @@
-/* ── 情报模块：Qlib 预测池与信号聚合 ── */
+/* ── 情报模块：AI 信号池与信号聚合（文件名保留为兼容旧缓存路径） ── */
 (function () {
     'use strict';
 
@@ -72,6 +72,40 @@
                     validated_weak: '验证偏弱',
                     unverified: '未验证',
                 }[validation?.confidence] || '未验证';
+                const confidenceText = (confidence) => ({
+                    validated_positive: '验证偏正',
+                    validated_neutral: '验证中性',
+                    validated_weak: '验证偏弱',
+                    unverified: '未验证',
+                }[confidence] || '未验证');
+                const metric1d = validation?.metrics?.['1d'] || {};
+                const fmtPct = (value, digits = 2) => {
+                    const num = Number(value);
+                    if (!Number.isFinite(num)) return '--';
+                    return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}%`;
+                };
+                const fmtPlainPct = (value, digits = 1) => {
+                    const num = Number(value);
+                    return Number.isFinite(num) ? `${num.toFixed(digits)}%` : '--';
+                };
+                const fmtNum = (value, digits = 3) => {
+                    const num = Number(value);
+                    return Number.isFinite(num) ? num.toFixed(digits) : '--';
+                };
+                const validationSummary = validation ? `
+                    <div class="qlib-validation-summary">
+                        <span class="qlib-validation-title">验证摘要</span>
+                        <span>状态 ${App.escapeHTML(confidenceText(validation.confidence))}</span>
+                        <span>样本 ${App.escapeHTML(String(validation.sample_days ?? 0))} 天</span>
+                        <span>Top超额 ${App.escapeHTML(fmtPct(metric1d.top_excess_return_pct, 2))}</span>
+                        <span>胜率 ${App.escapeHTML(fmtPlainPct(metric1d.hit_rate_pct, 1))}</span>
+                        <span>Rank IC ${App.escapeHTML(fmtNum(metric1d.rank_ic, 3))}</span>
+                    </div>` : `
+                    <div class="qlib-validation-summary">
+                        <span class="qlib-validation-title">验证摘要</span>
+                        <span>状态 unverified</span>
+                        <span>历史样本不足，信号已在机会池降权</span>
+                    </div>`;
 
                 const preds = data.predictions;
                 const total = preds.length;
@@ -91,7 +125,7 @@
                     const code = App.escapeHTML(p.code || '');
                     const name = App.escapeHTML(p.name || p.code || '');
 	                    const diamond = p.signal_confidence?.startsWith?.('validated') ? '<span class="qlib-diamond" title="信号已通过历史验证">✓</span>' : '';
-	                    const icAdjStr = p.signal_confidence || 'unverified';
+	                    const icAdjStr = confidenceText(p.signal_confidence);
 
                     return `<tr class="qlib-row ${heat.cls}" data-code="${code}">
                         <td class="qlib-td qlib-td-rank">${i + 1}</td>
@@ -131,6 +165,7 @@
 	                            📤 推送 Top 50 至选股器
                         </button>
                     </div>
+                    ${validationSummary}
                     <div class="qlib-legend">
                         <span class="qlib-legend-item"><span class="qlib-heat-icon">🔥</span> 强动能(前5%)</span>
                         <span class="qlib-legend-item"><span class="qlib-heat-icon">🟠</span> 中动能(前15%)</span>

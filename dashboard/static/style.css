@@ -354,6 +354,7 @@ body {
 /* ── 主内容 ── */
 .content {
     flex: 1;
+    min-width: 0;
     margin-left: var(--sidebar-w);
     padding: 24px;
     max-width: 1200px;
@@ -1723,7 +1724,7 @@ input:focus, select:focus, textarea:focus {
     .bottom-nav ul { overflow-x: auto; justify-content: flex-start; padding: 0 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; gap: 2px; }
     .bottom-nav ul::-webkit-scrollbar { display: none; }
     .bottom-nav a { min-width: 48px; max-width: none; flex: 0 0 auto; padding: 6px 4px; }
-    .content { margin-left: 0 !important; margin-right: 0; padding: 12px; padding-bottom: 72px; max-width: 100%; }
+    .content { margin-left: 0 !important; margin-right: 0; width: 100%; min-width: 0; padding: 12px; padding-bottom: 72px; max-width: 100%; }
     .content::before { display: none; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .form-row { flex-direction: column; }
@@ -4246,24 +4247,28 @@ th[data-sort].sort-desc::after {
     display: grid;
     grid-template-columns: 35fr 65fr;
     gap: 16px;
+    min-width: 0;
     min-height: calc(100vh - 160px);
 }
 .intel-left {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
     min-height: 0;
 }
 .intel-right {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
     min-height: 0;
 }
 .intel-right-top {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
+    min-width: 0;
 }
 .intel-sentiment-card { flex-shrink: 0; }
 .intel-news-card { flex: 1; min-height: 0; overflow: hidden; }
@@ -4693,7 +4698,7 @@ th[data-sort].sort-desc::after {
     z-index: 1;
 }
 
-/* ── Qlib AI 预测池 ── */
+/* ── AI 信号池 ── */
 
 .qlib-header {
     display: flex;
@@ -4711,6 +4716,26 @@ th[data-sort].sort-desc::after {
 .qlib-date, .qlib-total {
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
+}
+.qlib-validation-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+.qlib-validation-summary span {
+    padding: 3px 7px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+}
+.qlib-validation-summary .qlib-validation-title {
+    color: var(--text-primary);
+    font-weight: 700;
+    background: transparent;
 }
 .qlib-legend {
     display: flex;
@@ -4891,10 +4916,17 @@ th[data-sort].sort-desc::after {
 /* 情报页响应式 */
 @media (max-width: 768px) {
     .intel-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
     .intel-right-top {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .signal-bar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .signal-bar-sources {
+        width: 100%;
     }
     .intel-heatmap-head {
         align-items: flex-start;

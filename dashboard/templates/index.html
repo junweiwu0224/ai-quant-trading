@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=45">
+    <link rel="stylesheet" href="/static/style.css?v=46">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -1221,7 +1221,7 @@
                             <summary>候选依据</summary>
                             <div>
                                 <p>系统先从本地日线覆盖最完整、共同交易日足够的股票中抽取样本，再生成 4 个策略模板做同一区间回测。</p>
-                                <p>Qlib 只是基线因子，不是最终裁判；当前默认候选还包括热点量能轮动和防守均值回复。</p>
+                                <p>AI 信号只是基线因子，不是最终裁判；当前默认候选还包括热点量能轮动和防守均值回复。</p>
                                 <p>只有数据质量、回测表现、风控边界都过线的策略，才允许进入模拟盘候选；进入候选后仍需人工确认和组合风控。</p>
                             </div>
                         </details>
@@ -1244,7 +1244,7 @@
                         <div class="card-header-row">
                             <div>
                                 <h2>Agent 信号池</h2>
-                                <p class="text-muted text-sm">统一查看 Qlib、热点、问财、OpenClaw 和策略 Agent 发布的结构化信号。</p>
+                                <p class="text-muted text-sm">统一查看 AI信号、热点、问财、OpenClaw 和策略 Agent 发布的结构化信号。</p>
                             </div>
                             <button class="btn btn-primary btn-sm" data-agentic-action="refresh-signals">刷新信号</button>
                         </div>

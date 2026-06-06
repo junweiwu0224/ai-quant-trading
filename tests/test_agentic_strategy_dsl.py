@@ -2,8 +2,13 @@ from agentic.strategy_dsl import StrategyDSL, validate_strategy_dsl
 
 
 def test_strategy_dsl_accepts_ranked_rotation_template():
-    dsl = StrategyDSL("ranked_rotation", "qlib_top", "qlib_score", [{"close_above_ma": 20}], "daily", 5, 0.05, 0.12, 10)
+    dsl = StrategyDSL("ranked_rotation", "signal_top", "signal_score", [{"signal_score_min": 0.5}, {"close_above_ma": 20}], "daily", 5, 0.05, 0.12, 10)
     assert validate_strategy_dsl(dsl).max_holdings == 5
+
+
+def test_strategy_dsl_keeps_legacy_qlib_aliases():
+    dsl = StrategyDSL("ranked_rotation", "qlib_top", "qlib_score", [{"qlib_score_min": 0.5}], "daily", 5, 0.05, 0.12, 10)
+    assert validate_strategy_dsl(dsl).universe == "qlib_top"
 
 
 def test_strategy_dsl_rejects_unsafe_strategy_type():

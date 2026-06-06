@@ -4,13 +4,14 @@ from typing import Any
 
 SUPPORTED_STRATEGY_TYPES = {"ranked_rotation", "threshold_signal", "mean_reversion"}
 SUPPORTED_REBALANCE = {"daily", "weekly"}
-SUPPORTED_RANK_BY = {"qlib_score", "momentum_20d", "volume_adjusted_momentum"}
-SUPPORTED_UNIVERSES = {"qlib_top", "watchlist", "iwencai_pool", "hotspot_pool"}
+SUPPORTED_RANK_BY = {"signal_score", "qlib_score", "momentum_20d", "volume_adjusted_momentum"}
+SUPPORTED_UNIVERSES = {"signal_top", "qlib_top", "watchlist", "iwencai_pool", "hotspot_pool"}
 SUPPORTED_FILTERS = {
     "close_above_ma",
     "drawdown_3d_between",
     "turnover_min",
     "volatility_max",
+    "signal_score_min",
     "qlib_score_min",
 }
 

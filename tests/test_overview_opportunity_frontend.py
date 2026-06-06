@@ -112,6 +112,12 @@ def test_overview_opportunity_query_and_rendering():
                 qlib_coverage_pct: 0,
                 qlib_status: 'offline',
                 qlib_cache_age_label: '无缓存',
+                signal_quality: {
+                    label: '未验证',
+                    sample_days: 0,
+                    penalty_applied: true,
+                    message: '历史样本不足，AI信号已降权',
+                },
                 generated_at: '2026-05-26T18:00:00',
                 fast_mode: true,
             },
@@ -120,6 +126,9 @@ def test_overview_opportunity_query_and_rendering():
         assert.match(elements['ov-opportunity-status'].innerHTML, /候选 1 只/);
         assert.match(elements['ov-opportunity-status'].innerHTML, /估值 100%/);
         assert.match(elements['ov-opportunity-status'].innerHTML, /AI信号 离线/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /信号质量 未验证/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /样本 0 天/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /已降权/);
         assert.match(tbody.innerHTML, /PEG≤1/);
         assert.match(tbody.innerHTML, /短线涨幅过热/);
         assert.match(tbody.innerHTML, /opportunity-evidence-tags/);
@@ -324,4 +333,4 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=15" in scripts
+    assert "/static/overview.js?v=16" in scripts

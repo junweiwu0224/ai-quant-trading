@@ -218,8 +218,7 @@
             set('datahub-pipe-valuation', summary.valuation_error ? '估值降级' : (summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}% 覆盖`));
             const signalAge = summary.signal_cache_age_label || summary.qlib_cache_age_label;
             const ageLabel = signalAge ? ` · ${signalAge}` : '';
-            const validation = summary.signal_validation || {};
-            const validationLabel = validation.confidence ? ` · ${validation.confidence}` : '';
+            const validationLabel = this._signalQualityLabel(summary);
             set('datahub-pipe-ai', summary.signal_date ? `${summary.signal_date}${ageLabel}${validationLabel}` : '未生成');
             const shadow = summary.shadow || {};
             set('datahub-pipe-shadow', shadow.total_checks ? `${shadow.total_diffs || 0} 条差异 · ${shadow.codes_with_diffs || 0} 只股票` : '暂无差异日志');
@@ -234,6 +233,23 @@
             set('datahub-shadow-summary', shadowCount);
             set('datahub-version-summary', latestVersion);
             this._renderScopeNote(summary, items);
+        },
+
+        _signalQualityLabel(summary = {}) {
+            const quality = summary.signal_quality || {};
+            if (quality.label) {
+                const sample = Number.isFinite(Number(quality.sample_days)) ? ` · 样本 ${Number(quality.sample_days)} 天` : '';
+                const penalty = quality.penalty_applied ? ' · 已降权' : '';
+                return ` · ${quality.label}${sample}${penalty}`;
+            }
+            const validation = summary.signal_validation || {};
+            const labelMap = {
+                validated_positive: '验证偏正',
+                validated_neutral: '验证中性',
+                validated_weak: '验证偏弱',
+                unverified: '未验证',
+            };
+            return validation.confidence ? ` · ${labelMap[validation.confidence] || validation.confidence}` : '';
         },
 
         _renderScopeNote(summary = {}, items = this._items || []) {

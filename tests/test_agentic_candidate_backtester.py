@@ -35,7 +35,7 @@ def test_candidate_backtester_runs_candidates_on_selected_sample_and_ranks_resul
         )
 
         assert results.sample == sample
-        assert [item.candidate.id for item in results.results] == ["qlib_threshold_quality", "qlib_ranked_core"]
+        assert [item.candidate.id for item in results.results] == ["signal_threshold_quality", "signal_ranked_core"]
         assert results.results[0].promotion.promoted is True
         assert all(row[1] == ["000001", "600519"] for row in seen)
         assert all(row[2] == "2024-01-01" and row[3] == "2024-06-30" for row in seen)
@@ -65,7 +65,7 @@ def test_candidate_backtester_returns_serializable_payload():
         payload = batch.to_dict()
 
         assert payload["sample"]["codes"] == ["000001"]
-        assert payload["results"][0]["candidate"]["id"] == "qlib_ranked_core"
+        assert payload["results"][0]["candidate"]["id"] == "signal_ranked_core"
         assert payload["results"][0]["promotion"]["promoted"] is True
         assert payload["results"][0]["metrics"]["sharpe"] == 1.2
 
@@ -99,7 +99,7 @@ def test_candidate_backtester_marks_qlib_as_baseline_and_reports_gate_checks():
             "data_quality",
             "backtest_quality",
             "risk_boundary",
-            "qlib_baseline_only",
+            "signal_baseline_only",
         }
         assert all(item["passed"] is True for item in result["gate_checks"])
 

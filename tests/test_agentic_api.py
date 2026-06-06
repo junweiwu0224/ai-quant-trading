@@ -36,8 +36,8 @@ def test_agentic_compile_backtest_endpoint_returns_backtest_request(client):
         json={
             "dsl": {
                 "strategy_type": "ranked_rotation",
-                "universe": "qlib_top",
-                "rank_by": "qlib_score",
+                "universe": "signal_top",
+                "rank_by": "signal_score",
                 "filters": [{"close_above_ma": 20}],
                 "rebalance": "daily",
                 "max_holdings": 5,
@@ -87,8 +87,8 @@ def test_agentic_run_backtest_endpoint_compiles_runs_and_evaluates(client, monke
         json={
             "dsl": {
                 "strategy_type": "ranked_rotation",
-                "universe": "qlib_top",
-                "rank_by": "qlib_score",
+                "universe": "signal_top",
+                "rank_by": "signal_score",
                 "filters": [{"close_above_ma": 20}],
                 "rebalance": "daily",
                 "max_holdings": 5,
@@ -154,7 +154,7 @@ def test_agentic_strategy_candidates_endpoint_returns_valid_dsl_candidates(clien
     body = resp.json()
     assert body["success"] is True
     assert len(body["candidates"]) == 2
-    assert body["candidates"][0]["id"] == "qlib_ranked_core"
+    assert body["candidates"][0]["id"] == "signal_ranked_core"
     assert body["candidates"][0]["dsl"]["universe"] == "iwencai_pool"
     assert body["candidates"][0]["dsl"]["max_holdings"] == 3
     assert body["candidates"][0]["dsl"]["stop_loss"] <= 0.04
@@ -168,7 +168,7 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
 
     class FakeBacktester:
         async def run(self, context=None, limit=4, min_days=60, max_codes=5, initial_cash=1_000_000):
-            assert context == {"universe": "qlib_top", "risk_mode": "balanced", "max_holdings": 5}
+            assert context == {"universe": "signal_top", "risk_mode": "balanced", "max_holdings": 5}
             assert limit == 2
             assert min_days == 60
             assert max_codes == 3
@@ -201,7 +201,7 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
     resp = client.post(
         "/api/agentic/strategy/run-candidates",
         json={
-            "context": {"universe": "qlib_top", "risk_mode": "balanced", "max_holdings": 5},
+            "context": {"universe": "signal_top", "risk_mode": "balanced", "max_holdings": 5},
             "limit": 2,
             "min_days": 60,
             "max_codes": 3,

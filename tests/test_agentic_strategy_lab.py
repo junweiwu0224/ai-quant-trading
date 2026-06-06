@@ -5,7 +5,7 @@ from agentic.strategy_lab import PromotionGate, StrategyLab
 
 
 def valid_dsl():
-    return StrategyDSL("ranked_rotation", "qlib_top", "qlib_score", [{"close_above_ma": 20}], "daily", 5, 0.05, 0.12, 10)
+    return StrategyDSL("ranked_rotation", "signal_top", "signal_score", [{"close_above_ma": 20}], "daily", 5, 0.05, 0.12, 10)
 
 
 def test_strategy_lab_promotes_only_when_metrics_pass_gate():

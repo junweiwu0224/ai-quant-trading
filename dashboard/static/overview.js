@@ -302,8 +302,7 @@ Object.assign(App, {
         const qlibStatus = qlibStatusMap[summary.signal_status || summary.qlib_status] || summary.signal_status || summary.qlib_status || '未知';
         const scopeLabel = summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
         const cacheAge = (summary.signal_cache_age_label || summary.qlib_cache_age_label) ? ` · ${this.escapeHTML(summary.signal_cache_age_label || summary.qlib_cache_age_label)}` : '';
-        const validation = summary.signal_validation || {};
-        const validationText = validation.confidence ? `验证 ${this.escapeHTML(validation.confidence)}` : '验证 未验证';
+        const signalQuality = this._formatOverviewSignalQuality(summary);
         const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
         const syncStatus = this._formatOverviewQlibSyncStatus(summary.qlib_sync_status);
         const items = [
@@ -312,11 +311,30 @@ Object.assign(App, {
             `估值 ${this.escapeHTML(valuation)}`,
             `AI信号 ${this.escapeHTML(qlibStatus)}${cacheAge}`,
             `AI覆盖 ${this.escapeHTML(qlibCoverage)}`,
-            validationText,
+            signalQuality,
             mode,
         ];
         if (syncStatus) items.splice(5, 0, syncStatus);
         status.innerHTML = items.map((text) => `<span class="opportunity-status-item">${text}</span>`).join('');
+    },
+
+    _formatOverviewSignalQuality(summary = {}) {
+        const quality = summary.signal_quality || {};
+        const validation = summary.signal_validation || {};
+        const labelMap = {
+            validated_positive: '验证偏正',
+            validated_neutral: '验证中性',
+            validated_weak: '验证偏弱',
+            unverified: '未验证',
+        };
+        const label = quality.label || labelMap[validation.confidence] || '未验证';
+        const rawSampleDays = quality.sample_days ?? validation.sample_days;
+        const sampleDays = Number.isFinite(Number(rawSampleDays)) ? Number(rawSampleDays) : null;
+        const penalty = quality.penalty_applied === true || (!quality.label && !String(validation.confidence || '').startsWith('validated'));
+        const parts = [`信号质量 ${this.escapeHTML(label)}`];
+        if (sampleDays !== null) parts.push(`样本 ${this.escapeHTML(sampleDays)} 天`);
+        if (penalty) parts.push('已降权');
+        return parts.join(' · ');
     },
 
     _formatOverviewQlibSyncStatus(syncStatus) {

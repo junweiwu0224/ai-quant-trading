@@ -121,10 +121,10 @@ def _build_gate_checks(
             "detail": f"最大回撤 {drawdown:g}，模拟盘前仍需组合风控确认",
         },
         {
-            "id": "qlib_baseline_only",
-            "label": "Qlib 仅基线",
+            "id": "signal_baseline_only",
+            "label": "AI信号仅基线",
             "passed": True,
-            "detail": "Qlib 分数只提供基线因子，不单独决定是否进入模拟盘",
+            "detail": "Signal Engine 分数只提供基线因子，不单独决定是否进入模拟盘",
         },
     ]
 

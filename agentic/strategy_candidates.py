@@ -24,46 +24,46 @@ class StrategyCandidate:
 class StrategyCandidateGenerator:
     def generate(self, context: dict[str, Any] | None = None, limit: int = 4) -> list[StrategyCandidate]:
         context = dict(context or {})
-        universe = _safe_universe(context.get("universe"), default="qlib_top")
+        universe = _safe_universe(context.get("universe"), default="signal_top")
         max_holdings = _safe_max_holdings(context.get("max_holdings"), default=5)
         risk_mode = str(context.get("risk_mode") or "balanced").lower()
         stop_loss = 0.035 if risk_mode == "conservative" else 0.05
         take_profit = 0.10 if risk_mode == "conservative" else 0.12
         templates = [
             StrategyCandidate(
-                id="qlib_ranked_core",
-                name="Qlib 基线轮动",
-                thesis="用 Qlib 分数做基线因子，不是最终裁判；必须再通过数据质量、回测表现和风控边界检查。",
+                id="signal_ranked_core",
+                name="AI信号基线轮动",
+                thesis="用 Signal Engine 分数做基线因子，不是最终裁判；必须再通过数据质量、验证结果、回测表现和风控边界检查。",
                 dsl=StrategyDSL(
                     strategy_type="ranked_rotation",
                     universe=universe,
-                    rank_by="qlib_score",
-                    filters=[{"qlib_score_min": 0.5}, {"close_above_ma": 20}],
+                    rank_by="signal_score",
+                    filters=[{"signal_score_min": 0.5}, {"close_above_ma": 20}],
                     rebalance="daily",
                     max_holdings=max_holdings,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     max_holding_days=10,
                 ),
-                risk_notes=["Qlib 只作基线因子", "需要样本回测确认换手和回撤", "模拟盘前必须通过组合风控"],
+                risk_notes=["AI信号只作基线因子", "需要样本回测确认换手和回撤", "模拟盘前必须通过组合风控"],
                 signal_role="baseline_factor",
             ),
             StrategyCandidate(
-                id="qlib_threshold_quality",
-                name="Qlib 阈值基线",
-                thesis="用 Qlib 分数阈值过滤低置信度样本，但 Qlib 不是最终裁判，还要通过回测与风控。",
+                id="signal_threshold_quality",
+                name="AI信号阈值基线",
+                thesis="用 Signal Engine 分数阈值过滤低置信度样本，但 AI 信号不是最终裁判，还要通过验证、回测与风控。",
                 dsl=StrategyDSL(
                     strategy_type="threshold_signal",
                     universe=universe,
-                    rank_by="qlib_score",
-                    filters=[{"qlib_score_min": 0.6}, {"volatility_max": 0.08}],
+                    rank_by="signal_score",
+                    filters=[{"signal_score_min": 0.6}, {"volatility_max": 0.08}],
                     rebalance="daily",
                     max_holdings=max_holdings,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     max_holding_days=8,
                 ),
-                risk_notes=["Qlib 只作基线因子", "可能减少交易次数", "强行情中可能漏掉早期趋势"],
+                risk_notes=["AI信号只作基线因子", "可能减少交易次数", "强行情中可能漏掉早期趋势"],
                 signal_role="baseline_factor",
             ),
             StrategyCandidate(
@@ -72,7 +72,7 @@ class StrategyCandidateGenerator:
                 thesis="在热点或问财池内按量价动量排序，捕捉短周期主题扩散。",
                 dsl=StrategyDSL(
                     strategy_type="ranked_rotation",
-                    universe=universe if universe != "qlib_top" else "hotspot_pool",
+                    universe=universe if universe not in {"signal_top", "qlib_top"} else "hotspot_pool",
                     rank_by="volume_adjusted_momentum",
                     filters=[{"turnover_min": 1.5}, {"drawdown_3d_between": [-0.08, 0.03]}],
                     rebalance="daily",
@@ -122,5 +122,4 @@ def _is_valid(dsl: StrategyDSL) -> bool:
     except ValueError:
         return False
     return True
-
 

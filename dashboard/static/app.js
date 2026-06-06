@@ -84,7 +84,7 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=15',
+            '/static/overview.js?v=16',
             '/static/overview-radar.js?v=5',
             '/static/alerts.js?v=1',
         ],
@@ -149,8 +149,8 @@ const App = {
             '/static/intelligence.js?v=4',
             '/static/intelligence-market.js?v=5',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-qlib.js?v=4',
-            '/static/research-datahub.js?v=9',
+            '/static/intelligence-qlib.js?v=5',
+            '/static/research-datahub.js?v=10',
             '/static/research-valuation.js?v=13',
         ],
         stock: [
@@ -175,7 +175,7 @@ const App = {
             '/static/intelligence.js?v=4',
             '/static/intelligence-market.js?v=5',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-qlib.js?v=4',
+            '/static/intelligence-qlib.js?v=5',
         ],
         llm: [
             '/static/llm.js?v=10',

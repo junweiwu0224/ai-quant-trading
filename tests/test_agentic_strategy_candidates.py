@@ -7,11 +7,14 @@ def test_strategy_candidate_generator_returns_valid_default_candidates():
 
     assert len(candidates) == 4
     assert [item.id for item in candidates] == [
-        "qlib_ranked_core",
-        "qlib_threshold_quality",
+        "signal_ranked_core",
+        "signal_threshold_quality",
         "hotspot_volume_rotation",
         "defensive_mean_reversion",
     ]
+    assert candidates[0].dsl.universe == "signal_top"
+    assert candidates[0].dsl.rank_by == "signal_score"
+    assert candidates[0].dsl.filters[0] == {"signal_score_min": 0.5}
     for candidate in candidates:
         validate_strategy_dsl(candidate.dsl)
         assert candidate.name
@@ -36,6 +39,6 @@ def test_strategy_candidate_generator_ignores_invalid_context_values():
         limit=1,
     )
 
-    assert candidates[0].dsl.universe == "qlib_top"
+    assert candidates[0].dsl.universe == "signal_top"
     assert candidates[0].dsl.max_holdings == 5
     assert candidates[0].dsl.stop_loss == 0.05

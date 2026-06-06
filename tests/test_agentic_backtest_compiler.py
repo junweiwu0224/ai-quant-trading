@@ -2,11 +2,11 @@ from agentic.backtest_compiler import BacktestCompileRequest, BacktestCompiler, 
 from agentic.strategy_dsl import StrategyDSL
 
 
-def test_compiler_maps_ranked_rotation_qlib_dsl_to_backtest_request():
+def test_compiler_maps_ranked_rotation_signal_dsl_to_backtest_request():
     dsl = StrategyDSL(
         strategy_type="ranked_rotation",
-        universe="qlib_top",
-        rank_by="qlib_score",
+        universe="signal_top",
+        rank_by="signal_score",
         filters=[{"close_above_ma": 20}],
         rebalance="daily",
         max_holdings=5,
@@ -40,7 +40,7 @@ def test_compiler_maps_ranked_rotation_qlib_dsl_to_backtest_request():
 
 
 def test_compiler_rejects_empty_codes():
-    dsl = StrategyDSL("ranked_rotation", "qlib_top", "qlib_score", [], "daily", 5, 0.05, None, 10)
+    dsl = StrategyDSL("ranked_rotation", "signal_top", "signal_score", [], "daily", 5, 0.05, None, 10)
 
     try:
         BacktestCompiler().compile(BacktestCompileRequest(dsl, [], "2024-01-01", "2024-12-31", 50000))

@@ -11,9 +11,9 @@
   function buildDefaultStrategyDSL() {
     return {
       strategy_type: 'ranked_rotation',
-      universe: 'qlib_top',
-      rank_by: 'qlib_score',
-      filters: [{ qlib_score_min: 0.5 }],
+      universe: 'signal_top',
+      rank_by: 'signal_score',
+      filters: [{ signal_score_min: 0.5 }],
       rebalance: 'daily',
       max_holdings: 5,
       stop_loss: 0.05,
@@ -106,7 +106,7 @@
     const action = promoted
       ? '下一步：选择晋级策略加入模拟盘候选。'
       : zeroTrade
-        ? '下一步：先确认 Qlib 历史预测已覆盖回测期；若已覆盖，就调整没有触发交易的策略参数。'
+        ? '下一步：先确认 AI 信号历史缓存已覆盖回测期；若已覆盖，就调整没有触发交易的策略参数。'
         : '下一步：降低策略风险或调整候选参数后重新回测。';
     return { promoted, zeroTrade, insufficientTrades, sharpeFailed, drawdownFailed, notes, action };
   }
@@ -262,7 +262,7 @@
       { label: '数据质量', passed: false, detail: '等待候选回测' },
       { label: '回测表现', passed: false, detail: '等待 Sharpe、回撤和交易次数' },
       { label: '风控边界', passed: false, detail: '模拟盘前需要组合风控' },
-      { label: 'Qlib 仅基线', passed: true, detail: 'Qlib 不是最终裁判' },
+      { label: 'AI信号仅基线', passed: true, detail: 'Signal Engine 不是最终裁判' },
     ];
     return `
       <div class="agentic-gate-checks">
@@ -337,7 +337,7 @@
     } catch (error) {
       state.sample = null;
       renderSampleStatus();
-      renderBacktestResult(authMessage(error) || '本地样本不可用，请先同步 Qlib/日线覆盖数据');
+      renderBacktestResult(authMessage(error) || '本地样本不可用，请先同步 AI信号/日线覆盖数据');
       renderAgenticWorkbench();
     }
   }
@@ -373,7 +373,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          context: { universe: 'qlib_top', risk_mode: 'balanced', max_holdings: 5 },
+          context: { universe: 'signal_top', risk_mode: 'balanced', max_holdings: 5 },
           limit: 4,
           min_days: 60,
           max_codes: 5,
@@ -631,7 +631,7 @@
       : state.signals.filter(item => item.status === state.filter);
     list.innerHTML = items.length
       ? items.map(renderSignalCard).join('')
-      : '<div class="agentic-signal-empty"><strong>暂无 Agent 信号</strong><span>这里会汇总 Qlib、热点、问财、OpenClaw 和策略 Agent 的结构化信号；当前没有新信号，不影响上方策略实验台继续推进。</span></div>';
+      : '<div class="agentic-signal-empty"><strong>暂无 Agent 信号</strong><span>这里会汇总 AI信号、热点、问财、OpenClaw 和策略 Agent 的结构化信号；当前没有新信号，不影响上方策略实验台继续推进。</span></div>';
   }
 
   async function loadSignals() {

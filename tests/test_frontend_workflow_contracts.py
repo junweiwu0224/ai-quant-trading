@@ -65,7 +65,7 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=45" in template
+    assert "/static/style.css?v=46" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
     assert "/static/app.js?v=59" in scripts
@@ -81,7 +81,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
-    assert "/static/research-datahub.js?v=9" in app
+    assert "/static/research-datahub.js?v=10" in app
     assert "/static/research-valuation.js?v=13" in app
     assert "/static/stock-detail-core.js?v=6" in app
     assert "/static/openclaw-workbench.js?v=20" in app

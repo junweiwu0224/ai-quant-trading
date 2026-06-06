@@ -416,6 +416,100 @@ def test_intelligence_hotspot_shows_source_status_and_attribution_evidence():
     assert result.returncode == 0, result.stderr
 
 
+def test_intelligence_signal_pool_renders_validation_summary():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+            };
+        }
+
+        const panel = makeElement('intel-ml-pred');
+        const elements = { 'intel-ml-pred': panel };
+        const calls = [];
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url === '/api/signals/top?limit=50') {
+                    return {
+                        success: true,
+                        date: '2026-06-05',
+                        total: 5197,
+                        provider: 'local_momentum',
+                        model_version: 'local_momentum_v1',
+                        predictions: [
+                            { code: '600519', name: '贵州茅台', score: 0.91, price: 1600, amount: 100000000, signal_confidence: 'validated_positive' },
+                            { code: '000001', name: '平安银行', score: 0.75, price: 12.3, amount: 80000000, signal_confidence: 'validated_positive' },
+                        ],
+                    };
+                }
+                if (url === '/api/signals/validation?top_n=50') {
+                    return {
+                        success: true,
+                        confidence: 'validated_positive',
+                        sample_days: 42,
+                        metrics: {
+                            '1d': {
+                                top_excess_return_pct: 1.23,
+                                hit_rate_pct: 58.6,
+                                rank_ic: 0.071,
+                            },
+                        },
+                    };
+                }
+                throw new Error(`unexpected url: ${url}`);
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-qlib.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadMLPredictions();
+            assert.deepEqual(calls, ['/api/signals/top?limit=50', '/api/signals/validation?top_n=50']);
+            assert.match(panel.innerHTML, /验证摘要/);
+            assert.match(panel.innerHTML, /样本 42 天/);
+            assert.match(panel.innerHTML, /Top超额 \+1\.23%/);
+            assert.match(panel.innerHTML, /胜率 58\.6%/);
+            assert.match(panel.innerHTML, /Rank IC 0\.071/);
+            assert.match(panel.innerHTML, /状态 验证偏正/);
+            assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证偏正<\/td>/);
+            assert.doesNotMatch(panel.innerHTML, />validated_positive</);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_intelligence_market_assets_are_versioned_and_styled():
     app_js = Path("dashboard/static/app.js").read_text(encoding="utf-8")
     styles = Path("dashboard/static/style.css").read_text(encoding="utf-8")
@@ -426,7 +520,7 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence.js?v=4" in app_js
     assert "/static/intelligence-market.js?v=5" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-qlib.js?v=4" in app_js
+    assert "/static/intelligence-qlib.js?v=5" in app_js
     assert "/static/app.js?v=59" in scripts
     assert "/static/app-ui-shell.js?v=19" in scripts
     assert "/sw.js?v=20" in app_ui_shell

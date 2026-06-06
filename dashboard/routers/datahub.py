@@ -149,6 +149,39 @@ def _load_signal_health() -> dict[str, Any]:
         }
 
 
+def _signal_validation_quality(validation: dict[str, Any] | None) -> dict[str, Any]:
+    payload = validation if isinstance(validation, dict) else {}
+    confidence = str(payload.get("confidence") or "unverified")
+    sample_days = int(payload.get("sample_days") or 0)
+    labels = {
+        "validated_positive": "验证偏正",
+        "validated_neutral": "验证中性",
+        "validated_weak": "验证偏弱",
+        "unverified": "未验证",
+    }
+    label = labels.get(confidence, "未验证")
+    metrics_1d = (payload.get("metrics") or {}).get("1d") or {}
+    penalty_applied = not confidence.startswith("validated")
+    if penalty_applied:
+        message = "历史样本不足，AI信号已降权"
+    elif confidence == "validated_positive":
+        message = "历史验证偏正，AI信号按正常权重参与评分"
+    elif confidence == "validated_weak":
+        message = "历史验证偏弱，请提高人工复核权重"
+    else:
+        message = "历史验证中性，请结合估值和行情复核"
+    return {
+        "confidence": confidence,
+        "label": label,
+        "sample_days": sample_days,
+        "penalty_applied": penalty_applied,
+        "message": message,
+        "top_excess_return_pct": _safe_float(metrics_1d.get("top_excess_return_pct")),
+        "hit_rate_pct": _safe_float(metrics_1d.get("hit_rate_pct")),
+        "rank_ic": _safe_float(metrics_1d.get("rank_ic")),
+    }
+
+
 def _load_full_stock_daily_sync_status() -> dict[str, Any]:
     if not FULL_STOCK_DAILY_SYNC_STATUS.exists():
         return {"status": "not_started", "status_label": "未同步"}
@@ -782,6 +815,7 @@ async def decision_matrix(
             "signal_cache_age_hours": signal_health.get("cache_age_hours"),
             "signal_cache_age_label": signal_health.get("cache_age_label"),
             "signal_validation": signal_health.get("validation") or {},
+            "signal_quality": _signal_validation_quality(signal_health.get("validation") or {}),
             "qlib_date": signal_ctx.get("latest_date"),
             "qlib_status": qlib_health.get("status"),
             "qlib_cache_age_hours": qlib_health.get("cache_age_hours"),

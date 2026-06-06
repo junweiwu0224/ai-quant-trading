@@ -24,7 +24,7 @@ def test_paper_strategy_candidate_service_enqueues_promoted_candidate(tmp_path):
 
     assert record.status == "paper_candidate"
     assert record.requires_confirmation is True
-    assert record.candidate_id == "qlib_ranked_core"
+    assert record.candidate_id == "signal_ranked_core"
     assert repo.list_paper_strategy_candidates()[0] == record
 
 
@@ -189,7 +189,7 @@ def test_confirmed_execution_can_submit_real_paper_orders(tmp_path):
 
     assert [order.code for order in orders] == ["000001", "600519"]
     assert all(order.status.value == "pending" for order in orders)
-    assert all(order.strategy_name == "agentic:qlib_ranked_core" for order in orders)
+    assert all(order.strategy_name == "agentic:signal_ranked_core" for order in orders)
     persisted = order_manager.get_orders(page_size=10)["items"]
     assert [order["code"] for order in persisted] == ["600519", "000001"]
     assert repo.get_paper_strategy_execution(confirmed.id).status == "paper_orders_submitted"

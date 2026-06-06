@@ -134,6 +134,31 @@ class TestValuationDataHubAPI:
         assert "AI未验证" in decision["risk_tags"]
         assert decision["decision_score"] >= 60
 
+    def test_signal_validation_quality_summary_explains_unverified_penalty(self):
+        from dashboard.routers.datahub import _signal_validation_quality
+
+        quality = _signal_validation_quality({
+            "confidence": "unverified",
+            "sample_days": 0,
+            "metrics": {},
+        })
+
+        assert quality["label"] == "未验证"
+        assert quality["sample_days"] == 0
+        assert quality["penalty_applied"] is True
+        assert "降权" in quality["message"]
+
+        positive = _signal_validation_quality({
+            "confidence": "validated_positive",
+            "sample_days": 42,
+            "metrics": {"1d": {"top_excess_return_pct": 1.23, "hit_rate_pct": 58.6, "rank_ic": 0.071}},
+        })
+
+        assert positive["label"] == "验证偏正"
+        assert positive["sample_days"] == 42
+        assert positive["penalty_applied"] is False
+        assert positive["top_excess_return_pct"] == 1.23
+
     def test_load_qlib_context_keeps_full_items_when_ordered_codes_are_limited(self, monkeypatch):
         from dashboard.routers import datahub
 

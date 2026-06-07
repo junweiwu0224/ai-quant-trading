@@ -106,7 +106,11 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert 'tags=["AI 信号兼容接口"]' in dashboard_app
     assert "Qlib 服务健康检查" not in qlib_router
     assert "读取 Qlib 日线覆盖同步状态" not in qlib_router
+    assert "读取 Qlib 同步状态失败" not in qlib_router
+    assert "计算 Qlib 预测一致性" not in qlib_router
+    assert "Qlib 健康检查失败" not in qlib_router
     assert "AI 信号兼容接口健康检查" in qlib_router
+    assert "AI 信号一致性" in qlib_router
     assert "Qlib 覆盖池" not in scheduler
     assert "AI 信号覆盖池" in scheduler
 

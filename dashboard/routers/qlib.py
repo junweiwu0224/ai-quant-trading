@@ -94,7 +94,7 @@ def _load_sync_status() -> dict:
             "last_error_samples": errors,
         }
     except Exception as exc:
-        logger.warning(f"读取 Qlib 同步状态失败: {exc}")
+        logger.warning(f"读取 AI 信号同步状态失败: {exc}")
         return {}
 
 
@@ -173,7 +173,7 @@ def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
 
 @router.get("/top")
 async def get_top_predictions(top_n: int = 10):
-    """获取 AI 预测池 Top N
+    """获取 AI 信号池 Top N
 
     返回格式:
     {
@@ -238,7 +238,7 @@ async def get_top_predictions(top_n: int = 10):
 
 @router.get("/consistency")
 async def get_consistency(top_n: int = 50):
-    """计算 Qlib 预测一致性 (IC_adj = Score / σ(Historical))
+    """计算 AI 信号一致性 (IC_adj = Score / σ(Historical))
 
     返回格式:
     {
@@ -379,7 +379,7 @@ async def qlib_health():
             "sync_status": _load_sync_status(),
         }
     except Exception as e:
-        logger.error(f"Qlib 健康检查失败: {e}")
+        logger.error(f"AI 信号兼容接口健康检查失败: {e}")
         return {
             "success": True,
             "status": "offline",

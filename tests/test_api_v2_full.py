@@ -909,3 +909,27 @@ class TestQlib:
 
         assert resp.status_code == 200
         assert called["url"] == qlib_router.QLIB_TRAIN_STATUS_URL
+
+    def test_train_failure_uses_signal_model_wording(self, client, monkeypatch):
+        class MockAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url):
+                raise RuntimeError("offline")
+
+        monkeypatch.setattr(qlib_router.httpx, "AsyncClient", MockAsyncClient)
+
+        resp = client.post("/api/qlib/train")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is False
+        assert "AI 信号模型服务不可用" in payload["message"]
+        assert "qlib 服务不可用" not in payload["message"]

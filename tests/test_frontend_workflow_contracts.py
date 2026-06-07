@@ -63,6 +63,9 @@ def test_signal_engine_is_primary_frontend_semantics():
     overview = read("dashboard/static/overview.js")
     paper = read("dashboard/static/paper.js")
     manager = read("strategy/manager.py")
+    backtest = read("dashboard/routers/backtest.py")
+    paper_control = read("dashboard/routers/paper_control.py")
+    signal_strategy = read("strategy/qlib_signal.py")
 
     assert "/static/intelligence-signals.js?v=3" in app
     assert "/static/intelligence-qlib.js" not in app
@@ -83,6 +86,14 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "开始刷新 AI 信号模型" in paper
     assert "qlib 训练" not in paper
     assert "基于 AI 信号分数" in manager
+    assert "qlib 预测缓存不存在" not in backtest
+    assert "qlib 训练" not in backtest
+    assert "AI 信号缓存不存在" in backtest
+    assert "qlib 服务不可用" not in signal_strategy
+    assert "从 qlib 服务加载" not in signal_strategy
+    assert "AI 信号服务不可用" in signal_strategy
+    assert "qlib_signal 需要从 qlib 服务加载预测分数" not in paper_control
+    assert "qlib_signal 兼容 ID 使用 AI 信号服务加载分数" in paper_control
 
 
 def test_research_datahub_scope_note_prioritizes_signal_validation_quality():

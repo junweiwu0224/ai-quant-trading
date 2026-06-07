@@ -28,13 +28,13 @@ def test_repository_saves_and_lists_signals(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")
     signal = SignalLike(
         "sig_1",
-        "qlib_agent",
-        "qlib",
+        "signal_agent",
+        "signal",
         "605066.SH",
         "buy",
         0.72,
         "3-10d",
-        ["Qlib score top 5"],
+        ["AI signal top 5"],
         ["break MA20 invalidates"],
         0.1,
         0.05,
@@ -49,7 +49,7 @@ def test_repository_saves_and_lists_signals(tmp_path):
     assert len(rows) == 1
     assert rows[0].id == "sig_1"
     assert rows[0].code == "605066"
-    assert rows[0].entry_reasons == ("Qlib score top 5",)
+    assert rows[0].entry_reasons == ("AI signal top 5",)
 
 
 def test_repository_get_signal_raises_for_missing_id(tmp_path):
@@ -69,8 +69,8 @@ def test_repository_saves_and_gets_research_jobs(tmp_path):
         id="research_1",
         code="605066.SH",
         status="completed",
-        roles=["qlib", "market", "theme", "bear", "decision"],
-        final_report={"decision": "paper_candidate", "qlib_score": 0.72},
+        roles=["signal", "market", "theme", "bear", "decision"],
+        final_report={"decision": "paper_candidate", "signal_score": 0.72},
         created_at="2026-06-01T20:30:00+08:00",
         updated_at="2026-06-01T20:31:00+08:00",
     )

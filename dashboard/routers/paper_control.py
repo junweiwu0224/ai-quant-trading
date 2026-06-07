@@ -54,7 +54,7 @@ def _create_builtin_strategy(name: str, cls: type, params: dict):
     from strategy.qlib_signal import QlibSignalStrategy
 
     filtered = _filter_params(cls, params)
-    # qlib_signal 需要从 qlib 服务加载预测分数
+    # qlib_signal 兼容 ID 使用 AI 信号服务加载分数
     if name == "qlib_signal":
         return QlibSignalStrategy.from_service(
             service_url=QLIB_SERVICE_URL,

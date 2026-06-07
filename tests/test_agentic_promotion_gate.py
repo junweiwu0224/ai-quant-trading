@@ -5,13 +5,13 @@ from agentic.signals import SignalService
 def test_signal_can_move_to_paper_pending_after_manual_confirmation(tmp_path):
     service = SignalService(AgenticRepository(tmp_path / "agentic.db"))
     signal = service.publish(
-        agent_id="qlib_agent",
-        source="qlib",
+        agent_id="signal_agent",
+        source="signal",
         code="605066",
         direction="buy",
         confidence=0.75,
         time_horizon="3-10d",
-        entry_reasons=["Qlib Top"],
+        entry_reasons=["AI signal Top"],
         risk_notes=["stop loss required"],
         suggested_position=0.1,
         stop_loss=0.05,

@@ -20,13 +20,13 @@ def test_normalize_signal_code_rejects_ambiguous_or_overlong_input():
 def test_trading_signal_requires_structured_reason_and_risk():
     signal = TradingSignal(
         id="sig_1",
-        agent_id="qlib_agent",
-        source="qlib",
+        agent_id="signal_agent",
+        source="signal",
         code="605066.SH",
         direction="buy",
         confidence="0.72",
         time_horizon="3-10d",
-        entry_reasons=["Qlib score top 5", "close above MA20"],
+        entry_reasons=["AI signal top 5", "close above MA20"],
         risk_notes=["break MA20 invalidates signal"],
         suggested_position="0.1",
         stop_loss="0.05",
@@ -39,20 +39,20 @@ def test_trading_signal_requires_structured_reason_and_risk():
     assert signal.code == "605066"
     assert signal.confidence == 0.72
     assert signal.suggested_position == 0.1
-    assert signal.entry_reasons[0] == "Qlib score top 5"
+    assert signal.entry_reasons[0] == "AI signal top 5"
     assert isinstance(signal.entry_reasons, tuple)
 
 
 def test_trading_signal_rejects_invalid_direction_and_status():
     base = dict(
         id="sig_1",
-        agent_id="qlib_agent",
-        source="qlib",
+        agent_id="signal_agent",
+        source="signal",
         code="605066",
         direction="buy",
         confidence=0.72,
         time_horizon="3-10d",
-        entry_reasons=["Qlib score top 5"],
+        entry_reasons=["AI signal top 5"],
         risk_notes=["break MA20 invalidates signal"],
         suggested_position=0.1,
         stop_loss=0.05,
@@ -81,11 +81,11 @@ def test_research_job_normalizes_code_and_roles():
         id="research_1",
         code="SH605066",
         status="completed",
-        roles=["qlib", "market", "theme", "bear", "decision"],
+        roles=["signal", "market", "theme", "bear", "decision"],
         final_report={"decision": "paper_candidate"},
         created_at="2026-06-01T20:30:00+08:00",
         updated_at="2026-06-01T20:30:00+08:00",
     )
 
     assert job.code == "605066"
-    assert job.roles == ("qlib", "market", "theme", "bear", "decision")
+    assert job.roles == ("signal", "market", "theme", "bear", "decision")

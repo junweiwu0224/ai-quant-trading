@@ -1,6 +1,6 @@
-"""qlib ML 信号策略
+"""AI 信号策略（保留 QlibSignalStrategy 类名用于兼容）
 
-从 qlib 推理服务或本地缓存读取预测分数，生成交易信号。
+从 AI 信号服务或本地缓存读取分数，生成交易信号。
 
 使用方式（回测）:
     strategy = QlibSignalStrategy(
@@ -9,7 +9,7 @@
         sell_threshold=-0.3,
     )
 
-使用方式（实盘，从 qlib 服务加载）:
+使用方式（实盘，从 AI 信号服务加载）:
     strategy = QlibSignalStrategy.from_service(
         service_url=QLIB_SERVICE_URL,
         buy_threshold=0.5,
@@ -27,7 +27,7 @@ from strategy.base import Bar, BaseStrategy, Direction, Trade
 
 
 class QlibSignalStrategy(BaseStrategy):
-    """基于 qlib ML 预测分数的交易策略
+    """基于 AI 信号分数的交易策略
 
     两种模式:
     1. absolute（默认）: score > buy_threshold → 买入, score < sell_threshold → 卖出
@@ -205,10 +205,10 @@ class QlibSignalStrategy(BaseStrategy):
         date: str = "",
         **kwargs,
     ) -> "QlibSignalStrategy":
-        """从 qlib 推理服务加载预测分数
+        """从 AI 信号服务加载分数
 
         Args:
-            service_url: qlib 微服务地址
+            service_url: AI 信号兼容服务地址
             date: 日期，空则取最新
             **kwargs: 传递给 QlibSignalStrategy 的其他参数
         """
@@ -223,10 +223,10 @@ class QlibSignalStrategy(BaseStrategy):
             with urllib.request.urlopen(url, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
             predictions = data.get("predictions", {})
-            logger.info(f"从 qlib 服务加载 {len(predictions)} 只股票预测")
+            logger.info(f"从 AI 信号服务加载 {len(predictions)} 只股票分数")
             return cls(predictions=predictions, **kwargs)
         except urllib.error.URLError as e:
-            logger.warning(f"qlib 服务不可用: {e}")
+            logger.warning(f"AI 信号服务不可用: {e}")
             return cls(predictions={}, **kwargs)
 
     @classmethod

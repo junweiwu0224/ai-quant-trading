@@ -15,13 +15,13 @@ def test_paper_bridge_creates_order_intent_not_direct_order_by_default():
     bridge = PaperBridge(order_manager=FakeOrderManager())
     signal = TradingSignal(
         "sig_1",
-        "qlib_agent",
-        "qlib",
+        "signal_agent",
+        "signal",
         "605066",
         "buy",
         0.75,
         "3-10d",
-        ["Qlib Top"],
+        ["AI signal Top"],
         ["stop loss required"],
         0.1,
         0.05,

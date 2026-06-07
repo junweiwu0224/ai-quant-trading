@@ -23,12 +23,12 @@ router = APIRouter()
 storage = DataStorage()
 collector = StockCollector()
 
-# qlib 预测缓存路径
+# AI 信号缓存路径；变量名保留为兼容旧预测缓存位置
 _QLIB_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "qlib" / "predictions_cache.json"
 
 
 def _load_qlib_predictions(start_date: str, end_date: str) -> dict[str, dict[str, float]]:
-    """加载 qlib 预测缓存，返回指定日期范围内的全部预测（多日格式）"""
+    """加载 AI 信号缓存，返回指定日期范围内的全部分数（多日格式）"""
     if not _QLIB_CACHE_PATH.exists():
         return {}
     try:
@@ -60,7 +60,7 @@ def _filter_params(cls: type, params: dict) -> dict:
 
 
 def _create_strategy(name: str, params: dict | None = None, start_date: str = "", end_date: str = ""):
-    """创建策略实例，qlib_signal 自动加载预测缓存"""
+    """创建策略实例，qlib_signal 兼容 ID 自动加载 AI 信号缓存"""
     params = params or {}
     if name == "qlib_signal" and "predictions" not in params:
         predictions = _load_qlib_predictions(start_date, end_date)
@@ -1108,14 +1108,14 @@ async def ws_backtest(ws: WebSocket):
             slippage=req.get("slippage", 0.002),
             enable_risk=req.get("enable_risk", False),
         )
-        # qlib_signal 策略：加载预测缓存并检查日期范围
+        # qlib_signal 兼容 ID：加载 AI 信号缓存并检查日期范围
         raw_params = req.get("params") or {}
         if strategy_name == "qlib_signal":
             predictions = _load_qlib_predictions(req.get("start_date", ""), req.get("end_date", ""))
             if predictions:
                 raw_params = {**raw_params, "predictions": predictions}
             if not _QLIB_CACHE_PATH.exists():
-                await ws.send_json({"type": "warning", "message": "qlib 预测缓存不存在，请先运行 qlib 训练"})
+                await ws.send_json({"type": "warning", "message": "AI 信号缓存不存在，请先刷新 AI 信号模型"})
             elif not predictions:
                 try:
                     cache_data = json.loads(_QLIB_CACHE_PATH.read_text(encoding="utf-8"))

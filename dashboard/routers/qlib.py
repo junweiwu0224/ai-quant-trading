@@ -1,7 +1,7 @@
-"""qlib 预测数据代理路由
+"""AI 信号 legacy adapter 路由
 
-主仪表盘 (8001) 代理访问 qlib 预测缓存，
-避免前端直接跨端口请求 qlib 微服务 (8002)。
+主仪表盘 (8001) 保留 /api/qlib/* 兼容路径，
+实际运行时语义为 Signal Engine / AI 信号缓存。
 """
 
 import json
@@ -395,19 +395,19 @@ async def qlib_health():
 
 @router.post("/train")
 async def qlib_train():
-    """触发 qlib 模型训练（代理到 qlib 微服务）"""
+    """触发 AI 信号模型刷新（保留 /api/qlib/train 兼容路径）"""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(QLIB_TRAIN_URL)
             return resp.json()
     except Exception as e:
-        logger.error(f"调用 qlib 训练服务失败: {e}")
-        return {"success": False, "message": f"qlib 服务不可用: {e}"}
+        logger.error(f"调用 AI 信号模型服务失败: {e}")
+        return {"success": False, "message": f"AI 信号模型服务不可用: {e}"}
 
 
 @router.get("/train/status")
 async def qlib_train_status():
-    """查询 qlib 训练状态"""
+    """查询 AI 信号模型刷新状态（保留 /api/qlib/train/status 兼容路径）"""
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(QLIB_TRAIN_STATUS_URL)

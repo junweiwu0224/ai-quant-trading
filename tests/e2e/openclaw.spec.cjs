@@ -4,6 +4,20 @@ const TEST_INVITE_CODE = process.env.PLAYWRIGHT_INVITE_CODE || 'LOCAL1';
 const TEST_PASSWORD = 'Playwright123!';
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+async function retryRequest(action, { attempts = 3, label = 'request' } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            return await action();
+        } catch (error) {
+            lastError = error;
+            if (attempt === attempts) break;
+            await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+        }
+    }
+    throw new Error(`${label} failed after ${attempts} attempts: ${lastError?.message || lastError}`);
+}
+
 async function waitForAppReady(page) {
     await expect(page.locator('body')).toBeVisible();
     await expect(page.locator('#stock-offcanvas')).toBeAttached();
@@ -31,10 +45,16 @@ async function ensureAuthenticated(page, usernameSuffix = Date.now()) {
         display_name: username,
         email: null,
     };
-    const auth = await page.request.post('/api/account/register', { data: payload });
+    const auth = await retryRequest(
+        () => page.request.post('/api/account/register', { data: payload }),
+        { label: 'account register' },
+    );
     const response = auth.ok()
         ? auth
-        : await page.request.post('/api/account/login', { data: { username, password: TEST_PASSWORD } });
+        : await retryRequest(
+            () => page.request.post('/api/account/login', { data: { username, password: TEST_PASSWORD } }),
+            { label: 'account login' },
+        );
     expect(response.ok()).toBeTruthy();
     const sessionCookie = response.headers()['set-cookie'] || '';
     const cookieValue = sessionCookie.match(/quant_session=([^;]+)/)?.[1] || '';
@@ -74,6 +94,17 @@ async function openOpenClaw(page, usernameSuffix) {
     await waitForAppReady(page);
     await expect(page.locator('#tab-openclaw')).toBeVisible();
     await dismissSetupModal(page);
+    await expect(page.locator('#openclaw-input')).toBeVisible();
+    await expect(page.locator('[data-openclaw-action="send"]')).toBeEnabled();
+}
+
+async function sendOpenClawMessage(page, message) {
+    await expect(page.locator('#openclaw-input')).toBeVisible();
+    await expect(page.locator('[data-openclaw-action="send"]')).toBeEnabled();
+    await page.locator('#openclaw-input').fill(message);
+    await page.locator('[data-openclaw-action="send"]').click();
+    await expect(page.locator('.openclaw-message.is-user').last()).toContainText(message);
+    await expect(page.locator('.openclaw-message.is-assistant').last()).toBeVisible();
 }
 
 test('openclaw avatar menu exposes the workspace and settings surfaces', async ({ page }) => {
@@ -153,8 +184,7 @@ test('OpenClaw starts collapsed and stop cancels a pending reply', async ({ page
         });
     });
 
-    await page.locator('#openclaw-input').fill('帮我分析 600519');
-    await page.locator('[data-openclaw-action="send"]').click();
+    await sendOpenClawMessage(page, '帮我分析 600519');
     await expect(page.locator('[data-openclaw-action="stop"]')).toBeVisible();
     await page.locator('[data-openclaw-action="stop"]').click();
 
@@ -172,13 +202,11 @@ test('OpenClaw rail can create, search, switch, and reload its own history', asy
     await openOpenClaw(page, 'rail_history');
 
     await page.locator('[data-openclaw-conv-action="new-chat"]').first().click();
-    await page.locator('#openclaw-input').fill('今天 600519 怎么样');
-    await page.locator('[data-openclaw-action="send"]').click();
+    await sendOpenClawMessage(page, '今天 600519 怎么样');
     await expect(page.locator('.openclaw-message.is-assistant').last()).toContainText('600519');
 
     await page.locator('[data-openclaw-conv-action="new-chat"]').first().click();
-    await page.locator('#openclaw-input').fill('帮我看 000001');
-    await page.locator('[data-openclaw-action="send"]').click();
+    await sendOpenClawMessage(page, '帮我看 000001');
     await expect(page.locator('.openclaw-message.is-assistant').last()).toContainText('000001');
 
     await page.locator('[data-openclaw-conv-action="toggle-rail"]').first().click();
@@ -238,6 +266,7 @@ test('OpenClaw skill commands show a local hint and backend skill-command status
     });
 
     await openOpenClaw(page, 'skill_cmd');
+    await expect(page.locator('#openclaw-input')).toBeVisible();
     await page.locator('#openclaw-input').fill('/skill record openclaw');
     await expect(page.locator('#openclaw-composer-hint')).toContainText('技能命令');
     await page.locator('[data-openclaw-action="send"]').click();

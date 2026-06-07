@@ -552,6 +552,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
     stock_count = len(storage.get_all_stock_codes())
     stock_daily = storage.get_stock_daily_coverage()
     watchlist = storage.get_watchlist(account["workspace"]["id"]) if account else []
+    signal_health = _load_signal_health()
     qlib_health = _load_qlib_health()
     full_daily_sync = _load_full_stock_daily_sync_status()
     shadow = _load_shadow_summary()
@@ -604,7 +605,7 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
             "quality": storage.get_data_quality_summary("valuation"),
         },
         "quote_quality": storage.get_data_quality_summary("quote"),
-        "signal": qlib_health,
+        "signal": signal_health,
         "qlib": qlib_health,
         "full_daily_sync": full_daily_sync,
         "shadow": shadow,

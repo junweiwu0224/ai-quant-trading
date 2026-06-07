@@ -269,11 +269,15 @@
                 : null;
             const valuation = summary.valuation_coverage_pct == null ? '--' : `${summary.valuation_coverage_pct}%`;
             const qlib = (summary.signal_coverage_pct ?? summary.qlib_coverage_pct) == null ? '--' : `${summary.signal_coverage_pct ?? summary.qlib_coverage_pct}%`;
+            const signalQuality = summary.signal_quality || {};
+            const signalBits = [`AI信号覆盖 ${qlib}`];
+            if (signalQuality.label) signalBits.push(String(signalQuality.label));
+            if (signalQuality.penalty_applied) signalBits.push('已降权');
             note.innerHTML = [
                 `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
                 `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
                 `<span class="coverage-pill">${watchlistCount == null ? '' : `自选 ${App.escapeHTML(String(watchlistCount))} 只 · `}样本 ${App.escapeHTML(String(total))} 只</span>`,
-                `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · AI ${App.escapeHTML(qlib)}</span>`,
+                `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · ${App.escapeHTML(signalBits.join(' · '))}</span>`,
             ].join('');
         },
 

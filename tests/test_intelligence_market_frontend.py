@@ -745,6 +745,7 @@ def test_intelligence_signal_pool_renders_validation_summary():
         (async () => {
             await Intelligence.loadMLPredictions();
             assert.deepEqual(calls, ['/api/signals/top?limit=50', '/api/signals/validation?top_n=50']);
+            assert.match(panel.innerHTML, /AI 信号池/);
             assert.match(panel.innerHTML, /验证摘要/);
             assert.match(panel.innerHTML, /样本 42 天/);
             assert.match(panel.innerHTML, /Top超额 \+1\.23%/);
@@ -753,6 +754,7 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /状态 验证偏正/);
             assert.match(panel.innerHTML, /可信口径/);
             assert.match(panel.innerHTML, /来源 历史预测缓存/);
+            assert.match(panel.innerHTML, /兼容 legacy_qlib/);
             assert.match(panel.innerHTML, /覆盖 5,197 只/);
             assert.match(panel.innerHTML, /展示 Top 2/);
             assert.match(panel.innerHTML, /生成 2026-06-07T12:30:00/);
@@ -837,12 +839,12 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence.js?v=5" in app_js
     assert "/static/intelligence-market.js?v=6" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=2" in app_js
+    assert "/static/intelligence-signals.js?v=3" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
     assert "/static/app.js?v=66" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v98" in service_worker
+    assert "ai-quant-v99" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

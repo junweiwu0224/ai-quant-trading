@@ -149,8 +149,8 @@ const App = {
             '/static/intelligence.js?v=5',
             '/static/intelligence-market.js?v=6',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=2',
-            '/static/research-datahub.js?v=11',
+            '/static/intelligence-signals.js?v=3',
+            '/static/research-datahub.js?v=12',
             '/static/research-valuation.js?v=15',
         ],
         stock: [
@@ -175,7 +175,7 @@ const App = {
             '/static/intelligence.js?v=5',
             '/static/intelligence-market.js?v=6',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=2',
+            '/static/intelligence-signals.js?v=3',
         ],
         llm: [
             '/static/llm.js?v=10',

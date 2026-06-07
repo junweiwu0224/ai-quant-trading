@@ -116,12 +116,15 @@
                 const total = preds.length;
                 const totalUniverse = Number(data.total) || total;
                 const rawSource = signalRawSourceName(data.raw_source || data.source || data.provider);
+                const rawSourceKey = String(data.raw_source || data.source || '').trim();
+                const legacySourceNote = rawSourceKey ? `兼容 ${rawSourceKey}` : 'Signal Engine';
                 const generatedAt = data.generated_at || data.updated_at || '--';
                 const validationDays = validation ? String(validation.sample_days ?? 0) : '0';
                 const trustSummary = `
                     <div class="qlib-trust-summary">
                         <span class="qlib-trust-title">可信口径</span>
                         <span>来源 ${App.escapeHTML(rawSource)}</span>
+                        <span>${App.escapeHTML(legacySourceNote)}</span>
                         <span>覆盖 ${App.escapeHTML(formatCount(totalUniverse))} 只</span>
                         <span>展示 Top ${App.escapeHTML(formatCount(total))}</span>
                         <span>生成 ${App.escapeHTML(generatedAt)}</span>
@@ -176,6 +179,7 @@
                 el.innerHTML = `
                     <div class="qlib-header">
                         <div class="qlib-header-left">
+                                <span class="qlib-trust-title">AI 信号池</span>
 	                            <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">信号日期: ${App.escapeHTML(dateStr)}</span>
 	                            <span class="qlib-total">${App.escapeHTML(data.provider || 'local_momentum')} · ${App.escapeHTML(data.model_version || '--')} · 全市场 ${formatCount(totalUniverse)} 只 · Top ${formatCount(total)} · ${App.escapeHTML(confidenceLabel)}</span>
                         </div>

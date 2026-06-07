@@ -303,6 +303,35 @@ class TestValuationDataHubAPI:
         assert "daily_covered" in data["stock_daily"]
         assert "full_daily_sync" in data
 
+    def test_datahub_health_uses_signal_health_not_legacy_qlib_health(self, monkeypatch):
+        from dashboard.routers import datahub
+
+        monkeypatch.setattr(datahub, "_load_signal_health", lambda: {
+            "status": "online",
+            "provider": "local_momentum",
+            "model_version": "local_momentum_v1",
+            "validation": {
+                "status": "validated",
+                "confidence": "validated_positive",
+                "sample_days": 12,
+                "metrics": {"1d": {"rank_ic": 0.08}},
+            },
+        })
+        monkeypatch.setattr(datahub, "_load_qlib_health", lambda: {
+            "status": "stale",
+            "cache_age_label": "2天",
+            "sync_status": {"status": "legacy"},
+        })
+
+        res = client.get("/api/datahub/health")
+
+        assert res.status_code == 200
+        payload = res.json()
+        assert payload["signal"]["provider"] == "local_momentum"
+        assert payload["signal"]["validation"]["confidence"] == "validated_positive"
+        assert payload["qlib"]["status"] == "stale"
+        assert "provider" not in payload["qlib"]
+
     def test_datahub_decision_matrix_includes_snapshot_metadata(self, monkeypatch):
         storage = DataStorage()
         storage.save_data_snapshot(

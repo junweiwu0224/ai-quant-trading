@@ -34,7 +34,16 @@ def _minimal_context_pack(root: Path) -> None:
     _write(root / "docs/testing.md", ".venv/bin/python -m pytest tests/test_signal_engine.py -q\n")
     _write(root / "docs/quality-gates.md", ".venv/bin/python scripts/frontend_data_render_audit.py\n")
     _write(root / "docs/codex-playbook.md", "不要假设存在 `python` 命令。\n")
-    _write(root / "docs/codex-usage.md", "| 2026-06-07 | baseline |\n")
+    _write(
+        root / "docs/codex-usage.md",
+        "\n".join(
+            [
+                "| 2026-06-07 | baseline |",
+                "## 周期复盘",
+                "## 阶段复盘：5 次真实试跑后",
+            ]
+        ),
+    )
 
 
 def test_check_context_pack_accepts_minimal_valid_pack(tmp_path):
@@ -95,12 +104,32 @@ def test_check_context_pack_allows_historical_failure_in_usage_log(tmp_path):
     _minimal_context_pack(tmp_path)
     _write(
         tmp_path / "docs/codex-usage.md",
-        "曾经运行 `python scripts/frontend_data_render_audit.py` 失败，后来改用 `.venv/bin/python`。\n",
+        "\n".join(
+            [
+                "曾经运行 `python scripts/frontend_data_render_audit.py` 失败，后来改用 `.venv/bin/python`。",
+                "## 周期复盘",
+                "## 阶段复盘：5 次真实试跑后",
+            ]
+        ),
     )
 
     issues = check_context_pack(tmp_path)
 
     assert not any(issue.code == "bare-python-command" for issue in issues)
+
+
+def test_check_context_pack_requires_usage_review_mechanism(tmp_path):
+    _minimal_context_pack(tmp_path)
+    _write(tmp_path / "docs/codex-usage.md", "| 2026-06-07 | baseline |\n")
+
+    issues = check_context_pack(tmp_path)
+
+    assert ContextPackIssue(
+        severity="error",
+        code="missing-usage-review",
+        path="docs/codex-usage.md",
+        message="docs/codex-usage.md must include periodic or stage review guidance.",
+    ) in issues
 
 
 def test_check_context_pack_requires_npm_test_warning(tmp_path):

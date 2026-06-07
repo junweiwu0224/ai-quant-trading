@@ -57,3 +57,45 @@ def test_qlib_top_api_is_legacy_signal_adapter(client, monkeypatch, tmp_path):
     assert payload["model_version"] == "local_momentum_v1"
     assert payload["predictions"][0]["code"] == "600519"
     assert payload["predictions"][0]["signal_provider"] == "local_momentum"
+
+
+def test_signal_train_routes_are_primary_aliases(client, monkeypatch):
+    from dashboard.routers import qlib as qlib_router
+
+    called_urls = []
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url):
+            called_urls.append(url)
+            return MockResponse({"success": True, "message": "started"})
+
+        async def get(self, url):
+            called_urls.append(url)
+            return MockResponse({"training": False})
+
+    monkeypatch.setattr(qlib_router.httpx, "AsyncClient", MockAsyncClient)
+
+    train_resp = client.post("/api/signals/train")
+    status_resp = client.get("/api/signals/train/status")
+
+    assert train_resp.status_code == 200
+    assert status_resp.status_code == 200
+    assert train_resp.json() == {"success": True, "message": "started"}
+    assert status_resp.json() == {"training": False}
+    assert called_urls == [qlib_router.QLIB_TRAIN_URL, qlib_router.QLIB_TRAIN_STATUS_URL]

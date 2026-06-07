@@ -71,7 +71,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=3" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=66" in scripts
+    assert "/static/app.js?v=67" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -85,7 +85,12 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "scope === 'signal'" in datahub
     assert "scope === 'signal'" in valuation
     assert "trainSignalModel" in paper
+    assert "globalThis.Paper = Paper" in paper
     assert "开始刷新 AI 信号模型" in paper
+    assert "App.fetchJSON('/api/signals/train', { method: 'POST' })" in paper
+    assert "App.fetchJSON('/api/signals/train/status')" in paper
+    assert "App.fetchJSON('/api/qlib/train'" not in paper
+    assert "App.fetchJSON('/api/qlib/train/status')" not in paper
     assert "qlib 训练" not in paper
     assert "基于 AI 信号分数" in manager
     assert "qlib 预测缓存不存在" not in backtest
@@ -184,7 +189,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=66" in scripts
+    assert "/static/app.js?v=67" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=21" in scripts
@@ -199,7 +204,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=6" in scripts
     assert "/static/overview-radar.js?v=6" in app
-    assert "/static/paper.js?v=9" in app
+    assert "/static/paper.js?v=10" in app
     assert "/static/paper-trading.js?v=6" in app
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app

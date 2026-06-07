@@ -131,7 +131,7 @@ const Paper = {
         const btn = document.getElementById('pp-train-btn');
         try {
             if (btn) { btn.disabled = true; btn.textContent = '训练中...'; }
-            const data = await App.fetchJSON('/api/qlib/train', { method: 'POST' });
+            const data = await App.fetchJSON('/api/signals/train', { method: 'POST' });
             if (data.success) {
                 App.toast('AI 信号模型刷新已启动，请稍后查看预测结果', 'success');
                 this._pollTrainStatus();
@@ -152,7 +152,7 @@ const Paper = {
     async _pollTrainStatus() {
         const check = async () => {
             try {
-                const data = await App.fetchJSON('/api/qlib/train/status');
+                const data = await App.fetchJSON('/api/signals/train/status');
                 if (data.training) {
                     setTimeout(check, 10000);
                 } else {
@@ -188,3 +188,5 @@ const Paper = {
         }
     },
 };
+
+globalThis.Paper = Paper;

@@ -93,3 +93,19 @@ async def signal_validation(
         top_n=top_n,
     )
     return {"success": True, **summary.to_dict()}
+
+
+@router.post("/train")
+async def train_signal_model():
+    """触发 AI 信号模型刷新。"""
+    from dashboard.routers.qlib import qlib_train
+
+    return await qlib_train()
+
+
+@router.get("/train/status")
+async def signal_train_status():
+    """查询 AI 信号模型刷新状态。"""
+    from dashboard.routers.qlib import qlib_train_status
+
+    return await qlib_train_status()

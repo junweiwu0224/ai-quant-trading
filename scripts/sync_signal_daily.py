@@ -1,4 +1,4 @@
-"""Legacy wrapper for AI signal daily coverage synchronization."""
+"""Sync representative A-share daily bars for AI signal coverage."""
 from __future__ import annotations
 
 import sys
@@ -18,14 +18,14 @@ from scripts.signal_daily_sync_cli import parse_codes, run_signal_daily_sync
 @click.option("--generate-predictions", is_flag=True, help="同步后生成 AI 信号缓存")
 @click.option("--min-success", default=2, show_default=True, type=int, help="生成信号所需最少成功股票数")
 def main(codes: tuple[str, ...], count: int, limit: int, generate_predictions: bool, min_success: int) -> None:
-    """兼容旧命令：同步 AI 信号覆盖池所需的代表性 A 股日线。"""
+    """同步 AI 信号覆盖池所需的代表性 A 股日线。"""
     run_signal_daily_sync(
         codes=codes,
         count=count,
         limit=limit,
         generate_predictions=generate_predictions,
         min_success=min_success,
-        source="legacy_qlib_cli",
+        source="signal_cli",
     )
 
 

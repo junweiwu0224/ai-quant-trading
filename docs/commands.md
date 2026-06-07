@@ -98,7 +98,7 @@ npm run e2e:docker
 ```bash
 .venv/bin/python scripts/init_db.py
 .venv/bin/python scripts/sync_data.py
-.venv/bin/python scripts/sync_qlib_daily.py
+.venv/bin/python scripts/sync_signal_daily.py
 .venv/bin/python scripts/sync_full_stock_daily.py
 .venv/bin/python scripts/verify_datasource.py
 .venv/bin/python scripts/run_backtest.py
@@ -106,7 +106,7 @@ npm run e2e:docker
 .venv/bin/python scripts/run_live.py
 ```
 
-这些命令可能写入本地数据库、同步外部数据、启动交易相关流程或依赖外部服务。除非任务明确需要，优先只读检查；运行前确认影响范围。
+这些命令可能写入本地数据库、同步外部数据、启动交易相关流程或依赖外部服务。`scripts/sync_signal_daily.py` 是 AI 信号覆盖池主入口，旧 `scripts/sync_qlib_daily.py` 仅保留兼容。除非任务明确需要，优先只读检查；运行前确认影响范围。
 
 ## 待确认
 

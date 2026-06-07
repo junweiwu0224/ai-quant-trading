@@ -175,6 +175,18 @@ def test_parse_codes_accepts_repeated_and_comma_separated_values():
     ]
 
 
+def test_signal_daily_cli_is_primary_alias_with_signal_wording():
+    import scripts.sync_signal_daily as signal_cli
+
+    assert signal_cli.parse_codes(["600519,000001", " 300750 "]) == [
+        "600519",
+        "000001",
+        "300750",
+    ]
+    assert "AI 信号覆盖池" in signal_cli.main.help
+    assert "Qlib 机会池" not in signal_cli.main.help
+
+
 def test_build_default_coverage_codes_merges_representative_watchlist_and_fallback():
     from data.qlib.candidates import build_default_coverage_codes
 

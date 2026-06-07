@@ -248,6 +248,78 @@ def test_intelligence_news_renders_source_and_count():
     assert result.returncode == 0, result.stderr
 
 
+def test_intelligence_news_empty_state_keeps_timestamp_and_source_context():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const list = makeElement('intel-news-list');
+        const count = makeElement('intel-news-count');
+        const timestamp = makeElement('intel-timestamp');
+        const elements = {
+            'intel-news-list': list,
+            'intel-news-count': count,
+            'intel-timestamp': timestamp,
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/news');
+                return {
+                    success: true,
+                    timestamp: '2026-06-06T23:20:00',
+                    source: '本地市场新闻',
+                    news: [],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadNews();
+            assert.equal(String(count.textContent), '0');
+            assert.equal(timestamp.textContent, '2026-06-06T23:20:00');
+            assert.match(list.innerHTML, /暂无市场新闻/);
+            assert.match(list.innerHTML, /本地市场新闻/);
+            assert.match(list.innerHTML, /2026-06-06T23:20:00/);
+            assert.doesNotMatch(list.innerHTML, /加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_intelligence_signal_bar_uses_full_market_breadth_only():
     script = textwrap.dedent(
         r"""
@@ -309,7 +381,7 @@ def test_intelligence_signal_bar_uses_full_market_breadth_only():
         };
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
-        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-qlib.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-signals.js', 'utf8'));
 
         (async () => {
             await Intelligence.loadSignalBar();
@@ -485,7 +557,7 @@ def test_intelligence_signal_pool_renders_validation_summary():
             toast: () => {},
         };
 
-        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-qlib.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-signals.js', 'utf8'));
 
         (async () => {
             await Intelligence.loadMLPredictions();
@@ -497,7 +569,63 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /Rank IC 0\.071/);
             assert.match(panel.innerHTML, /状态 验证偏正/);
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证偏正<\/td>/);
+            assert.match(panel.innerHTML, /信号日期: 2026-06-05/);
+            assert.doesNotMatch(panel.innerHTML, /qlib LightGBM/i);
             assert.doesNotMatch(panel.innerHTML, />validated_positive</);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_load_retries_failed_signal_pool_after_other_modules_succeed():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = global;
+        global.document = {
+            readyState: 'complete',
+            addEventListener: () => {},
+        };
+        global.__AUTH_GATE_REQUIRED__ = false;
+        global.App = {
+            registerContext: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+
+        let newsCalls = 0;
+        let signalCalls = 0;
+        Intelligence.loadNews = async () => {
+            newsCalls += 1;
+        };
+        Intelligence.loadMLPredictions = async () => {
+            signalCalls += 1;
+            if (signalCalls === 1) {
+                throw new Error('temporary signal failure');
+            }
+        };
+
+        (async () => {
+            const first = await Intelligence.load();
+            assert.deepEqual(first.map((item) => item.status), ['fulfilled', 'rejected']);
+            assert.equal(Intelligence.state.loaded, false);
+            assert.equal(signalCalls, 1);
+
+            const second = await Intelligence.load();
+            assert.deepEqual(second.map((item) => item.status), ['fulfilled']);
+            assert.equal(signalCalls, 2);
+            assert.equal(newsCalls, 1);
+            assert.equal(Intelligence.state.loaded, true);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -517,14 +645,17 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     app_ui_shell = Path("dashboard/static/app-ui-shell.js").read_text(encoding="utf-8")
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
-    assert "/static/intelligence.js?v=4" in app_js
+    assert "/static/intelligence.js?v=5" in app_js
     assert "/static/intelligence-market.js?v=5" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-qlib.js?v=5" in app_js
-    assert "/static/app.js?v=59" in scripts
-    assert "/static/app-ui-shell.js?v=19" in scripts
-    assert "/sw.js?v=20" in app_ui_shell
-    assert "ai-quant-v90" in service_worker
+    assert "/static/intelligence-signals.js?v=1" in app_js
+    assert "/static/intelligence-qlib.js" not in app_js
+    assert "/static/app.js?v=60" in scripts
+    assert "/static/app-ui-shell.js?v=20" in scripts
+    assert "/sw.js?v=21" in app_ui_shell
+    assert "ai-quant-v92" in service_worker
+    assert "/static/intelligence-signals.js" in service_worker
+    assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles
     assert ".intel-hotspot-status" in styles
     assert ".intel-hotspot-evidence" in styles

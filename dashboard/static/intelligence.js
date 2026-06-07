@@ -19,6 +19,7 @@
                 watchlistCodes: [],
                 query: '',
             },
+            loadedModules: {},
         },
 
         init() {
@@ -138,21 +139,29 @@
         },
 
         async load() {
-            const loaders = [
-                this.loadSentiment,
-                this.loadNews,
-                this.loadHeatmap,
-                this.loadHotspot,
-                this.loadMLPredictions,
-                this.loadSignalBar,
-            ].filter((fn) => typeof fn === 'function');
+            const loaderDefs = [
+                ['sentiment', this.loadSentiment],
+                ['news', this.loadNews],
+                ['heatmap', this.loadHeatmap],
+                ['hotspot', this.loadHotspot],
+                ['signals', this.loadMLPredictions],
+                ['signalBar', this.loadSignalBar],
+            ].filter(([, fn]) => typeof fn === 'function');
+            const loadedModules = this.state.loadedModules || (this.state.loadedModules = {});
+            const pendingLoaders = loaderDefs.filter(([name]) => loadedModules[name] !== true);
 
-            if (this.state.loaded || loaders.length === 0) return;
+            if (this.state.loaded || pendingLoaders.length === 0) return;
             if (this.state.loadingPromise) return this.state.loadingPromise;
 
-            this.state.loadingPromise = Promise.allSettled(loaders.map((fn) => fn.call(this)))
+            this.state.loadingPromise = Promise.allSettled(pendingLoaders.map(([, fn]) => fn.call(this)))
                 .then((results) => {
-                    this.state.loaded = results.some((result) => result.status === 'fulfilled');
+                    results.forEach((result, index) => {
+                        const [name] = pendingLoaders[index];
+                        if (result.status === 'fulfilled') {
+                            loadedModules[name] = true;
+                        }
+                    });
+                    this.state.loaded = loaderDefs.every(([name]) => loadedModules[name] === true);
                     return results;
                 })
                 .finally(() => {

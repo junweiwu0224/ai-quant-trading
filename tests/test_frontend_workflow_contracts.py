@@ -54,6 +54,37 @@ def test_data_scope_notes_are_visible_for_research_workbenches():
     assert "估值服务全市场扫描，非本地日线全量" in valuation
 
 
+def test_signal_engine_is_primary_frontend_semantics():
+    app = read("dashboard/static/app.js")
+    scripts = read("dashboard/templates/partials/scripts.html")
+    template = read("dashboard/templates/index.html")
+    datahub = read("dashboard/static/research-datahub.js")
+    valuation = read("dashboard/static/research-valuation.js")
+    overview = read("dashboard/static/overview.js")
+    paper = read("dashboard/static/paper.js")
+    manager = read("strategy/manager.py")
+
+    assert "/static/intelligence-signals.js?v=1" in app
+    assert "/static/intelligence-qlib.js" not in app
+    assert "/static/app.js?v=60" in scripts
+
+    assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
+    assert '<option value="signal">AI 信号 Top</option>' in template
+    assert '<option value="signal" selected>AI信号覆盖池</option>' in template
+    assert 'ML 信号策略 (qlib)' not in template
+    assert 'title="重新训练 qlib ML 模型"' not in template
+
+    assert "_overviewOpportunityScope: 'signal'" in overview
+    assert "scope === 'qlib' ? 'signal' : scope" in overview
+    assert "query.set('scope', requestedScope)" in overview
+    assert "scope === 'signal'" in datahub
+    assert "scope === 'signal'" in valuation
+    assert "trainSignalModel" in paper
+    assert "开始刷新 AI 信号模型" in paper
+    assert "qlib 训练" not in paper
+    assert "基于 AI 信号分数" in manager
+
+
 def test_open_paper_buy_defaults_to_trade_subtab_and_focuses_order_form():
     adapter = read("dashboard/static/core/business-adapter.js")
 
@@ -79,28 +110,30 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=46" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=59" in scripts
+    assert "/static/app.js?v=60" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=21" in scripts
-    assert "/static/app-ui-shell.js?v=19" in scripts
+    assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/static/app-workbench.js?v=2" in scripts
     assert "/static/openclaw-workbench.js?v=22" in scripts
     assert "/static/app-bootstrap.js?v=21" in scripts
-    assert "/static/overview.js?v=17" in scripts
-    assert "/static/overview.js?v=17" in app
+    assert "/static/overview.js?v=18" in scripts
+    assert "/static/overview.js?v=18" in app
     assert "/static/alerts.js?v=4" in scripts
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=6" in scripts
     assert "/static/overview-radar.js?v=6" in app
+    assert "/static/paper.js?v=9" in app
     assert "/static/paper-trading.js?v=6" in app
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
-    assert "/static/research-datahub.js?v=10" in app
-    assert "/static/research-valuation.js?v=13" in app
+    assert "/static/research-datahub.js?v=11" in app
+    assert "/static/research-valuation.js?v=14" in app
     assert "/static/stock-detail-core.js?v=6" in app
     assert "/static/openclaw-workbench.js?v=22" in app
+    assert "/static/intelligence.js?v=5" in app
 
     assert "minQueryLength" in search
     assert "minQueryLength: 1" in watchlist

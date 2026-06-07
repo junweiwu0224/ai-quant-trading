@@ -191,7 +191,15 @@
                 if (timestampEl && data.timestamp) timestampEl.textContent = data.timestamp;
 
                 if (news.length === 0) {
-                    el.innerHTML = '<div class="text-muted text-center">暂无新闻</div>';
+                    const source = data.source || '市场新闻';
+                    const timestamp = data.timestamp || '暂无更新时间';
+                    el.innerHTML = `<div class="text-muted text-center intel-news-empty">
+                        <div>暂无市场新闻</div>
+                        <div class="intel-news-meta">
+                            <span>${safeHTML(source)}</span>
+                            <span>${safeHTML(timestamp)}</span>
+                        </div>
+                    </div>`;
                     return;
                 }
 

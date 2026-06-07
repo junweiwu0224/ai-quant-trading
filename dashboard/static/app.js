@@ -84,7 +84,7 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=17',
+            '/static/overview.js?v=18',
             '/static/overview-radar.js?v=6',
             '/static/alerts.js?v=4',
         ],
@@ -104,7 +104,7 @@ const App = {
             '/static/risk-alerts.js?v=2',
         ],
         paper: [
-            '/static/paper.js?v=8',
+            '/static/paper.js?v=9',
             '/static/paper-trading.js?v=6',
             '/static/paper-trading-trade.js?v=1',
             '/static/paper-trading-position.js?v=1',
@@ -146,12 +146,12 @@ const App = {
             '/static/optimization.js?v=2',
             '/static/factor.js?v=1',
             '/static/portfolio-opt.js?v=1',
-            '/static/intelligence.js?v=4',
+            '/static/intelligence.js?v=5',
             '/static/intelligence-market.js?v=5',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-qlib.js?v=5',
-            '/static/research-datahub.js?v=10',
-            '/static/research-valuation.js?v=13',
+            '/static/intelligence-signals.js?v=1',
+            '/static/research-datahub.js?v=11',
+            '/static/research-valuation.js?v=14',
         ],
         stock: [
             '/static/stock-detail.js?v=7',
@@ -172,10 +172,10 @@ const App = {
             '/static/stock-detail-data.js?v=1',
         ],
         intelligence: [
-            '/static/intelligence.js?v=4',
+            '/static/intelligence.js?v=5',
             '/static/intelligence-market.js?v=5',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-qlib.js?v=5',
+            '/static/intelligence-signals.js?v=1',
         ],
         llm: [
             '/static/llm.js?v=10',

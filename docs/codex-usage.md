@@ -26,6 +26,10 @@
 | 2026-06-07 | 真实试跑 #4：hooks 候选集设计 | M | 质量门禁副作用分级、hooks 策略复盘 | 只读盘点 `.gitignore`、`docs/quality-gates.md`、`docs/testing.md`；未启用 hooks；更新后 `.venv/bin/python scripts/verify_context_pack.py` 复测 | 正信号：副作用分级帮助发现 `.venv/bin/python -m compileall -q .` 会写 `__pycache__/`、`frontend_data_render_audit.py` 会写 `test-results/`，二者不应列为严格无写入 hook；context pack verifier 适合默认阻断候选 | 当前只文档化候选集；后续若启用 hooks，先从 `verify_context_pack` 和稳定针对性 pytest 小集合开始 |
 | 2026-06-07 | 真实试跑 #5：subagents 并行边界校准 | M | Superpowers `dispatching-parallel-agents`、两个只读 explorer、主 agent 集成 | 两个 explorer 只读分析前端和后端/API/data 边界；未改文件、未启动服务、未发外部请求；主 agent 更新 `docs/subagents.md` 后运行 context pack 验证 | 正信号：前端可按页面/数据域拆，后端可按独立 router/service/provider 拆；负信号：公共脚本加载链、service worker、全局 `App`、storage/schema、TestClient lifespan、paper/live trading 和共享 contract 测试都必须主 agent 串行控制 | 已把项目并行分组、禁止并行区、prompt 约束和推荐集成验证沉淀到 `docs/subagents.md`；后续真实实现任务再观察 subagents 是否实际减少耗时和返工 |
 | 2026-06-07 | 真实实现任务 #1：context pack verifier 检查 usage 阶段复盘机制 | S | Superpowers TDD、context pack 验证、debug-loop 纠正误跑命令 | RED：新增 `test_check_context_pack_requires_usage_review_mechanism` 后目标测试按预期失败；GREEN：目标测试通过，`tests/test_verify_context_pack.py` 为 `12 passed, 1 warning`，`.venv/bin/python scripts/verify_context_pack.py` 输出 `Context pack OK`；模板同步后 `11 passed`，正确路径下 `repo-template` verifier 输出 `Context pack OK` | 正信号：TDD 能低成本验证 context pack 门禁确实抓到流程退化；负信号：模板验证命令若在错误工作目录传错 root，会产生误报，debug-loop 能快速定位为命令路径问题而非代码问题 | 已同步到 workflow kit 模板；后续继续用小型真实实现任务验证 targeted pytest + context pack verifier 是否保持低成本 |
+| 2026-06-07 | 真实实现任务 #2：`run_dashboard --no-qlib` 不注入默认 Qlib URL | S | 轻量 Superpowers TDD、targeted pytest、context pack 验证 | RED：`test_run_dashboard_no_qlib_does_not_set_default_service_url` 先失败，显示 `--no-qlib` 仍设置 `http://127.0.0.1:8314`；GREEN：目标测试通过，`tests/test_run_dashboard.py` 为 `4 passed, 1 warning`；`.venv/bin/python scripts/verify_context_pack.py` 输出 `Context pack OK` | 正信号：针对性 pytest 能很快覆盖启动脚本行为且不启动服务；负信号：无需 subagent 或 hooks，S 级单文件逻辑改动保持本地 TDD 更快 | 继续用小型真实任务观察 targeted pytest 是否足够；若 `run_dashboard` 行为继续扩展，再考虑把启动脚本测试加入更明确的快速门禁候选 |
+| 2026-06-07 | 真实实现任务 #3：Intelligence 新闻空状态保留来源和时间上下文 | S | 轻量 Superpowers TDD、前端 Node VM 契约测试、frontend-qa 风险判断 | RED：新增 `test_intelligence_news_empty_state_keeps_timestamp_and_source_context` 先失败，旧 HTML 只有 `暂无新闻`；GREEN：目标测试通过，`tests/test_intelligence_market_frontend.py` 为 `12 passed, 1 warning`；`.venv/bin/python scripts/verify_context_pack.py` 输出 `Context pack OK` | 正信号：独立前端 slice 可用 Node VM 契约测试快速验证 empty state，不必启动 Dashboard；负信号：用户可见 UI 改动仍需要显式判断是否升级到浏览器 QA，本次因只改空状态 HTML 且启动 Dashboard 成本更高，未做浏览器 smoke | 继续观察哪些前端契约测试可作为快速门禁候选；涉及布局/CSS/交互时再升级到真实浏览器验证 |
+| 2026-06-07 | 真实实现任务 #4：策略导入 overrides 只接受有效内置参数 | S | 轻量 Superpowers TDD、targeted pytest | RED：`test_import_overrides_ignores_unknown_or_invalid_builtin_overrides` 先失败，显示 `overrides` 导入未过滤未知策略和非 dict 参数；GREEN：目标测试通过，`tests/test_strategy.py` 为 `7 passed, 1 warning` | 正信号：后端纯 Python slice 可用临时文件测试覆盖，不启动 Dashboard、不碰真实数据；负信号：该测试集此前未列入 Level 1 候选，说明策略管理类改动需要按影响范围选择额外 targeted pytest | 后续若策略导入/导出继续变更，可考虑把 `tests/test_strategy.py` 加入对应改动类型的快速门禁候选 |
+| 2026-06-07 | 真实实现任务 #5：Overview 状态条优先显示 `signal_sync_status` | S | 轻量 Superpowers TDD、前端 Node VM 契约测试 | RED：新增 `test_overview_opportunity_status_prefers_signal_sync_status` 先失败，状态条仍显示旧 `qlib_sync_status` 的 `同步 9/9`；GREEN：目标测试通过，`tests/test_overview_opportunity_frontend.py` 为 `6 passed, 1 warning` | 正信号：AI 信号语义迁移可通过局部 Node VM 契约测试覆盖，无需启动 Dashboard；负信号：大面积前端 dirty worktree 下要优先选择局部函数级契约，避免踩共享入口和用户已有改动 | 继续观察 signal/qlib 兼容字段是否需要系统性收敛；涉及页面布局或交互时再升级 browser smoke |
 
 ## 阶段复盘：5 次真实试跑后
 
@@ -54,6 +58,24 @@
 
 - 用 3 个真实实现任务验证：context pack verifier 是否继续低误报、针对性 pytest 是否足够、subagents 是否真实减少耗时而不是增加集成成本。
 - 若连续多次只需要同一组命令，再考虑把它们晋升到 `docs/quality-gates.md` 的更明确候选，或包装成项目脚本。
+
+## 小复盘：3 个真实实现任务后
+
+结论基于 2026-06-07 的 3 个 S 级真实实现任务：context pack verifier 规则扩展、`run_dashboard --no-qlib` 行为修正、Intelligence 新闻空状态前端契约调整。
+
+可以升级到更明确 Level 1 候选：
+
+- `.venv/bin/python scripts/verify_context_pack.py`：三次实现后仍保持低成本、低副作用，适合作为文档/context pack 和交付收口的默认轻量门禁。
+- `.venv/bin/python -m pytest tests/test_verify_context_pack.py -q`：适合 context pack verifier、repo 规则和 workflow kit 模板同步相关改动。
+- `.venv/bin/python -m pytest tests/test_run_dashboard.py -q`：适合 Dashboard 启动脚本、环境变量路由和 `--no-*` 选项行为改动。
+- `.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -q`：适合 Intelligence 市场页 JS 契约、empty/loading/error/data rendering slice 改动。
+
+仍不升级为默认自动 hook：
+
+- 不把上述 pytest 每次全部运行；按受影响范围选择，避免 S 级任务被固定流程拖慢。
+- 不启用项目级 hooks；当前证据支持文档化候选，不足以自动阻断所有 commit。
+- 不包装新的统一脚本入口；只有当后续多次总是运行同一组命令且耗时稳定，再考虑新增脚本。
+- 前端用户可见改动仍需显式判断是否升级到 browser smoke；布局、CSS、交互、资源加载和跨 viewport 风险不能只依赖 Node VM 契约测试。
 
 ## 周期复盘
 

@@ -604,28 +604,31 @@ async def datahub_health(account: dict | None = Depends(optional_account)):
             "quality": storage.get_data_quality_summary("valuation"),
         },
         "quote_quality": storage.get_data_quality_summary("quote"),
+        "signal": qlib_health,
         "qlib": qlib_health,
         "full_daily_sync": full_daily_sync,
         "shadow": shadow,
         "providers": {
             "market": "mootdx + eastmoney + tencent fallback",
             "valuation": "eastmoney analyst consensus adapter",
-            "ml": "qlib prediction cache",
+            "ml": "signal prediction cache",
         },
     }
 
 
 @router.get("/decision-matrix")
 async def decision_matrix(
-    scope: str = Query("watchlist", pattern="^(watchlist|codes|qlib)$"),
+    scope: str = Query("watchlist", pattern="^(watchlist|codes|signal|qlib)$"),
     codes: str = Query("", description="逗号分隔股票代码"),
     limit: int = Query(30, ge=1, le=80),
     fast: bool = Query(False, description="跳过外部估值源，快速返回行情/AI预览"),
     force_fallback: bool = Query(False, description="强制使用默认候选池"),
     account: dict = Depends(current_account),
 ):
-    """Merge valuation, qlib prediction and quote health into one research table."""
+    """Merge valuation, AI signal ranking and quote health into one research table."""
 
+    requested_scope = scope
+    signal_scope = "signal" if scope == "qlib" else scope
     storage = DataStorage()
     signal_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
     signal_health = _load_signal_health()
@@ -641,17 +644,17 @@ async def decision_matrix(
         selected_codes = _fallback_seed_codes(storage, limit)
         used_fallback = bool(selected_codes)
         fallback_reason = "forced_default"
-    elif scope == "watchlist":
+    elif signal_scope == "watchlist":
         selected_codes = storage.get_watchlist(account["workspace"]["id"])
-    elif scope == "qlib":
+    elif signal_scope == "signal":
         selected_codes = signal_ctx["ordered_codes"][:limit]
     else:
         selected_codes = [item.strip() for item in codes.split(",") if item.strip()]
     selected_codes = _dedupe_codes(selected_codes)[:limit]
-    if not selected_codes and scope in {"watchlist", "qlib"}:
+    if not selected_codes and signal_scope in {"watchlist", "signal"}:
         selected_codes = _fallback_seed_codes(storage, limit)
         used_fallback = bool(selected_codes)
-        fallback_reason = "watchlist_empty" if scope == "watchlist" else "qlib_empty"
+        fallback_reason = "watchlist_empty" if signal_scope == "watchlist" else "signal_empty"
 
     stock_map = _stock_info_map(storage)
     local_quotes = _local_quote_map(storage, selected_codes)
@@ -797,7 +800,7 @@ async def decision_matrix(
 
     return {
         "success": True,
-        "scope": scope,
+        "scope": requested_scope,
         "items": matrix_items,
         "summary": {
             "total": total,

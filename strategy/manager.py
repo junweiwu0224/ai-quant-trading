@@ -69,9 +69,9 @@ BUILTIN_STRATEGIES = [
         "name": "qlib_signal",
         "label": "ML 信号策略",
         "type": "机器学习",
-        "description": "基于 qlib LightGBM 预测分数的量化信号策略。支持绝对阈值和截面排名两种模式。",
+        "description": "基于 AI 信号分数的量化信号策略。支持绝对阈值和截面排名两种模式。",
         "params": {"mode": "absolute", "top_n": 3, "buy_threshold": 0.5, "sell_threshold": -0.3, "position_pct": 0.9, "score_normalize": True},
-        "tags": ["ML", "qlib", "机器学习"],
+        "tags": ["ML", "AI信号", "机器学习"],
         "builtin": True,
     },
 ]
@@ -271,8 +271,16 @@ class StrategyManager:
 
         # 导入参数覆盖
         if data.get("overrides") and overwrite:
-            self._overrides.update(data["overrides"])
-            self._save()
+            builtin_names = {s["name"] for s in BUILTIN_STRATEGIES}
+            valid_overrides = {
+                name: params
+                for name, params in data["overrides"].items()
+                if name in builtin_names and isinstance(params, dict)
+            }
+            if valid_overrides:
+                self._overrides.update(valid_overrides)
+                self._save()
+                imported += len(valid_overrides)
 
         return {"imported": imported, "skipped": skipped, "errors": errors}
 

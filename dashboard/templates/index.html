@@ -281,7 +281,7 @@
                     </div>
                     <div class="opportunity-card-actions">
                         <div class="opportunity-scope-toggle" role="group" aria-label="机会池范围">
-                            <button class="active" type="button" data-ov-opportunity-scope="qlib" aria-pressed="true">AI信号 Top</button>
+                            <button class="active" type="button" data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>
                             <button type="button" data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>
                         </div>
                         <button class="btn btn-sm" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">看完整矩阵</button>
@@ -900,7 +900,7 @@
                             <div class="datahub-toolbar">
                                 <select id="datahub-scope" aria-label="数据中枢范围">
                                     <option value="watchlist" selected>自选股</option>
-                                    <option value="qlib">AI 信号 Top</option>
+                                    <option value="signal">AI 信号 Top</option>
                                     <option value="codes">指定股票</option>
                                 </select>
                                 <button class="btn btn-sm" id="datahub-refresh-btn">刷新</button>
@@ -961,7 +961,7 @@
                             </div>
                             <div class="valuation-toolbar">
                                 <select id="valuation-scope" aria-label="估值范围">
-                                    <option value="qlib" selected>AI信号覆盖池</option>
+                                    <option value="signal" selected>AI信号覆盖池</option>
                                     <option value="watchlist">自选股</option>
                                     <option value="codes">指定股票</option>
                                     <option value="all">全市场</option>
@@ -2321,7 +2321,7 @@
                                     <option value="rsi">RSI 策略</option>
                                     <option value="macd">MACD 策略</option>
                                     <option value="kdj">KDJ 策略</option>
-                                    <option value="qlib_signal">ML 信号策略 (qlib)</option>
+                                    <option value="qlib_signal">AI 信号策略</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -2350,7 +2350,7 @@
                                     <button type="button" class="btn btn-primary" id="pp-start-btn">启动</button>
                                     <button type="button" class="btn btn-danger" id="pp-stop-btn" disabled>停止</button>
                                     <button type="button" class="btn">重置</button>
-                                    <button type="button" class="btn btn-outline" id="pp-train-btn" title="重新训练 qlib ML 模型">训练ML</button>
+                                    <button type="button" class="btn btn-outline" id="pp-train-btn" title="刷新 AI 信号模型">训练ML</button>
                                 </div>
                             </div>
                         </form>

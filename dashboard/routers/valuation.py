@@ -131,14 +131,15 @@ def _resolve_scope_codes(scope: str, codes: str, account: dict) -> list[str]:
     from data.storage.storage import DataStorage
 
     storage = DataStorage()
-    if scope == "watchlist":
+    normalized_scope = "signal" if scope == "qlib" else scope
+    if normalized_scope == "watchlist":
         watchlist = storage.get_watchlist(account["workspace"]["id"])
         return watchlist or _qlib_scope_codes()
-    if scope == "qlib":
+    if normalized_scope == "signal":
         return _qlib_scope_codes()
-    if scope == "codes":
+    if normalized_scope == "codes":
         return [code.strip() for code in codes.split(",") if code.strip()]
-    if scope == "all":
+    if normalized_scope == "all":
         local_rows = storage.get_latest_market_rows()
         local_codes = [str(row.get("code") or "") for row in local_rows if row.get("code")]
         return local_codes or storage.get_all_stock_codes()

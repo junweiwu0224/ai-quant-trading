@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 const TEST_INVITE_CODE = process.env.PLAYWRIGHT_INVITE_CODE || 'LOCAL1';
 const TEST_PASSWORD = 'Playwright123!';
+const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 async function waitForAppReady(page) {
     await expect(page.locator('body')).toBeVisible();
@@ -22,7 +23,7 @@ async function waitForAppReady(page) {
 }
 
 async function ensureAuthenticated(page, usernameSuffix = Date.now()) {
-    const username = `pw_${usernameSuffix}`.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 32);
+    const username = `pw_${RUN_ID}_${usernameSuffix}`.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 32);
     const payload = {
         username,
         password: TEST_PASSWORD,
@@ -144,7 +145,9 @@ test('OpenClaw starts collapsed and stop cancels a pending reply', async ({ page
     await expect(page.locator('.openclaw-shell')).toHaveClass(/is-rail-open/);
 
     await page.route('**/api/openclaw/chat', async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // Keep the mocked reply pending long enough for the stop control to be observable
+        // even when this smoke suite runs with another browser worker.
+        await new Promise((resolve) => setTimeout(resolve, 8000));
         await route.fulfill({
             json: { success: true, mode: 'native', content: 'long reply' },
         });

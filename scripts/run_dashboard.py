@@ -68,7 +68,8 @@ def main(
     setup_logging()
 
     qlib_listen_host = qlib_host or os.getenv("QLIB_SERVICE_HOST", "127.0.0.1")
-    os.environ.setdefault("QLIB_SERVICE_URL", f"http://127.0.0.1:{qlib_port}")
+    if not no_qlib:
+        os.environ.setdefault("QLIB_SERVICE_URL", f"http://127.0.0.1:{qlib_port}")
 
     qlib_proc = None
     if not no_qlib:

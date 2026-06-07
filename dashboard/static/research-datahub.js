@@ -121,12 +121,12 @@
             if (!tbody) return;
             tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">加载中...</td></tr>';
 
-            const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
+            const scope = this._normalizeScope(document.getElementById('datahub-scope')?.value || 'watchlist');
             if (scope === 'watchlist') {
                 await this._refreshWatchlistCache();
             }
             const codes = this._selected.map((item) => item.code).join(',');
-            const query = new URLSearchParams({ scope, limit: scope === 'qlib' ? '50' : '30' });
+            const query = new URLSearchParams({ scope, limit: scope === 'signal' ? '50' : '30' });
             if (scope === 'codes') query.set('codes', codes);
             this._renderScopeNote();
 
@@ -255,10 +255,11 @@
         _renderScopeNote(summary = {}, items = this._items || []) {
             const note = document.getElementById('datahub-scope-note');
             if (!note) return;
-            const scope = document.getElementById('datahub-scope')?.value || 'watchlist';
-            const labels = { watchlist: '自选股', qlib: 'AI 信号 Top', codes: '指定股票' };
+            const scope = this._normalizeScope(document.getElementById('datahub-scope')?.value || 'watchlist');
+            const labels = { watchlist: '自选股', signal: 'AI 信号 Top', qlib: 'AI 信号 Top', codes: '指定股票' };
             const desc = {
                 watchlist: '当前账号自选，不代表全市场',
+                signal: 'AI 信号候选池，未验证信号已降权',
                 qlib: 'AI 信号候选池，未验证信号已降权',
                 codes: '手动指定股票，逐只拉取数据',
             };
@@ -334,6 +335,10 @@
             const label = confidence.startsWith('validated') ? '已验证' : '未验证';
             const diamond = confidence.startsWith('validated') ? '<span class="datahub-diamond">已验证</span>' : '';
             return `${diamond}<span class="datahub-qlib-rank">#${App.escapeHTML(rank)} · ${App.escapeHTML(score)}</span><div class="text-muted text-xs">${App.escapeHTML(item.signal_provider || 'local_momentum')} · ${App.escapeHTML(label)}</div>`;
+        },
+
+        _normalizeScope(scope) {
+            return scope === 'qlib' ? 'signal' : scope;
         },
 
         _displayRiskTags(risks) {

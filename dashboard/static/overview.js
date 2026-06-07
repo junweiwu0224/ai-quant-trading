@@ -2,7 +2,7 @@
 
 Object.assign(App, {
     _overviewLoaded: false,
-    _overviewOpportunityScope: 'qlib',
+    _overviewOpportunityScope: 'signal',
 
     async loadOverview() {
         if (this._loadingOverview) return;
@@ -62,7 +62,7 @@ Object.assign(App, {
             const aiEl = document.getElementById('ov-ai-status');
             if (aiEl) aiEl.textContent = status.ai_model || '--';
 
-            // Qlib 心跳检查（异步，不阻塞）
+            // AI 信号心跳检查（异步，不阻塞）
             this._checkSignalHealth();
             this._loadDataHubHealth();
 
@@ -221,7 +221,8 @@ Object.assign(App, {
     },
 
     _buildOverviewOpportunityQuery(scope = 'watchlist', { fast = true } = {}) {
-        const requestedScope = ['watchlist', 'qlib'].includes(scope) ? scope : 'qlib';
+        const normalizedScope = scope === 'qlib' ? 'signal' : scope;
+        const requestedScope = ['watchlist', 'signal'].includes(normalizedScope) ? normalizedScope : 'signal';
         const query = new URLSearchParams();
         query.set('scope', requestedScope);
         query.set('limit', '8');
@@ -234,12 +235,14 @@ Object.assign(App, {
     },
 
     _resolveOverviewOpportunityScope() {
-        const current = this._overviewOpportunityScope || 'qlib';
-        return ['watchlist', 'qlib'].includes(current) ? current : 'qlib';
+        const current = this._overviewOpportunityScope || 'signal';
+        if (current === 'qlib') return 'signal';
+        return ['watchlist', 'signal'].includes(current) ? current : 'signal';
     },
 
     _setOverviewOpportunityScope(scope) {
-        const nextScope = ['watchlist', 'qlib'].includes(scope) ? scope : 'qlib';
+        const normalizedScope = scope === 'qlib' ? 'signal' : scope;
+        const nextScope = ['watchlist', 'signal'].includes(normalizedScope) ? normalizedScope : 'signal';
         if (nextScope === this._overviewOpportunityScope && this._overviewOpportunityItems?.length) {
             return;
         }
@@ -312,7 +315,7 @@ Object.assign(App, {
         const cacheAge = (summary.signal_cache_age_label || summary.qlib_cache_age_label) ? ` · ${this.escapeHTML(summary.signal_cache_age_label || summary.qlib_cache_age_label)}` : '';
         const signalQuality = this._formatOverviewSignalQuality(summary);
         const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
-        const syncStatus = this._formatOverviewQlibSyncStatus(summary.qlib_sync_status);
+        const syncStatus = this._formatOverviewQlibSyncStatus(summary.signal_sync_status || summary.qlib_sync_status);
         const items = [
             `候选 ${this.escapeHTML(total)} 只`,
             `范围 ${this.escapeHTML(scopeLabel)}`,
@@ -363,6 +366,7 @@ Object.assign(App, {
     _overviewOpportunityScopeLabel(scope) {
         return {
             watchlist: '自选',
+            signal: 'AI信号 Top',
             qlib: 'AI信号 Top',
         }[scope] || 'AI信号 Top';
     },

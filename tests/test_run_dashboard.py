@@ -73,3 +73,24 @@ def test_run_dashboard_cli_qlib_host_overrides_environment(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert captured["qlib_host"] == "127.0.0.1"
+
+
+def test_run_dashboard_no_qlib_does_not_set_default_service_url(monkeypatch):
+    from scripts import run_dashboard
+
+    captured = {}
+
+    def fake_start_qlib_service(*args, **kwargs):
+        raise AssertionError("--no-qlib should not start qlib service")
+
+    def fake_uvicorn_run(*args, **kwargs):
+        captured["service_url"] = os.environ.get("QLIB_SERVICE_URL")
+
+    monkeypatch.delenv("QLIB_SERVICE_URL", raising=False)
+    monkeypatch.setattr(run_dashboard, "_start_qlib_service", fake_start_qlib_service)
+    monkeypatch.setattr(run_dashboard.uvicorn, "run", fake_uvicorn_run)
+
+    result = CliRunner().invoke(run_dashboard.main, ["--no-qlib", "--qlib-port", "8314"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["service_url"] is None

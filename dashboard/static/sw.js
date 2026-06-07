@@ -1,6 +1,6 @@
 /* AI Quant Service Worker — 离线缓存 + 资源预缓存 */
 
-const CACHE_NAME = 'ai-quant-v90';
+const CACHE_NAME = 'ai-quant-v92';
 const STATIC_ASSETS = [
     '/static/style.css',
     '/static/paper-trading.css',
@@ -77,7 +77,7 @@ const STATIC_ASSETS = [
     '/static/intelligence.js',
     '/static/intelligence-market.js',
     '/static/intelligence-iwencai.js',
-    '/static/intelligence-qlib.js',
+    '/static/intelligence-signals.js',
     '/static/factor.js',
     '/static/portfolio-opt.js',
     '/static/strategy-ensemble.js',

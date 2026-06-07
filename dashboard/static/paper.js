@@ -52,7 +52,7 @@ const Paper = {
             trainBtn.removeAttribute('onclick');
             trainBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                this.trainQlib();
+                this.trainSignalModel();
             });
         }
     },
@@ -126,15 +126,14 @@ const Paper = {
         }
     },
 
-    async trainQlib() {
-        if (!confirm('开始训练 qlib ML 模型？\n这需要几分钟时间，训练期间不影响其他功能。')) return;
+    async trainSignalModel() {
+        if (!confirm('开始刷新 AI 信号模型？\n这需要几分钟时间，刷新期间不影响其他功能。')) return;
         const btn = document.getElementById('pp-train-btn');
         try {
             if (btn) { btn.disabled = true; btn.textContent = '训练中...'; }
             const data = await App.fetchJSON('/api/qlib/train', { method: 'POST' });
             if (data.success) {
-                App.toast('qlib 训练已启动，请稍后查看预测结果', 'success');
-                // 轮询训练状态
+                App.toast('AI 信号模型刷新已启动，请稍后查看预测结果', 'success');
                 this._pollTrainStatus();
             } else {
                 App.toast(data.message || '训练启动失败', 'error');
@@ -146,6 +145,10 @@ const Paper = {
         }
     },
 
+    async trainQlib() {
+        return this.trainSignalModel();
+    },
+
     async _pollTrainStatus() {
         const check = async () => {
             try {
@@ -153,7 +156,7 @@ const Paper = {
                 if (data.training) {
                     setTimeout(check, 10000);
                 } else {
-                    App.toast('qlib 训练完成！', 'success');
+                    App.toast('AI 信号模型刷新完成！', 'success');
                 }
             } catch { /* ignore */ }
         };

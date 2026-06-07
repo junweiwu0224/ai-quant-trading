@@ -22,7 +22,10 @@
 可作为默认阻断候选：
 
 - `.venv/bin/python scripts/verify_context_pack.py`
-- 针对性 pytest，例如 `.venv/bin/python -m pytest tests/test_signal_engine.py -q`
+- 针对性 pytest，根据受影响范围选择，不要求每次全部运行：
+  - Context pack verifier / repo 规则：`.venv/bin/python -m pytest tests/test_verify_context_pack.py -q`
+  - Dashboard 启动脚本和环境变量路由：`.venv/bin/python -m pytest tests/test_run_dashboard.py -q`
+  - Intelligence 市场前端契约：`.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -q`
 - 文档路径和引用检查。
 
 不作为默认阻断 hook，但可人工触发：
@@ -56,10 +59,11 @@
 
 | 改动类型 | 最小门禁 | 推荐门禁 | 禁止自动 hook |
 |---|---|---|---|
-| 文档/context pack | `.venv/bin/python scripts/verify_context_pack.py` | 路径/引用检查 | 无 |
+| 文档/context pack | `.venv/bin/python scripts/verify_context_pack.py` | `.venv/bin/python -m pytest tests/test_verify_context_pack.py -q`、路径/引用检查 | 无 |
 | Python 逻辑 | 针对性 pytest | compileall、全量 pytest | 外部数据同步；`compileall` 不进严格无写入 hook |
+| Dashboard 启动脚本 | `.venv/bin/python -m pytest tests/test_run_dashboard.py -q` | context pack verifier、必要时手动启动 smoke | 自动启动长期服务；真实外部服务 |
 | API/router | 针对性 pytest | dashboard data health（人工触发；会写本地报告并触发应用 lifespan） | 真实外部服务写入 |
-| 前端 UI/JS/CSS | 前端契约测试 | frontend render audit、browser smoke、E2E | 自动启动长期服务；报告型扫描不进严格无写入 hook |
+| 前端 UI/JS/CSS | 前端契约测试，例如 `.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -q` | frontend render audit、browser smoke、E2E | 自动启动长期服务；报告型扫描不进严格无写入 hook |
 | 数据模型/存储 | 针对性 pytest | 全量 pytest | 迁移/清库/真实数据写入 |
 | OpenClaw/LLM | 单元测试 | 用户确认后联调 | 凭证、外部调用默认禁用 |
 | 模拟盘/实盘 | 单元测试 | 人工确认的 dry-run | 下单、撤单、真实账户 |
@@ -85,5 +89,5 @@
 ## 待确认
 
 - 是否需要在本仓库启用项目级 hooks；2026-06-07 阶段复盘结论是暂不启用，只保留候选集。
-- 哪些 pytest 子集适合作为默认快速门禁；继续从稳定、短耗时、无外部依赖的真实任务验证中观察。
-- 如果连续多次使用同一组验证命令且耗时稳定，再考虑包装成项目脚本或提升为更明确的 Level 1 候选。
+- 是否需要把已验证的 Level 1 候选组合成一个项目脚本；当前证据支持文档化路由，暂不新增包装入口。
+- 如果连续多次总是运行同一组命令且耗时稳定，再考虑启用 hooks 或包装成统一快速门禁。

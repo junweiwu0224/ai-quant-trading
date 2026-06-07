@@ -5,6 +5,7 @@ import pytest
 
 from engine.backtest_engine import BacktestEngine, BacktestConfig
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio
+from strategy.manager import StrategyManager
 
 
 class AlwaysBuyStrategy(BaseStrategy):
@@ -124,3 +125,26 @@ class TestBacktestEngine:
         assert "最大回撤" in summary
         assert "夏普比率" in summary
         assert "胜率" in summary
+
+
+class TestStrategyManager:
+    def test_import_overrides_ignores_unknown_or_invalid_builtin_overrides(self, tmp_path):
+        manager = StrategyManager(tmp_path / "strategies.json")
+
+        result = manager.import_strategies(
+            {
+                "overrides": {
+                    "dual_ma": {"short_window": 8},
+                    "unknown_builtin": {"window": 99},
+                    "macd": "not-a-params-dict",
+                }
+            },
+            overwrite=True,
+        )
+
+        assert result == {"imported": 1, "skipped": 0, "errors": []}
+        assert manager.get("dual_ma")["params"]["short_window"] == 8
+        assert manager.get("dual_ma")["has_override"] is True
+        assert manager.get("unknown_builtin") is None
+        assert manager.get("macd")["params"]["fast"] == 12
+        assert "has_override" not in manager.get("macd")

@@ -222,6 +222,19 @@ class TestValuationDataHubAPI:
         assert "shadow" in data
         assert "coverage" in data
 
+    def test_valuation_signal_scope_resolves_to_signal_candidates(self, monkeypatch):
+        from dashboard.routers import valuation
+
+        monkeypatch.setattr(valuation, "_qlib_scope_codes", lambda: ["600519", "000001"])
+
+        codes = valuation._resolve_scope_codes(
+            "signal",
+            "",
+            {"workspace": {"id": "test-workspace"}},
+        )
+
+        assert codes == ["600519", "000001"]
+
     def test_valuation_service_builds_local_prediction_when_reports_missing(self, monkeypatch):
         import pandas as pd
 
@@ -342,6 +355,34 @@ class TestValuationDataHubAPI:
         assert item["qlib_rank"] == 3
         assert item["qlib_score"] == 0.73
         assert "AI未覆盖" not in item["risk_tags"]
+
+    def test_datahub_decision_matrix_accepts_signal_scope_as_primary_alias(self, monkeypatch):
+        storage = DataStorage()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(
+            "dashboard.routers.datahub._load_qlib_context",
+            lambda top_limit=None: {
+                "latest_date": "2026-06-05",
+                "total": 2,
+                "items": {
+                    "600519": {"signal_rank": 1, "signal_score": 0.91, "qlib_rank": 1, "qlib_score": 0.91},
+                    "000001": {"signal_rank": 2, "signal_score": 0.82, "qlib_rank": 2, "qlib_score": 0.82},
+                },
+                "ordered_codes": ["600519", "000001"],
+            },
+        )
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=signal&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["scope"] == "signal"
+        assert [item["code"] for item in data["items"]] == ["600519"]
+        assert data["items"][0]["signal_rank"] == 1
 
     def test_datahub_decision_matrix_summary_includes_ledger_health(self, monkeypatch):
         storage = DataStorage()

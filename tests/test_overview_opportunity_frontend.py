@@ -87,10 +87,11 @@ def test_overview_opportunity_query_and_rendering():
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
 
-        assert.equal(App._overviewOpportunityScope, 'qlib');
+        assert.equal(App._overviewOpportunityScope, 'signal');
         assert.equal(App._buildOverviewOpportunityQuery('watchlist').toString(), 'scope=watchlist&limit=8&fast=true');
-        assert.equal(App._buildOverviewOpportunityQuery('qlib').toString(), 'scope=qlib&limit=8&fast=true');
-        assert.equal(App._buildOverviewOpportunityQuery('default').toString(), 'scope=qlib&limit=8&fast=true');
+        assert.equal(App._buildOverviewOpportunityQuery('signal').toString(), 'scope=signal&limit=8&fast=true');
+        assert.equal(App._buildOverviewOpportunityQuery('qlib').toString(), 'scope=signal&limit=8&fast=true');
+        assert.equal(App._buildOverviewOpportunityQuery('default').toString(), 'scope=signal&limit=8&fast=true');
 
         App._renderOverviewOpportunityData({
             items: [{
@@ -203,7 +204,7 @@ def test_overview_opportunity_ignores_stale_full_response():
         };
         global.location = { hash: '#overview' };
         global.App = {
-            _overviewOpportunityScope: 'qlib',
+            _overviewOpportunityScope: 'signal',
             watchlistCache: [{ code: '300750' }],
             escapeHTML: (value) => String(value ?? ''),
             fetchJSON: async () => ({ items: [], summary: {} }),
@@ -219,7 +220,7 @@ def test_overview_opportunity_ignores_stale_full_response():
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
 
-        const requestId = App._beginOverviewOpportunityRequest('qlib');
+        const requestId = App._beginOverviewOpportunityRequest('signal');
         App._overviewOpportunityScope = 'default';
         App._renderOverviewOpportunityData({
             items: [{
@@ -229,12 +230,12 @@ def test_overview_opportunity_ignores_stale_full_response():
                 decision_score: 80,
                 decision_label: '旧范围',
                 risk_level: '低',
-                reason_tags: ['旧 Qlib'],
+                reason_tags: ['旧信号'],
                 risk_tags: [],
                 next_actions: [],
             }],
             summary: { total: 1 },
-        }, false, { scope: 'qlib', requestId });
+        }, false, { scope: 'signal', requestId });
 
         assert.equal(tbody.innerHTML, '');
         """
@@ -290,7 +291,7 @@ def test_overview_opportunity_fast_timeout_falls_back_to_full_request():
         global.location = { hash: '#overview' };
         const calls = [];
         global.App = {
-            _overviewOpportunityScope: 'qlib',
+            _overviewOpportunityScope: 'signal',
             watchlistCache: [{ code: '300750' }],
             escapeHTML: (value) => String(value ?? ''),
             fetchJSON: async (url) => {
@@ -417,6 +418,70 @@ def test_overview_opportunity_empty_watchlist_stays_on_watchlist_without_fetchin
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_status_prefers_signal_sync_status():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const status = { innerHTML: '' };
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => id === 'ov-opportunity-status' ? status : null,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        App._renderOverviewOpportunityStatus({
+            total: 3,
+            signal_status: 'fresh',
+            signal_coverage_pct: 66.7,
+            signal_sync_status: {
+                success_count: 2,
+                fail_count: 1,
+                target_count: 3,
+            },
+            qlib_sync_status: {
+                success_count: 9,
+                fail_count: 0,
+                target_count: 9,
+            },
+            signal_quality: { label: '验证中性', sample_days: 12, penalty_applied: false },
+        }, 3, false);
+
+        assert.match(status.innerHTML, /同步 2\/3/);
+        assert.match(status.innerHTML, /失败 1/);
+        assert.match(status.innerHTML, /AI覆盖 67%/);
+        assert.doesNotMatch(status.innerHTML, /同步 9\/9/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_template_and_styles_are_present():
     template = Path("dashboard/templates/index.html").read_text(encoding="utf-8")
     styles = Path("dashboard/static/style.css").read_text(encoding="utf-8")
@@ -424,11 +489,12 @@ def test_overview_opportunity_template_and_styles_are_present():
 
     assert 'id="ov-opportunity-status"' in template
     assert 'data-ov-opportunity-scope="watchlist"' in template
-    assert 'data-ov-opportunity-scope="qlib"' in template
+    assert 'data-ov-opportunity-scope="signal"' in template
+    assert 'data-ov-opportunity-scope="qlib"' not in template
     assert 'data-ov-opportunity-scope="default"' not in template
-    assert 'data-ov-opportunity-scope="qlib" aria-pressed="true">AI信号 Top</button>' in template
+    assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert 'data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>' in template
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=17" in scripts
+    assert "/static/overview.js?v=18" in scripts

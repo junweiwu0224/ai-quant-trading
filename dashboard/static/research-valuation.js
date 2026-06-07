@@ -41,7 +41,7 @@
                 } : null,
                 selection: this._selected.map((item) => ({ code: item.code, name: item.name || '' })),
                 filters: {
-                    scope: document.getElementById('valuation-scope')?.value || 'watchlist',
+                    scope: this._normalizeScope(document.getElementById('valuation-scope')?.value || 'watchlist'),
                     industry: this._industryFilter || '',
                 },
                 pageDesc: '估值数据中心：PEG、同业对比、行业热力、研报共识',
@@ -192,7 +192,7 @@
         },
 
         _syncCodeRow() {
-            const scope = document.getElementById('valuation-scope')?.value || 'watchlist';
+            const scope = this._normalizeScope(document.getElementById('valuation-scope')?.value || 'watchlist');
             const row = document.getElementById('valuation-code-row');
             if (row) row.classList.toggle('hidden', scope !== 'codes');
             this._renderScopeNote();
@@ -211,11 +211,11 @@
             const tbody = document.querySelector('#valuation-table tbody');
             if (!tbody) return;
 
-            const scope = document.getElementById('valuation-scope')?.value || 'watchlist';
+            const scope = this._normalizeScope(document.getElementById('valuation-scope')?.value || 'watchlist');
             const activeCode = this._getActiveStockCode();
             const currentStock = activeCode ? this._selected.find((item) => item.code === activeCode) || { code: activeCode, name: this._getActiveStockName(activeCode) } : null;
             let selectedCodes = this._selected.map((item) => item.code);
-            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '50' : scope === 'qlib' ? '50' : '30' });
+            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '50' : scope === 'signal' ? '50' : '30' });
             if (scope === 'codes') {
                 const preferredCodes = activeCode && !selectedCodes.includes(activeCode)
                     ? [activeCode, ...selectedCodes]
@@ -322,9 +322,10 @@
         _renderScopeNote(items = this._items || []) {
             const note = document.getElementById('valuation-scope-note');
             if (!note) return;
-            const scope = document.getElementById('valuation-scope')?.value || 'qlib';
-            const labels = { qlib: 'AI信号覆盖池', watchlist: '自选股', codes: '指定股票', all: '全市场估值' };
+            const scope = this._normalizeScope(document.getElementById('valuation-scope')?.value || 'signal');
+            const labels = { signal: 'AI信号覆盖池', qlib: 'AI信号覆盖池', watchlist: '自选股', codes: '指定股票', all: '全市场估值' };
             const desc = {
+                signal: '机构预测 + AI信号覆盖池，不等同全量日线',
                 qlib: '机构预测 + AI信号覆盖池，不等同全量日线',
                 watchlist: '当前账号自选范围',
                 codes: '手动指定股票对比',
@@ -344,7 +345,8 @@
             const root = document.getElementById('valuation-industry-strip');
             if (!root) return;
             root.innerHTML = '<div class="text-muted">行业热力加载中...</div>';
-            const query = new URLSearchParams({ scope, limit: scope === 'all' ? '80' : scope === 'qlib' ? '80' : '50' });
+            const normalizedScope = this._normalizeScope(scope);
+            const query = new URLSearchParams({ scope: normalizedScope, limit: normalizedScope === 'all' ? '80' : normalizedScope === 'signal' ? '80' : '50' });
             if (scope === 'codes' && codes) query.set('codes', codes);
             try {
                 const data = await App.fetchJSON(`/api/valuation/industries?${query.toString()}`, { silent: true, timeout: 20000 });
@@ -469,6 +471,10 @@
                     </div>
                 `).join('');
             }
+        },
+
+        _normalizeScope(scope) {
+            return scope === 'qlib' ? 'signal' : scope;
         },
 
         _fmtNum(value) {

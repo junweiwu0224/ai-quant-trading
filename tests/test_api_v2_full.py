@@ -744,14 +744,14 @@ class TestOptimization:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  qlib 预测
+#  AI 信号兼容接口
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class TestQlib:
-    """qlib 预测端点"""
+    """AI 信号 legacy qlib 兼容端点"""
 
     def test_top_predictions(self, client):
-        """GET /api/qlib/top — Top N 预测"""
+        """GET /api/qlib/top — AI 信号 Top N 兼容路径"""
         resp = client.get("/api/qlib/top")
         assert resp.status_code == 200
 

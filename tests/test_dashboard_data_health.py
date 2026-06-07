@@ -45,6 +45,7 @@ PLAN_BASELINE_SAFE_GET_PATHS = [
     "/api/datahub/decision-matrix?scope=codes&codes=600519&limit=3&fast=true",
     "/api/signals/health",
     "/api/signals/top?limit=5",
+    "/api/signals/consistency?top_n=5",
     "/api/alerts/rules",
     "/api/conditional-orders/rules",
     "/api/alpha/model-status",

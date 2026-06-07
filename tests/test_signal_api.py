@@ -99,3 +99,45 @@ def test_signal_train_routes_are_primary_aliases(client, monkeypatch):
     assert train_resp.json() == {"success": True, "message": "started"}
     assert status_resp.json() == {"training": False}
     assert called_urls == [qlib_router.QLIB_TRAIN_URL, qlib_router.QLIB_TRAIN_STATUS_URL]
+
+
+def test_signal_consistency_api_is_primary_alias(client, monkeypatch, tmp_path):
+    from dashboard.routers import qlib as qlib_router
+
+    cache_path = tmp_path / "predictions_cache.json"
+    cache_path.write_text(
+        """
+        {
+          "predictions": {
+            "2026-05-19": {"600519": 0.30, "000001": 0.20},
+            "2026-05-20": {"600519": 0.40, "000001": 0.30},
+            "2026-05-21": {"600519": 0.50, "000001": 0.40},
+            "2026-05-22": {"600519": 0.90, "000001": 0.70}
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(qlib_router, "PRED_CACHE_FILE", cache_path)
+    monkeypatch.setattr(
+        qlib_router,
+        "_enrich_with_stock_info",
+        lambda codes: {
+            "600519": {"name": "贵州茅台", "industry": "白酒", "price": 1688.0},
+            "000001": {"name": "平安银行", "industry": "银行", "price": 10.5},
+        },
+    )
+
+    resp = client.get("/api/signals/consistency?top_n=1")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["provider"] == "local_momentum"
+    assert payload["raw_source"] == "legacy_qlib"
+    assert payload["date"] == "2026-05-22"
+    assert payload["items"][0]["code"] == "600519"
+    assert payload["items"][0]["name"] == "贵州茅台"
+    assert payload["items"][0]["appearances"] == 3
+    assert payload["items"][0]["ic_adj"] > 0
+    assert payload["items"][0]["signal_provider"] == "local_momentum"

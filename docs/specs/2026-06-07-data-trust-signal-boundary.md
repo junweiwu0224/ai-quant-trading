@@ -84,7 +84,7 @@
 ## 7. 当前系统影响
 
 - 相关模块：`data/signals/`、`dashboard/routers/datahub.py`、`dashboard/routers/signals.py`、`dashboard/routers/qlib.py`、`dashboard/static/intelligence-*.js`、`dashboard/static/research-datahub.js`、`scripts/dashboard_data_health.py`。
-- API/接口：新增语义优先走 `/api/signals/*` 和 `/api/datahub/*` 的 `signal_*` 字段；`/api/qlib/*` 保留兼容。
+- API/接口：新增语义优先走 `/api/signals/*` 和 `/api/datahub/*` 的 `signal_*` 字段；`/api/signals/consistency` 是一致性证据主路径，`/api/qlib/*` 保留兼容。
 - 数据模型/存储：本阶段不改表结构；继续读取 `stock_daily`、`stock_info` 和 legacy prediction cache。
 - 前端/UX：优先修复误导性文案、覆盖状态、降级状态和慢下拉；不做大视觉重写。
 - 后台任务/队列：不新增后台同步任务；真实全量同步需要单独确认。
@@ -110,7 +110,7 @@
 ## 10. 验证计划
 
 - 单元测试：`tests/test_signal_engine.py`、`tests/test_signal_api.py`、`tests/test_dashboard.py` 中的 DataHub/Signal 相关测试。
-- 集成/API 测试：`.venv/bin/python scripts/dashboard_data_health.py`，以及 `/api/datahub/health`、`/api/signals/health`、`/api/signals/top`。
+- 集成/API 测试：`.venv/bin/python scripts/dashboard_data_health.py`，以及 `/api/datahub/health`、`/api/signals/health`、`/api/signals/top`、`/api/signals/consistency`。
 - E2E/用户流程：`scripts/e2e-local.sh smoke` 覆盖 overview/intelligence/research 核心路径。
 - 前端视觉验证：Browser/Playwright 检查桌面和移动端无空白、无溢出、无控制台错误。
 - 性能/负载：机会池快速模式和下拉搜索必须避免全量 DOM 渲染。

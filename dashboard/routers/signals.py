@@ -95,6 +95,34 @@ async def signal_validation(
     return {"success": True, **summary.to_dict()}
 
 
+@router.get("/consistency")
+async def signal_consistency(
+    provider: str = Query(DEFAULT_PROVIDER),
+    top_n: int = Query(50, ge=1, le=500),
+):
+    """查询 AI 信号一致性，保留 legacy qlib 计算作为兼容实现。"""
+    from dashboard.routers.qlib import get_consistency
+
+    payload = await get_consistency(top_n=top_n)
+    if not isinstance(payload, dict):
+        return payload
+
+    response = dict(payload)
+    response.setdefault("provider", provider or DEFAULT_PROVIDER)
+    response.setdefault("raw_source", "legacy_qlib")
+    response.setdefault("legacy_adapter", "/api/qlib/consistency")
+    items = response.get("items")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item.setdefault("signal_provider", response["provider"])
+            item.setdefault("signal_score", item.get("score"))
+            item.setdefault("signal_consistency", item.get("ic_adj"))
+            item.setdefault("signal_appearances", item.get("appearances"))
+    return response
+
+
 @router.post("/train")
 async def train_signal_model():
     """触发 AI 信号模型刷新。"""

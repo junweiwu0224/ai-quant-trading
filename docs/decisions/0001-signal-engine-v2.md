@@ -19,7 +19,7 @@ Qlib 外壳。
 我们决定：
 
 - 新增 `data/signals/` 作为运行时 AI 信号边界。
-- 新增 `/api/signals/top`、`/api/signals/health`、`/api/signals/validation`。
+- 新增 `/api/signals/top`、`/api/signals/health`、`/api/signals/validation`、`/api/signals/consistency`。
 - 现有 `/api/qlib/*` 保留为 legacy adapter，继续返回旧字段，避免历史前端和策略断裂。
 - DataHub、估值、情报页和 OpenClaw 新入口优先使用 Signal Engine 语义。
 - 未完成历史验证的信号必须降权，并在风险标签中显示 `AI未验证`。

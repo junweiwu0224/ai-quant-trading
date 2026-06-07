@@ -70,9 +70,9 @@ def test_signal_engine_is_primary_frontend_semantics():
     qlib_router = read("dashboard/routers/qlib.py")
     scheduler = read("data/scheduler/scheduler.py")
 
-    assert "/static/intelligence-signals.js?v=5" in app
+    assert "/static/intelligence-signals.js?v=6" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=69" in scripts
+    assert "/static/app.js?v=70" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -311,7 +311,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=69" in scripts
+    assert "/static/app.js?v=70" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=22" in scripts

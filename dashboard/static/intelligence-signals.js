@@ -119,15 +119,18 @@
                 const preds = data.predictions;
                 const total = preds.length;
                 const totalUniverse = Number(data.total) || total;
-                const rawSource = signalRawSourceName(data.raw_source || data.source || data.provider);
+                const signalProvider = data.provider || 'local_momentum';
+                const modelVersion = data.model_version || '--';
                 const rawSourceKey = String(data.raw_source || data.source || '').trim();
-                const legacySourceNote = rawSourceKey ? `兼容 ${rawSourceKey}` : 'Signal Engine';
+                const rawSource = rawSourceKey ? signalRawSourceName(rawSourceKey) : '';
+                const legacySourceNote = rawSourceKey ? `兼容缓存 ${rawSource} (${rawSourceKey})` : 'Signal Engine';
                 const generatedAt = data.generated_at || data.updated_at || '--';
                 const validationDays = validation ? String(validation.sample_days ?? 0) : '0';
                 const trustSummary = `
                     <div class="qlib-trust-summary">
                         <span class="qlib-trust-title">可信口径</span>
-                        <span>来源 ${App.escapeHTML(rawSource)}</span>
+                        <span>来源 ${App.escapeHTML(signalProvider)}</span>
+                        <span>模型 ${App.escapeHTML(modelVersion)}</span>
                         <span>${App.escapeHTML(legacySourceNote)}</span>
                         <span>覆盖 ${App.escapeHTML(formatCount(totalUniverse))} 只</span>
                         <span>展示 Top ${App.escapeHTML(formatCount(total))}</span>
@@ -152,7 +155,7 @@
                     const rowConfidence = validation?.confidence && validation.confidence !== 'unverified'
                         ? validation.confidence
                         : p.signal_confidence;
-                    const diamond = rowConfidence?.startsWith?.('validated') ? '<span class="qlib-diamond" title="信号池已通过历史验证">✓</span>' : '';
+                    const diamond = rowConfidence === 'validated_positive' ? '<span class="qlib-diamond" title="历史验证偏正">✓</span>' : '';
                     const icAdjStr = confidenceText(rowConfidence);
 
                     return `<tr class="qlib-row ${heat.cls}" data-code="${code}">
@@ -188,7 +191,7 @@
                         <div class="qlib-header-left">
                                 <span class="qlib-trust-title">AI 信号池</span>
 	                            <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">信号日期: ${App.escapeHTML(dateStr)}</span>
-	                            <span class="qlib-total">${App.escapeHTML(data.provider || 'local_momentum')} · ${App.escapeHTML(data.model_version || '--')} · 全市场 ${formatCount(totalUniverse)} 只 · Top ${formatCount(total)} · ${App.escapeHTML(confidenceLabel)}</span>
+	                            <span class="qlib-total">${App.escapeHTML(signalProvider)} · ${App.escapeHTML(modelVersion)} · 全市场 ${formatCount(totalUniverse)} 只 · Top ${formatCount(total)} · ${App.escapeHTML(confidenceLabel)}</span>
                         </div>
                         <button class="qlib-btn qlib-btn-push" id="qlib-push-screener">
 	                            📤 推送 Top 50 至选股器

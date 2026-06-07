@@ -766,12 +766,14 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /Rank IC 0\.071/);
             assert.match(panel.innerHTML, /状态 验证偏正/);
             assert.match(panel.innerHTML, /可信口径/);
-            assert.match(panel.innerHTML, /来源 历史预测缓存/);
-            assert.match(panel.innerHTML, /兼容 legacy_qlib/);
+            assert.match(panel.innerHTML, /来源 local_momentum/);
+            assert.match(panel.innerHTML, /模型 local_momentum_v1/);
+            assert.match(panel.innerHTML, /兼容缓存 历史预测缓存 \(legacy_qlib\)/);
             assert.match(panel.innerHTML, /覆盖 5,197 只/);
             assert.match(panel.innerHTML, /展示 Top 2/);
             assert.match(panel.innerHTML, /生成 2026-06-07T12:30:00/);
             assert.match(panel.innerHTML, /验证样本 42 天/);
+            assert.match(panel.innerHTML, /title="历史验证偏正"/);
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证偏正<\/td>/);
             assert.match(panel.innerHTML, /信号日期: 2026-06-05/);
             assert.doesNotMatch(panel.innerHTML, /qlib LightGBM/i);
@@ -857,6 +859,8 @@ def test_intelligence_signal_pool_rows_use_provider_validation_when_record_unver
             assert.match(panel.innerHTML, /状态 验证中性/);
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证中性<\/td>/);
             assert.doesNotMatch(panel.innerHTML, /<td class="qlib-td qlib-td-ic">未验证<\/td>/);
+            assert.doesNotMatch(panel.innerHTML, /title="信号池已通过历史验证"/);
+            assert.doesNotMatch(panel.innerHTML, /qlib-diamond/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -933,12 +937,12 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence.js?v=5" in app_js
     assert "/static/intelligence-market.js?v=7" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=5" in app_js
+    assert "/static/intelligence-signals.js?v=6" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=69" in scripts
+    assert "/static/app.js?v=70" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v104" in service_worker
+    assert "ai-quant-v105" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

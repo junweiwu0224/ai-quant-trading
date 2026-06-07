@@ -5,8 +5,8 @@
 ## 当前状态
 
 - Codex hooks：未启用。
-- Git hooks / pre-commit：待确认。
-- CI required checks：待确认。
+- Git hooks / pre-commit：未启用项目级阻断 hooks；启用前需按本文候选集逐条确认。
+- CI required checks：未在本阶段调整。
 - 本地质量门禁脚本：context pack verifier、pytest、compileall、dashboard data health、frontend render audit、Playwright E2E。
 
 ## 门禁分层
@@ -84,5 +84,6 @@
 
 ## 待确认
 
-- 是否需要在本仓库启用项目级 hooks；当前仅文档化候选集，不自动启用。
-- 哪些 pytest 子集适合作为默认快速门禁；优先从稳定、短耗时、无外部依赖的测试开始。
+- 是否需要在本仓库启用项目级 hooks；2026-06-07 阶段复盘结论是暂不启用，只保留候选集。
+- 哪些 pytest 子集适合作为默认快速门禁；继续从稳定、短耗时、无外部依赖的真实任务验证中观察。
+- 如果连续多次使用同一组验证命令且耗时稳定，再考虑包装成项目脚本或提升为更明确的 Level 1 候选。

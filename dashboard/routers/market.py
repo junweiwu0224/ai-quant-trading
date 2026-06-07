@@ -360,6 +360,11 @@ async def get_market_radar():
         logger.error(f"市场雷达失败: {e}")
         if _last_radar and _last_radar.get("source") == "eastmoney_full_market_rank":
             return {**_last_radar, "stale": True}
+        local_result = await asyncio.to_thread(_build_local_radar_result)
+        if local_result:
+            _cache.set(cache_key, local_result, _TTL_RADAR)
+            _last_radar = local_result
+            return local_result
         return {
             "success": False,
             "error": f"全市场行情源不可用: {e}",
@@ -642,7 +647,18 @@ async def get_northbound():
         logger.error(f"北向资金查询失败: {e}")
         if _last_northbound:
             return {**_last_northbound, "stale": True}
-        return {"success": False, "error": str(e), "today_net": 0, "flow": []}
+        return {
+            "success": True,
+            "today_net": 0,
+            "today_sh_net": 0,
+            "today_sz_net": 0,
+            "flow": [],
+            "source": "eastmoney_northbound",
+            "source_unavailable": True,
+            "stale": True,
+            "stale_reason": "northbound_source_unavailable",
+            "error": str(e),
+        }
 
 
 # ── 热点归因 ──

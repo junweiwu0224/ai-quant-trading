@@ -202,3 +202,22 @@ def test_run_api_audit_counts_2xx_non_json_responses_as_failed(monkeypatch):
     assert endpoint["json"] is False
     assert endpoint["error"].startswith("non-json response:")
     assert report["failed_endpoint_count"] == 1
+
+
+def test_run_api_audit_counts_success_false_json_responses_as_failed(monkeypatch):
+    app = FastAPI()
+
+    @app.get("/business-failed")
+    async def business_failed():
+        return {"success": False, "error": "upstream unavailable"}
+
+    _install_fake_dashboard_app(monkeypatch, app)
+
+    report = run_api_audit(["/business-failed"])
+    endpoint = report["endpoints"][0]
+
+    assert endpoint["status_code"] == 200
+    assert endpoint["json"] is True
+    assert endpoint["ok"] is False
+    assert endpoint["error"] == "business success=false"
+    assert report["failed_endpoint_count"] == 1

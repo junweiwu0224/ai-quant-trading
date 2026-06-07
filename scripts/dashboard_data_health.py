@@ -269,6 +269,9 @@ def run_api_audit(paths: list[str] | None = None) -> dict[str, Any]:
                     record["json"] = is_json
                     record["ok"] = 200 <= response.status_code < 300 and is_json
                     if is_json:
+                        if isinstance(payload, dict) and payload.get("success") is False:
+                            record["ok"] = False
+                            record["error"] = "business success=false"
                         record["findings"] = [
                             finding.to_dict() for finding in find_json_anomalies(payload)
                         ]

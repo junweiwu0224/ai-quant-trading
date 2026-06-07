@@ -466,6 +466,60 @@ class TestMarket:
             market_router._cache.delete("market_radar")
             market_router._last_radar = previous_last_radar
 
+    def test_market_radar_falls_back_to_local_full_daily_coverage_when_live_source_fails(self, client, monkeypatch):
+        """GET /api/market/radar — 实时源失败时返回本地全量覆盖池，不返回业务失败"""
+        from dashboard.routers import market as market_router
+
+        previous_last_radar = market_router._last_radar
+        market_router._cache.delete("market_radar")
+        market_router._last_radar = None
+
+        local_rows = [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "price": 11.0,
+                "change_pct": 10.0,
+                "amplitude": 4.0,
+                "turnover_rate": 30.0,
+                "date": "2026-06-05",
+                "source": "local_stock_daily",
+            },
+            {
+                "code": "600519",
+                "name": "贵州茅台",
+                "price": 1570.0,
+                "change_pct": -2.0,
+                "amplitude": 3.0,
+                "turnover_rate": 20.0,
+                "date": "2026-06-05",
+                "source": "local_stock_daily",
+            },
+        ]
+
+        monkeypatch.setattr(
+            market_router,
+            "_fetch_market_radar_snapshot",
+            lambda: (_ for _ in ()).throw(RuntimeError("live source unavailable")),
+        )
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/radar")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["local_fallback"] is True
+            assert data["stale"] is True
+            assert data["total_stocks"] == 2
+            assert data["top_gainers"][0]["code"] == "000001"
+            assert data["top_losers"][0]["code"] == "600519"
+        finally:
+            market_router._cache.delete("market_radar")
+            market_router._last_radar = previous_last_radar
+
     def test_market_breadth_uses_local_full_daily_coverage(self, client, monkeypatch):
         """GET /api/market/breadth — 返回本地全量覆盖池涨跌广度"""
         from dashboard.routers import market as market_router
@@ -578,6 +632,34 @@ class TestMarket:
         finally:
             market_router._cache.delete("sector_heatmap")
             market_router._last_heatmap = previous_last_heatmap
+
+    def test_market_northbound_returns_soft_unavailable_state_when_source_fails(self, client, monkeypatch):
+        """GET /api/market/northbound — 北向源不可用时不让情报页进入硬失败"""
+        from dashboard.routers import market as market_router
+
+        previous_last_northbound = market_router._last_northbound
+        market_router._cache.delete("northbound")
+        market_router._last_northbound = None
+        monkeypatch.setattr(
+            market_router,
+            "_fetch_northbound",
+            lambda: (_ for _ in ()).throw(RuntimeError("northbound unavailable")),
+        )
+
+        try:
+            resp = client.get("/api/market/northbound")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["today_net"] == 0
+            assert data["flow"] == []
+            assert data["stale"] is True
+            assert data["source_unavailable"] is True
+            assert data["source"] == "eastmoney_northbound"
+        finally:
+            market_router._cache.delete("northbound")
+            market_router._last_northbound = previous_last_northbound
 
     def test_market_rules_list(self, client):
         """GET /api/market-rules/list — 市场规则"""

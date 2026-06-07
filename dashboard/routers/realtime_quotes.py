@@ -6,6 +6,7 @@ from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str,
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
+from uvicorn.protocols.utils import ClientDisconnected
 
 from dashboard.auth import close_unauthorized_websocket, is_valid_api_key, websocket_api_key
 from dashboard.session import optional_websocket_account
@@ -133,6 +134,14 @@ async def _broadcast_alerts(alerts):
                     _active_connections.remove(ws)
 
 
+async def _safe_ws_send_text(ws: WebSocket, payload: str) -> bool:
+    try:
+        await ws.send_text(payload)
+        return True
+    except (WebSocketDisconnect, ClientDisconnected):
+        return False
+
+
 def _sync_broadcast(quotes: dict[str, QuoteData]):
     """同步回调 -> 异步广播（行情 + 预警检查）"""
     try:
@@ -182,25 +191,27 @@ async def websocket_quotes(ws: WebSocket):
     service = get_quote_service()
 
     # 发送当前缓存的行情
-    cached = service.get_all_quotes()
-    if cached:
-        await ws.send_text(json.dumps({
-            "type": "quotes",
-            "data": {code: _quote_to_dict(q) for code, q in cached.items()},
-            "time": now_beijing_iso(),
-        }))
-
-    # 发送当前状态
-    await ws.send_text(json.dumps({
-        "type": "status",
-        "running": service.is_running,
-        "subscriptions": service.subscription_count,
-        "temporary_subscriptions": getattr(service, "temporary_subscription_count", 0),
-        "cache_count": service.cache_count,
-        "update_count": service.update_count,
-    }))
-
     try:
+        cached = service.get_all_quotes()
+        if cached:
+            if not await _safe_ws_send_text(ws, json.dumps({
+                "type": "quotes",
+                "data": {code: _quote_to_dict(q) for code, q in cached.items()},
+                "time": now_beijing_iso(),
+            })):
+                return
+
+        # 发送当前状态
+        if not await _safe_ws_send_text(ws, json.dumps({
+            "type": "status",
+            "running": service.is_running,
+            "subscriptions": service.subscription_count,
+            "temporary_subscriptions": getattr(service, "temporary_subscription_count", 0),
+            "cache_count": service.cache_count,
+            "update_count": service.update_count,
+        })):
+            return
+
         while True:
             data = await ws.receive_text()
             try:

@@ -43,6 +43,10 @@
                 state.bound = true;
                 this._bind();
             }
+            if (state.activeTab === 'openclaw-settings') {
+                await this.refreshSettings();
+                return;
+            }
             if (!Conversations) {
                 throw new Error('OpenClawConversations 未加载');
             }
@@ -158,10 +162,20 @@
                 App._setAuthGate(true, { reason: '请先登录' });
                 return;
             }
-            this._state = await this._loadState();
-            root.innerHTML = this._settingsLayout(account, this._state);
-            this._bindSettings(root, account, this._state);
-            this._focusSettingsSection(root);
+            const renderSettings = (state, { focus = false } = {}) => {
+                root.innerHTML = this._settingsLayout(account, state || {});
+                this._bindSettings(root, account, state || {});
+                if (focus) this._focusSettingsSection(root);
+            };
+
+            renderSettings(this._state || {}, { focus: true });
+
+            try {
+                this._state = await this._loadState();
+                renderSettings(this._state);
+            } catch (e) {
+                console.warn('[OpenClaw] settings refresh failed', e);
+            }
         },
 
         _settingsLayout(account, state) {

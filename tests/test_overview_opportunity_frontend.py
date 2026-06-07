@@ -245,6 +245,104 @@ def test_overview_opportunity_ignores_stale_full_response():
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_fast_timeout_falls_back_to_full_request():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'qlib',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url.includes('fast=true')) throw new Error('请求超时');
+                return {
+                    items: [{
+                        matrix_rank: 1,
+                        code: '300750',
+                        name: '宁德时代',
+                        decision_score: 88,
+                        decision_label: '补载成功',
+                        risk_level: '低',
+                        reason_tags: ['完整估值'],
+                        risk_tags: [],
+                        next_actions: [],
+                    }],
+                    summary: { total: 1, signal_quality: { label: '验证中性', sample_days: 259 } },
+                };
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.equal(calls.length, 2);
+            assert.match(calls[0], /fast=true/);
+            assert.match(calls[1], /max_wait_sec=6/);
+            assert.match(tbody.innerHTML, /补载成功/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /候选 1 只/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_empty_watchlist_stays_on_watchlist_without_fetching():
     script = textwrap.dedent(
         r"""
@@ -333,4 +431,4 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=16" in scripts
+    assert "/static/overview.js?v=17" in scripts

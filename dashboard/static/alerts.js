@@ -18,6 +18,17 @@
     let _rules = [];
     let _conditionalOrders = [];
     let _delegatedActionsBound = false;
+    let _pageIsUnloading = false;
+
+    window.addEventListener?.('pagehide', () => {
+        _pageIsUnloading = true;
+    });
+
+    document.addEventListener?.('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            _pageIsUnloading = true;
+        }
+    });
 
     // ── 初始化 ──
 
@@ -89,8 +100,24 @@
                 renderConditionalRuleOptions();
             }
         } catch (e) {
+            if (isNavigationAbort(e)) return;
+            if (isSoftStartupTimeout(e)) {
+                console.warn?.('预警规则暂未返回，稍后可刷新重试');
+                return;
+            }
             console.error('加载预警规则失败:', e);
         }
+    }
+
+    function isNavigationAbort(error) {
+        if (!_pageIsUnloading) return false;
+        const message = error?.message || String(error || '');
+        return error?.name === 'AbortError' || /Failed to fetch|NetworkError|Load failed/i.test(message);
+    }
+
+    function isSoftStartupTimeout(error) {
+        const message = error?.message || String(error || '');
+        return /请求超时|timeout/i.test(message);
     }
 
     async function addRule() {

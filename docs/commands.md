@@ -43,6 +43,15 @@ docker compose down
 
 `pyproject.toml` 设置了 `testpaths = ["tests"]`，并定义 `unit`、`integration` markers。
 
+## Context pack 验证
+
+```bash
+.venv/bin/python scripts/verify_context_pack.py
+.venv/bin/python -m pytest tests/test_verify_context_pack.py -q
+```
+
+该命令只检查 Codex context pack 文件、命令写法、架构文档引用和敏感模式，不启动 Dashboard、不连接外部服务、不写业务数据库。
+
 ## 语法检查
 
 ```bash
@@ -58,7 +67,7 @@ docker compose down
 .venv/bin/python scripts/frontend_data_render_audit.py
 ```
 
-`dashboard_data_health.py` 使用 FastAPI TestClient 扫描只读 API。`frontend_data_render_audit.py` 静态扫描前端渲染风险。
+`dashboard_data_health.py` 使用 FastAPI TestClient 扫描 API 返回值，不连接外部服务，但会触发应用 lifespan：初始化本地数据库、短暂启动/停止调度器和行情服务，并写入 `test-results/data-display-audit/api-report.json`。`frontend_data_render_audit.py` 静态扫描前端渲染风险，并写入 `test-results/data-display-audit/frontend-static-report.json`。
 
 ## E2E
 

@@ -11,6 +11,7 @@
 ## 高价值工作流
 
 - 后端/API 修改：先定位 router 和对应 `tests/test_*.py`，再跑针对性 pytest。
+- Context pack 修改：先跑 `.venv/bin/python scripts/verify_context_pack.py`，再视情况补 `rg` 路径检查。
 - 前端修改：同时检查 JS 模块、模板 script 顺序、service worker 缓存清单和前端契约测试。
 - Signal/Qlib 修改：先读 `docs/decisions/0001-signal-engine-v2.md`，避免把 legacy Qlib 字段当成新语义。
 - 数据展示问题：优先使用 `scripts/dashboard_data_health.py` 和 `scripts/frontend_data_render_audit.py` 收集证据。

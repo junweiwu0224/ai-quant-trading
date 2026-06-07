@@ -641,7 +641,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=20" in scripts
+    assert "/static/core/app-shell.js?v=21" in scripts
 
 
 def test_iwencai_ai_analysis_uses_focused_summary_rows_not_raw_fields():

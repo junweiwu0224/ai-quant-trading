@@ -177,7 +177,15 @@ Object.assign(App, {
                 return;
             }
             const fastQuery = this._buildOverviewOpportunityQuery(scope, { fast: true });
-            const fastData = await this.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
+            let fastData;
+            try {
+                fastData = await this.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
+            } catch (fastError) {
+                if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
+                if (status) status.innerHTML = '<span class="opportunity-status-item">快速预览超时</span><span class="opportunity-status-item">完整估值补载中</span>';
+                await this._loadOverviewOpportunitiesFull(scope, requestId);
+                return;
+            }
             if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
             const fastItems = (fastData.items || []).slice(0, 5);
             if (!fastItems.length) {

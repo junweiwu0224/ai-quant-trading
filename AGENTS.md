@@ -20,6 +20,7 @@
 - Docker 启动：`docker compose up -d`。
 - 后端/API/核心测试：`.venv/bin/python -m pytest -q`。
 - 语法检查：`.venv/bin/python -m compileall -q .`。
+- Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
 - E2E：先启动 Dashboard，再运行 `scripts/e2e-local.sh all` 或 `npm run e2e:docker`。
 - `npm test` 当前是占位脚本，会直接失败；不要把它当作项目验证命令。
 
@@ -49,7 +50,7 @@
 
 优先查看 `docs/testing.md` 和 `docs/quality-gates.md`。
 
-- 文档/context pack 改动：检查 Markdown 路径、运行只读搜索验证。
+- 文档/context pack 改动：`.venv/bin/python scripts/verify_context_pack.py`，必要时补充 Markdown 路径和引用检查。
 - Python 语法或跨模块导入：`.venv/bin/python -m compileall -q .`。
 - 单元/API/领域逻辑：`.venv/bin/python -m pytest <相关 tests/test_*.py> -q`，必要时再跑 `.venv/bin/python -m pytest -q`。
 - Dashboard API：优先使用对应 pytest；数据展示风险可跑 `.venv/bin/python scripts/dashboard_data_health.py`。
@@ -61,7 +62,7 @@
 
 - 项目门禁文档：`docs/quality-gates.md`。
 - 当前不默认启用阻断型 hooks；先按文档手动选择验证。
-- 适合前移的快速门禁：Markdown 路径检查、`.venv/bin/python -m compileall -q .`、针对性 pytest、前端静态渲染扫描。
+- 适合前移的快速门禁：`.venv/bin/python scripts/verify_context_pack.py`、`.venv/bin/python -m compileall -q .`、针对性 pytest、前端静态渲染扫描。
 - 不适合自动 hook：`docker compose up`、真实数据同步、E2E、外部 LLM/OpenClaw 调用、交易/实盘脚本、数据库迁移或清理。
 
 ## Subagents

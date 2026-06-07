@@ -84,9 +84,9 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=16',
-            '/static/overview-radar.js?v=5',
-            '/static/alerts.js?v=1',
+            '/static/overview.js?v=17',
+            '/static/overview-radar.js?v=6',
+            '/static/alerts.js?v=4',
         ],
         trade: [
             '/static/portfolio-stats.js?v=1',
@@ -125,7 +125,7 @@ const App = {
         ],
         openclaw: [
             '/static/openclaw-conversations.js?v=2',
-            '/static/openclaw-workbench.js?v=20',
+            '/static/openclaw-workbench.js?v=22',
         ],
         research: [
             '/static/backtest.js?v=4',

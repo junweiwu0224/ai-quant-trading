@@ -36,7 +36,10 @@
             const raw = location.hash.slice(1).trim();
             const tab = raw || 'overview';
             const normalized = this._normalizeTab(tab);
-            if (normalized !== this.currentTab || !document.getElementById(`tab-${this._tabAlias[normalized] || normalized}`)?.classList.contains('active')) {
+            const panelId = this._tabAlias[normalized] || normalized;
+            const panel = document.getElementById(`tab-${panelId}`);
+            const initialized = Boolean(this._tabCache?.[normalized]);
+            if (normalized !== this.currentTab || !panel?.classList.contains('active') || !initialized) {
                 void this.switchTab(tab, { replaceHash: false });
             }
         },

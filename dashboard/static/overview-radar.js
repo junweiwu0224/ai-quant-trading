@@ -110,8 +110,17 @@
                 await loadTopStocks(container);
             }
         } catch (e) {
+            if (isSoftRadarTimeout(e)) {
+                container.innerHTML = '<div class="text-muted text-center">市场雷达暂未返回，稍后刷新可重试</div>';
+                return;
+            }
             container.innerHTML = `<div class="text-muted text-center">加载失败: ${App.escapeHTML(e.message)}</div>`;
         }
+    }
+
+    function isSoftRadarTimeout(error) {
+        const message = error?.message || String(error || '');
+        return /请求超时|timeout/i.test(message);
     }
 
     async function loadTopStocks(container) {

@@ -90,6 +90,6 @@ def test_research_toolbar_asset_versions_are_bumped_for_browser_cache():
     template = read_template()
     scripts = read_scripts_partial()
 
-    assert "/static/style.css?v=46" in template
+    assert "/static/style.css?v=47" in template
     assert "/static/core/app-shell.js?v=21" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts

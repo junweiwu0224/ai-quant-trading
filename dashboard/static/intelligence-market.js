@@ -53,6 +53,12 @@
         return `rgb(${r},${g},${b})`;
     };
     const heatTextColor = (value) => Math.abs(Number(value) || 0) >= 1.6 ? '#fff' : 'var(--text-primary)';
+    const sourceLabel = (value) => ({
+        eastmoney_sector_board: '东方财富行业板块',
+        eastmoney_full_market_rank: '东方财富全A',
+        local_stock_daily: '本地日线覆盖池',
+        eastmoney_news: '东方财富快讯',
+    }[String(value || '').trim()] || String(value || '--'));
     const sourceName = (key) => ({
         concept: '概念',
         industry: '行业',
@@ -141,10 +147,19 @@
                 const upPct = total > 0 ? ((gainers / total) * 100).toFixed(0) : '--';
                 const effective = Number(data.effective_count) || Number(data.latest_date_covered) || total;
                 const staleCount = Math.max(0, (Number(data.stock_count) || Number(data.total_stocks) || effective) - effective);
+                const breadthScore = scoreFromBreadth(data);
+                const displayBreadthScore = breadthScore == null ? null : Math.round(breadthScore);
+                const sentimentLabel = displayBreadthScore == null ? '中性' : displayBreadthScore >= 10 ? '偏多' : displayBreadthScore <= -10 ? '偏空' : '中性';
+                const sentimentCls = displayBreadthScore == null ? 'text-muted' : displayBreadthScore >= 10 ? 'text-up' : displayBreadthScore <= -10 ? 'text-down' : 'text-muted';
                 const coverage = data.stock_count
                     ? `${formatCount(effective)}/${formatCount(data.stock_count)}`
                     : formatCount(effective);
                 const stale = data.stale ? ' · 缓存' : '';
+                const sentHeader = document.querySelector('.intel-sentiment-card h3');
+                if (sentHeader) {
+                    const scoreText = displayBreadthScore == null ? '--' : formatSigned(displayBreadthScore, 0);
+                    sentHeader.innerHTML = `市场情绪 <span class="${sentimentCls}" style="font-size:var(--font-size-xs);font-weight:400">${sentimentLabel} (${scoreText})</span>`;
+                }
 
                 el.innerHTML = `
                     <div class="intel-sent-stat">
@@ -203,7 +218,17 @@
                     return;
                 }
 
-                el.innerHTML = news.map((n) => {
+                const newsSource = data.source || news[0]?.source || '市场新闻';
+                const newsTime = data.generated_at || data.timestamp || news[0]?.time || '暂无更新时间';
+                const coverageNote = data.coverage_note || data.note || '滚动新闻快讯，按时间倒序展示';
+                const newsMeta = `<div class="intel-news-source-strip">
+                    <span>新闻源 ${safeHTML(sourceLabel(newsSource))}</span>
+                    <span>更新 ${safeHTML(newsTime)}</span>
+                    <span>展示 ${formatCount(news.length)} 条</span>
+                    <span>${safeHTML(coverageNote)}</span>
+                </div>`;
+
+                el.innerHTML = newsMeta + news.map((n) => {
                     const sentVal = n.sentiment || 0;
                     const sentCls = sentVal > 0.2 ? 'tag-up' : sentVal < -0.2 ? 'tag-down' : '';
                     const icon = sentVal > 0.2 ? '▲' : sentVal < -0.2 ? '▼' : '●';
@@ -224,14 +249,6 @@
                         </div>
                     </div>`;
                 }).join('');
-
-                const overall = data.overall_sentiment || 0;
-                const sentLabel = overall >= 0.1 ? '偏多' : overall <= -0.1 ? '偏空' : '中性';
-                const sentCls = overall >= 0.1 ? 'text-up' : overall <= -0.1 ? 'text-down' : 'text-muted';
-                const sentHeader = document.querySelector('.intel-sentiment-card h3');
-                if (sentHeader) {
-                    sentHeader.innerHTML = `市场情绪 <span class="${sentCls}" style="font-size:var(--font-size-xs);font-weight:400">${sentLabel} (${overall.toFixed(2)})</span>`;
-                }
             } catch {
                 el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
             }
@@ -270,6 +287,9 @@
                 const strongest = [...sectors].sort((a, b) => Math.abs(Number(b.change_pct) || 0) - Math.abs(Number(a.change_pct) || 0))[0];
                 const totalCount = Number(data.total) || sectors.length;
                 const displayCount = tiles.length;
+                const heatmapSource = data.source || (data.local_fallback ? 'local_stock_daily' : '');
+                const heatmapTime = data.generated_at || data.timestamp || '';
+                const coverageNote = data.coverage_note || (data.local_fallback ? '本地覆盖池降级热力' : '板块热力快照');
 
                 const tileHtml = tiles.map(({ sector, span, rowSpan, share }) => {
                     const change = Number(sector.change_pct) || 0;
@@ -291,6 +311,10 @@
                             <span>平盘 ${flatCount}</span>
                             <span>均值 ${formatPct(avgChange)}</span>
                             <span>全量 ${formatCount(totalCount)} · 展示 ${formatCount(displayCount)}</span>
+                            ${heatmapSource ? `<span>来源 ${safeHTML(sourceLabel(heatmapSource))}</span>` : ''}
+                            ${heatmapTime ? `<span>更新 ${safeHTML(heatmapTime)}</span>` : ''}
+                            ${data.stale ? '<span>缓存/降级</span>' : ''}
+                            ${coverageNote ? `<span>${safeHTML(coverageNote)}</span>` : ''}
                             ${strongest ? `<span>最活跃 ${safeHTML(strongest.name)} ${formatPct(strongest.change_pct)}</span>` : ''}
                         </div>
                         <div class="intel-heatmap-legend">

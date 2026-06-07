@@ -40,6 +40,11 @@
         return `${num >= 0 ? '+' : ''}${Math.round(num)}`;
     };
     const signalColor = (score) => (score >= 10 ? '#22c55e' : score <= -10 ? '#dc2626' : '#f59e0b');
+    const signalRawSourceName = (value) => ({
+        legacy_qlib: '历史预测缓存',
+        qlib: '历史预测缓存',
+        local_momentum: '本地动量信号',
+    }[String(value || '').trim()] || String(value || '未知来源'));
 
     Object.assign(Intelligence, {
         heatLevel(rank, total) {
@@ -109,6 +114,19 @@
 
                 const preds = data.predictions;
                 const total = preds.length;
+                const totalUniverse = Number(data.total) || total;
+                const rawSource = signalRawSourceName(data.raw_source || data.source || data.provider);
+                const generatedAt = data.generated_at || data.updated_at || '--';
+                const validationDays = validation ? String(validation.sample_days ?? 0) : '0';
+                const trustSummary = `
+                    <div class="qlib-trust-summary">
+                        <span class="qlib-trust-title">可信口径</span>
+                        <span>来源 ${App.escapeHTML(rawSource)}</span>
+                        <span>覆盖 ${App.escapeHTML(formatCount(totalUniverse))} 只</span>
+                        <span>展示 Top ${App.escapeHTML(formatCount(total))}</span>
+                        <span>生成 ${App.escapeHTML(generatedAt)}</span>
+                        <span>验证样本 ${App.escapeHTML(validationDays)} 天</span>
+                    </div>`;
                 const scores = preds.map((p) => p.score);
                 const minScore = Math.min(...scores);
                 const maxScore = Math.max(...scores);
@@ -159,12 +177,13 @@
                     <div class="qlib-header">
                         <div class="qlib-header-left">
 	                            <span class="qlib-date" data-intel-action="timeline-focus" data-date="${App.escapeHTML(dateStr)}" style="cursor:pointer;text-decoration:underline dotted" title="点击联动到研发页">信号日期: ${App.escapeHTML(dateStr)}</span>
-	                            <span class="qlib-total">${App.escapeHTML(data.provider || 'local_momentum')} · ${App.escapeHTML(data.model_version || '--')} · 全市场 ${data.total} 只 · Top ${total} · ${App.escapeHTML(confidenceLabel)}</span>
+	                            <span class="qlib-total">${App.escapeHTML(data.provider || 'local_momentum')} · ${App.escapeHTML(data.model_version || '--')} · 全市场 ${formatCount(totalUniverse)} 只 · Top ${formatCount(total)} · ${App.escapeHTML(confidenceLabel)}</span>
                         </div>
                         <button class="qlib-btn qlib-btn-push" id="qlib-push-screener">
 	                            📤 推送 Top 50 至选股器
                         </button>
                     </div>
+                    ${trustSummary}
                     ${validationSummary}
                     <div class="qlib-legend">
                         <span class="qlib-legend-item"><span class="qlib-heat-icon">🔥</span> 强动能(前5%)</span>
@@ -208,12 +227,17 @@
             const bar = document.getElementById('signal-bar');
             if (!bar) return;
 
-            const breadth = await withTimeout(fetchShared('breadth', '/api/market/breadth'), 1500);
+            const state = Intelligence.state || (Intelligence.state = {});
+            const requestId = (state.signalBarRequestId || 0) + 1;
+            state.signalBarRequestId = requestId;
+            const isCurrent = () => state.signalBarRequestId === requestId;
+            const breadthPromise = fetchShared('breadth', '/api/market/breadth');
             const marker = document.getElementById('signal-bar-marker');
             const scoreEl = document.getElementById('signal-bar-score');
             const sourcesEl = document.getElementById('signal-bar-sources');
 
-            if (!breadth?.success) {
+            const renderUnavailable = () => {
+                if (!isCurrent()) return;
                 if (marker) marker.style.left = '50%';
                 if (scoreEl) {
                     scoreEl.textContent = '--';
@@ -222,49 +246,64 @@
                 if (sourcesEl) {
                     sourcesEl.innerHTML = '<span class="signal-src"><span class="signal-src-dot" style="background:#f59e0b"></span>广度不可用</span>';
                 }
+            };
+            const renderBreadth = (breadth) => {
+                if (!isCurrent()) return;
+                const score = scoreFromBreadth(breadth);
+                if (score === null) {
+                    if (marker) marker.style.left = '50%';
+                    if (scoreEl) scoreEl.textContent = '--';
+                    if (sourcesEl) sourcesEl.textContent = '';
+                    return;
+                }
+
+                const up = Number(breadth.up_count) || 0;
+                const down = Number(breadth.down_count) || 0;
+                const flat = Number(breadth.flat_count) || 0;
+                const effective = Number(breadth.effective_count) || Number(breadth.latest_date_covered) || up + down + flat;
+                const stockCount = Number(breadth.stock_count) || Number(breadth.total_stocks) || effective;
+                const upRatio = up + down + flat > 0 ? ((up / (up + down + flat)) * 100).toFixed(0) : '--';
+                const advanceDecline = down > 0 ? (up / down).toFixed(2) : '--';
+                const displayScore = Math.round(score);
+                const color = signalColor(displayScore);
+
+                if (marker) {
+                    const pct = Math.max(0, Math.min(100, (score + 100) / 2));
+                    marker.style.left = pct + '%';
+                }
+
+                if (scoreEl) {
+                    scoreEl.textContent = formatSigned(displayScore);
+                    scoreEl.title = `全市场广度 = (上涨 ${formatCount(up)} - 下跌 ${formatCount(down)}) / (上涨 + 下跌 + 平盘)`;
+                    scoreEl.style.color = color;
+                }
+
+                if (sourcesEl) {
+                    const sources = [
+                        { text: '全市场广度', color },
+                        { text: `上涨占比 ${upRatio}%`, color },
+                        { text: `涨跌比 ${advanceDecline}`, color },
+                        { text: `涨停/跌停 ${formatCount(breadth.limit_up)}/${formatCount(breadth.limit_down)}`, color: '#f59e0b' },
+                        { text: `有效 ${formatCount(effective)}/${formatCount(stockCount)}`, color: '#94a3b8' },
+                    ];
+                    sourcesEl.innerHTML = sources.map((s) => {
+                        return `<span class="signal-src"><span class="signal-src-dot" style="background:${s.color}"></span>${App.escapeHTML(s.text)}</span>`;
+                    }).join('');
+                }
+            };
+
+            const quickBreadth = await withTimeout(breadthPromise, 1500);
+            if (quickBreadth?.success) {
+                renderBreadth(quickBreadth);
                 return;
             }
 
-            const score = scoreFromBreadth(breadth);
-            if (score === null) {
-                if (marker) marker.style.left = '50%';
-                if (scoreEl) scoreEl.textContent = '--';
-                if (sourcesEl) sourcesEl.textContent = '';
-                return;
-            }
-
-            const up = Number(breadth.up_count) || 0;
-            const down = Number(breadth.down_count) || 0;
-            const flat = Number(breadth.flat_count) || 0;
-            const effective = Number(breadth.effective_count) || Number(breadth.latest_date_covered) || up + down + flat;
-            const stockCount = Number(breadth.stock_count) || Number(breadth.total_stocks) || effective;
-            const upRatio = up + down + flat > 0 ? ((up / (up + down + flat)) * 100).toFixed(0) : '--';
-            const advanceDecline = down > 0 ? (up / down).toFixed(2) : '--';
-            const displayScore = Math.round(score);
-            const color = signalColor(displayScore);
-
-            if (marker) {
-                const pct = Math.max(0, Math.min(100, (score + 100) / 2));
-                marker.style.left = pct + '%';
-            }
-
-            if (scoreEl) {
-                scoreEl.textContent = formatSigned(displayScore);
-                scoreEl.title = `全市场广度 = (上涨 ${formatCount(up)} - 下跌 ${formatCount(down)}) / (上涨 + 下跌 + 平盘)`;
-                scoreEl.style.color = color;
-            }
-
-            if (sourcesEl) {
-                const sources = [
-                    { text: '全市场广度', color },
-                    { text: `上涨占比 ${upRatio}%`, color },
-                    { text: `涨跌比 ${advanceDecline}`, color },
-                    { text: `涨停/跌停 ${formatCount(breadth.limit_up)}/${formatCount(breadth.limit_down)}`, color: '#f59e0b' },
-                    { text: `有效 ${formatCount(effective)}/${formatCount(stockCount)}`, color: '#94a3b8' },
-                ];
-                sourcesEl.innerHTML = sources.map((s) => {
-                    return `<span class="signal-src"><span class="signal-src-dot" style="background:${s.color}"></span>${App.escapeHTML(s.text)}</span>`;
-                }).join('');
+            renderUnavailable();
+            const finalBreadth = await withTimeout(breadthPromise, 10000);
+            if (finalBreadth?.success) {
+                renderBreadth(finalBreadth);
+            } else {
+                renderUnavailable();
             }
         },
 

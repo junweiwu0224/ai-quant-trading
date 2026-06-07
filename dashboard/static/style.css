@@ -4276,6 +4276,23 @@ th[data-sort].sort-desc::after {
     max-height: calc(100vh - 360px);
     overflow-y: auto;
 }
+.intel-news-source-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.intel-news-source-strip span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+}
 .intel-heatmap-wrap { min-height: 200px; }
 .intel-hotspot-wrap { min-height: 200px; }
 
@@ -4717,6 +4734,7 @@ th[data-sort].sort-desc::after {
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
 }
+.qlib-trust-summary,
 .qlib-validation-summary {
     display: flex;
     flex-wrap: wrap;
@@ -4726,16 +4744,21 @@ th[data-sort].sort-desc::after {
     color: var(--text-secondary);
     font-size: 12px;
 }
+.qlib-trust-summary span,
 .qlib-validation-summary span {
     padding: 3px 7px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--bg-secondary);
 }
+.qlib-trust-summary .qlib-trust-title,
 .qlib-validation-summary .qlib-validation-title {
     color: var(--text-primary);
     font-weight: 700;
     background: transparent;
+}
+.qlib-trust-summary {
+    margin-bottom: 6px;
 }
 .qlib-legend {
     display: flex;

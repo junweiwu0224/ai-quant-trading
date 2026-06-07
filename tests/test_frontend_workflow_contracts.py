@@ -64,9 +64,9 @@ def test_signal_engine_is_primary_frontend_semantics():
     paper = read("dashboard/static/paper.js")
     manager = read("strategy/manager.py")
 
-    assert "/static/intelligence-signals.js?v=1" in app
+    assert "/static/intelligence-signals.js?v=2" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=60" in scripts
+    assert "/static/app.js?v=61" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -107,10 +107,10 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=46" in template
+    assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=60" in scripts
+    assert "/static/app.js?v=61" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=21" in scripts

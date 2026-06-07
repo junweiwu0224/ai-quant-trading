@@ -56,7 +56,10 @@ def test_intelligence_heatmap_renders_weighted_treemap():
                     down_count: 144,
                     flat_count: 2,
                     avg_change_pct: 0.18,
+                    source: 'eastmoney_sector_board',
                     timestamp: '2026-05-26 10:31:00',
+                    generated_at: '2026-05-26T10:31:00',
+                    coverage_note: '东方财富行业板块全量分页快照，热力图按市值权重展示',
                     sectors: [
                         { name: '银行', change_pct: 0.12, total_mv: 90000, up_count: 18, down_count: 10, leader: '工商银行' },
                         { name: '有色金属', change_pct: 2.34, total_mv: 40000, up_count: 42, down_count: 6, leader: '紫金矿业' },
@@ -80,6 +83,9 @@ def test_intelligence_heatmap_renders_weighted_treemap():
             assert.match(heatmap.innerHTML, /下跌 144/);
             assert.match(heatmap.innerHTML, /平盘 2/);
             assert.match(heatmap.innerHTML, /全量 496 · 展示 4/);
+            assert.match(heatmap.innerHTML, /来源 东方财富行业板块/);
+            assert.match(heatmap.innerHTML, /更新 2026-05-26T10:31:00/);
+            assert.match(heatmap.innerHTML, /东方财富行业板块全量分页快照/);
             assert.doesNotMatch(heatmap.innerHTML, /class="heatmap-grid"/);
         })().catch((error) => {
             console.error(error);
@@ -111,12 +117,14 @@ def test_intelligence_sentiment_renders_full_market_breadth_counts():
         }
 
         const sentiment = makeElement('intel-sentiment');
+        const sentimentHeader = makeElement('intel-sentiment-header');
+        sentimentHeader.innerHTML = '市场情绪';
         const elements = { 'intel-sentiment': sentiment };
 
         global.window = global;
         global.document = {
             getElementById: (id) => elements[id] || null,
-            querySelector: () => null,
+            querySelector: (selector) => selector === '.intel-sentiment-card h3' ? sentimentHeader : null,
             addEventListener: () => {},
         };
         global.App = {
@@ -158,6 +166,9 @@ def test_intelligence_sentiment_renders_full_market_breadth_counts():
             assert.match(sentiment.innerHTML, /涨停 68/);
             assert.match(sentiment.innerHTML, /跌停 21/);
             assert.match(sentiment.innerHTML, /2026-06-05/);
+            assert.match(sentimentHeader.innerHTML, /市场情绪/);
+            assert.match(sentimentHeader.innerHTML, /偏空/);
+            assert.match(sentimentHeader.innerHTML, /-10/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -214,6 +225,8 @@ def test_intelligence_news_renders_source_and_count():
                 return {
                     success: true,
                     timestamp: '2026-06-06T23:20:00',
+                    source: '东方财富快讯',
+                    coverage_note: '东方财富滚动快讯，按时间倒序展示',
                     news: [
                         {
                             title: '近三个月车规级存储芯片价格暴涨180%',
@@ -232,10 +245,90 @@ def test_intelligence_news_renders_source_and_count():
             await Intelligence.loadNews();
             assert.equal(String(count.textContent), '1');
             assert.equal(timestamp.textContent, '2026-06-06T23:20:00');
+            assert.match(list.innerHTML, /新闻源 东方财富快讯/);
+            assert.match(list.innerHTML, /更新 2026-06-06T23:20:00/);
+            assert.match(list.innerHTML, /展示 1 条/);
+            assert.match(list.innerHTML, /东方财富滚动快讯/);
             assert.match(list.innerHTML, /东方财富快讯/);
             assert.match(list.innerHTML, /近三个月车规级存储芯片价格暴涨180%/);
             assert.match(list.innerHTML, /2026-06-06 22:42:26/);
             assert.doesNotMatch(list.innerHTML, /暂无新闻/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_news_does_not_override_market_sentiment_header():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const list = makeElement('intel-news-list');
+        const count = makeElement('intel-news-count');
+        const timestamp = makeElement('intel-timestamp');
+        const sentimentHeader = makeElement('intel-sentiment-header');
+        sentimentHeader.innerHTML = '市场情绪 <span class="text-up">偏多 (+17)</span>';
+        const elements = {
+            'intel-news-list': list,
+            'intel-news-count': count,
+            'intel-timestamp': timestamp,
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '.intel-sentiment-card h3' ? sentimentHeader : null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/news');
+                return {
+                    success: true,
+                    timestamp: '2026-06-06T23:20:00',
+                    source: '东方财富快讯',
+                    overall_sentiment: -0.43,
+                    news: [
+                        { title: '宏观扰动升温', time: '2026-06-06 22:42:26', source: '东方财富快讯', sentiment: -0.4 },
+                    ],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadNews();
+            assert.match(list.innerHTML, /新闻源 东方财富快讯/);
+            assert.match(sentimentHeader.innerHTML, /偏多/);
+            assert.match(sentimentHeader.innerHTML, /\+17/);
+            assert.doesNotMatch(sentimentHeader.innerHTML, /偏空/);
+            assert.doesNotMatch(sentimentHeader.innerHTML, /-0\.43/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -407,6 +500,94 @@ def test_intelligence_signal_bar_uses_full_market_breadth_only():
     assert result.returncode == 0, result.stderr
 
 
+def test_intelligence_signal_bar_recovers_when_shared_breadth_arrives_after_timeout():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                style: {},
+                title: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const marker = makeElement('signal-bar-marker');
+        const score = makeElement('signal-bar-score');
+        const sources = makeElement('signal-bar-sources');
+        const elements = {
+            'signal-bar': makeElement('signal-bar'),
+            'signal-bar-marker': marker,
+            'signal-bar-score': score,
+            'signal-bar-sources': sources,
+        };
+        let resolveBreadth;
+        const breadthPromise = new Promise((resolve) => { resolveBreadth = resolve; });
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/breadth');
+                return breadthPromise;
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-signals.js', 'utf8'));
+
+        (async () => {
+            const loading = Intelligence.loadSignalBar();
+            await new Promise((resolve) => setTimeout(resolve, 1600));
+            assert.equal(score.textContent, '--');
+            assert.match(sources.innerHTML, /广度不可用/);
+
+            resolveBreadth({
+                success: true,
+                up_count: 2982,
+                down_count: 2089,
+                flat_count: 124,
+                effective_count: 5515,
+                stock_count: 5525,
+                limit_up: 96,
+                limit_down: 19,
+            });
+            await loading;
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            assert.equal(score.textContent, '+17');
+            assert.match(sources.innerHTML, /全市场广度/);
+            assert.match(sources.innerHTML, /有效 5,515\/5,525/);
+            assert.doesNotMatch(sources.innerHTML, /广度不可用/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_intelligence_hotspot_shows_source_status_and_attribution_evidence():
     script = textwrap.dedent(
         r"""
@@ -532,6 +713,8 @@ def test_intelligence_signal_pool_renders_validation_summary():
                         total: 5197,
                         provider: 'local_momentum',
                         model_version: 'local_momentum_v1',
+                        raw_source: 'legacy_qlib',
+                        generated_at: '2026-06-07T12:30:00',
                         predictions: [
                             { code: '600519', name: '贵州茅台', score: 0.91, price: 1600, amount: 100000000, signal_confidence: 'validated_positive' },
                             { code: '000001', name: '平安银行', score: 0.75, price: 12.3, amount: 80000000, signal_confidence: 'validated_positive' },
@@ -568,6 +751,12 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /胜率 58\.6%/);
             assert.match(panel.innerHTML, /Rank IC 0\.071/);
             assert.match(panel.innerHTML, /状态 验证偏正/);
+            assert.match(panel.innerHTML, /可信口径/);
+            assert.match(panel.innerHTML, /来源 历史预测缓存/);
+            assert.match(panel.innerHTML, /覆盖 5,197 只/);
+            assert.match(panel.innerHTML, /展示 Top 2/);
+            assert.match(panel.innerHTML, /生成 2026-06-07T12:30:00/);
+            assert.match(panel.innerHTML, /验证样本 42 天/);
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证偏正<\/td>/);
             assert.match(panel.innerHTML, /信号日期: 2026-06-05/);
             assert.doesNotMatch(panel.innerHTML, /qlib LightGBM/i);
@@ -646,14 +835,14 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
     assert "/static/intelligence.js?v=5" in app_js
-    assert "/static/intelligence-market.js?v=5" in app_js
+    assert "/static/intelligence-market.js?v=6" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=1" in app_js
+    assert "/static/intelligence-signals.js?v=2" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=60" in scripts
+    assert "/static/app.js?v=61" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
-    assert "/sw.js?v=21" in app_ui_shell
-    assert "ai-quant-v92" in service_worker
+    assert "/sw.js?v=22" in app_ui_shell
+    assert "ai-quant-v93" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

@@ -94,14 +94,24 @@
             }
             const root = document.getElementById('openclaw-workbench');
             if (!root) return;
+            const draft = document.getElementById('openclaw-input')?.value || '';
             root.innerHTML = this._layout();
             Conversations?.render?.();
+            this._restoreComposerDraft(draft);
             this._messages = this._messagesForActiveConversation();
             this._renderMessages();
-            this._state = await this._loadState();
-            this._renderStatus(this._state);
+            this._setStreaming(Boolean(state.pendingRequest));
             await this._restoreConversationIfNeeded();
             Conversations?.render?.();
+            this._setStreaming(Boolean(state.pendingRequest));
+            this._loadState()
+                .then((data) => {
+                    this._state = data;
+                    this._renderStatus(data);
+                })
+                .catch((e) => {
+                    console.warn('[OpenClaw] state refresh failed', e);
+                });
         },
 
         async _loadState() {
@@ -825,7 +835,18 @@
         _updateComposerHint() {
             const el = document.getElementById('openclaw-composer-hint');
             if (!el) return;
+            const input = document.getElementById('openclaw-input');
+            state.skillCommandHint = this._skillCommandHint(input?.value || state.skillCommandHint || '');
             el.innerHTML = state.skillCommandHint ? `<span class="openclaw-composer-chip">${App.escapeHTML(state.skillCommandHint)}</span>` : '';
+        },
+
+        _restoreComposerDraft(draft) {
+            const input = document.getElementById('openclaw-input');
+            if (input && draft) {
+                input.value = draft;
+            }
+            state.skillCommandHint = this._skillCommandHint(input?.value || '');
+            this._updateComposerHint();
         },
 
         _messagesForActiveConversation() {
@@ -936,6 +957,7 @@
             const messages = state.messagesByConversation.get(convId) || [];
             messages.push({ role: 'user', content: text, skillCommandHint: Boolean(state.skillCommandHint) });
             messages.push({ role: 'assistant', content: '正在思考...', pending: true, skillCommandHint: Boolean(state.skillCommandHint) });
+            Conversations?.markLocalConversation?.(convId, messages);
             this._messages = messages;
             this._renderMessages();
 
@@ -991,26 +1013,39 @@
                 this._setStreaming(false);
                 this._updateComposerHint();
             }
+            state.messagesByConversation.set(convId, messages);
+            if ((Conversations?.getActiveConversationId?.() || convId) === convId) {
+                Conversations?.setActiveConversationId?.(convId, { persist: true, render: false });
+                state.currentConversationId = convId;
+                this._messages = messages;
+            }
             this._renderMessages();
             await this._persistConversation(convId);
             await Conversations?.refresh?.();
         },
 
         stop(silent = false) {
+            const convId = state.pendingConversationId || Conversations?.getActiveConversationId?.() || state.currentConversationId || '';
             if (state.pendingRequest) {
                 state.pendingRequest.abort();
                 state.pendingRequest = null;
                 state.pendingConversationId = '';
             }
             this._setStreaming(false);
-            const messages = this._messages || [];
+            const messages = (convId && state.messagesByConversation.get(convId)) || this._messages || [];
+            if (convId && messages.length) {
+                state.messagesByConversation.set(convId, messages);
+                Conversations?.setActiveConversationId?.(convId, { persist: true, render: false });
+                state.currentConversationId = convId;
+                this._messages = messages;
+            }
             const pending = messages.findLast?.((m) => m.pending) || messages.find((m) => m.pending);
             if (pending) {
                 pending.pending = false;
                 pending.canceled = true;
                 pending.content = '已停止';
                 this._renderMessages();
-                this._persistConversation(Conversations?.getActiveConversationId?.() || state.currentConversationId || '');
+                this._persistConversation(convId || Conversations?.getActiveConversationId?.() || state.currentConversationId || '');
                 if (!silent) {
                     App.toast('已停止本次回复', 'info');
                 }
@@ -1040,6 +1075,7 @@
                 </div>
             `).join('');
             el.scrollTop = el.scrollHeight;
+            this._setStreaming(Boolean(state.pendingRequest));
         },
 
         _setStreaming(isStreaming) {

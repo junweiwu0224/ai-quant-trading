@@ -839,10 +839,10 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence-iwencai.js?v=3" in app_js
     assert "/static/intelligence-signals.js?v=2" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=61" in scripts
+    assert "/static/app.js?v=66" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
-    assert "/sw.js?v=22" in app_ui_shell
-    assert "ai-quant-v93" in service_worker
+    assert "/sw.js?v=27" in app_ui_shell
+    assert "ai-quant-v98" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

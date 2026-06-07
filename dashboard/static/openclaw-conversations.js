@@ -12,6 +12,7 @@
         query: '',
         bound: false,
         previews: {},
+        localItems: {},
     };
 
     const Conversations = {
@@ -81,6 +82,11 @@
                 ...item,
                 preview: state.previews[item.id] || item.preview || '',
             }));
+            const remoteIds = new Set(state.items.map((item) => item.id));
+            state.items = [
+                ...Object.values(state.localItems || {}).filter((item) => item?.id && !remoteIds.has(item.id)),
+                ...state.items,
+            ];
             const activeExists = state.items.some((item) => item.id === state.activeConversationId);
             if (!state.activeConversationId || (!activeExists && !preserveMissingActive)) {
                 state.activeConversationId = state.items[0]?.id || '';
@@ -117,6 +123,7 @@
                 this._persistActiveConversationId();
             }
             await this.refresh({ preserveMissingActive: true });
+            delete state.localItems[payloadId];
             state.items = state.items.map((item) => (
                 item.id === payloadId ? { ...item, preview } : item
             ));
@@ -151,6 +158,24 @@
                 this._persistActiveConversationId();
             }
             return state.activeConversationId;
+        },
+
+        markLocalConversation(id, messages = []) {
+            const convId = String(id || '').trim();
+            if (!convId) return;
+            const preview = this._previewFromMessages(messages);
+            const now = new Date().toISOString();
+            state.localItems[convId] = {
+                id: convId,
+                title: preview || '新对话',
+                preview,
+                created_at: now,
+                updated_at: now,
+            };
+            state.previews[convId] = preview;
+            state.activeConversationId = convId;
+            this._persistActiveConversationId();
+            this.render();
         },
 
         setActiveConversationId(id, { persist = true, render = true } = {}) {

@@ -66,7 +66,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=2" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=61" in scripts
+    assert "/static/app.js?v=66" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -110,13 +110,14 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=61" in scripts
+    assert "/static/app.js?v=66" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=21" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/static/app-workbench.js?v=2" in scripts
-    assert "/static/openclaw-workbench.js?v=22" in scripts
+    assert "/static/openclaw-conversations.js?v=3" in scripts
+    assert "/static/openclaw-workbench.js?v=26" in scripts
     assert "/static/app-bootstrap.js?v=21" in scripts
     assert "/static/overview.js?v=18" in scripts
     assert "/static/overview.js?v=18" in app
@@ -130,9 +131,10 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
     assert "/static/research-datahub.js?v=11" in app
-    assert "/static/research-valuation.js?v=14" in app
+    assert "/static/research-valuation.js?v=15" in app
     assert "/static/stock-detail-core.js?v=6" in app
-    assert "/static/openclaw-workbench.js?v=22" in app
+    assert "/static/openclaw-conversations.js?v=3" in app
+    assert "/static/openclaw-workbench.js?v=26" in app
     assert "/static/intelligence.js?v=5" in app
 
     assert "minQueryLength" in search
@@ -399,6 +401,181 @@ def test_openclaw_settings_renders_even_when_conversation_init_fails():
             await OpenClawWorkbench.init('openclaw-settings');
             assert.match(settingsRoot.innerHTML, /openclaw-settings-profile/);
             assert.match(settingsRoot.innerHTML, /API Key \/ 安全/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_openclaw_restores_active_conversation_before_slow_status_payloads():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const elements = {};
+        function makeElement(id) {
+            return elements[id] || (elements[id] = {
+                id,
+                value: '',
+                innerHTML: '',
+                scrollTop: 0,
+                scrollHeight: 0,
+                classList: { toggle: () => {}, remove: () => {} },
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            });
+        }
+        const root = makeElement('openclaw-workbench');
+        Object.defineProperty(root, 'innerHTML', {
+            get() { return this._html || ''; },
+            set(value) {
+                this._html = value;
+                makeElement('openclaw-messages');
+                makeElement('openclaw-input');
+                makeElement('openclaw-composer-hint');
+                makeElement('openclaw-chat-subtitle');
+                makeElement('openclaw-conversation-rail');
+            },
+        });
+
+        global.window = global;
+        global.globalThis = global;
+        global.document = {
+            addEventListener: () => {},
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '.openclaw-chat-shell'
+                ? { classList: { toggle: () => {} } }
+                : null,
+            querySelectorAll: () => [],
+        };
+        global.OpenClawConversations = {
+            render: () => {},
+            getActiveConversationId: () => 'oc_1',
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;'),
+            fetchJSON: async (url) => {
+                if (String(url).includes('/api/openclaw/conversations/oc_1')) {
+                    return {
+                        success: true,
+                        data: {
+                            id: 'oc_1',
+                            messages: [
+                                { role: 'user', content: '今天 600519 怎么样' },
+                                { role: 'assistant', content: '回复：今天 600519 怎么样' },
+                            ],
+                        },
+                    };
+                }
+                return new Promise(() => {});
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/openclaw-workbench.js', 'utf8'));
+        void OpenClawWorkbench.refresh('openclaw');
+
+        setTimeout(() => {
+            try {
+                assert.match(elements['openclaw-messages'].innerHTML, /600519/);
+            } catch (error) {
+                console.error(error);
+                process.exit(1);
+            }
+        }, 30);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_openclaw_refresh_preserves_skill_command_draft_and_hint():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const elements = {};
+        function makeElement(id) {
+            return elements[id] || (elements[id] = {
+                id,
+                value: '',
+                innerHTML: '',
+                scrollTop: 0,
+                scrollHeight: 0,
+                classList: { toggle: () => {}, remove: () => {} },
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            });
+        }
+        const root = makeElement('openclaw-workbench');
+        makeElement('openclaw-input').value = '/skill record openclaw';
+        Object.defineProperty(root, 'innerHTML', {
+            get() { return this._html || ''; },
+            set(value) {
+                this._html = value;
+                elements['openclaw-messages'] = makeElement('openclaw-messages');
+                elements['openclaw-input'] = {
+                    ...makeElement('openclaw-input'),
+                    value: '',
+                    innerHTML: '',
+                    classList: { toggle: () => {}, remove: () => {} },
+                    querySelector: () => null,
+                    querySelectorAll: () => [],
+                };
+                makeElement('openclaw-composer-hint');
+                makeElement('openclaw-chat-subtitle');
+                makeElement('openclaw-conversation-rail');
+            },
+        });
+
+        global.window = global;
+        global.globalThis = global;
+        global.document = {
+            addEventListener: () => {},
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '.openclaw-chat-shell'
+                ? { classList: { toggle: () => {} } }
+                : null,
+            querySelectorAll: () => [],
+        };
+        global.OpenClawConversations = {
+            render: () => {},
+            getActiveConversationId: () => '',
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;'),
+            fetchJSON: async () => null,
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/openclaw-workbench.js', 'utf8'));
+
+        (async () => {
+            await OpenClawWorkbench.refresh('openclaw');
+            assert.equal(elements['openclaw-input'].value, '/skill record openclaw');
+            assert.match(elements['openclaw-composer-hint'].innerHTML, /技能命令/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);

@@ -9,11 +9,22 @@ Object.assign(globalThis.StockDetail, {
         if (container) {
             container.innerHTML = '<div class="text-muted text-center" style="padding:20px">加载中...</div>';
         }
+        let settled = false;
+        const softTimer = setTimeout(() => {
+            if (settled || stale()) return;
+            this._renderValuationSnapshot({
+                code,
+                source: '估值服务',
+                source_version: 'pending',
+                quality_status: 'degraded',
+            }, null, true);
+        }, 6000);
         let decision = null;
         try {
             const matrix = await App.fetchJSON(`/api/datahub/decision-matrix?scope=codes&codes=${encodeURIComponent(code)}&limit=1&fast=true`, { silent: true, timeout: 8000 });
             decision = matrix?.items?.[0] || null;
             if (!stale() && decision) {
+                settled = true;
                 this._renderValuationSnapshot({}, decision, true);
             }
         } catch {
@@ -29,16 +40,21 @@ Object.assign(globalThis.StockDetail, {
                 decision = decision || null;
             }
             if (stale()) return;
+            settled = true;
             this._renderValuationSnapshot(data.data || {}, decision, false);
             await this._renderPeerPanel(data.data || {}, decision, false);
         } catch (e) {
             if (stale()) return;
             if (decision) {
+                settled = true;
                 this._renderValuationSnapshot({}, decision, true);
                 await this._renderPeerPanel({}, decision, true);
             } else if (container) {
+                settled = true;
                 container.innerHTML = '<div class="text-muted text-center" style="padding:20px">估值数据加载失败</div>';
             }
+        } finally {
+            clearTimeout(softTimer);
         }
     },
 

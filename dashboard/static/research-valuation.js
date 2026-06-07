@@ -242,11 +242,14 @@
                 this._render(this._items);
                 this.loadIndustries(scope, query.get('codes') || selectedCodes.join(','));
                 const preferredItem = activeCode
-                    ? this._items.find((item) => item.code === activeCode) || this._items[0]
+                    ? this._items.find((item) => item.code === activeCode)
                     : this._items[0];
                 if (preferredItem) {
                     this._setActiveStockContext(preferredItem.code, preferredItem.name || '');
                     this.loadDetail(preferredItem.code);
+                } else if (activeCode) {
+                    this._setActiveStockContext(activeCode, this._getActiveStockName(activeCode));
+                    this.loadDetail(activeCode);
                 } else {
                     const detail = document.getElementById('valuation-detail');
                     const reports = document.getElementById('valuation-reports');

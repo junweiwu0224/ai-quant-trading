@@ -45,6 +45,10 @@
         qlib: '历史预测缓存',
         local_momentum: '本地动量信号',
     }[String(value || '').trim()] || String(value || '未知来源'));
+    const breadthSourceName = (value) => ({
+        local_stock_daily: '本地日线覆盖池',
+        eastmoney_full_market_rank: '东方财富全A',
+    }[String(value || '').trim()] || String(value || '本地日线覆盖池'));
 
     Object.assign(Intelligence, {
         heatLevel(rank, total) {
@@ -267,12 +271,14 @@
                 const up = Number(breadth.up_count) || 0;
                 const down = Number(breadth.down_count) || 0;
                 const flat = Number(breadth.flat_count) || 0;
+                const classifiedTotal = up + down + flat;
                 const effective = Number(breadth.effective_count) || Number(breadth.latest_date_covered) || up + down + flat;
                 const stockCount = Number(breadth.stock_count) || Number(breadth.total_stocks) || effective;
-                const upRatio = up + down + flat > 0 ? ((up / (up + down + flat)) * 100).toFixed(0) : '--';
+                const upRatio = classifiedTotal > 0 ? ((up / classifiedTotal) * 100).toFixed(0) : '--';
                 const advanceDecline = down > 0 ? (up / down).toFixed(2) : '--';
                 const displayScore = Math.round(score);
                 const color = signalColor(displayScore);
+                const source = breadth.source || (breadth.local_fallback ? 'local_stock_daily' : 'local_stock_daily');
 
                 if (marker) {
                     const pct = Math.max(0, Math.min(100, (score + 100) / 2));
@@ -280,18 +286,20 @@
                 }
 
                 if (scoreEl) {
-                    scoreEl.textContent = formatSigned(displayScore);
-                    scoreEl.title = `全市场广度 = (上涨 ${formatCount(up)} - 下跌 ${formatCount(down)}) / (上涨 + 下跌 + 平盘)`;
+                    scoreEl.textContent = `广度分 ${formatSigned(displayScore)}`;
+                    scoreEl.title = `全市场广度分 = (上涨 ${formatCount(up)} - 下跌 ${formatCount(down)}) / 分类样本 ${formatCount(classifiedTotal)}；覆盖样本 ${formatCount(effective)}/${formatCount(stockCount)}`;
                     scoreEl.style.color = color;
                 }
 
                 if (sourcesEl) {
                     const sources = [
-                        { text: '全市场广度', color },
+                        { text: `来源 ${breadthSourceName(source)}`, color: '#94a3b8' },
+                        { text: '口径 全市场广度', color },
+                        { text: '公式 (上涨-下跌)/(上涨+下跌+平盘)', color },
                         { text: `上涨占比 ${upRatio}%`, color },
                         { text: `涨跌比 ${advanceDecline}`, color },
                         { text: `涨停/跌停 ${formatCount(breadth.limit_up)}/${formatCount(breadth.limit_down)}`, color: '#f59e0b' },
-                        { text: `有效 ${formatCount(effective)}/${formatCount(stockCount)}`, color: '#94a3b8' },
+                        { text: `样本 ${formatCount(effective)}/${formatCount(stockCount)}`, color: '#94a3b8' },
                     ];
                     sourcesEl.innerHTML = sources.map((s) => {
                         return `<span class="signal-src"><span class="signal-src-dot" style="background:${s.color}"></span>${App.escapeHTML(s.text)}</span>`;

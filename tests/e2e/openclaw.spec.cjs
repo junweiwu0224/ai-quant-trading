@@ -241,12 +241,10 @@ test('OpenClaw skill commands show a local hint and backend skill-command status
         await route.fulfill({
             json: {
                 success: true,
-                status: {
-                    workspace: { name: 'OpenClaw', openclaw_workspace_id: 'ocw_test' },
-                    skill_command_history: [
-                        { title: '/skill record', status: 'approved', created_at: '2026-05-24 10:00' },
-                    ],
-                },
+                workspace: { name: 'OpenClaw', openclaw_workspace_id: 'ocw_test' },
+                skill_command_history: [
+                    { title: '/skill record', status: 'approved', created_at: '2026-05-24 10:00' },
+                ],
             },
         });
     });
@@ -276,7 +274,12 @@ test('OpenClaw skill commands show a local hint and backend skill-command status
     await expect(latestAssistant.locator('.openclaw-message-meta')).toContainText('skill-command');
     await expect(latestAssistant.locator('.openclaw-message-meta')).toContainText('技能命令');
 
+    const statusAfterSettings = page.waitForResponse((response) => (
+        response.url().includes('/api/openclaw/status') && response.ok()
+    ));
     await page.locator('[data-openclaw-action="open-settings"]').click();
-    await expect(page.locator('#openclaw-skill-command-history .openclaw-item').first()).toContainText('/skill record');
-    await expect(page.locator('#openclaw-skill-command-history .openclaw-item').first()).toContainText('approved');
+    await statusAfterSettings;
+    const skillHistoryItem = page.locator('#openclaw-skill-command-history .openclaw-item').first();
+    await expect(skillHistoryItem).toContainText('/skill record');
+    await expect(skillHistoryItem).toContainText('approved');
 });

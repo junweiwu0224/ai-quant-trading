@@ -124,6 +124,27 @@
             }).join('')}
         </div>`;
     };
+    const renderNewsSourceStrip = (data, count) => {
+        const source = data.source || '市场新闻';
+        const timestamp = data.timestamp || '暂无更新时间';
+        const generatedAt = data.generated_at || '';
+        const coverageNote = data.coverage_note || data.note || '滚动新闻快讯，按时间倒序展示';
+        const parts = [
+            `新闻源 ${sourceLabel(source)}`,
+            `更新 ${timestamp}`,
+        ];
+        if (generatedAt && generatedAt !== timestamp) {
+            parts.push(`生成 ${generatedAt}`);
+        }
+        parts.push(`展示 ${formatCount(count)} 条`);
+        if (data.stale) {
+            parts.push('缓存数据');
+        }
+        if (coverageNote) {
+            parts.push(coverageNote);
+        }
+        return `<div class="intel-news-source-strip">${parts.map((part) => `<span>${safeHTML(part)}</span>`).join('')}</div>`;
+    };
 
     Object.assign(Intelligence, {
         fetchMarketJSON: fetchOnce,
@@ -155,6 +176,7 @@
                     ? `${formatCount(effective)}/${formatCount(data.stock_count)}`
                     : formatCount(effective);
                 const stale = data.stale ? ' · 缓存' : '';
+                const source = data.source || (data.local_fallback ? 'local_stock_daily' : 'local_stock_daily');
                 const sentHeader = document.querySelector('.intel-sentiment-card h3');
                 if (sentHeader) {
                     const scoreText = displayBreadthScore == null ? '--' : formatSigned(displayBreadthScore, 0);
@@ -181,6 +203,9 @@
                         <span>涨停 ${formatCount(data.limit_up)}</span>
                         <span>跌停 ${formatCount(data.limit_down)}</span>
                         ${data.latest_date ? `<span>${safeHTML(data.latest_date)}${stale}</span>` : ''}
+                        <span>来源 ${safeHTML(sourceLabel(source))}</span>
+                        <span>口径 全市场上涨下跌广度</span>
+                        <span>公式 (上涨-下跌)/(上涨+下跌+平盘)</span>
                     </div>
                 `;
             } catch {
@@ -206,27 +231,14 @@
                 if (timestampEl && data.timestamp) timestampEl.textContent = data.timestamp;
 
                 if (news.length === 0) {
-                    const source = data.source || '市场新闻';
-                    const timestamp = data.timestamp || '暂无更新时间';
                     el.innerHTML = `<div class="text-muted text-center intel-news-empty">
                         <div>暂无市场新闻</div>
-                        <div class="intel-news-meta">
-                            <span>${safeHTML(source)}</span>
-                            <span>${safeHTML(timestamp)}</span>
-                        </div>
+                        ${renderNewsSourceStrip(data, 0)}
                     </div>`;
                     return;
                 }
 
-                const newsSource = data.source || news[0]?.source || '市场新闻';
-                const newsTime = data.generated_at || data.timestamp || news[0]?.time || '暂无更新时间';
-                const coverageNote = data.coverage_note || data.note || '滚动新闻快讯，按时间倒序展示';
-                const newsMeta = `<div class="intel-news-source-strip">
-                    <span>新闻源 ${safeHTML(sourceLabel(newsSource))}</span>
-                    <span>更新 ${safeHTML(newsTime)}</span>
-                    <span>展示 ${formatCount(news.length)} 条</span>
-                    <span>${safeHTML(coverageNote)}</span>
-                </div>`;
+                const newsMeta = renderNewsSourceStrip({ ...data, source: data.source || news[0]?.source || '市场新闻' }, news.length);
 
                 el.innerHTML = newsMeta + news.map((n) => {
                     const sentVal = n.sentiment || 0;
@@ -310,7 +322,8 @@
                             <span>下跌 ${downCount}</span>
                             <span>平盘 ${flatCount}</span>
                             <span>均值 ${formatPct(avgChange)}</span>
-                            <span>全量 ${formatCount(totalCount)} · 展示 ${formatCount(displayCount)}</span>
+                            <span>全量板块 ${formatCount(totalCount)} · 当前展示 ${formatCount(displayCount)}</span>
+                            <span>口径 按板块总市值权重展示 Top 32</span>
                             ${heatmapSource ? `<span>来源 ${safeHTML(sourceLabel(heatmapSource))}</span>` : ''}
                             ${heatmapTime ? `<span>更新 ${safeHTML(heatmapTime)}</span>` : ''}
                             ${data.stale ? '<span>缓存/降级</span>' : ''}

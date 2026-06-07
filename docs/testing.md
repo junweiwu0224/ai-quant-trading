@@ -31,6 +31,7 @@
 - Dashboard 必须先运行，默认 `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001`。
 - `scripts/e2e-local.sh` 依赖本仓库 `.tools/` 下的本地 Node/Playwright 工具链。
 - `scripts/e2e.sh` 使用官方 Playwright Docker image。
+- OpenClaw E2E mock 要对齐真实 API 响应形状；切到设置页后等待 `/api/openclaw/status` 等异步状态请求完成，再断言 Skill 历史、权限或服务状态。
 - E2E 会产生 `test-results/`，该目录已在 `.gitignore` 中忽略。
 
 ## 测试环境

@@ -82,7 +82,8 @@ def test_intelligence_heatmap_renders_weighted_treemap():
             assert.match(heatmap.innerHTML, /上涨 350/);
             assert.match(heatmap.innerHTML, /下跌 144/);
             assert.match(heatmap.innerHTML, /平盘 2/);
-            assert.match(heatmap.innerHTML, /全量 496 · 展示 4/);
+            assert.match(heatmap.innerHTML, /全量板块 496 · 当前展示 4/);
+            assert.match(heatmap.innerHTML, /口径 按板块总市值权重展示 Top 32/);
             assert.match(heatmap.innerHTML, /来源 东方财富行业板块/);
             assert.match(heatmap.innerHTML, /更新 2026-05-26T10:31:00/);
             assert.match(heatmap.innerHTML, /东方财富行业板块全量分页快照/);
@@ -161,6 +162,9 @@ def test_intelligence_sentiment_renders_full_market_breadth_counts():
             assert.match(sentiment.innerHTML, /2,860/);
             assert.match(sentiment.innerHTML, /上涨占比/);
             assert.match(sentiment.innerHTML, /有效\/全量 5,515\/5,525/);
+            assert.match(sentiment.innerHTML, /来源 本地日线覆盖池/);
+            assert.match(sentiment.innerHTML, /口径 全市场上涨下跌广度/);
+            assert.match(sentiment.innerHTML, /公式 \(上涨-下跌\)\/\(上涨\+下跌\+平盘\)/);
             assert.match(sentiment.innerHTML, /平盘 355/);
             assert.match(sentiment.innerHTML, /未更新 10/);
             assert.match(sentiment.innerHTML, /涨停 68/);
@@ -385,7 +389,10 @@ def test_intelligence_news_empty_state_keeps_timestamp_and_source_context():
                 return {
                     success: true,
                     timestamp: '2026-06-06T23:20:00',
-                    source: '本地市场新闻',
+                    generated_at: '2026-06-06T23:21:00',
+                    source: 'eastmoney_news',
+                    coverage_note: '东方财富滚动快讯，当前接口返回空列表',
+                    stale: true,
                     news: [],
                 };
             },
@@ -398,8 +405,11 @@ def test_intelligence_news_empty_state_keeps_timestamp_and_source_context():
             assert.equal(String(count.textContent), '0');
             assert.equal(timestamp.textContent, '2026-06-06T23:20:00');
             assert.match(list.innerHTML, /暂无市场新闻/);
-            assert.match(list.innerHTML, /本地市场新闻/);
+            assert.match(list.innerHTML, /新闻源 东方财富快讯/);
             assert.match(list.innerHTML, /2026-06-06T23:20:00/);
+            assert.match(list.innerHTML, /生成 2026-06-06T23:21:00/);
+            assert.match(list.innerHTML, /缓存数据/);
+            assert.match(list.innerHTML, /东方财富滚动快讯，当前接口返回空列表/);
             assert.doesNotMatch(list.innerHTML, /加载失败/);
         })().catch((error) => {
             console.error(error);
@@ -479,13 +489,16 @@ def test_intelligence_signal_bar_uses_full_market_breadth_only():
         (async () => {
             await Intelligence.loadSignalBar();
             assert.deepEqual(calls, ['/api/market/breadth']);
-            assert.equal(score.textContent, '+17');
-            assert.match(score.title, /全市场广度/);
-            assert.match(sources.innerHTML, /全市场广度/);
+            assert.equal(score.textContent, '广度分 +17');
+            assert.match(score.title, /全市场广度分/);
+            assert.match(score.title, /\(上涨 2,982 - 下跌 2,089\) \/ 分类样本 5,195/);
+            assert.match(sources.innerHTML, /来源 本地日线覆盖池/);
+            assert.match(sources.innerHTML, /口径 全市场广度/);
+            assert.match(sources.innerHTML, /公式 \(上涨-下跌\)\/\(上涨\+下跌\+平盘\)/);
             assert.match(sources.innerHTML, /上涨占比 57%/);
             assert.match(sources.innerHTML, /涨跌比 1\.43/);
             assert.match(sources.innerHTML, /涨停\/跌停 96\/19/);
-            assert.match(sources.innerHTML, /有效 5,515\/5,525/);
+            assert.match(sources.innerHTML, /样本 5,515\/5,525/);
             const markerPct = Number(marker.style.left.replace('%', ''));
             assert.ok(markerPct > 58.5 && markerPct < 58.7);
         })().catch((error) => {
@@ -572,9 +585,9 @@ def test_intelligence_signal_bar_recovers_when_shared_breadth_arrives_after_time
             await loading;
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            assert.equal(score.textContent, '+17');
-            assert.match(sources.innerHTML, /全市场广度/);
-            assert.match(sources.innerHTML, /有效 5,515\/5,525/);
+            assert.equal(score.textContent, '广度分 +17');
+            assert.match(sources.innerHTML, /口径 全市场广度/);
+            assert.match(sources.innerHTML, /样本 5,515\/5,525/);
             assert.doesNotMatch(sources.innerHTML, /广度不可用/);
         })().catch((error) => {
             console.error(error);
@@ -918,14 +931,14 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
     assert "/static/intelligence.js?v=5" in app_js
-    assert "/static/intelligence-market.js?v=6" in app_js
+    assert "/static/intelligence-market.js?v=7" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=4" in app_js
+    assert "/static/intelligence-signals.js?v=5" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=68" in scripts
+    assert "/static/app.js?v=69" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v103" in service_worker
+    assert "ai-quant-v104" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

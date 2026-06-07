@@ -147,9 +147,9 @@ const App = {
             '/static/factor.js?v=1',
             '/static/portfolio-opt.js?v=1',
             '/static/intelligence.js?v=5',
-            '/static/intelligence-market.js?v=6',
+            '/static/intelligence-market.js?v=7',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=4',
+            '/static/intelligence-signals.js?v=5',
             '/static/research-datahub.js?v=13',
             '/static/research-valuation.js?v=15',
         ],
@@ -173,9 +173,9 @@ const App = {
         ],
         intelligence: [
             '/static/intelligence.js?v=5',
-            '/static/intelligence-market.js?v=6',
+            '/static/intelligence-market.js?v=7',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=4',
+            '/static/intelligence-signals.js?v=5',
         ],
         llm: [
             '/static/llm.js?v=10',

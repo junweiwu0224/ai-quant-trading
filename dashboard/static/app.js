@@ -150,7 +150,7 @@ const App = {
             '/static/intelligence-market.js?v=7',
             '/static/intelligence-iwencai.js?v=3',
             '/static/intelligence-signals.js?v=6',
-            '/static/research-datahub.js?v=13',
+            '/static/research-datahub.js?v=14',
             '/static/research-valuation.js?v=15',
         ],
         stock: [

@@ -72,7 +72,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=6" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=70" in scripts
+    assert "/static/app.js?v=71" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -163,6 +163,66 @@ def test_research_datahub_scope_note_prioritizes_signal_validation_quality():
         assert.match(note.innerHTML, /未验证/);
         assert.match(note.innerHTML, /已降权/);
         assert.doesNotMatch(note.innerHTML, /Qlib覆盖/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_research_datahub_signal_badge_only_marks_positive_validation():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = global;
+        global.document = {
+            getElementById: () => null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+
+        const neutral = ResearchDataHub._fmtQlib({
+            signal_rank: 12,
+            signal_score: 0.612,
+            signal_confidence: 'validated_neutral',
+            signal_provider: 'local_momentum',
+        });
+        assert.match(neutral, /验证中性/);
+        assert.doesNotMatch(neutral, /datahub-diamond/);
+        assert.doesNotMatch(neutral, /已验证/);
+
+        const positive = ResearchDataHub._fmtQlib({
+            signal_rank: 3,
+            signal_score: 0.912,
+            signal_confidence: 'validated_positive',
+            signal_provider: 'local_momentum',
+        });
+        assert.match(positive, /datahub-diamond/);
+        assert.match(positive, /验证偏正/);
+        assert.doesNotMatch(positive, /已验证/);
+
+        const unverified = ResearchDataHub._fmtQlib({
+            signal_rank: 60,
+            signal_score: 0.321,
+            signal_confidence: 'unverified',
+            signal_provider: 'local_momentum',
+        });
+        assert.match(unverified, /未验证/);
+        assert.doesNotMatch(unverified, /datahub-diamond/);
         """
     )
 
@@ -311,7 +371,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=70" in scripts
+    assert "/static/app.js?v=71" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
     assert "/static/core/app-shell.js?v=22" in scripts
@@ -331,7 +391,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
-    assert "/static/research-datahub.js?v=13" in app
+    assert "/static/research-datahub.js?v=14" in app
     assert "/static/research-valuation.js?v=15" in app
     assert "/static/stock-detail-core.js?v=6" in app
     assert "/static/openclaw-conversations.js?v=3" in app

@@ -372,8 +372,14 @@
             }
             const score = this._fmtNum(item.signal_score ?? item.qlib_score, 3);
             const confidence = item.signal_confidence || 'unverified';
-            const label = confidence.startsWith('validated') ? '已验证' : '未验证';
-            const diamond = confidence.startsWith('validated') ? '<span class="datahub-diamond">已验证</span>' : '';
+            const labels = {
+                validated_positive: '验证偏正',
+                validated_neutral: '验证中性',
+                validated_weak: '验证偏弱',
+                unverified: '未验证',
+            };
+            const label = labels[confidence] || '未验证';
+            const diamond = confidence === 'validated_positive' ? '<span class="datahub-diamond">验证偏正</span>' : '';
             return `${diamond}<span class="datahub-qlib-rank">#${App.escapeHTML(rank)} · ${App.escapeHTML(score)}</span><div class="text-muted text-xs">${App.escapeHTML(item.signal_provider || 'local_momentum')} · ${App.escapeHTML(label)}</div>`;
         },
 

@@ -1,6 +1,7 @@
 """股票详情 API — K 线、资金流向、分时"""
 import asyncio
 import json
+import math
 import time
 from datetime import datetime
 
@@ -25,6 +26,8 @@ _TTL_QUOTE = 5
 _TTL_KLINE = 60
 _TTL_FINANCIAL = 300
 _TTL_BOARD = 600
+_DETAIL_QUOTE_STALE_SECONDS = 900
+_DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
 
 _HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"}
 
@@ -197,6 +200,97 @@ def _calc_volume_ratio(quote) -> float | None:
     if quote.avg_volume_5d and quote.avg_volume_5d > 0 and quote.volume:
         return round(quote.volume / quote.avg_volume_5d, 2)
     return None
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    if value in (None, "", "-", "--"):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _plain_code(value) -> str:
+    raw = str(value or "").strip().lower()
+    if len(raw) >= 6 and raw[-6:].isdigit():
+        return raw[-6:]
+    return raw
+
+
+def _date_label(value) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())[:10]
+        except Exception:
+            pass
+    return str(value)[:10]
+
+
+def _load_local_stock_daily_quote(code: str):
+    """Build a clearly marked local fallback quote when realtime sources fail."""
+    from data.collector.quote_service import QuoteData
+    from data.storage.storage import DataStorage
+
+    storage = DataStorage()
+    info = {"name": "", "industry": ""}
+    try:
+        stock_list = storage.get_stock_list()
+        if stock_list is not None and not stock_list.empty:
+            for record in stock_list.to_dict("records"):
+                if _plain_code(record.get("code")) != code:
+                    continue
+                info = {
+                    "name": str(record.get("name") or ""),
+                    "industry": str(record.get("industry") or ""),
+                }
+                break
+    except Exception as exc:
+        logger.debug(f"本地股票信息降级读取失败 {code}: {exc}")
+
+    try:
+        daily = storage.get_stock_daily(code)
+    except Exception as exc:
+        logger.debug(f"本地日线降级读取失败 {code}: {exc}")
+        daily = None
+
+    if daily is None or daily.empty:
+        return None, {}
+
+    daily = daily.sort_values("date")
+    latest = daily.iloc[-1]
+    previous = daily.iloc[-2] if len(daily) >= 2 else None
+
+    price = _safe_float(latest.get("close"))
+    pre_close = _safe_float(previous.get("close")) if previous is not None else _safe_float(latest.get("open"))
+    change_pct = round((price - pre_close) / pre_close * 100, 2) if pre_close else 0.0
+    latest_date = _date_label(latest.get("date"))
+
+    quote = QuoteData(
+        code=code,
+        name=info["name"] or code,
+        price=price,
+        open=_safe_float(latest.get("open"), price),
+        high=_safe_float(latest.get("high"), price),
+        low=_safe_float(latest.get("low"), price),
+        pre_close=pre_close,
+        volume=_safe_float(latest.get("volume")),
+        amount=_safe_float(latest.get("amount")),
+        change_pct=change_pct,
+        timestamp=time.time(),
+        industry=info["industry"],
+    )
+    return quote, {
+        "source": "local_stock_daily",
+        "source_version": "stock_daily+stock_info",
+        "degraded": True,
+        "stale": True,
+        "latest_local_date": latest_date,
+        "degraded_reason": "realtime_quote_unavailable",
+    }
 
 
 @router.get("/kline/{code}")
@@ -469,15 +563,29 @@ async def get_stock_detail(code: str):
 
     service = get_quote_service()
     quote = service.get_quote(code)
+    local_meta = {}
 
     if not quote:
-        from data.collector.quote_service import _fetch_single_quote
-        quote = await asyncio.to_thread(_fetch_single_quote, code)
+        if hasattr(service, "get_or_fetch_quote"):
+            try:
+                quote = await asyncio.to_thread(
+                    service.get_or_fetch_quote,
+                    code,
+                    max_age_sec=_DETAIL_QUOTE_STALE_SECONDS,
+                    refresh_timeout_sec=_DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                logger.debug(f"{code} 短预算实时行情刷新失败，准备使用本地降级: {exc}")
+        else:
+            from data.collector.quote_service import _fetch_single_quote
+            quote = await asyncio.to_thread(_fetch_single_quote, code)
+    if not quote:
+        quote, local_meta = await asyncio.to_thread(_load_local_stock_daily_quote, code)
         if not quote:
             raise HTTPException(404, f"股票 {code} 数据获取失败")
 
     # 补充财务指标：优先用后台预缓存，回退到 on-demand（带 30 分钟 TTL）
-    if not quote.eps and not quote.high_52w:
+    if not local_meta and not quote.eps and not quote.high_52w:
         fin = service.get_financial_data(code)
         if not fin:
             fin = await asyncio.to_thread(_fetch_financial_data, code)
@@ -506,10 +614,12 @@ async def get_stock_detail(code: str):
                 }
             )
 
-    source = "astock" if DATA_SOURCE_MODE == "new" else "legacy"
-    source_version = AStockDataAdapter.SOURCE_VERSION if source == "astock" else DATA_SOURCE_MODE
+    source = local_meta.get("source") or ("astock" if DATA_SOURCE_MODE == "new" else "legacy")
+    source_version = local_meta.get("source_version") or (
+        AStockDataAdapter.SOURCE_VERSION if source == "astock" else DATA_SOURCE_MODE
+    )
 
-    return {
+    result = {
         "code": quote.code,
         "name": quote.name,
         "source": source,
@@ -559,6 +669,9 @@ async def get_stock_detail(code: str):
         "outer_volume": round(quote.outer_volume, 0) or None,
         "inner_volume": round(quote.inner_volume, 0) or None,
     }
+    if local_meta:
+        result.update(local_meta)
+    return result
 
 
 @router.get("/profit-trend/{code}")

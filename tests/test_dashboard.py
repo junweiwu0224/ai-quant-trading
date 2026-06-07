@@ -242,6 +242,130 @@ class TestValuationDataHubAPI:
         assert data["source_version"]
         assert data["updated_at"] == "2026-05-24T12:00:00+08:00"
 
+    def test_stock_detail_degrades_to_local_daily_when_realtime_sources_are_unavailable(self, monkeypatch):
+        import pandas as pd
+
+        from data.collector import quote_service
+
+        class EmptyQuoteService:
+            def get_quote(self, code):
+                return None
+
+            def get_or_fetch_quote(self, code, max_age_sec=None, refresh_timeout_sec=None):
+                return None
+
+            def get_financial_data(self, code):
+                return None
+
+        class FakeStorage:
+            def get_stock_list(self):
+                return pd.DataFrame([
+                    {"code": "600519", "name": "贵州茅台", "industry": "白酒"},
+                ])
+
+            def get_stock_daily(self, code):
+                return pd.DataFrame([
+                    {
+                        "date": pd.Timestamp("2026-06-04"),
+                        "open": 1540.0,
+                        "high": 1560.0,
+                        "low": 1530.0,
+                        "close": 1550.0,
+                        "volume": 1200,
+                        "amount": 186000000,
+                    },
+                    {
+                        "date": pd.Timestamp("2026-06-05"),
+                        "open": 1555.0,
+                        "high": 1580.0,
+                        "low": 1548.0,
+                        "close": 1570.0,
+                        "volume": 1300,
+                        "amount": 204100000,
+                    },
+                ])
+
+        monkeypatch.setattr(quote_service, "get_quote_service", lambda: EmptyQuoteService())
+        monkeypatch.setattr(quote_service, "_fetch_single_quote", lambda code: None)
+        monkeypatch.setattr("data.storage.storage.DataStorage", lambda: FakeStorage())
+        monkeypatch.setattr(
+            "dashboard.routers.stock_detail.now_beijing_iso",
+            lambda: "2026-06-07T23:00:00+08:00",
+            raising=False,
+        )
+
+        res = client.get("/api/stock/detail/600519")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["code"] == "600519"
+        assert data["name"] == "贵州茅台"
+        assert data["source"] == "local_stock_daily"
+        assert data["source_version"] == "stock_daily+stock_info"
+        assert data["degraded"] is True
+        assert data["price"] == 1570.0
+        assert data["pre_close"] == 1550.0
+        assert data["change"] == 20.0
+        assert data["change_pct"] == 1.29
+        assert data["industry"] == "白酒"
+        assert data["latest_local_date"] == "2026-06-05"
+
+    def test_stock_detail_uses_short_refresh_budget_before_local_fallback(self, monkeypatch):
+        import pandas as pd
+
+        from data.collector import quote_service
+
+        calls = []
+
+        class TimeoutQuoteService:
+            def get_quote(self, code):
+                return None
+
+            def get_or_fetch_quote(self, code, max_age_sec=None, refresh_timeout_sec=None):
+                calls.append((code, max_age_sec, refresh_timeout_sec))
+                return None
+
+            def get_financial_data(self, code):
+                return None
+
+        class FakeStorage:
+            def get_stock_list(self):
+                return pd.DataFrame([
+                    {"code": "600519", "name": "贵州茅台", "industry": "白酒"},
+                ])
+
+            def get_stock_daily(self, code):
+                return pd.DataFrame([
+                    {
+                        "date": pd.Timestamp("2026-06-05"),
+                        "open": 1555.0,
+                        "high": 1580.0,
+                        "low": 1548.0,
+                        "close": 1570.0,
+                        "volume": 1300,
+                        "amount": 204100000,
+                    },
+                ])
+
+        monkeypatch.setattr(quote_service, "get_quote_service", lambda: TimeoutQuoteService())
+        monkeypatch.setattr(
+            quote_service,
+            "_fetch_single_quote",
+            lambda code: (_ for _ in ()).throw(AssertionError("detail should not use blocking quote fallback")),
+        )
+        monkeypatch.setattr(
+            quote_service,
+            "_fetch_financial_data",
+            lambda code: (_ for _ in ()).throw(AssertionError("local fallback should not fetch external finance")),
+        )
+        monkeypatch.setattr("data.storage.storage.DataStorage", lambda: FakeStorage())
+
+        res = client.get("/api/stock/detail/600519")
+
+        assert res.status_code == 200
+        assert calls == [("600519", 900, 2.0)]
+        assert res.json()["source"] == "local_stock_daily"
+
     def test_valuation_health_endpoint_exposes_source_health(self):
         res = client.get("/api/valuation/health")
         assert res.status_code == 200

@@ -542,13 +542,16 @@
       list.innerHTML = '<div class="empty-state">暂无订单草案。草案只是预览，真正写入请点“写入模拟盘订单”。</div>';
       return;
     }
-    list.innerHTML = rows.slice(0, AGENTIC_HISTORY_LIMIT).map(item => `
-      <article class="agentic-order-draft-row">
-        <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
-        <strong>${esc(item.code)} · 买入 · 市价</strong>
-        <span>${esc(item.volume)} 股 · ${esc(item.strategy_name)}</span>
-      </article>
-    `).join('');
+    list.innerHTML = rows.slice(0, AGENTIC_HISTORY_LIMIT).map(item => {
+      const strategyLabel = item.strategy_display_name || item.strategy_name;
+      return `
+        <article class="agentic-order-draft-row">
+          <span class="agentic-status-pill ${paperStatusTone(item.status)}">${esc(paperStatusLabel(item.status))}</span>
+          <strong>${esc(item.code)} · 买入 · 市价</strong>
+          <span>${esc(item.volume)} 股 · ${esc(strategyLabel)}</span>
+        </article>
+      `;
+    }).join('');
   }
 
   async function loadAgenticOrderDrafts() {

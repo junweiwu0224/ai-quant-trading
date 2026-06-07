@@ -243,6 +243,7 @@ def test_agentic_confirmed_execution_can_create_order_drafts_from_frontend():
     assert "createAgenticOrderDrafts" in js
     assert "/api/agentic/strategy/order-drafts" in js
     assert "loadAgenticOrderDrafts" in js
+    assert "item.strategy_display_name || item.strategy_name" in js
     assert "agentic-order-draft-list" in read_styles()
 
 

@@ -844,7 +844,7 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/app.js?v=66" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v99" in service_worker
+    assert "ai-quant-v100" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

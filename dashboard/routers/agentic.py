@@ -88,6 +88,38 @@ class CreateOrderDraftsPayload(BaseModel):
     volume_per_code: int = 100
 
 
+_LEGACY_STRATEGY_DISPLAY_NAMES = {
+    "qlib_ranked_core": "AI信号基线轮动",
+    "Qlib 核心轮动": "AI信号基线轮动",
+}
+
+
+def _public_strategy_name(candidate_id: str | None, name: str | None) -> str:
+    candidate_key = str(candidate_id or "").strip()
+    name_key = str(name or "").strip()
+    return _LEGACY_STRATEGY_DISPLAY_NAMES.get(candidate_key) or _LEGACY_STRATEGY_DISPLAY_NAMES.get(name_key) or name_key or candidate_key
+
+
+def _public_candidate_payload(candidate) -> dict[str, Any]:
+    payload = asdict(candidate)
+    payload["name"] = _public_strategy_name(payload.get("candidate_id"), payload.get("name"))
+    return payload
+
+
+def _public_execution_payload(execution) -> dict[str, Any]:
+    payload = asdict(execution)
+    payload["name"] = _public_strategy_name(payload.get("candidate_id"), payload.get("name"))
+    return payload
+
+
+def _public_order_draft_payload(draft) -> dict[str, Any]:
+    payload = asdict(draft)
+    strategy_name = str(payload.get("strategy_name") or "")
+    candidate_id = strategy_name.removeprefix("agentic:")
+    payload["strategy_display_name"] = _public_strategy_name(candidate_id, strategy_name)
+    return payload
+
+
 @router.get("/agents")
 def list_agents():
     return {"success": True, "agents": [asdict(agent) for agent in registry.list()]}
@@ -147,7 +179,7 @@ def compile_strategy_backtest(payload: CompileBacktestPayload):
 def list_paper_strategy_candidates(limit: int = 100):
     return {
         "success": True,
-        "candidates": [asdict(candidate) for candidate in paper_strategy_candidate_service.list(limit=limit)],
+        "candidates": [_public_candidate_payload(candidate) for candidate in paper_strategy_candidate_service.list(limit=limit)],
     }
 
 
@@ -157,7 +189,7 @@ def enqueue_paper_strategy_candidate(payload: PaperStrategyCandidatePayload):
         candidate = paper_strategy_candidate_service.enqueue(payload.result, payload.sample)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "candidate": asdict(candidate)}
+    return {"success": True, "candidate": _public_candidate_payload(candidate)}
 
 
 @router.post("/strategy/paper-candidates/{candidate_id}/confirm")
@@ -168,14 +200,14 @@ def confirm_paper_strategy_candidate(candidate_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "candidate": asdict(candidate)}
+    return {"success": True, "candidate": _public_candidate_payload(candidate)}
 
 
 @router.get("/strategy/paper-executions")
 def list_paper_strategy_executions(limit: int = 100):
     return {
         "success": True,
-        "executions": [asdict(item) for item in paper_strategy_candidate_service.list_executions(limit=limit)],
+        "executions": [_public_execution_payload(item) for item in paper_strategy_candidate_service.list_executions(limit=limit)],
     }
 
 
@@ -187,7 +219,7 @@ def run_paper_strategy_candidate(candidate_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "execution": asdict(execution)}
+    return {"success": True, "execution": _public_execution_payload(execution)}
 
 
 @router.post("/strategy/paper-executions/{execution_id}/confirm")
@@ -202,14 +234,14 @@ def confirm_paper_strategy_execution(execution_id: str, payload: ConfirmPaperExe
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "execution": asdict(execution)}
+    return {"success": True, "execution": _public_execution_payload(execution)}
 
 
 @router.get("/strategy/order-drafts")
 def list_agentic_order_drafts(limit: int = 100):
     return {
         "success": True,
-        "drafts": [asdict(item) for item in agentic_repository.list_agentic_order_drafts(limit=limit)],
+        "drafts": [_public_order_draft_payload(item) for item in agentic_repository.list_agentic_order_drafts(limit=limit)],
     }
 
 
@@ -224,7 +256,7 @@ def create_agentic_order_drafts(execution_id: str, payload: CreateOrderDraftsPay
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "drafts": [asdict(item) for item in drafts]}
+    return {"success": True, "drafts": [_public_order_draft_payload(item) for item in drafts]}
 
 
 @router.post("/strategy/paper-executions/{execution_id}/paper-orders")

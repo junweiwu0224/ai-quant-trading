@@ -254,6 +254,8 @@ def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, mon
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+    assert body["candidate"]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidate"]["name"] == "AI信号基线轮动"
     assert body["candidate"]["status"] == "paper_candidate"
     assert body["candidate"]["requires_confirmation"] is True
 
@@ -274,6 +276,39 @@ def test_agentic_unpromoted_strategy_candidate_is_rejected_for_paper(client, mon
 
     assert resp.status_code == 400
     assert "only promoted candidates" in resp.json()["detail"]
+
+
+def test_agentic_paper_strategy_candidate_list_normalizes_legacy_qlib_names(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyCandidate
+
+    class FakeService:
+        def list(self, limit=100):
+            assert limit == 20
+            return [
+                PaperStrategyCandidate(
+                    id="paper_strategy_1",
+                    candidate_id="qlib_ranked_core",
+                    name="Qlib 核心轮动",
+                    dsl={"strategy_type": "ranked_rotation"},
+                    sample={"codes": ["000001"]},
+                    metrics={"trades": 18},
+                    promotion={"promoted": True},
+                    status="paper_candidate",
+                    requires_confirmation=True,
+                    created_at="2026-06-01T21:40:00+00:00",
+                )
+            ]
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.get("/api/agentic/strategy/paper-candidates?limit=20")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["candidates"][0]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidates"][0]["name"] == "AI信号基线轮动"
 
 
 def test_agentic_paper_strategy_candidate_can_be_confirmed(client, monkeypatch):
@@ -303,6 +338,8 @@ def test_agentic_paper_strategy_candidate_can_be_confirmed(client, monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+    assert body["candidate"]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidate"]["name"] == "AI信号基线轮动"
     assert body["candidate"]["status"] == "paper_active"
     assert body["candidate"]["requires_confirmation"] is False
 
@@ -334,6 +371,8 @@ def test_agentic_active_paper_strategy_candidate_can_generate_pending_intent(cli
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+    assert body["execution"]["candidate_id"] == "qlib_ranked_core"
+    assert body["execution"]["name"] == "AI信号基线轮动"
     assert body["execution"]["status"] == "paper_intent_pending"
     assert body["execution"]["requires_confirmation"] is True
 
@@ -369,8 +408,43 @@ def test_agentic_paper_execution_can_be_confirmed_with_risk_gate(client, monkeyp
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+    assert body["execution"]["candidate_id"] == "qlib_ranked_core"
+    assert body["execution"]["name"] == "AI信号基线轮动"
     assert body["execution"]["status"] == "paper_intent_confirmed"
     assert body["execution"]["requires_confirmation"] is False
+
+
+def test_agentic_paper_execution_list_normalizes_legacy_qlib_names(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyExecution
+
+    class FakeService:
+        def list_executions(self, limit=100):
+            assert limit == 20
+            return [
+                PaperStrategyExecution(
+                    id="paper_execution_1",
+                    candidate_record_id="paper_strategy_1",
+                    candidate_id="qlib_ranked_core",
+                    name="Qlib 核心轮动",
+                    dsl={"strategy_type": "ranked_rotation"},
+                    codes=("000001",),
+                    status="paper_intent_pending",
+                    reason="manual trigger generated a pending paper strategy intent",
+                    requires_confirmation=True,
+                    created_at="2026-06-01T22:00:00+00:00",
+                )
+            ]
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.get("/api/agentic/strategy/paper-executions?limit=20")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["executions"][0]["candidate_id"] == "qlib_ranked_core"
+    assert body["executions"][0]["name"] == "AI信号基线轮动"
 
 
 def test_agentic_confirmed_execution_can_create_order_drafts(client, monkeypatch):
@@ -408,6 +482,8 @@ def test_agentic_confirmed_execution_can_create_order_drafts(client, monkeypatch
     assert body["success"] is True
     assert body["drafts"][0]["status"] == "draft_pending"
     assert body["drafts"][0]["volume"] == 200
+    assert body["drafts"][0]["strategy_name"] == "agentic:qlib_ranked_core"
+    assert body["drafts"][0]["strategy_display_name"] == "AI信号基线轮动"
 
 
 def test_agentic_confirmed_execution_can_submit_real_paper_orders(client, monkeypatch):

@@ -145,8 +145,11 @@
                     const amtStr = p.amount ? (p.amount >= 1e8 ? (p.amount / 1e8).toFixed(1) + '亿' : (p.amount / 1e4).toFixed(0) + '万') : '--';
                     const code = App.escapeHTML(p.code || '');
                     const name = App.escapeHTML(p.name || p.code || '');
-	                    const diamond = p.signal_confidence?.startsWith?.('validated') ? '<span class="qlib-diamond" title="信号已通过历史验证">✓</span>' : '';
-	                    const icAdjStr = confidenceText(p.signal_confidence);
+                    const rowConfidence = validation?.confidence && validation.confidence !== 'unverified'
+                        ? validation.confidence
+                        : p.signal_confidence;
+                    const diamond = rowConfidence?.startsWith?.('validated') ? '<span class="qlib-diamond" title="信号池已通过历史验证">✓</span>' : '';
+                    const icAdjStr = confidenceText(rowConfidence);
 
                     return `<tr class="qlib-row ${heat.cls}" data-code="${code}">
                         <td class="qlib-td qlib-td-rank">${i + 1}</td>

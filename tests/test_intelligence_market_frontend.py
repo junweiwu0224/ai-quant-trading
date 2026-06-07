@@ -775,6 +775,87 @@ def test_intelligence_signal_pool_renders_validation_summary():
     assert result.returncode == 0, result.stderr
 
 
+def test_intelligence_signal_pool_rows_use_provider_validation_when_record_unverified():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+            };
+        }
+
+        const panel = makeElement('intel-ml-pred');
+        const elements = { 'intel-ml-pred': panel };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                if (url === '/api/signals/top?limit=50') {
+                    return {
+                        success: true,
+                        date: '2026-06-05',
+                        total: 5197,
+                        provider: 'local_momentum',
+                        model_version: 'local_momentum_v1',
+                        raw_source: 'legacy_qlib',
+                        predictions: [
+                            { code: '600519', name: '贵州茅台', score: 0.91, price: 1600, signal_confidence: 'unverified' },
+                        ],
+                    };
+                }
+                if (url === '/api/signals/validation?top_n=50') {
+                    return {
+                        success: true,
+                        confidence: 'validated_neutral',
+                        sample_days: 259,
+                        metrics: { '1d': { top_excess_return_pct: 0.16, hit_rate_pct: 48, rank_ic: -0.038 } },
+                    };
+                }
+                throw new Error(`unexpected url: ${url}`);
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-signals.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadMLPredictions();
+            assert.match(panel.innerHTML, /全市场 5,197 只 · Top 1 · 验证中性/);
+            assert.match(panel.innerHTML, /状态 验证中性/);
+            assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证中性<\/td>/);
+            assert.doesNotMatch(panel.innerHTML, /<td class="qlib-td qlib-td-ic">未验证<\/td>/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_intelligence_load_retries_failed_signal_pool_after_other_modules_succeed():
     script = textwrap.dedent(
         r"""
@@ -839,12 +920,12 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence.js?v=5" in app_js
     assert "/static/intelligence-market.js?v=6" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=3" in app_js
+    assert "/static/intelligence-signals.js?v=4" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
     assert "/static/app.js?v=67" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v101" in service_worker
+    assert "ai-quant-v102" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles

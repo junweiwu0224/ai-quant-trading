@@ -70,7 +70,7 @@ def test_signal_engine_is_primary_frontend_semantics():
     qlib_router = read("dashboard/routers/qlib.py")
     scheduler = read("data/scheduler/scheduler.py")
 
-    assert "/static/intelligence-signals.js?v=3" in app
+    assert "/static/intelligence-signals.js?v=4" in app
     assert "/static/intelligence-qlib.js" not in app
     assert "/static/app.js?v=67" in scripts
 

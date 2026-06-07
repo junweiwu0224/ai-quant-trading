@@ -293,6 +293,64 @@ def _load_local_stock_daily_quote(code: str):
     }
 
 
+def _load_local_stock_daily_klines(code: str, count: int) -> dict:
+    from data.storage.storage import DataStorage
+
+    try:
+        daily = DataStorage().get_stock_daily(code)
+    except Exception as exc:
+        logger.debug(f"本地K线降级读取失败 {code}: {exc}")
+        daily = None
+
+    if daily is None or daily.empty:
+        return {}
+
+    daily = daily.sort_values("date").tail(max(1, count))
+    rows = daily.to_dict("records")
+    parsed = []
+    previous_close = None
+    for row in rows:
+        close = _safe_float(row.get("close"))
+        if previous_close:
+            change = round(close - previous_close, 2)
+            change_pct = round(change / previous_close * 100, 2)
+        else:
+            open_price = _safe_float(row.get("open"))
+            change = round(close - open_price, 2) if open_price else 0.0
+            change_pct = round(change / open_price * 100, 2) if open_price else 0.0
+        high = _safe_float(row.get("high"))
+        low = _safe_float(row.get("low"))
+        amplitude = round((high - low) / previous_close * 100, 2) if previous_close else 0.0
+        parsed.append({
+            "date": _date_label(row.get("date")),
+            "open": _safe_float(row.get("open")),
+            "close": close,
+            "high": high,
+            "low": low,
+            "volume": _safe_float(row.get("volume")),
+            "amount": _safe_float(row.get("amount")),
+            "amplitude": amplitude,
+            "change_pct": change_pct,
+            "change": change,
+            "turnover": 0.0,
+        })
+        previous_close = close
+
+    latest_local_date = parsed[-1]["date"] if parsed else ""
+    return {
+        "code": code,
+        "name": "",
+        "period": "daily",
+        "klines": parsed,
+        "source": "local_stock_daily",
+        "source_version": "stock_daily",
+        "degraded": True,
+        "stale": True,
+        "latest_local_date": latest_local_date,
+        "degraded_reason": "external_kline_unavailable",
+    }
+
+
 @router.get("/kline/{code}")
 async def get_kline(code: str, period: str = "daily", count: int = 120):
     """获取 K 线数据（push2his 优先，腾讯回退）"""
@@ -305,6 +363,11 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
     # 使用共享 K 线模块
     raw = await asyncio.to_thread(_fetch_kline_shared, code, count, period)
     if not raw:
+        if period == "daily":
+            result = await asyncio.to_thread(_load_local_stock_daily_klines, code, count)
+            if result:
+                _cache.set(cache_key, result, _TTL_KLINE)
+                return result
         result = {"code": code, "name": "", "period": period, "klines": []}
         _cache.set(cache_key, result, _TTL_KLINE)
         return result
@@ -328,7 +391,7 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
                 "turnover": float(parts[10]) if len(parts) >= 11 else 0,
             })
 
-    result = {"code": code, "name": raw.get("name", ""), "period": period, "klines": parsed}
+    result = {"code": code, "name": raw.get("name", ""), "period": period, "klines": parsed, "source": "external"}
     _cache.set(cache_key, result, _TTL_KLINE)
     return result
 

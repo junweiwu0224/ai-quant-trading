@@ -366,6 +366,48 @@ class TestValuationDataHubAPI:
         assert calls == [("600519", 900, 2.0)]
         assert res.json()["source"] == "local_stock_daily"
 
+    def test_stock_kline_degrades_to_local_daily_when_external_sources_are_unavailable(self, monkeypatch):
+        import pandas as pd
+
+        class FakeStorage:
+            def get_stock_daily(self, code):
+                return pd.DataFrame([
+                    {
+                        "date": pd.Timestamp("2026-06-04"),
+                        "open": 1540.0,
+                        "high": 1560.0,
+                        "low": 1530.0,
+                        "close": 1550.0,
+                        "volume": 1200,
+                        "amount": 186000000,
+                    },
+                    {
+                        "date": pd.Timestamp("2026-06-05"),
+                        "open": 1555.0,
+                        "high": 1580.0,
+                        "low": 1548.0,
+                        "close": 1570.0,
+                        "volume": 1300,
+                        "amount": 204100000,
+                    },
+                ])
+
+        monkeypatch.setattr("dashboard.routers.stock_detail._fetch_kline_shared", lambda *args, **kwargs: None)
+        monkeypatch.setattr("data.storage.storage.DataStorage", lambda: FakeStorage())
+
+        res = client.get("/api/stock/kline/600519?period=daily&count=30")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["code"] == "600519"
+        assert data["period"] == "daily"
+        assert data["source"] == "local_stock_daily"
+        assert data["degraded"] is True
+        assert data["latest_local_date"] == "2026-06-05"
+        assert [item["date"] for item in data["klines"]] == ["2026-06-04", "2026-06-05"]
+        assert data["klines"][-1]["close"] == 1570.0
+        assert data["klines"][-1]["change_pct"] == 1.29
+
     def test_valuation_health_endpoint_exposes_source_health(self):
         res = client.get("/api/valuation/health")
         assert res.status_code == 200

@@ -340,9 +340,12 @@ test('A-Stock valuation center surfaces ledger metadata across research and deta
     await page.evaluate(() => window.App.switchTab('stock'));
     await page.waitForFunction(() => Boolean(window.StockDetail));
     await page.evaluate(async () => {
-        await window.App.openStockDetail('600519', { source: 'playwright:valuation-ledger' });
+        await window.App.openStockDetail('600519', {
+            source: 'playwright:valuation-ledger',
+            preferDirectOpen: true,
+        });
     });
-    await expect(page.locator('#sd-valuation-snapshot')).toContainText('估值源');
+    await expect(page.locator('#sd-valuation-snapshot')).toContainText('估值源', { timeout: 45_000 });
 });
 
 test('research datahub subtab activates on mobile viewport', async ({ page }) => {

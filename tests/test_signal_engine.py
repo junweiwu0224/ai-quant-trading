@@ -89,3 +89,32 @@ def test_signal_validation_reports_top_return_metrics(tmp_path):
     assert summary.metrics["1d"]["top_n"] == 1
     assert summary.metrics["1d"]["top_excess_return_pct"] > 0
     assert summary.metrics["1d"]["rank_ic"] > 0
+
+
+def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from dashboard.app import app
+    from dashboard.routers import signals
+
+    cache_path = tmp_path / "predictions_cache.json"
+    cache_path.write_text(
+        '{"predictions":{"2026-06-05":{"600519":0.9,"000001":0.8}}}',
+        encoding="utf-8",
+    )
+
+    def fail_validation(*args, **kwargs):
+        raise AssertionError("fast signal health should not compute historical validation")
+
+    monkeypatch.setattr(signals, "QLIB_PRED_CACHE", cache_path)
+    monkeypatch.setattr(signals, "validate_signal_provider", fail_validation)
+
+    with TestClient(app) as client:
+        response = client.get("/api/signals/health?fast=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "online"
+    assert payload["total"] == 2
+    assert payload["fast_mode"] is True
+    assert "validation" not in payload

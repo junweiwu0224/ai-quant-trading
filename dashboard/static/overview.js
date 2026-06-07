@@ -24,12 +24,24 @@ Object.assign(App, {
         try {
             const so = { silent: true };
 
-            // 阶段 1：核心数据（snapshot + watchlist + status + trades）
+            // 阶段 1：核心数据。自选股先独立返回，用于尽早启动机会池。
+            const snapshotPromise = this.fetchJSON('/api/portfolio/snapshot', so).catch(() => ({ total_equity: 0, cash: 0, market_value: 0, positions: [] }));
+            const tradesPromise = this.fetchJSON('/api/portfolio/trades/recent?limit=20', so).catch(() => []);
+            const statusPromise = this.fetchJSON('/api/system/status', so).catch(() => ({ db_stats: {}, paper_running: false, ai_model: '--' }));
+            const watchlistPromise = this.fetchJSON('/api/watchlist', so).catch(() => []);
+            watchlistPromise.then((watchlist) => {
+                this.watchlistCache = watchlist || [];
+                Watchlist.render(watchlist);
+                Watchlist.setSelectedItems(watchlist || []);
+                this._buildWatchlistIndex();
+                this._loadOverviewOpportunities();
+            }).catch(() => {});
+
             const [snapshot, trades, status, watchlist] = await Promise.all([
-                this.fetchJSON('/api/portfolio/snapshot', so).catch(() => ({ total_equity: 0, cash: 0, market_value: 0, positions: [] })),
-                this.fetchJSON('/api/portfolio/trades/recent?limit=20', so).catch(() => []),
-                this.fetchJSON('/api/system/status', so).catch(() => ({ db_stats: {}, paper_running: false, ai_model: '--' })),
-                this.fetchJSON('/api/watchlist', so).catch(() => []),
+                snapshotPromise,
+                tradesPromise,
+                statusPromise,
+                watchlistPromise,
             ]);
 
             const dbStats = status.db_stats || {};
@@ -70,12 +82,14 @@ Object.assign(App, {
             this._updateMarketPhase();
             this._registerOverviewTimers();
 
-            // 自选股
-            this.watchlistCache = watchlist || [];
-            Watchlist.render(watchlist);
-            Watchlist.setSelectedItems(watchlist || []);
-            this._buildWatchlistIndex();
-            this._loadOverviewOpportunities();
+            // 自选股兜底：如果早启动链路被环境拦截，这里仍保持渲染和机会池加载。
+            if (this.watchlistCache !== watchlist) {
+                this.watchlistCache = watchlist || [];
+                Watchlist.render(watchlist);
+                Watchlist.setSelectedItems(watchlist || []);
+                this._buildWatchlistIndex();
+                this._loadOverviewOpportunities();
+            }
 
             // 持仓明细
             this._renderPositions(snapshot);
@@ -309,7 +323,7 @@ Object.assign(App, {
         const tbody = document.querySelector('#ov-opportunity-table tbody');
         const hint = document.getElementById('ov-opportunity-hint');
         if (!tbody) return;
-        const items = (data.items || []).slice(0, 5);
+        const items = data.items || [];
         if (!items.length) return;
         this._overviewOpportunityItems = items;
         tbody.innerHTML = items.map((item) => this._renderOpportunityRow(item)).join('');
@@ -673,7 +687,7 @@ Object.assign(App, {
         const el = document.getElementById('ov-qlib-status');
         if (!el) return;
         try {
-            const data = await this.fetchJSON('/api/signals/health', { silent: true });
+            const data = await this.fetchJSON('/api/signals/health?fast=true', { silent: true });
             if (data?.status === 'online') {
                 el.textContent = '🟢 在线';
                 el.className = 'stat-value text-up';
@@ -691,44 +705,44 @@ Object.assign(App, {
     },
 
     async _loadDataHubHealth() {
-            const root = document.getElementById('ov-datahub-health');
-            if (!root) return;
-            try {
-                const data = await this.fetchJSON('/api/datahub/health', { silent: true, timeout: 20000 });
-                const quote = data.quote || {};
-                const valuation = data.valuation || {};
-	                const qlib = data.signal || data.qlib || {};
-                const stockDaily = data.stock_daily || {};
-                const fullDailySync = data.full_daily_sync || {};
-                const shadow = data.shadow || {};
-                const age = quote.last_update_age_sec;
-                const quoteLabel = quote.running
-                    ? (age == null ? '运行中' : `${Math.round(age)}秒前`)
-                    : '未运行';
-                const qlibLabel = qlib.status === 'online'
-                    ? `在线 · ${qlib.cache_age_label || '--'}`
-                    : qlib.status === 'stale'
-                        ? `过期 · ${qlib.cache_age_label || '--'}`
-                        : '离线';
-                const shadowLabel = shadow.total_checks
-                    ? `${shadow.total_diffs || 0} 条差异`
-                    : '暂无差异日志';
-                const sourceHealth = data.source_health || {};
-                const qualitySummary = data.quality_summary || {};
-                const sourceLabel = sourceHealth.total_active_sources != null
-                    ? `${sourceHealth.total_active_sources} 个在线`
-                    : '--';
-                const qualityLabel = qualitySummary.total != null
-                    ? `${qualitySummary.total} 条`
-                    : '--';
-                const dailyCoverageLabel = stockDaily.coverage_pct == null
-                    ? '--'
-                    : `${stockDaily.daily_covered ?? 0}/${stockDaily.stock_count ?? data.stock_count ?? '--'} · ${stockDaily.coverage_pct}%`;
-                const latestDailyLabel = stockDaily.latest_date
-                    ? `${stockDaily.latest_date} · ${stockDaily.latest_date_covered ?? 0}只`
-                    : '无数据';
-                const syncLabel = fullDailySync.status_label || '未同步';
-                root.innerHTML = `
+        const root = document.getElementById('ov-datahub-health');
+        if (!root) return;
+        try {
+            const data = await this.fetchJSON('/api/datahub/health?fast=true', { silent: true, timeout: 8000 });
+            const quote = data.quote || {};
+            const valuation = data.valuation || {};
+            const qlib = data.signal || data.qlib || {};
+            const stockDaily = data.stock_daily || {};
+            const fullDailySync = data.full_daily_sync || {};
+            const shadow = data.shadow || {};
+            const age = quote.last_update_age_sec;
+            const quoteLabel = quote.running
+                ? (age == null ? '运行中' : `${Math.round(age)}秒前`)
+                : '未运行';
+            const qlibLabel = qlib.status === 'online'
+                ? `在线 · ${qlib.cache_age_label || '--'}`
+                : qlib.status === 'stale'
+                    ? `过期 · ${qlib.cache_age_label || '--'}`
+                    : '离线';
+            const shadowLabel = shadow.total_checks
+                ? `${shadow.total_diffs || 0} 条差异`
+                : '暂无差异日志';
+            const sourceHealth = data.source_health || {};
+            const qualitySummary = data.quality_summary || {};
+            const sourceLabel = sourceHealth.total_active_sources != null
+                ? `${sourceHealth.total_active_sources} 个在线`
+                : '--';
+            const qualityLabel = qualitySummary.total != null
+                ? `${qualitySummary.total} 条`
+                : '--';
+            const dailyCoverageLabel = stockDaily.coverage_pct == null
+                ? '--'
+                : `${stockDaily.daily_covered ?? 0}/${stockDaily.stock_count ?? data.stock_count ?? '--'} · ${stockDaily.coverage_pct}%`;
+            const latestDailyLabel = stockDaily.latest_date
+                ? `${stockDaily.latest_date} · ${stockDaily.latest_date_covered ?? 0}只`
+                : '无数据';
+            const syncLabel = fullDailySync.status_label || '未同步';
+            root.innerHTML = `
                 <div class="datahub-health-item"><span>股票名录</span><strong>${this.escapeHTML(data.stock_count ?? '--')}</strong></div>
                 <div class="datahub-health-item"><span>日线覆盖</span><strong>${this.escapeHTML(dailyCoverageLabel)}</strong></div>
                 <div class="datahub-health-item"><span>最新日线</span><strong>${this.escapeHTML(latestDailyLabel)}</strong></div>
@@ -737,16 +751,16 @@ Object.assign(App, {
                 <div class="datahub-health-item"><span>行情缓存</span><strong>${this.escapeHTML(quote.cache_count ?? '--')} / ${this.escapeHTML(quote.subscriptions ?? '--')}</strong></div>
                 <div class="datahub-health-item"><span>行情新鲜度</span><strong>${this.escapeHTML(quoteLabel)}</strong></div>
                 <div class="datahub-health-item"><span>估值覆盖</span><strong>${valuation.coverage_pct == null ? '--' : `${valuation.coverage_pct}%`}</strong></div>
-	                <div class="datahub-health-item"><span>AI信号</span><strong>${this.escapeHTML(qlibLabel)}</strong></div>
+                <div class="datahub-health-item"><span>AI信号</span><strong>${this.escapeHTML(qlibLabel)}</strong></div>
                 <div class="datahub-health-item"><span>影子对账</span><strong>${this.escapeHTML(shadowLabel)}</strong></div>
                 <div class="datahub-health-item"><span>数据源在线</span><strong>${this.escapeHTML(sourceLabel)}</strong></div>
                 <div class="datahub-health-item"><span>质量记录</span><strong>${this.escapeHTML(qualityLabel)}</strong></div>
                 <div class="datahub-health-item"><span>估值源</span><strong>机构预测</strong></div>
             `;
-            } catch (e) {
-                root.innerHTML = '<div class="text-muted">数据底座状态暂不可用</div>';
-            }
-        },
+        } catch (e) {
+            root.innerHTML = '<div class="text-muted">数据底座状态暂不可用</div>';
+        }
+    },
 
     /** 更新数据新鲜度指示 */
     _updateDataFreshness() {

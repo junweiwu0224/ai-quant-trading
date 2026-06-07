@@ -84,7 +84,7 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=19',
+            '/static/overview.js?v=21',
             '/static/overview-radar.js?v=6',
             '/static/alerts.js?v=4',
         ],
@@ -155,7 +155,7 @@ const App = {
         ],
         stock: [
             '/static/stock-detail.js?v=7',
-            '/static/stock-detail-core.js?v=6',
+            '/static/stock-detail-core.js?v=7',
             '/static/stock-detail-drawings.js?v=1',
             '/static/stock-detail-insights.js?v=3',
             '/static/stock-detail-chips.js?v=1',
@@ -163,7 +163,7 @@ const App = {
             '/static/stock-detail-market-mtf.js?v=1',
             '/static/stock-detail-market-dragon.js?v=1',
             '/static/stock-detail-research.js?v=1',
-            '/static/stock-detail-valuation.js?v=12',
+            '/static/stock-detail-valuation.js?v=13',
             '/static/stock-detail-charts.js?v=1',
             '/static/stock-detail-timeline.js?v=2',
             '/static/stock-detail-timeline-overlays.js?v=1',

@@ -32,16 +32,26 @@
                 // ignore storage failures
             }
 
+            const waitForDeferredLoad = options.awaitDeferredLoad === true;
+            const waitForDetailLoad = options.awaitDetailLoad === true || waitForDeferredLoad;
             const openDirectly = async (status) => {
                 this._activeStockCode = normalizedCode;
                 this.syncActiveStockContext?.(normalizedCode, contextStock, source, 'open-stock-detail');
                 await this.switchTab?.('stock', { autoOpenStock: false });
                 if (globalThis.StockDetail && typeof globalThis.StockDetail.open === 'function') {
                     globalThis.StockDetail.init?.();
-                    await globalThis.StockDetail.open(normalizedCode, {
+                    const detailPromise = globalThis.StockDetail.open(normalizedCode, {
                         stock: contextStock,
                         source,
+                        awaitDeferredLoad: waitForDeferredLoad,
                     });
+                    if (waitForDetailLoad) {
+                        await detailPromise;
+                    } else {
+                        void Promise.resolve(detailPromise).catch((error) => {
+                            console.warn('后台加载股票详情失败:', error);
+                        });
+                    }
                     return { ok: true, status, code: normalizedCode, source };
                 }
                 return { ok: false, status: 'unavailable', code: 'STOCK_DETAIL_UNAVAILABLE', source };
@@ -367,7 +377,17 @@
                 this._activeStockCode = code;
                 await this.switchTab?.('stock');
                 globalThis.StockDetail.init?.();
-                await globalThis.StockDetail.open(code);
+                const waitForFallbackDeferredLoad = safeParams.awaitDeferredLoad === true;
+                const detailPromise = globalThis.StockDetail.open(code, {
+                    awaitDeferredLoad: waitForFallbackDeferredLoad,
+                });
+                if (safeParams.awaitDetailLoad === true || waitForFallbackDeferredLoad) {
+                    await detailPromise;
+                } else {
+                    void Promise.resolve(detailPromise).catch((error) => {
+                        console.warn('后台加载股票详情失败:', error);
+                    });
+                }
                 return {
                     ok: true,
                     status: 'fallback',

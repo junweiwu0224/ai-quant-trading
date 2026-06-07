@@ -217,6 +217,21 @@
             if (overlay) overlay.classList.add('active');
             panel.setAttribute('aria-hidden', 'false');
             body.innerHTML = '<div class="text-center" style="padding:40px"><span class="spinner"></span> 加载中...</div>';
+            this.syncActiveStockContext(safeCode, { code: safeCode }, 'app:offcanvas', 'offcanvas');
+            if (rightRail && typeof rightRail.activatePanel === 'function') {
+                rightRail.activatePanel({
+                    panelId: 'stock-offcanvas',
+                    panelParams: {
+                        code: safeCode,
+                        name: safeCode,
+                    },
+                    autoOpen: true,
+                    source: 'app:offcanvas',
+                });
+                if (typeof rightRail.syncStockContext === 'function') {
+                    rightRail.syncStockContext({ source: 'app:offcanvas:activated' });
+                }
+            }
 
             try {
                 const response = await this.fetchJSON(`/api/stock/detail/${safeCode}`);
@@ -848,27 +863,19 @@
             else if (activeTab === 'stock') {
                 await this.ensureBundle?.('stock');
                 globalThis.StockDetail?.init?.();
+                if (options.autoOpenStock === false) {
+                    return;
+                }
                 const activeCode = (typeof this.getLastOpenedStockCode === 'function' && this.getLastOpenedStockCode())
                     || this._activeStockCode
                     || globalThis.StockDetail?._currentCode
                     || globalThis.GlobalStockStore?.getState?.()?.identity?.code
                     || '';
-                if (options.autoOpenStock !== false && activeCode) {
+                if (activeCode) {
                     if (activeCode !== globalThis.StockDetail?._currentCode) {
                         await globalThis.StockDetail?.open?.(activeCode);
                     } else {
                         globalThis.StockDetail?.refresh?.();
-                    }
-                } else {
-                    if (globalThis.StockDetail?._currentCode) {
-                        globalThis.StockDetail?.refresh?.();
-                    } else {
-                        const fallbackCode = (typeof this.getLastOpenedStockCode === 'function' && this.getLastOpenedStockCode())
-                            || globalThis.GlobalStockStore?.getState?.()?.identity?.code
-                            || '';
-                        if (fallbackCode) {
-                            await globalThis.StockDetail?.open?.(fallbackCode);
-                        }
                     }
                 }
             }

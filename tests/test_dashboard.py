@@ -130,7 +130,8 @@ class TestValuationDataHubAPI:
         )
 
         assert "AI未覆盖" not in decision["risk_tags"]
-        assert "AI候选" in decision["reason_tags"]
+        assert "信号候选" in decision["reason_tags"]
+        assert "AI候选" not in decision["reason_tags"]
         assert "AI未验证" in decision["risk_tags"]
         assert decision["decision_score"] >= 60
 
@@ -162,6 +163,7 @@ class TestValuationDataHubAPI:
     def test_load_qlib_context_keeps_full_items_when_ordered_codes_are_limited(self, monkeypatch):
         from dashboard.routers import datahub
 
+        datahub._SIGNAL_CONTEXT_CACHE.clear()
         monkeypatch.setattr(
             "dashboard.routers.qlib._load_predictions",
             lambda: {
@@ -176,6 +178,34 @@ class TestValuationDataHubAPI:
         assert ctx["ordered_codes"] == ["600519"]
         assert ctx["items"]["002475"]["qlib_rank"] == 3
         assert ctx["items"]["002475"]["qlib_score"] == 0.7
+
+    def test_load_qlib_context_reuses_built_context_until_cache_file_changes(self, monkeypatch, tmp_path):
+        from dashboard.routers import datahub
+        from data.signals.engine import build_signal_context_from_predictions as real_build_context
+
+        pred_cache = tmp_path / "predictions_cache.json"
+        pred_cache.write_text('{"predictions": {"2026-06-05": {"600519": 0.9, "000001": 0.8}}}', encoding="utf-8")
+        predictions = {
+            "2026-06-04": {"600519": 0.7, "000001": 0.6},
+            "2026-06-05": {"600519": 0.9, "000001": 0.8},
+        }
+        calls = []
+
+        def counted_build_context(*args, **kwargs):
+            calls.append(kwargs.get("top_limit"))
+            return real_build_context(*args, **kwargs)
+
+        datahub._SIGNAL_CONTEXT_CACHE.clear()
+        monkeypatch.setattr("dashboard.routers.qlib.PRED_CACHE_FILE", pred_cache)
+        monkeypatch.setattr("dashboard.routers.qlib._load_predictions", lambda: predictions)
+        monkeypatch.setattr("data.signals.engine.build_signal_context_from_predictions", counted_build_context)
+
+        first = datahub._load_qlib_context(top_limit=1)
+        second = datahub._load_qlib_context(top_limit=1)
+
+        assert first is second
+        assert first["ordered_codes"] == ["600519"]
+        assert calls == [1]
 
     def test_stock_detail_includes_source_provenance(self, monkeypatch):
         from data.collector import quote_service
@@ -332,6 +362,64 @@ class TestValuationDataHubAPI:
         assert payload["qlib"]["status"] == "stale"
         assert "provider" not in payload["qlib"]
 
+    def test_datahub_health_fast_uses_light_signal_health(self, monkeypatch):
+        from dashboard.routers import datahub
+
+        def full_health():
+            raise AssertionError("fast datahub health should not compute full validation")
+
+        monkeypatch.setattr(datahub, "_load_signal_health", full_health)
+        monkeypatch.setattr(datahub, "_load_signal_health_light", lambda: {
+            "status": "online",
+            "provider": "local_momentum",
+            "model_version": "local_momentum_v1",
+            "validation": {
+                "status": "insufficient_data",
+                "confidence": "unverified",
+                "sample_days": 0,
+                "metrics": {},
+            },
+        })
+
+        res = client.get("/api/datahub/health?fast=true")
+
+        assert res.status_code == 200
+        payload = res.json()
+        assert payload["signal"]["status"] == "online"
+        assert payload["signal"]["validation"]["confidence"] == "unverified"
+
+    def test_load_signal_health_reuses_validation_until_inputs_change(self, monkeypatch, tmp_path):
+        from dashboard.routers import datahub
+        from data.signals.models import SignalValidationSummary
+
+        pred_cache = tmp_path / "predictions_cache.json"
+        pred_cache.write_text('{"predictions": {"2026-06-05": {"000001": 0.8}}}', encoding="utf-8")
+        sync_status = {"success_count": 1, "target_count": 1}
+        calls = []
+
+        def fake_validate_signal_provider(top_n=50):
+            calls.append(top_n)
+            return SignalValidationSummary(
+                provider="local_momentum",
+                model_version="local_momentum_v1",
+                status="validated",
+                confidence="validated_neutral",
+                sample_days=10,
+                metrics={"1d": {"rank_ic": 0.01}},
+            )
+
+        monkeypatch.setattr("dashboard.routers.qlib.PRED_CACHE_FILE", pred_cache)
+        monkeypatch.setattr("dashboard.routers.qlib._load_sync_status", lambda: sync_status)
+        monkeypatch.setattr("data.signals.validation.validate_signal_provider", fake_validate_signal_provider)
+        getattr(datahub, "_SIGNAL_HEALTH_CACHE", {}).clear()
+
+        first = datahub._load_signal_health()
+        second = datahub._load_signal_health()
+
+        assert first == second
+        assert first["validation"]["confidence"] == "validated_neutral"
+        assert calls == [50]
+
     def test_datahub_decision_matrix_includes_snapshot_metadata(self, monkeypatch):
         storage = DataStorage()
         storage.save_data_snapshot(
@@ -384,6 +472,23 @@ class TestValuationDataHubAPI:
         assert item["qlib_rank"] == 3
         assert item["qlib_score"] == 0.73
         assert "AI未覆盖" not in item["risk_tags"]
+        assert any(tag.startswith("信号") for tag in item["reason_tags"])
+
+    def test_decision_score_missing_signal_uses_signal_wait_action(self):
+        from dashboard.routers.datahub import _score_decision
+
+        decision = _score_decision(
+            {
+                "peg_next_year": 1.2,
+                "growth_next_year_pct": 20,
+                "report_count": 3,
+            },
+            None,
+        )
+
+        assert "AI未覆盖" in decision["risk_tags"]
+        assert "等待信号覆盖" in decision["next_actions"]
+        assert "等待AI覆盖" not in decision["next_actions"]
 
     def test_datahub_decision_matrix_accepts_signal_scope_as_primary_alias(self, monkeypatch):
         storage = DataStorage()
@@ -420,7 +525,7 @@ class TestValuationDataHubAPI:
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
-            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1")
         finally:
             app.dependency_overrides.pop(current_account, None)
 
@@ -483,7 +588,7 @@ class TestValuationDataHubAPI:
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
-            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1")
         finally:
             app.dependency_overrides.pop(current_account, None)
 
@@ -493,6 +598,109 @@ class TestValuationDataHubAPI:
         assert item["price"] == 11.0
         assert item["quote_age_sec"] == 0.0
         assert "行情缓存偏旧" not in item["risk_tags"]
+
+    def test_datahub_decision_matrix_fast_mode_uses_cached_quotes_only(self, monkeypatch):
+        storage = DataStorage()
+
+        class Quote:
+            code = "000001"
+            name = "平安银行"
+            price = 11.0
+            open = 11.0
+            high = 11.0
+            low = 11.0
+            pre_close = 11.0
+            volume = 1000
+            amount = 10000
+            change_pct = 1.0
+            timestamp = 2000.0
+            industry = "银行"
+            turnover_rate = 1.2
+            volume_ratio = 1.1
+
+        class FakeQuoteService:
+            is_running = True
+
+            def add_temporary_subscriptions(self, codes, ttl_sec=None):
+                raise AssertionError("fast opportunity preview should not mutate quote subscriptions")
+
+            def get_or_fetch_quotes(self, *args, **kwargs):
+                raise AssertionError("fast opportunity preview should not fetch live quotes")
+
+            def get_or_fetch_quote(self, *args, **kwargs):
+                raise AssertionError("fast opportunity preview should not fetch live quotes")
+
+            def get_quote(self, code):
+                return Quote()
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("dashboard.routers.datahub.time.time", lambda: 2000.0)
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: FakeQuoteService())
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        item = res.json()["items"][0]
+        assert item["price"] == 11.0
+        assert item["quote_age_sec"] == 0.0
+
+    def test_datahub_decision_matrix_fast_mode_does_not_compute_signal_validation(self, monkeypatch):
+        from dashboard.routers import datahub
+        from data.signals.models import SignalValidationSummary
+
+        storage = DataStorage()
+        calls = []
+
+        def slow_validate_signal_provider(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SignalValidationSummary(
+                provider="local_momentum",
+                model_version="local_momentum_v1",
+                status="validated",
+                confidence="validated_positive",
+                sample_days=20,
+                metrics={"1d": {"rank_ic": 0.1}},
+            )
+
+        datahub._SIGNAL_HEALTH_CACHE.clear()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(
+            "dashboard.routers.datahub._load_qlib_context",
+            lambda top_limit=300: {
+                "latest_date": "2026-06-05",
+                "total": 1,
+                "items": {
+                    "000001": {
+                        "signal_rank": 1,
+                        "signal_score": 0.8,
+                        "signal_confidence": "unverified",
+                        "qlib_rank": 1,
+                        "qlib_score": 0.8,
+                    }
+                },
+                "ordered_codes": ["000001"],
+                "provider": "local_momentum",
+                "model_version": "local_momentum_v1",
+            },
+        )
+        monkeypatch.setattr("data.signals.validation.validate_signal_provider", slow_validate_signal_provider)
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=signal&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        summary = res.json()["summary"]
+        assert summary["signal_status"] in {"online", "stale", "offline"}
+        assert summary["signal_quality"]["label"] == "未验证"
+        assert calls == []
 
     def test_datahub_decision_matrix_refreshes_quotes_in_one_batch(self, monkeypatch):
         storage = DataStorage()
@@ -530,7 +738,7 @@ class TestValuationDataHubAPI:
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
-            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2")
         finally:
             app.dependency_overrides.pop(current_account, None)
 
@@ -555,7 +763,7 @@ class TestValuationDataHubAPI:
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
-            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2")
         finally:
             app.dependency_overrides.pop(current_account, None)
 
@@ -579,7 +787,7 @@ class TestValuationDataHubAPI:
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
-            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&fast=true")
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2")
         finally:
             app.dependency_overrides.pop(current_account, None)
 

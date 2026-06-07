@@ -370,6 +370,365 @@ def test_open_paper_buy_defaults_to_trade_subtab_and_focuses_order_form():
     assert "document.getElementById('pt-order-form')?.scrollIntoView" in adapter
 
 
+def test_open_stock_detail_direct_mode_resolves_before_slow_detail_load():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        let switchedTab = null;
+        let syncedCode = null;
+        let openCalls = 0;
+
+        global.window = global;
+        global.sessionStorage = { setItem: () => {} };
+        global.GlobalStockStore = { getState: () => ({ identity: {} }) };
+        global.App = {
+            ensureBundle: async () => {},
+            switchTab: async (tab) => { switchedTab = tab; },
+            syncActiveStockContext: (code) => { syncedCode = code; },
+            toast: () => {},
+            _uiActionPending: {},
+        };
+        global.StockDetail = {
+            init: () => {},
+            open: async () => {
+                openCalls += 1;
+                await new Promise(() => {});
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-stock-ops.js', 'utf8'));
+
+        const timeout = new Promise((resolve) => {
+            setTimeout(() => resolve({ ok: false, status: 'timeout' }), 25);
+        });
+        const result = await Promise.race([
+            global.App.openStockDetail('600519', {
+                source: 'frontend-contract-test',
+                preferDirectOpen: true,
+            }),
+            timeout,
+        ]);
+
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 'direct');
+        assert.equal(result.code, '600519');
+        assert.equal(switchedTab, 'stock');
+        assert.equal(syncedCode, '600519');
+        assert.equal(openCalls, 1);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_open_stock_detail_can_explicitly_wait_for_detail_load():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        let resolveDetail;
+        let openCalls = 0;
+
+        global.window = global;
+        global.sessionStorage = { setItem: () => {} };
+        global.GlobalStockStore = { getState: () => ({ identity: {} }) };
+        global.App = {
+            ensureBundle: async () => {},
+            switchTab: async () => {},
+            syncActiveStockContext: () => {},
+            toast: () => {},
+            _uiActionPending: {},
+        };
+        global.StockDetail = {
+            init: () => {},
+            open: async () => {
+                openCalls += 1;
+                await new Promise((resolve) => { resolveDetail = resolve; });
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-stock-ops.js', 'utf8'));
+
+        let settled = false;
+        const pending = global.App.openStockDetail('600519', {
+            source: 'frontend-contract-test',
+            preferDirectOpen: true,
+            awaitDetailLoad: true,
+        }).then((result) => {
+            settled = true;
+            return result;
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(settled, false);
+        assert.equal(openCalls, 1);
+
+        resolveDetail();
+        const result = await pending;
+        assert.equal(settled, true);
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 'direct');
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_business_adapter_open_stock_detail_uses_nonblocking_direct_open():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        let receivedOptions = null;
+
+        global.window = global;
+        global.document = {
+            querySelector: () => null,
+            getElementById: () => null,
+        };
+        global.StockDetail = {
+            open: async () => {},
+            init: () => {},
+        };
+        global.App = {
+            _activeStockCode: '',
+            ensureBundle: async () => {},
+            openStockDetail: async (code, options) => {
+                receivedOptions = { code, ...options };
+                return { ok: true, code };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/core/business-adapter.js', 'utf8'));
+
+        (async () => {
+            const result = await global.BusinessAdapter.openStockDetail({
+                payload: { code: '600519' },
+            });
+
+            assert.equal(result.ok, true);
+            assert.equal(receivedOptions.code, '600519');
+            assert.equal(receivedOptions.preferDirectOpen, true);
+            assert.equal(receivedOptions.awaitDetailLoad, false);
+            assert.equal(receivedOptions.awaitDeferredLoad, false);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_switch_tab_stock_respects_auto_open_stock_false():
+    app_shell = read("dashboard/static/core/app-shell.js")
+
+    stock_branch = app_shell[
+        app_shell.index("else if (activeTab === 'stock')") : app_shell.index(
+            "else if (activeTab === 'intelligence')"
+        )
+    ]
+
+    assert "if (options.autoOpenStock === false) {" in stock_branch
+    assert "return;" in stock_branch
+    assert "const fallbackCode" not in stock_branch
+
+
+def test_stock_detail_can_explicitly_wait_for_deferred_modules():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement() {
+            return {
+                style: {},
+                classList: { toggle: () => {} },
+                setAttribute: () => {},
+                innerHTML: '',
+            };
+        }
+
+        let resolveDeferred;
+        let settled = false;
+        let valuationStarted = false;
+
+        global.window = global;
+        global.globalThis = global;
+        global.document = {
+            getElementById: () => makeElement(),
+        };
+        global.App = {
+            watchlistCache: [],
+            syncActiveStockContext: () => {},
+        };
+        global.GlobalStockStore = { getState: () => ({ identity: {} }) };
+        global.StockDetail = {};
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/stock-detail-core.js', 'utf8'));
+
+        Object.assign(global.StockDetail, {
+            _openGeneration: 0,
+            _renderDetailPending: () => {},
+            _connectL2: () => {},
+            _loadDetail: async () => {},
+            _loadTimeline: async () => {},
+            _loadOrderBook: async () => {},
+            _loadPeriodReturns: async () => {},
+            _loadCapitalFlow: async () => {},
+            _loadProfitTrend: async () => {},
+            _loadShareholders: async () => {},
+            _loadDividends: async () => {},
+            _loadAnnouncements: async () => {},
+            _loadIndustryComparison: async () => {},
+            _loadNorthbound: async () => {},
+            _loadChips: async () => {},
+            _loadMultiTimeframe: async () => {},
+            _loadDragonTiger: async () => {},
+            _loadReports: async () => {},
+            _loadValuationSnapshot: async () => {
+                valuationStarted = true;
+                await new Promise((resolve) => { resolveDeferred = resolve; });
+            },
+            _loadAlphaSignals: async () => {},
+            _loadNews: async () => {},
+        });
+
+        const pending = global.StockDetail.open('600519', {
+            awaitDeferredLoad: true,
+        }).then(() => {
+            settled = true;
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(valuationStarted, true);
+        assert.equal(settled, false);
+
+        resolveDeferred();
+        await pending;
+        assert.equal(settled, true);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_stock_detail_valuation_failure_still_renders_source_evidence():
+    valuation = read("dashboard/static/stock-detail-valuation.js")
+
+    assert "source: '估值服务'" in valuation
+    assert "source_version: 'unavailable'" in valuation
+    assert "quality_status: 'degraded'" in valuation
+    assert "估值数据加载失败" not in valuation
+
+
+def test_open_offcanvas_keeps_right_rail_context_when_detail_fetch_fails():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const panel = {
+            classList: {
+                values: new Set(),
+                add(value) { this.values.add(value); },
+                remove(value) { this.values.delete(value); },
+                contains(value) { return this.values.has(value); },
+            },
+            setAttribute(name, value) { this[name] = value; },
+        };
+        const body = { innerHTML: '' };
+        const title = { textContent: '' };
+        const overlay = { classList: { add: () => {}, remove: () => {} } };
+        let railActivation = null;
+        let syncedCode = null;
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => {
+                if (id === 'stock-offcanvas') return panel;
+                if (id === 'offcanvas-overlay') return overlay;
+                if (id === 'offcanvas-body') return body;
+                if (id === 'offcanvas-title') return title;
+                return null;
+            },
+            addEventListener: () => {},
+        };
+        global.PanelLifecycle = {
+            has: () => true,
+            mountRoot: () => {},
+        };
+        global.RightRailController = {
+            activatePanel: (params) => { railActivation = params; },
+            syncStockContext: () => {},
+        };
+        global.App = {
+            LLM: {},
+            fetchJSON: async () => { throw new Error('detail unavailable'); },
+            syncActiveStockContext: (code) => { syncedCode = code; },
+            escapeHTML: (value) => String(value ?? ''),
+            _fmtVol: (value) => String(value),
+            _fmtAmt: (value) => String(value),
+            _tabCache: {},
+            _tabAlias: {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/core/app-shell.js', 'utf8'));
+
+        await global.App.openOffcanvas('600519');
+
+        assert.equal(panel.classList.contains('active'), true);
+        assert.equal(panel['aria-hidden'], 'false');
+        assert.equal(railActivation?.panelId, 'stock-offcanvas');
+        assert.equal(railActivation?.panelParams?.code, '600519');
+        assert.equal(railActivation?.autoOpen, true);
+        assert.match(body.innerHTML, /加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_changed_frontend_assets_are_cache_busted():
     app = read("dashboard/static/app.js")
     scripts = read("dashboard/templates/partials/scripts.html")
@@ -388,16 +747,16 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
     assert "/static/app.js?v=71" in scripts
-    assert "/static/app-stock-ops.js?v=4" in scripts
-    assert "/static/core/business-adapter.js?v=4" in scripts
-    assert "/static/core/app-shell.js?v=22" in scripts
-    assert "/static/app-ui-shell.js?v=20" in scripts
+    assert "/static/app-stock-ops.js?v=5" in scripts
+    assert "/static/core/business-adapter.js?v=5" in scripts
+    assert "/static/core/app-shell.js?v=24" in scripts
+    assert "/static/app-ui-shell.js?v=22" in scripts
     assert "/static/app-workbench.js?v=2" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
     assert "/static/app-bootstrap.js?v=21" in scripts
-    assert "/static/overview.js?v=19" in scripts
-    assert "/static/overview.js?v=19" in app
+    assert "/static/overview.js?v=21" in scripts
+    assert "/static/overview.js?v=21" in app
     assert "/static/alerts.js?v=4" in scripts
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=6" in scripts
@@ -409,7 +768,8 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/alpha-tools.js?v=5" in app
     assert "/static/research-datahub.js?v=14" in app
     assert "/static/research-valuation.js?v=15" in app
-    assert "/static/stock-detail-core.js?v=6" in app
+    assert "/static/stock-detail-core.js?v=7" in app
+    assert "/static/stock-detail-valuation.js?v=13" in app
     assert "/static/openclaw-conversations.js?v=3" in app
     assert "/static/openclaw-workbench.js?v=26" in app
     assert "/static/intelligence.js?v=5" in app

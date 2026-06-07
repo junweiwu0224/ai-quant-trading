@@ -51,7 +51,12 @@ Object.assign(globalThis.StockDetail, {
                 await this._renderPeerPanel({}, decision, true);
             } else if (container) {
                 settled = true;
-                container.innerHTML = '<div class="text-muted text-center" style="padding:20px">估值数据加载失败</div>';
+                this._renderValuationSnapshot({
+                    code,
+                    source: '估值服务',
+                    source_version: 'unavailable',
+                    quality_status: 'degraded',
+                }, null, true);
             }
         } finally {
             clearTimeout(softTimer);

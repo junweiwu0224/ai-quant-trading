@@ -220,7 +220,7 @@ test('OpenClaw rail can create, search, switch, and reload its own history', asy
     await expect(page.locator('.openclaw-conversation-item.is-active')).toContainText('600519');
     await expect(page.locator('.openclaw-message.is-user').last()).toContainText('600519');
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.goto('/#openclaw', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
     await expect(page.locator('.openclaw-conversation-item.is-active')).toContainText('600519');
     await expect(page.locator('.openclaw-message.is-user').last()).toContainText('600519');

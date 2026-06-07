@@ -60,16 +60,21 @@ async def top_signals(
 
 
 @router.get("/health")
-async def signal_health(provider: str = Query(DEFAULT_PROVIDER)):
+async def signal_health(
+    provider: str = Query(DEFAULT_PROVIDER),
+    fast: bool = Query(False, description="只返回缓存状态，不同步计算历史验证"),
+):
     predictions, meta = load_prediction_history(provider=provider, cache_path=QLIB_PRED_CACHE)
-    validation = validate_signal_provider(
-        provider=provider,
-        db_path=DB_PATH,
-        cache_path=QLIB_PRED_CACHE,
-        top_n=50,
-    )
+    validation = None
+    if not fast:
+        validation = validate_signal_provider(
+            provider=provider,
+            db_path=DB_PATH,
+            cache_path=QLIB_PRED_CACHE,
+            top_n=50,
+        )
     status = "online" if predictions else "offline"
-    return {
+    payload = {
         "success": True,
         "status": status,
         "provider": meta.get("provider") or provider,
@@ -77,8 +82,11 @@ async def signal_health(provider: str = Query(DEFAULT_PROVIDER)):
         "latest_date": meta.get("latest_date"),
         "total": meta.get("total") or 0,
         "raw_source": meta.get("raw_source") or "legacy_qlib",
-        "validation": validation.to_dict(),
+        "fast_mode": fast,
     }
+    if validation is not None:
+        payload["validation"] = validation.to_dict()
+    return payload
 
 
 @router.get("/validation")

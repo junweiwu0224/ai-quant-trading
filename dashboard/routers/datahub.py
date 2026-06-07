@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from config.settings import FULL_STOCK_DAILY_SYNC_STATUS
+from config.settings import DB_PATH, FULL_STOCK_DAILY_SYNC_STATUS
 from dashboard.session import current_account, optional_account
 from data.providers.astock_data_adapter import normalize_stock_code
 from data.qlib.candidates import fallback_seed_codes
@@ -23,6 +23,7 @@ QUOTE_STALE_SECONDS = 15 * 60
 OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS = 30 * 60
 OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
 _SIGNAL_CONTEXT_CACHE: dict[tuple[str | None, int | None, int | None, int | None], dict[str, Any]] = {}
+_SIGNAL_HEALTH_CACHE: dict[tuple[str | None, int | None, int | None, int | None], dict[str, Any]] = {}
 
 
 def _plain_code(code: Any) -> str:
@@ -122,7 +123,87 @@ def _load_signal_health() -> dict[str, Any]:
             status = "stale"
         else:
             status = "offline"
+        db_path = DB_PATH
+        db_stat = db_path.stat() if db_path.exists() else None
+        cache_stat = PRED_CACHE_FILE.stat()
+        cache_key = (
+            str(PRED_CACHE_FILE),
+            cache_stat.st_mtime_ns,
+            cache_stat.st_size,
+            db_stat.st_mtime_ns if db_stat else None,
+            db_stat.st_size if db_stat else None,
+        )
+        cached_health = _SIGNAL_HEALTH_CACHE.get(cache_key)
+        if cached_health is not None:
+            return dict(cached_health)
         validation = validate_signal_provider(top_n=50).to_dict()
+        health = {
+            "status": status,
+            "cache_age_hours": round(age_hours, 1),
+            "cache_age_label": _age_label(age_hours),
+            "provider": validation.get("provider") or "local_momentum",
+            "model_version": validation.get("model_version") or "",
+            "validation": validation,
+            "sync_status": _load_sync_status(),
+        }
+        if len(_SIGNAL_HEALTH_CACHE) > 8:
+            _SIGNAL_HEALTH_CACHE.clear()
+        _SIGNAL_HEALTH_CACHE[cache_key] = dict(health)
+        return health
+    except Exception:
+        return {
+            "status": "offline",
+            "cache_age_hours": None,
+            "cache_age_label": "未知",
+            "provider": "local_momentum",
+            "model_version": "",
+            "validation": {
+                "status": "insufficient_data",
+                "confidence": "unverified",
+                "sample_days": 0,
+                "metrics": {},
+            },
+            "sync_status": {},
+        }
+
+
+def _load_signal_health_light() -> dict[str, Any]:
+    """Cheap signal cache status for fast opportunity previews.
+
+    Full historical validation can scan a large stock_daily matrix on cold start,
+    so fast preview endpoints should not trigger it synchronously.
+    """
+    try:
+        from dashboard.routers.qlib import PRED_CACHE_FILE, _load_sync_status
+
+        if not PRED_CACHE_FILE.exists():
+            return {
+                "status": "offline",
+                "cache_age_hours": None,
+                "cache_age_label": "无缓存",
+                "provider": "local_momentum",
+                "model_version": "",
+                "validation": {
+                    "status": "insufficient_data",
+                    "confidence": "unverified",
+                    "sample_days": 0,
+                    "metrics": {},
+                },
+                "sync_status": _load_sync_status(),
+            }
+        age_hours = (time.time() - PRED_CACHE_FILE.stat().st_mtime) / 3600
+        if age_hours < 24:
+            status = "online"
+        elif age_hours < 72:
+            status = "stale"
+        else:
+            status = "offline"
+        validation = next(iter(_SIGNAL_HEALTH_CACHE.values()), {}).get("validation") or {
+            "status": "insufficient_data",
+            "confidence": "unverified",
+            "sample_days": 0,
+            "metrics": {},
+        }
         return {
             "status": status,
             "cache_age_hours": round(age_hours, 1),
@@ -241,17 +322,29 @@ def _load_shadow_summary() -> dict[str, Any]:
 def _load_qlib_context(top_limit: int | None = None) -> dict[str, Any]:
     """Legacy wrapper for tests and old callers that patch qlib helpers directly."""
     try:
-        from dashboard.routers.qlib import _load_predictions
+        from dashboard.routers.qlib import PRED_CACHE_FILE, _load_predictions
         from data.signals.engine import build_signal_context_from_predictions
 
+        cache_key = None
+        if PRED_CACHE_FILE.exists():
+            stat = PRED_CACHE_FILE.stat()
+            cache_key = (str(PRED_CACHE_FILE), stat.st_mtime_ns, stat.st_size, top_limit)
+            cached_ctx = _SIGNAL_CONTEXT_CACHE.get(cache_key)
+            if cached_ctx is not None:
+                return cached_ctx
         predictions = _load_predictions()
-        return build_signal_context_from_predictions(
+        ctx = build_signal_context_from_predictions(
             predictions,
             top_limit=top_limit,
             provider="local_momentum",
             model_version="local_momentum_v1",
             raw_source="legacy_qlib",
         )
+        if cache_key is not None:
+            if len(_SIGNAL_CONTEXT_CACHE) > 8:
+                _SIGNAL_CONTEXT_CACHE.clear()
+            _SIGNAL_CONTEXT_CACHE[cache_key] = ctx
+        return ctx
     except Exception:
         return _load_signal_context(top_limit=top_limit)
 
@@ -350,13 +443,13 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
     if qlib_rank:
         if qlib_rank <= 10:
             score += 10 if signal_validated else 4
-            reasons.append("AI前10" if signal_validated else "AI候选")
+            reasons.append("信号Top10" if signal_validated else "信号候选")
         elif qlib_rank <= 50:
             score += 6 if signal_validated else 3
-            reasons.append("AI候选池" if signal_validated else "AI候选")
+            reasons.append("信号候选池" if signal_validated else "信号候选")
         elif qlib_rank <= 100:
             score += 3 if signal_validated else 1
-            reasons.append("AI覆盖")
+            reasons.append("信号覆盖")
         if not signal_validated:
             risks.append("AI未验证")
     else:
@@ -457,7 +550,7 @@ def _build_next_actions(
         actions.append("核对目标价")
 
     if not qlib_rank:
-        actions.append("等待AI覆盖")
+        actions.append("等待信号覆盖")
 
     deduped: list[str] = []
     for action in actions:
@@ -547,12 +640,15 @@ def _attach_snapshot_metadata(storage: DataStorage, code: str, item: dict[str, A
 
 
 @router.get("/health")
-async def datahub_health(account: dict | None = Depends(optional_account)):
+async def datahub_health(
+    fast: bool = Query(False, description="只返回轻量信号健康，避免首屏触发历史验证"),
+    account: dict | None = Depends(optional_account),
+):
     storage = DataStorage()
     stock_count = len(storage.get_all_stock_codes())
     stock_daily = storage.get_stock_daily_coverage()
     watchlist = storage.get_watchlist(account["workspace"]["id"]) if account else []
-    signal_health = _load_signal_health()
+    signal_health = _load_signal_health_light() if fast else _load_signal_health()
     qlib_health = _load_qlib_health()
     full_daily_sync = _load_full_stock_daily_sync_status()
     shadow = _load_shadow_summary()
@@ -632,7 +728,7 @@ async def decision_matrix(
     signal_scope = "signal" if scope == "qlib" else scope
     storage = DataStorage()
     signal_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
-    signal_health = _load_signal_health()
+    signal_health = _load_signal_health_light() if fast else _load_signal_health()
     qlib_health = _load_qlib_health()
     shadow = _load_shadow_summary()
     source_health = storage.get_data_source_health()
@@ -686,28 +782,36 @@ async def decision_matrix(
     can_fetch_quotes = False
     if quote_service and selected_codes:
         try:
-            can_fetch_quotes = (
-                not hasattr(quote_service, "is_running")
-                or bool(getattr(quote_service, "is_running", False))
-            )
-            if can_fetch_quotes and hasattr(quote_service, "add_temporary_subscriptions"):
-                quote_service.add_temporary_subscriptions(
-                    selected_codes,
-                    ttl_sec=OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS,
+            if fast:
+                if hasattr(quote_service, "get_quote"):
+                    quote_map = {
+                        code: quote
+                        for code in selected_codes
+                        if (quote := quote_service.get_quote(code)) is not None
+                    }
+            else:
+                can_fetch_quotes = (
+                    not hasattr(quote_service, "is_running")
+                    or bool(getattr(quote_service, "is_running", False))
                 )
-            if can_fetch_quotes and hasattr(quote_service, "get_or_fetch_quotes"):
-                quote_batch_supported = True
-                quote_map = quote_service.get_or_fetch_quotes(
-                    selected_codes,
-                    max_age_sec=QUOTE_STALE_SECONDS,
-                    refresh_timeout_sec=OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS,
-                )
-            elif hasattr(quote_service, "get_quote"):
-                quote_map = {
-                    code: quote
-                    for code in selected_codes
-                    if (quote := quote_service.get_quote(code)) is not None
-                }
+                if can_fetch_quotes and hasattr(quote_service, "add_temporary_subscriptions"):
+                    quote_service.add_temporary_subscriptions(
+                        selected_codes,
+                        ttl_sec=OPPORTUNITY_QUOTE_SUBSCRIPTION_TTL_SECONDS,
+                    )
+                if can_fetch_quotes and hasattr(quote_service, "get_or_fetch_quotes"):
+                    quote_batch_supported = True
+                    quote_map = quote_service.get_or_fetch_quotes(
+                        selected_codes,
+                        max_age_sec=QUOTE_STALE_SECONDS,
+                        refresh_timeout_sec=OPPORTUNITY_QUOTE_REFRESH_TIMEOUT_SECONDS,
+                    )
+                elif hasattr(quote_service, "get_quote"):
+                    quote_map = {
+                        code: quote
+                        for code in selected_codes
+                        if (quote := quote_service.get_quote(code)) is not None
+                    }
         except Exception:
             quote_map = {}
 

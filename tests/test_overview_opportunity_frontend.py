@@ -103,7 +103,7 @@ def test_overview_opportunity_query_and_rendering():
                 decision_label: '重点研究',
                 peg_next_year: 0.91,
                 risk_level: '中',
-                reason_tags: ['PEG≤1', 'AI覆盖'],
+                reason_tags: ['PEG≤1', '信号覆盖'],
                 risk_tags: ['短线涨幅过热'],
                 next_actions: ['进重点池', '打开估值详情'],
             }],
@@ -153,6 +153,96 @@ def test_overview_opportunity_query_and_rendering():
         assert.match(elements['ov-opportunity-status'].innerHTML, /同步 2\/3/);
         assert.match(elements['ov-opportunity-status'].innerHTML, /失败 1/);
         """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_renders_all_returned_preview_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                value: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        const items = Array.from({ length: 8 }, (_, idx) => ({
+            matrix_rank: idx + 1,
+            code: `00000${idx}`.slice(-6),
+            name: `股票${idx + 1}`,
+            decision_score: 60 + idx,
+            decision_label: '可跟踪',
+            risk_level: '中',
+            reason_tags: ['信号候选'],
+            risk_tags: ['AI未验证'],
+            next_actions: ['加入自选跟踪'],
+        }));
+        App._renderOverviewOpportunityData({
+            items,
+            summary: {
+                total: 8,
+                signal_coverage_pct: 100,
+                signal_status: 'online',
+                signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                fast_mode: true,
+            },
+        }, true);
+
+        assert.equal((tbody.innerHTML.match(/<tr>/g) || []).length, 8);
+        assert.match(tbody.innerHTML, /股票8/);
+        assert.match(elements['ov-opportunity-status'].innerHTML, /候选 8 只/);
+    """
     )
 
     result = run_node(script)
@@ -332,6 +422,119 @@ def test_overview_opportunity_fast_timeout_falls_back_to_full_request():
             assert.match(tbody.innerHTML, /补载成功/);
             assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
             assert.match(elements['ov-opportunity-status'].innerHTML, /候选 1 只/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_load_starts_opportunities_after_watchlist_before_slow_snapshot():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+                style: {},
+            };
+        }
+
+        const ids = [
+            'ov-equity', 'ov-daily-pnl', 'ov-cum-return', 'ov-max-dd', 'ov-sharpe',
+            'ov-position-count', 'ov-stock-count', 'ov-latest-date', 'ov-paper-status',
+            'ov-ai-status', 'ov-opportunity-table', 'ov-opportunity-hint', 'ov-opportunity-status',
+        ];
+        const elements = Object.fromEntries(ids.map((id) => [id, makeElement(id)]));
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || makeElement(id),
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        let releaseSnapshot;
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            escapeHTML: (value) => String(value ?? ''),
+            fmt: (value) => String(value ?? '--'),
+            _showOverviewSkeletons: () => {},
+            _renderMetric: () => {},
+            _renderPctMetric: () => {},
+            _checkSignalHealth: () => {},
+            _loadDataHubHealth: () => {},
+            _updateQuoteStatus: () => {},
+            _updateMarketPhase: () => {},
+            _registerOverviewTimers: () => {},
+            _renderPositions: () => {},
+            _loadOverviewSecondary: async () => {},
+            _updateDataFreshness: () => {},
+            _bindOverviewOpportunityActions: () => {},
+            _buildWatchlistIndex: () => {},
+            _getLegacyActionButton: () => null,
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url === '/api/watchlist') return [{ code: '300750' }];
+                if (url.startsWith('/api/datahub/decision-matrix')) {
+                    return { items: [], summary: { total: 0, signal_quality: { label: '未验证' } } };
+                }
+                if (url === '/api/portfolio/snapshot') {
+                    return await new Promise((resolve) => {
+                        releaseSnapshot = () => resolve({ total_equity: 0, positions: [] });
+                    });
+                }
+                if (url === '/api/portfolio/trades/recent?limit=20') return [];
+                if (url === '/api/system/status') return { db_stats: {}, paper_running: false, ai_model: '--' };
+                return {};
+            },
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            const pending = App.loadOverview();
+            await Promise.resolve();
+            await Promise.resolve();
+            assert.ok(calls.includes('/api/watchlist'));
+            assert.ok(calls.some((url) => url.startsWith('/api/datahub/decision-matrix?scope=signal&limit=8&fast=true')));
+            assert.ok(!calls.includes('/api/portfolio/equity-history'));
+            releaseSnapshot();
+            await pending;
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -568,6 +771,7 @@ def test_overview_opportunity_template_and_styles_are_present():
     template = Path("dashboard/templates/index.html").read_text(encoding="utf-8")
     styles = Path("dashboard/static/style.css").read_text(encoding="utf-8")
     scripts = Path("dashboard/templates/partials/scripts.html").read_text(encoding="utf-8")
+    overview_js = Path("dashboard/static/overview.js").read_text(encoding="utf-8")
 
     assert 'id="ov-opportunity-status"' in template
     assert 'data-ov-opportunity-scope="watchlist"' in template
@@ -579,4 +783,6 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=19" in scripts
+    assert "/static/overview.js?v=21" in scripts
+    assert "/api/signals/health?fast=true" in overview_js
+    assert "/api/datahub/health?fast=true" in overview_js

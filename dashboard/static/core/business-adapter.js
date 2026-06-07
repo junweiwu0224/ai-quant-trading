@@ -217,6 +217,8 @@
             await app.openStockDetail(payload.code, {
                 source: 'business-adapter:open-stock-detail',
                 preferDirectOpen: true,
+                awaitDetailLoad: false,
+                awaitDeferredLoad: false,
             });
             activateStockSubTab(payload.activeTab);
             return {

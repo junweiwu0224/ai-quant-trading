@@ -60,6 +60,7 @@ Object.assign(globalThis.StockDetail, {
         const optionStock = safeOptions.stock && typeof safeOptions.stock === 'object' ? safeOptions.stock : null;
         const optionName = typeof safeOptions.name === 'string' && safeOptions.name.trim() ? safeOptions.name.trim() : '';
         const source = typeof safeOptions.source === 'string' && safeOptions.source.trim() ? safeOptions.source.trim() : 'stock-detail:open';
+        const awaitDeferredLoad = safeOptions.awaitDeferredLoad === true;
 
         if (globalThis.App && typeof globalThis.App.syncActiveStockContext === 'function') {
             const stockStoreIdentity = globalThis.GlobalStockStore?.getState?.()?.identity || {};
@@ -126,7 +127,10 @@ Object.assign(globalThis.StockDetail, {
             this._loadAlphaSignals(code, stale),
             this._loadNews(code, stale),
         ];
-        Promise.allSettled(deferred);
+        const deferredPromise = Promise.allSettled(deferred);
+        if (awaitDeferredLoad) {
+            await deferredPromise;
+        }
 
         if (stale()) return;
         this._setLoading(false);

@@ -26,6 +26,34 @@
 | 2026-06-07 | 真实试跑 #4：hooks 候选集设计 | M | 质量门禁副作用分级、hooks 策略复盘 | 只读盘点 `.gitignore`、`docs/quality-gates.md`、`docs/testing.md`；未启用 hooks；更新后 `.venv/bin/python scripts/verify_context_pack.py` 复测 | 正信号：副作用分级帮助发现 `.venv/bin/python -m compileall -q .` 会写 `__pycache__/`、`frontend_data_render_audit.py` 会写 `test-results/`，二者不应列为严格无写入 hook；context pack verifier 适合默认阻断候选 | 当前只文档化候选集；后续若启用 hooks，先从 `verify_context_pack` 和稳定针对性 pytest 小集合开始 |
 | 2026-06-07 | 真实试跑 #5：subagents 并行边界校准 | M | Superpowers `dispatching-parallel-agents`、两个只读 explorer、主 agent 集成 | 两个 explorer 只读分析前端和后端/API/data 边界；未改文件、未启动服务、未发外部请求；主 agent 更新 `docs/subagents.md` 后运行 context pack 验证 | 正信号：前端可按页面/数据域拆，后端可按独立 router/service/provider 拆；负信号：公共脚本加载链、service worker、全局 `App`、storage/schema、TestClient lifespan、paper/live trading 和共享 contract 测试都必须主 agent 串行控制 | 已把项目并行分组、禁止并行区、prompt 约束和推荐集成验证沉淀到 `docs/subagents.md`；后续真实实现任务再观察 subagents 是否实际减少耗时和返工 |
 
+## 阶段复盘：5 次真实试跑后
+
+结论基于 2026-06-07 的 context pack、质量门禁、验证路由、hooks 候选和 subagents 边界试跑。当前优先收敛流程，不增加自动化负担。
+
+保留并继续使用：
+
+- `AGENTS.md` + `docs/testing.md` + `docs/quality-gates.md` 的验证路由有效，能把前端、API、数据展示和文档改动快速定位到低副作用命令。
+- `.venv/bin/python scripts/verify_context_pack.py` 是当前最适合的默认轻量门禁候选，适合文档/context pack 改动后主动运行。
+- 副作用分级有效，已经阻止把 `compileall`、报告型 audit、TestClient health 误判为严格无写入 hooks。
+- Superpowers 适合 M/L 或风险较高任务；XS/S 仍按全局任务分级直接处理，避免过度流程化。
+
+保持文档化、暂不自动启用：
+
+- hooks：当前不启用项目级阻断 hooks。若后续启用，只从 context pack verifier 和稳定、短耗时、无外部依赖的针对性 pytest 开始。
+- subagents：只在边界清楚、owned files 不重叠、或只读分析能并行时使用；公共前端入口、storage/schema、lifespan、paper/live trading 和共享 contract 测试由主 agent 串行控制。
+- 数据展示健康脚本：`frontend_data_render_audit.py` 和 `dashboard_data_health.py` 适合人工触发或标准交付门禁，不进入默认无副作用 hooks。
+
+暂不推进：
+
+- 不包装 `make` 或新的统一脚本入口，先继续观察真实任务中最常用、最稳定的命令。
+- 不把每个任务都记录进 `codex-usage`；只记录 M/L/XL、返工/漏测、流程调整或明显可复用经验。
+- 不把 MCP/memory/subagents 变成默认动作；必须有重复收益证据和清晰回退方式再升级。
+
+下一轮观察：
+
+- 用 3 个真实实现任务验证：context pack verifier 是否继续低误报、针对性 pytest 是否足够、subagents 是否真实减少耗时而不是增加集成成本。
+- 若连续多次只需要同一组命令，再考虑把它们晋升到 `docs/quality-gates.md` 的更明确候选，或包装成项目脚本。
+
 ## 周期复盘
 
 每完成 3-5 个有代表性的 M/L/XL 任务，或发生一次明显返工/漏测后，回看上方记录：
@@ -48,6 +76,6 @@
 
 ## 待评估事项
 
-- 是否需要把常用验证命令包装成 `make` 或 `scripts/verify_*`。
-- 是否需要启用项目级 hooks。
-- 哪些前端模块最适合 subagents 并行处理。
+- 继续观察是否需要把常用验证命令包装成 `make` 或 `scripts/verify_*`；当前证据不足，暂不新增。
+- 继续观察是否需要启用项目级 hooks；当前只文档化候选集，不自动启用。
+- 用真实实现任务验证 subagents 是否减少耗时和返工；当前只完成边界校准。

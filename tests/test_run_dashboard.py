@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -138,3 +139,10 @@ def test_run_dashboard_no_qlib_does_not_set_default_service_url(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert captured["service_url"] is None
+
+
+def test_data_display_audit_uses_signal_service_flag():
+    script = Path("scripts/run_data_display_audit.ps1").read_text(encoding="utf-8")
+
+    assert "--no-signal-service" in script
+    assert '"--no-qlib"' not in script

@@ -16,7 +16,7 @@
 优先查看 `docs/commands.md`。命令变化时同步更新该文件。
 
 - 安装依赖：`python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt`。
-- 本地开发：`.venv/bin/python scripts/run_dashboard.py --port 8001 --no-qlib`。
+- 本地开发：`.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service`。
 - Docker 启动：`docker compose up -d`。
 - 后端/API/核心测试：`.venv/bin/python -m pytest -q`。
 - 语法检查：`.venv/bin/python -m compileall -q .`。

@@ -201,7 +201,7 @@ try {
       $serverLog = Join-Path $ReportDir "dashboard-server.log"
       $serverErr = Join-Path $ReportDir "dashboard-server.err.log"
       $server = Start-Process -FilePath "python" `
-        -ArgumentList @("scripts/run_dashboard.py", "--host", "127.0.0.1", "--port", "$Port", "--no-qlib") `
+        -ArgumentList @("scripts/run_dashboard.py", "--host", "127.0.0.1", "--port", "$Port", "--no-signal-service") `
         -WorkingDirectory $Root `
         -RedirectStandardOutput $serverLog `
         -RedirectStandardError $serverErr `

@@ -345,6 +345,25 @@ test('A-Stock valuation center surfaces ledger metadata across research and deta
     await expect(page.locator('#sd-valuation-snapshot')).toContainText('估值源');
 });
 
+test('research datahub subtab activates on mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ensureAuthenticated(page, 'datahub_mobile');
+    await page.goto('/#research', { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page);
+    await page.evaluate(() => window.App.switchTab('research'));
+
+    const datahubTab = page.locator('.research-sub-tab[data-subtab="datahub"]');
+    await expect(datahubTab).toBeVisible();
+    await datahubTab.click();
+
+    await expect(datahubTab).toHaveClass(/active/);
+    await expect(datahubTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#research-panel-datahub')).toHaveClass(/active/);
+    await expect(page.locator('#research-panel-valuation')).not.toHaveClass(/active/);
+    await page.waitForFunction(() => Boolean(window.ResearchDataHub));
+    await expect(page.locator('#datahub-source-health')).toContainText(/在线|--/);
+});
+
 test('stock detail fallback never keeps stale header when base detail is missing', async ({ page }) => {
     await ensureAuthenticated(page, 'stock_detail_fallback');
     await page.route('**/api/stock/detail/920211', async (route) => {

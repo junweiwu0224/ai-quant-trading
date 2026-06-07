@@ -126,8 +126,7 @@
                 await this._refreshWatchlistCache();
             }
             const codes = this._selected.map((item) => item.code).join(',');
-            const query = new URLSearchParams({ scope, limit: scope === 'signal' ? '50' : '30' });
-            if (scope === 'codes') query.set('codes', codes);
+            const requestId = this._beginMatrixRequest(scope);
             this._renderScopeNote();
 
             try {
@@ -136,12 +135,49 @@
                     this._render([], {});
                     return;
                 }
-                const data = await App.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 60000 });
+                const fastQuery = this._buildMatrixQuery(scope, codes, { fast: true });
+                let data;
+                try {
+                    data = await App.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
+                } catch (fastError) {
+                    if (!this._isCurrentMatrixRequest(scope, requestId)) return;
+                    tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">快速预览超时，完整估值补载中...</td></tr>';
+                    data = await this._loadFullMatrix(scope, codes, requestId);
+                }
+                if (!data || !this._isCurrentMatrixRequest(scope, requestId)) return;
                 this._items = data.items || [];
                 this._render(this._items, data.summary || {});
             } catch (error) {
                 tbody.innerHTML = `<tr><td colspan="10" class="text-muted text-center">加载失败：${App.escapeHTML(error.message || '未知错误')}</td></tr>`;
             }
+        },
+
+        async _loadFullMatrix(scope, codes, requestId) {
+            const query = this._buildMatrixQuery(scope, codes, { fast: false });
+            const data = await App.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 20000 });
+            return this._isCurrentMatrixRequest(scope, requestId) ? data : null;
+        },
+
+        _buildMatrixQuery(scope, codes = '', { fast = true } = {}) {
+            const query = new URLSearchParams({ scope, limit: scope === 'signal' ? '50' : '30' });
+            if (scope === 'codes') query.set('codes', codes);
+            if (fast) {
+                query.set('fast', 'true');
+            } else {
+                query.set('max_wait_sec', '6');
+            }
+            return query;
+        },
+
+        _beginMatrixRequest(scope) {
+            const requestId = (this._matrixRequestId || 0) + 1;
+            this._matrixRequestId = requestId;
+            this._matrixActiveScope = scope;
+            return requestId;
+        },
+
+        _isCurrentMatrixRequest(scope, requestId) {
+            return this._matrixActiveScope === scope && this._matrixRequestId === requestId;
         },
 
         async _refreshWatchlistCache() {

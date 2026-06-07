@@ -922,10 +922,10 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence-iwencai.js?v=3" in app_js
     assert "/static/intelligence-signals.js?v=4" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=67" in scripts
+    assert "/static/app.js?v=68" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/sw.js?v=27" in app_ui_shell
-    assert "ai-quant-v102" in service_worker
+    assert "ai-quant-v103" in service_worker
     assert "/static/intelligence-signals.js" in service_worker
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles
@@ -1044,7 +1044,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=21" in scripts
+    assert "/static/core/app-shell.js?v=22" in scripts
 
 
 def test_iwencai_ai_analysis_uses_focused_summary_rows_not_raw_fields():

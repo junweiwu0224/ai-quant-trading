@@ -585,21 +585,42 @@
             const tabs = document.querySelectorAll('.research-sub-tab');
             if (tabs.length) {
                 tabs.forEach(tab => {
-                    tab.addEventListener('click', () => {
-                        this._saveResearchSession();
-                        tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
-                        tab.classList.add('active');
-                        tab.setAttribute('aria-selected', 'true');
-                        document.querySelectorAll('.research-sub-panel').forEach(p => p.classList.remove('active'));
-                        const panel = document.getElementById('research-panel-' + tab.dataset.subtab);
-                        if (panel) panel.classList.add('active');
-                        this._onResearchSubTabActivate(tab.dataset.subtab);
-                        requestAnimationFrame(() => this._applyResearchSession());
+                    tab.addEventListener('click', async (event) => {
+                        event?.preventDefault?.();
+                        await this._activateResearchSubTab(tab.dataset.subtab, { saveSession: true });
                     });
                 });
             }
-            const defaultTab = document.querySelector('.research-sub-tab.active');
-            if (defaultTab) this._onResearchSubTabActivate(defaultTab.dataset.subtab);
+        },
+
+        async _activateResearchSubTab(subtab, options = {}) {
+            if (options.saveSession) {
+                this._saveResearchSession();
+            }
+
+            const tabs = Array.from(document.querySelectorAll('.research-sub-tab'));
+            const requestedSubtab = typeof subtab === 'string' && subtab.trim() ? subtab.trim() : '';
+            const selectedTab = tabs.find(t => t.dataset.subtab === requestedSubtab)
+                || tabs.find(t => t.dataset.subtab === 'valuation')
+                || tabs[0]
+                || null;
+            const activeSubtab = selectedTab?.dataset?.subtab || requestedSubtab || 'valuation';
+
+            tabs.forEach(t => {
+                const isActive = t === selectedTab;
+                t.classList.toggle('active', isActive);
+                t.setAttribute('aria-selected', String(isActive));
+            });
+
+            document.querySelectorAll('.research-sub-panel').forEach(p => p.classList.remove('active'));
+            const panel = document.getElementById('research-panel-' + activeSubtab);
+            if (panel) panel.classList.add('active');
+
+            await this._onResearchSubTabActivate(activeSubtab);
+            if (options.applySession !== false) {
+                requestAnimationFrame(() => this._applyResearchSession());
+            }
+            return activeSubtab;
         },
 
         _moveResearchPanels() {
@@ -806,11 +827,9 @@
                 this.bindStrategyChips?.();
                 this._initResearchSubTabs();
                 const requestedSubtab = typeof options.subtab === 'string' ? options.subtab.trim() : '';
-                const activeResearchSubtab = requestedSubtab || this._researchActiveSubtab || 'valuation';
-                const defaultBtn = document.querySelector(`.research-sub-tab[data-subtab="${activeResearchSubtab}"]`) || document.querySelector('.research-sub-tab[data-subtab="valuation"]');
-                if (defaultBtn) {
-                    defaultBtn.click();
-                }
+                const domActiveSubtab = document.querySelector('.research-sub-tab.active')?.dataset?.subtab || '';
+                const activeResearchSubtab = requestedSubtab || this._researchActiveSubtab || domActiveSubtab || 'valuation';
+                await this._activateResearchSubTab(activeResearchSubtab);
             }
             else if (activeTab === 'paper') {
                 await this.ensureBundle?.('paper');

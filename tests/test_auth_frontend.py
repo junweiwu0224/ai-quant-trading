@@ -247,15 +247,13 @@ def test_switch_tab_honors_requested_research_subtab():
         const fs = require('node:fs');
         const vm = require('node:vm');
 
-        const clicked = [];
+        const activated = [];
         const panel = {
             id: 'tab-research',
             classList: { contains: () => true, toggle: () => {} },
             setAttribute: () => {},
             removeAttribute: () => {},
         };
-        const datahubButton = { click: () => clicked.push('datahub') };
-        const valuationButton = { click: () => clicked.push('valuation') };
 
         global.window = global;
         global.dispatchEvent = () => {};
@@ -264,8 +262,7 @@ def test_switch_tab_honors_requested_research_subtab():
             getElementById: (id) => id === 'tab-research' ? panel : null,
             querySelectorAll: (selector) => selector === '.tab-panel' ? [panel] : [],
             querySelector: (selector) => {
-                if (selector === '.research-sub-tab[data-subtab="datahub"]') return datahubButton;
-                if (selector === '.research-sub-tab[data-subtab="valuation"]') return valuationButton;
+                if (selector === '.research-sub-tab.active') return { dataset: { subtab: 'valuation' } };
                 return null;
             },
         };
@@ -287,10 +284,115 @@ def test_switch_tab_honors_requested_research_subtab():
         };
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/core/app-shell.js', 'utf8'));
+        App._activateResearchSubTab = async (subtab) => activated.push(subtab);
 
         (async () => {
             await App.switchTab('research', { subtab: 'datahub' });
-            assert.deepEqual(clicked, ['datahub']);
+            assert.deepEqual(activated, ['datahub']);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_research_subtab_click_activates_requested_panel_without_reverting():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeClassList(initial = []) {
+            const values = new Set(initial);
+            return {
+                add: (...classes) => classes.forEach((item) => values.add(item)),
+                remove: (...classes) => classes.forEach((item) => values.delete(item)),
+                contains: (item) => values.has(item),
+                toggle: (item, force) => {
+                    if (force === undefined ? !values.has(item) : force) {
+                        values.add(item);
+                    } else {
+                        values.delete(item);
+                    }
+                },
+            };
+        }
+
+        const handlers = {};
+        const buttons = {
+            valuation: {
+                dataset: { subtab: 'valuation' },
+                classList: makeClassList(['active']),
+                attributes: { 'aria-selected': 'true' },
+                addEventListener: (name, handler) => { handlers.valuation = handler; },
+                setAttribute(name, value) { this.attributes[name] = value; },
+            },
+            datahub: {
+                dataset: { subtab: 'datahub' },
+                classList: makeClassList(),
+                attributes: { 'aria-selected': 'false' },
+                addEventListener: (name, handler) => { handlers.datahub = handler; },
+                setAttribute(name, value) { this.attributes[name] = value; },
+            },
+        };
+        const panels = {
+            valuation: { id: 'research-panel-valuation', classList: makeClassList(['active']) },
+            datahub: { id: 'research-panel-datahub', classList: makeClassList() },
+        };
+        const calls = [];
+
+        global.window = global;
+        global.dispatchEvent = () => {};
+        global.document = {
+            getElementById: (id) => {
+                if (id === 'research-panel-valuation') return panels.valuation;
+                if (id === 'research-panel-datahub') return panels.datahub;
+                if (id === 'tab-research') return { querySelector: () => null };
+                return null;
+            },
+            querySelectorAll: (selector) => {
+                if (selector === '.research-sub-tab') return Object.values(buttons);
+                if (selector === '.research-sub-panel') return Object.values(panels);
+                return [];
+            },
+            querySelector: (selector) => {
+                if (selector === '.research-sub-tab.active') return buttons.valuation;
+                if (selector === '#tab-research > .page-header') return null;
+                return null;
+            },
+        };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.App = {
+            _researchMoved: true,
+            _researchTabsInited: false,
+            _researchSession: {},
+            _tabCache: {},
+            _getLegacyActionButton: () => null,
+            _getResearchHeaderActionButton: () => null,
+            ensureBundle: async (name) => calls.push(`bundle:${name}`),
+        };
+        global.ResearchDataHub = { init: () => calls.push('datahub:init') };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/core/app-shell.js', 'utf8'));
+
+        (async () => {
+            App._initResearchSubTabs();
+            assert.equal(typeof handlers.datahub, 'function');
+            await handlers.datahub();
+
+            assert.equal(App._researchActiveSubtab, 'datahub');
+            assert.equal(buttons.datahub.classList.contains('active'), true);
+            assert.equal(buttons.valuation.classList.contains('active'), false);
+            assert.equal(panels.datahub.classList.contains('active'), true);
+            assert.equal(panels.valuation.classList.contains('active'), false);
+            assert.deepEqual(calls, ['bundle:research', 'datahub:init']);
         })().catch((error) => {
             console.error(error);
             process.exit(1);

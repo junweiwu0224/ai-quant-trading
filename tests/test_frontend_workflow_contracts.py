@@ -72,7 +72,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=4" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=67" in scripts
+    assert "/static/app.js?v=68" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -171,6 +171,121 @@ def test_research_datahub_scope_note_prioritizes_signal_validation_quality():
     assert result.returncode == 0, result.stderr
 
 
+def test_research_datahub_fast_timeout_falls_back_to_full_matrix():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: id === 'datahub-scope' ? 'signal' : '',
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            };
+        }
+
+        const table = makeElement('datahub-matrix-table');
+        const tbody = makeElement('datahub-matrix-tbody');
+        table.querySelector = (selector) => selector === 'tbody' ? tbody : null;
+        const elements = {
+            'datahub-matrix-table': table,
+            'datahub-scope': makeElement('datahub-scope'),
+            'datahub-scope-note': makeElement('datahub-scope-note'),
+            'datahub-total': makeElement('datahub-total'),
+            'datahub-high-score': makeElement('datahub-high-score'),
+            'datahub-cheap': makeElement('datahub-cheap'),
+            'datahub-qlib-top': makeElement('datahub-qlib-top'),
+            'datahub-valuation-cov': makeElement('datahub-valuation-cov'),
+            'datahub-qlib-cov': makeElement('datahub-qlib-cov'),
+            'datahub-actionable': makeElement('datahub-actionable'),
+            'datahub-high-risk': makeElement('datahub-high-risk'),
+            'datahub-pipe-quote': makeElement('datahub-pipe-quote'),
+            'datahub-pipe-valuation': makeElement('datahub-pipe-valuation'),
+            'datahub-pipe-ai': makeElement('datahub-pipe-ai'),
+            'datahub-pipe-shadow': makeElement('datahub-pipe-shadow'),
+            'datahub-source-health': makeElement('datahub-source-health'),
+            'datahub-quality-summary': makeElement('datahub-quality-summary'),
+            'datahub-shadow-summary': makeElement('datahub-shadow-summary'),
+            'datahub-version-summary': makeElement('datahub-version-summary'),
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#datahub-matrix-table tbody' ? tbody : null,
+            addEventListener: () => {},
+        };
+        const calls = [];
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            watchlistCache: [{ code: '300750' }],
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url.includes('/api/datahub/decision-matrix') && url.includes('fast=true')) {
+                    throw new Error('请求超时');
+                }
+                if (url.includes('/api/datahub/decision-matrix')) {
+                    return {
+                        success: true,
+                        items: [{
+                            matrix_rank: 1,
+                            code: '300750',
+                            name: '宁德时代',
+                            decision_score: 88,
+                            decision_label: '补载成功',
+                            risk_level: '低',
+                            reason_tags: ['完整估值'],
+                            risk_tags: [],
+                            next_actions: ['打开估值详情'],
+                            signal_rank: 8,
+                            signal_score: 0.91,
+                            signal_confidence: 'validated_neutral',
+                        }],
+                        summary: {
+                            total: 1,
+                            valuation_coverage_pct: 100,
+                            signal_coverage_pct: 100,
+                            signal_date: '2026-06-05',
+                            signal_quality: { label: '验证中性', sample_days: 259, penalty_applied: false },
+                        },
+                    };
+                }
+                throw new Error(`unexpected url: ${url}`);
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+
+        (async () => {
+            await ResearchDataHub.load();
+            assert.equal(calls.length, 2);
+            assert.match(calls[0], /fast=true/);
+            assert.match(calls[1], /max_wait_sec=6/);
+            assert.doesNotMatch(calls[1], /fast=true/);
+            assert.match(tbody.innerHTML, /补载成功/);
+            assert.doesNotMatch(tbody.innerHTML, /加载失败/);
+            assert.match(elements['datahub-scope-note'].innerHTML, /AI信号覆盖 100%/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_open_paper_buy_defaults_to_trade_subtab_and_focuses_order_form():
     adapter = read("dashboard/static/core/business-adapter.js")
 
@@ -196,10 +311,10 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=47" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=67" in scripts
+    assert "/static/app.js?v=68" in scripts
     assert "/static/app-stock-ops.js?v=4" in scripts
     assert "/static/core/business-adapter.js?v=4" in scripts
-    assert "/static/core/app-shell.js?v=21" in scripts
+    assert "/static/core/app-shell.js?v=22" in scripts
     assert "/static/app-ui-shell.js?v=20" in scripts
     assert "/static/app-workbench.js?v=2" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
@@ -216,7 +331,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
-    assert "/static/research-datahub.js?v=12" in app
+    assert "/static/research-datahub.js?v=13" in app
     assert "/static/research-valuation.js?v=15" in app
     assert "/static/stock-detail-core.js?v=6" in app
     assert "/static/openclaw-conversations.js?v=3" in app

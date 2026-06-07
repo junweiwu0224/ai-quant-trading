@@ -84,7 +84,7 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=18',
+            '/static/overview.js?v=19',
             '/static/overview-radar.js?v=6',
             '/static/alerts.js?v=4',
         ],

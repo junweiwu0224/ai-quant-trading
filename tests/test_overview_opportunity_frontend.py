@@ -344,6 +344,87 @@ def test_overview_opportunity_fast_timeout_falls_back_to_full_request():
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_refresh_failure_preserves_previous_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        tbody.innerHTML = '<tr><td>旧机会</td></tr>';
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            _overviewOpportunityItems: [{ code: '300750', name: '宁德时代' }],
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => { throw new Error('请求超时'); },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.match(tbody.innerHTML, /旧机会/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /刷新失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /保留上次结果/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /保留上次机会池结果/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_empty_watchlist_stays_on_watchlist_without_fetching():
     script = textwrap.dedent(
         r"""
@@ -472,7 +553,8 @@ def test_overview_opportunity_status_prefers_signal_sync_status():
 
         assert.match(status.innerHTML, /同步 2\/3/);
         assert.match(status.innerHTML, /失败 1/);
-        assert.match(status.innerHTML, /AI覆盖 67%/);
+        assert.match(status.innerHTML, /信号覆盖 67%/);
+        assert.doesNotMatch(status.innerHTML, /AI覆盖 67%/);
         assert.doesNotMatch(status.innerHTML, /同步 9\/9/);
         """
     )
@@ -497,4 +579,4 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=18" in scripts
+    assert "/static/overview.js?v=19" in scripts

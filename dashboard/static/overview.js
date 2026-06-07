@@ -163,11 +163,18 @@ Object.assign(App, {
     async _loadOverviewOpportunities() {
         const tbody = document.querySelector('#ov-opportunity-table tbody');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
+        const hasPreviousItems = Array.isArray(this._overviewOpportunityItems) && this._overviewOpportunityItems.length > 0;
+        if (!hasPreviousItems) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
+        }
         const hint = document.getElementById('ov-opportunity-hint');
         if (hint) hint.textContent = 'PEG、机构预测、AI 信号与风险标签合成的优先研究清单。';
         const status = document.getElementById('ov-opportunity-status');
-        if (status) status.innerHTML = '<span class="opportunity-status-item">正在加载</span>';
+        if (status) {
+            status.innerHTML = hasPreviousItems
+                ? '<span class="opportunity-status-item">正在刷新</span><span class="opportunity-status-item">保留上次结果</span>'
+                : '<span class="opportunity-status-item">正在加载</span>';
+        }
         try {
             const scope = this._resolveOverviewOpportunityScope();
             const requestId = this._beginOverviewOpportunityRequest(scope);
@@ -196,9 +203,26 @@ Object.assign(App, {
             this._renderOverviewOpportunityData(fastData, true, { scope, requestId });
             this._loadOverviewOpportunitiesFull(scope, requestId).catch(() => {});
         } catch (error) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">机会池加载失败：${this.escapeHTML(error.message || '未知错误')}</td></tr>`;
-            if (status) status.innerHTML = '<span class="opportunity-status-item">加载失败</span>';
+            this._renderOverviewOpportunityLoadFailure(error, hasPreviousItems);
         }
+    },
+
+    _renderOverviewOpportunityLoadFailure(error, hasPreviousItems = false) {
+        const tbody = document.querySelector('#ov-opportunity-table tbody');
+        const status = document.getElementById('ov-opportunity-status');
+        const hint = document.getElementById('ov-opportunity-hint');
+        const message = this.escapeHTML(error?.message || '未知错误');
+        if (hasPreviousItems) {
+            if (status) {
+                status.innerHTML = '<span class="opportunity-status-item">刷新失败</span><span class="opportunity-status-item">保留上次结果</span>';
+            }
+            if (hint) hint.textContent = `本次刷新失败：${message}；已保留上次机会池结果。`;
+            return;
+        }
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">机会池加载失败：${message}</td></tr>`;
+        }
+        if (status) status.innerHTML = '<span class="opportunity-status-item">加载失败</span>';
     },
 
     async _loadOverviewOpportunitiesFull(scope, requestId) {
@@ -321,7 +345,7 @@ Object.assign(App, {
             `范围 ${this.escapeHTML(scopeLabel)}`,
             `估值 ${this.escapeHTML(valuation)}`,
             `AI信号 ${this.escapeHTML(qlibStatus)}${cacheAge}`,
-            `AI覆盖 ${this.escapeHTML(qlibCoverage)}`,
+            `信号覆盖 ${this.escapeHTML(qlibCoverage)}`,
             signalQuality,
             mode,
         ];

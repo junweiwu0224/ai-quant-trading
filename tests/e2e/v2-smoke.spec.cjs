@@ -362,6 +362,10 @@ test('research datahub subtab activates on mobile viewport', async ({ page }) =>
     await expect(page.locator('#research-panel-valuation')).not.toHaveClass(/active/);
     await page.waitForFunction(() => Boolean(window.ResearchDataHub));
     await expect(page.locator('#datahub-source-health')).toContainText(/在线|--/);
+    await expect.poll(
+        async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        { message: 'hidden drawers must not create page-level horizontal scroll on mobile' },
+    ).toBe(true);
 });
 
 test('stock detail fallback never keeps stale header when base detail is missing', async ({ page }) => {

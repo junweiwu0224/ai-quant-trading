@@ -231,6 +231,22 @@ def test_research_datahub_signal_badge_only_marks_positive_validation():
     assert result.returncode == 0, result.stderr
 
 
+def test_research_datahub_visible_labels_describe_signals_not_predictions():
+    template = read("dashboard/templates/index.html")
+    datahub_panel = template[
+        template.index('id="research-panel-datahub"') : template.index(
+            'id="research-panel-valuation"'
+        )
+    ]
+
+    assert "AI预测" not in datahub_panel
+    assert "AI Top50" not in datahub_panel
+    assert "AI覆盖" not in datahub_panel
+    assert "AI信号" in datahub_panel
+    assert "信号Top50" in datahub_panel
+    assert "信号覆盖" in datahub_panel
+
+
 def test_research_datahub_fast_timeout_falls_back_to_full_matrix():
     script = textwrap.dedent(
         r"""
@@ -368,7 +384,7 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=47" in template
+    assert "/static/style.css?v=48" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
     assert "/static/app.js?v=71" in scripts
@@ -380,8 +396,8 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
     assert "/static/app-bootstrap.js?v=21" in scripts
-    assert "/static/overview.js?v=18" in scripts
-    assert "/static/overview.js?v=18" in app
+    assert "/static/overview.js?v=19" in scripts
+    assert "/static/overview.js?v=19" in app
     assert "/static/alerts.js?v=4" in scripts
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=6" in scripts

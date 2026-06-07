@@ -85,6 +85,10 @@ def _is_usage_history(path: str) -> bool:
     return path == "docs/codex-usage.md"
 
 
+def _has_usage_review_mechanism(text: str) -> bool:
+    return "周期复盘" in text or "阶段复盘" in text
+
+
 def check_context_pack(root: str | Path = ".") -> list[ContextPackIssue]:
     root = Path(root)
     issues: list[ContextPackIssue] = []
@@ -144,6 +148,17 @@ def check_context_pack(root: str | Path = ".") -> list[ContextPackIssue]:
                 code="missing-npm-test-warning",
                 path="AGENTS.md",
                 message="AGENTS.md must warn that npm test is a placeholder failure.",
+            )
+        )
+
+    usage_path = root / "docs/codex-usage.md"
+    if usage_path.exists() and not _has_usage_review_mechanism(_read_text(usage_path)):
+        issues.append(
+            ContextPackIssue(
+                severity="error",
+                code="missing-usage-review",
+                path="docs/codex-usage.md",
+                message="docs/codex-usage.md must include periodic or stage review guidance.",
             )
         )
 

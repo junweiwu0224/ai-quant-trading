@@ -20,7 +20,7 @@ def test_run_dashboard_sets_qlib_service_url_from_qlib_port(monkeypatch):
 
     monkeypatch.delenv("QLIB_SERVICE_URL", raising=False)
     monkeypatch.delenv("QLIB_SERVICE_HOST", raising=False)
-    monkeypatch.setattr(run_dashboard, "_start_qlib_service", fake_start_qlib_service)
+    monkeypatch.setattr(run_dashboard, "_start_signal_service", fake_start_qlib_service)
     monkeypatch.setattr(run_dashboard.uvicorn, "run", fake_uvicorn_run)
 
     result = CliRunner().invoke(
@@ -35,6 +35,50 @@ def test_run_dashboard_sets_qlib_service_url_from_qlib_port(monkeypatch):
     assert captured["service_url"] == "http://127.0.0.1:8314"
 
 
+def test_run_dashboard_sets_signal_service_url_from_signal_port_alias(monkeypatch):
+    from scripts import run_dashboard
+
+    captured = {}
+
+    def fake_start_signal_service(signal_port, signal_host="127.0.0.1"):
+        captured["signal_port"] = signal_port
+        captured["signal_host"] = signal_host
+        return None
+
+    def fake_uvicorn_run(*args, **kwargs):
+        captured["service_url"] = os.environ.get("QLIB_SERVICE_URL")
+
+    monkeypatch.delenv("QLIB_SERVICE_URL", raising=False)
+    monkeypatch.delenv("QLIB_SERVICE_HOST", raising=False)
+    monkeypatch.setattr(run_dashboard, "_start_signal_service", fake_start_signal_service)
+    monkeypatch.setattr(run_dashboard.uvicorn, "run", fake_uvicorn_run)
+
+    result = CliRunner().invoke(
+        run_dashboard.main,
+        ["--port", "8311", "--signal-service-port", "8315"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["signal_port"] == 8315
+    assert captured["signal_host"] == "127.0.0.1"
+    assert captured["service_url"] == "http://127.0.0.1:8315"
+
+
+def test_run_dashboard_help_uses_signal_service_wording():
+    from scripts import run_dashboard
+
+    result = CliRunner().invoke(run_dashboard.main, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "--signal-service-port" in result.output
+    assert "--signal-service-host" in result.output
+    assert "--no-signal-service" in result.output
+    assert "AI 信号兼容服务端口" in result.output
+    assert "qlib 服务端口" not in result.output
+    assert "qlib 服务监听地址" not in result.output
+    assert "不启动 qlib 服务" not in result.output
+
+
 def test_run_dashboard_can_set_qlib_listen_host_from_environment(monkeypatch):
     from scripts import run_dashboard
 
@@ -47,7 +91,7 @@ def test_run_dashboard_can_set_qlib_listen_host_from_environment(monkeypatch):
 
     monkeypatch.delenv("QLIB_SERVICE_URL", raising=False)
     monkeypatch.setenv("QLIB_SERVICE_HOST", "0.0.0.0")
-    monkeypatch.setattr(run_dashboard, "_start_qlib_service", fake_start_qlib_service)
+    monkeypatch.setattr(run_dashboard, "_start_signal_service", fake_start_qlib_service)
     monkeypatch.setattr(run_dashboard.uvicorn, "run", lambda *args, **kwargs: None)
 
     result = CliRunner().invoke(run_dashboard.main, ["--port", "8311", "--qlib-port", "8314"])
@@ -66,7 +110,7 @@ def test_run_dashboard_cli_qlib_host_overrides_environment(monkeypatch):
         return None
 
     monkeypatch.setenv("QLIB_SERVICE_HOST", "0.0.0.0")
-    monkeypatch.setattr(run_dashboard, "_start_qlib_service", fake_start_qlib_service)
+    monkeypatch.setattr(run_dashboard, "_start_signal_service", fake_start_qlib_service)
     monkeypatch.setattr(run_dashboard.uvicorn, "run", lambda *args, **kwargs: None)
 
     result = CliRunner().invoke(run_dashboard.main, ["--qlib-host", "127.0.0.1"])
@@ -87,7 +131,7 @@ def test_run_dashboard_no_qlib_does_not_set_default_service_url(monkeypatch):
         captured["service_url"] = os.environ.get("QLIB_SERVICE_URL")
 
     monkeypatch.delenv("QLIB_SERVICE_URL", raising=False)
-    monkeypatch.setattr(run_dashboard, "_start_qlib_service", fake_start_qlib_service)
+    monkeypatch.setattr(run_dashboard, "_start_signal_service", fake_start_qlib_service)
     monkeypatch.setattr(run_dashboard.uvicorn, "run", fake_uvicorn_run)
 
     result = CliRunner().invoke(run_dashboard.main, ["--no-qlib", "--qlib-port", "8314"])

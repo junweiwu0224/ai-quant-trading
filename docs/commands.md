@@ -13,7 +13,7 @@
 ## 本地开发
 
 ```bash
-.venv/bin/python scripts/run_dashboard.py --port 8001 --no-qlib
+.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service
 ```
 
 默认 Dashboard 地址：
@@ -22,7 +22,7 @@
 http://127.0.0.1:8001
 ```
 
-不加 `--no-qlib` 会尝试启动 `data.qlib.service` 子进程并写 `logs/qlib_service.log`。
+不加 `--no-signal-service` 会尝试启动 AI 信号兼容服务子进程（历史模块路径仍为 `data.qlib.service`），并写 `logs/qlib_service.log`。
 
 ## Docker
 
@@ -74,7 +74,7 @@ docker compose down
 先启动 Dashboard：
 
 ```bash
-.venv/bin/python scripts/run_dashboard.py --port 8001 --no-qlib
+.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service
 ```
 
 再运行：

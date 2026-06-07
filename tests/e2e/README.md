@@ -8,7 +8,7 @@ The dashboard must be running before executing these tests:
 
 ```bash
 cd /home/ubuntu/quant-trading-system
-.venv/bin/python scripts/run_dashboard.py --port 8001 --no-qlib
+.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service
 ```
 
 Install the Node test dependency once:

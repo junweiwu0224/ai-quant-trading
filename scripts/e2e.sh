@@ -8,7 +8,7 @@ IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.60.0-jammy}"
 if ! curl -fsS --max-time 5 "$BASE_URL" >/dev/null; then
   echo "Dashboard is not reachable at $BASE_URL" >&2
   echo "Start it first, for example:" >&2
-  echo "  cd $ROOT_DIR && .venv/bin/python scripts/run_dashboard.py --port 8001 --no-qlib" >&2
+  echo "  cd $ROOT_DIR && .venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service" >&2
   exit 1
 fi
 

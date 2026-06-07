@@ -65,7 +65,7 @@ def _load_predictions() -> dict:
 
 
 def _load_sync_status() -> dict:
-    """读取 Qlib 日线覆盖同步状态。"""
+    """读取 AI 信号覆盖同步状态（兼容旧同步状态文件）。"""
     if not SYNC_STATUS_FILE.exists():
         return {}
     try:
@@ -320,9 +320,9 @@ async def get_consistency(top_n: int = 50):
 
 @router.get("/health")
 async def qlib_health():
-    """Qlib 服务健康检查
+    """AI 信号兼容接口健康检查
 
-    检查预测缓存文件是否存在且在24小时内更新过。
+    检查 AI 信号缓存文件是否存在且在24小时内更新过。
     返回格式:
     {
         "success": true,

@@ -32,6 +32,15 @@ def test_system_tools_list_is_limited_to_approved_names():
     assert {tool["name"] for tool in openclaw_tools.SYSTEM_TOOLS} == APPROVED_BRIDGE_TOOLS
 
 
+def test_qlib_bridge_tool_is_labeled_as_signal_compatibility():
+    tool = next(item for item in openclaw_tools.SYSTEM_TOOLS if item["name"] == "quant.qlib.top")
+
+    assert tool["label"] == "AI 信号 Top"
+    assert "Qlib" not in tool["label"]
+    assert "兼容旧调用" in tool["description"]
+    assert "Signal Engine" in tool["description"]
+
+
 def test_bridge_tools_lists_approved_tools_with_allowed_flags(client, monkeypatch):
     monkeypatch.setenv("QUANT_SYSTEM_API_KEY", "bridge-secret")
     monkeypatch.setattr(

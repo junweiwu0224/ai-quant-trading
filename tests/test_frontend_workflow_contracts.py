@@ -66,6 +66,8 @@ def test_signal_engine_is_primary_frontend_semantics():
     backtest = read("dashboard/routers/backtest.py")
     paper_control = read("dashboard/routers/paper_control.py")
     signal_strategy = read("strategy/qlib_signal.py")
+    dashboard_app = read("dashboard/app.py")
+    qlib_router = read("dashboard/routers/qlib.py")
 
     assert "/static/intelligence-signals.js?v=3" in app
     assert "/static/intelligence-qlib.js" not in app
@@ -94,6 +96,11 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "AI 信号服务不可用" in signal_strategy
     assert "qlib_signal 需要从 qlib 服务加载预测分数" not in paper_control
     assert "qlib_signal 兼容 ID 使用 AI 信号服务加载分数" in paper_control
+    assert 'tags=["qlib 预测"]' not in dashboard_app
+    assert 'tags=["AI 信号兼容接口"]' in dashboard_app
+    assert "Qlib 服务健康检查" not in qlib_router
+    assert "读取 Qlib 日线覆盖同步状态" not in qlib_router
+    assert "AI 信号兼容接口健康检查" in qlib_router
 
 
 def test_research_datahub_scope_note_prioritizes_signal_validation_quality():

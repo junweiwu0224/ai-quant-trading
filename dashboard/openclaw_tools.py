@@ -110,7 +110,7 @@ SYSTEM_TOOLS = [
     },
     {
         "name": "quant.qlib.top",
-        "label": "AI 信号 Top（兼容 Qlib）",
+        "label": "AI 信号 Top",
         "permission": "read_market",
         "description": "兼容旧调用，读取 Signal Engine 最新候选 Top 股票。",
         "schema": {"top_n": "返回数量，可选"},

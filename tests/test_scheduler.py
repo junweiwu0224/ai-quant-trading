@@ -63,6 +63,8 @@ def test_scheduler_registers_qlib_job():
     job_ids = [job["id"] for job in fake_scheduler.jobs]
     assert job_ids == ["daily_sync", "qlib_daily_sync"]
     assert fake_scheduler.jobs[1]["func"] == scheduler.sync_qlib_coverage
+    assert fake_scheduler.jobs[1]["name"] == "每日 AI 信号覆盖池同步"
+    assert "Qlib" not in fake_scheduler.jobs[1]["name"]
 
 
 def test_scheduler_sync_all_uses_full_daily_sync(monkeypatch):

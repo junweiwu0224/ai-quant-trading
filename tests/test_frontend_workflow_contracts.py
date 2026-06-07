@@ -68,6 +68,7 @@ def test_signal_engine_is_primary_frontend_semantics():
     signal_strategy = read("strategy/qlib_signal.py")
     dashboard_app = read("dashboard/app.py")
     qlib_router = read("dashboard/routers/qlib.py")
+    scheduler = read("data/scheduler/scheduler.py")
 
     assert "/static/intelligence-signals.js?v=3" in app
     assert "/static/intelligence-qlib.js" not in app
@@ -106,6 +107,8 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "Qlib 服务健康检查" not in qlib_router
     assert "读取 Qlib 日线覆盖同步状态" not in qlib_router
     assert "AI 信号兼容接口健康检查" in qlib_router
+    assert "Qlib 覆盖池" not in scheduler
+    assert "AI 信号覆盖池" in scheduler
 
 
 def test_research_datahub_scope_note_prioritizes_signal_validation_quality():

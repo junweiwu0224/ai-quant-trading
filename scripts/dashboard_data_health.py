@@ -58,6 +58,8 @@ SAFE_GET_PATHS = [
     "/api/stock/market/indices",
     "/api/stock/market/stats",
     "/api/market/radar",
+    "/api/market/breadth",
+    "/api/market/news",
     "/api/market/sectors",
     "/api/market/heatmap",
     "/api/market/northbound",

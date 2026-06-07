@@ -81,6 +81,13 @@ Add the same two paths to `SAFE_GET_PATHS` in `scripts/dashboard_data_health.py`
 "/api/qlib/health",
 ```
 
+Follow-up coverage for spec AC-5 also adds market intelligence endpoints near the market group:
+
+```python
+"/api/market/breadth",
+"/api/market/news",
+```
+
 - [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/python -m pytest tests/test_dashboard_data_health.py::test_safe_get_paths_cover_user_selected_data_areas -q`

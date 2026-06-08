@@ -125,7 +125,9 @@ class TestSystemAPI:
         res = client.get("/api/system/strategies")
         assert res.status_code == 200
         data = res.json()
-        assert len(data) == 7
+        assert len(data) == 8
+        by_name = {s["name"]: s for s in data}
+        assert by_name["qlib_signal"]["legacy_alias_for"] == "signal_strategy"
         for s in data:
             assert "name" in s
             assert "label" in s

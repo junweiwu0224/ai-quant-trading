@@ -27,7 +27,7 @@ def test_runner_compiles_runs_and_evaluates_promotion():
         )
     )
 
-    assert calls[0].strategy == "qlib_signal"
+    assert calls[0].strategy == "signal_strategy"
     assert calls[0].codes == ["605066", "000001"]
     assert result.compiled_request["params"]["mode"] == "ranking"
     assert result.metrics["trades"] == 18

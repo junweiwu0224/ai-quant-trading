@@ -22,6 +22,7 @@ class BacktestCompileRequest:
 
 
 SIGNAL_STRATEGY_ADAPTER = "qlib_signal"
+SIGNAL_STRATEGY_PUBLIC_ID = "signal_strategy"
 SIGNAL_STRATEGY_ID = "signal_score_strategy"
 SIGNAL_STRATEGY_DISPLAY_NAME = "AI信号策略"
 
@@ -35,8 +36,12 @@ class BacktestCompiler:
         if not codes:
             raise ValueError("codes is required for backtest compilation")
 
+        legacy_strategy = ""
+        strategy_adapter = ""
         if dsl.strategy_type == "ranked_rotation" and dsl.rank_by == "signal_score":
-            strategy = SIGNAL_STRATEGY_ADAPTER
+            strategy = SIGNAL_STRATEGY_PUBLIC_ID
+            legacy_strategy = SIGNAL_STRATEGY_ADAPTER
+            strategy_adapter = SIGNAL_STRATEGY_ADAPTER
             params = {
                 "mode": "ranking",
                 "top_n": dsl.max_holdings,
@@ -44,7 +49,9 @@ class BacktestCompiler:
                 "score_normalize": True,
             }
         elif dsl.strategy_type == "threshold_signal" and dsl.rank_by == "signal_score":
-            strategy = SIGNAL_STRATEGY_ADAPTER
+            strategy = SIGNAL_STRATEGY_PUBLIC_ID
+            legacy_strategy = SIGNAL_STRATEGY_ADAPTER
+            strategy_adapter = SIGNAL_STRATEGY_ADAPTER
             params = {
                 "mode": "absolute",
                 "buy_threshold": _filter_value(dsl.filters, "signal_score_min", 0.5),
@@ -59,10 +66,10 @@ class BacktestCompiler:
             strategy = "momentum"
             params = {"lookback": 20, "entry_threshold": 0.05, "position_pct": 0.9}
 
-        is_signal_adapter = strategy == SIGNAL_STRATEGY_ADAPTER
+        is_signal_adapter = bool(legacy_strategy)
         return {
             "strategy": strategy,
-            "legacy_strategy": strategy if is_signal_adapter else "",
+            "legacy_strategy": legacy_strategy,
             "strategy_display_name": SIGNAL_STRATEGY_DISPLAY_NAME if is_signal_adapter else strategy,
             "codes": codes,
             "start_date": request.start_date,
@@ -90,7 +97,7 @@ class BacktestCompiler:
                 "rebalance": dsl.rebalance,
                 "max_holding_days": dsl.max_holding_days,
                 "signal_strategy": SIGNAL_STRATEGY_ID if is_signal_adapter else strategy,
-                "strategy_adapter": strategy,
+                "strategy_adapter": strategy_adapter or strategy,
                 "is_legacy_adapter": is_signal_adapter,
                 "legacy_aliases": legacy_aliases,
             },

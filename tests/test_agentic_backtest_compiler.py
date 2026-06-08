@@ -26,7 +26,7 @@ def test_compiler_maps_ranked_rotation_signal_dsl_to_backtest_request():
         )
     )
 
-    assert req["strategy"] == "qlib_signal"
+    assert req["strategy"] == "signal_strategy"
     assert req["strategy_display_name"] == "AI信号策略"
     assert req["legacy_strategy"] == "qlib_signal"
     assert req["agentic"]["signal_strategy"] == "signal_score_strategy"
@@ -61,7 +61,7 @@ def test_compiler_normalizes_legacy_qlib_dsl_to_signal_metadata():
         BacktestCompileRequest(dsl, ["600519"], "2024-01-01", "2024-12-31", 50000)
     )
 
-    assert req["strategy"] == "qlib_signal"
+    assert req["strategy"] == "signal_strategy"
     assert req["legacy_strategy"] == "qlib_signal"
     assert req["strategy_display_name"] == "AI信号策略"
     assert req["params"]["buy_threshold"] == 0.7

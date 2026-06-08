@@ -56,7 +56,7 @@ def test_agentic_compile_backtest_endpoint_returns_backtest_request(client):
     body = resp.json()
     assert body["success"] is True
     req = body["backtest_request"]
-    assert req["strategy"] == "qlib_signal"
+    assert req["strategy"] == "signal_strategy"
     assert req["legacy_strategy"] == "qlib_signal"
     assert req["strategy_display_name"] == "AI信号策略"
     assert req["agentic"]["signal_strategy"] == "signal_score_strategy"

@@ -84,7 +84,7 @@ const App = {
     _bundleLoadPromises: {},
     _pageBundles: {
         overview: [
-            '/static/overview.js?v=21',
+            '/static/overview.js?v=22',
             '/static/overview-radar.js?v=9',
             '/static/alerts.js?v=4',
         ],
@@ -150,7 +150,7 @@ const App = {
             '/static/intelligence-market.js?v=12',
             '/static/intelligence-iwencai.js?v=3',
             '/static/intelligence-signals.js?v=8',
-            '/static/research-datahub.js?v=14',
+            '/static/research-datahub.js?v=15',
             '/static/research-valuation.js?v=15',
             '/static/agentic-signals.js?v=16',
         ],

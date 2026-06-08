@@ -362,6 +362,297 @@ def test_research_datahub_fast_timeout_falls_back_to_full_matrix():
     assert result.returncode == 0, result.stderr
 
 
+def test_research_datahub_full_timeout_preserves_previous_matrix_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: id === 'datahub-scope' ? 'signal' : '',
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            };
+        }
+
+        const table = makeElement('datahub-matrix-table');
+        const tbody = makeElement('datahub-matrix-tbody');
+        tbody.innerHTML = '<tr><td>旧机会</td></tr>';
+        table.querySelector = (selector) => selector === 'tbody' ? tbody : null;
+        const elements = {
+            'datahub-matrix-table': table,
+            'datahub-scope': makeElement('datahub-scope'),
+            'datahub-scope-note': makeElement('datahub-scope-note'),
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#datahub-matrix-table tbody' ? tbody : null,
+            addEventListener: () => {},
+        };
+        const calls = [];
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            watchlistCache: [{ code: '300750' }],
+            fetchJSON: async (url) => {
+                calls.push(url);
+                throw new Error('请求超时');
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+        ResearchDataHub._items = [{ code: '300750', name: '宁德时代' }];
+        ResearchDataHub._matrixResultKey = 'signal|';
+
+        (async () => {
+            await ResearchDataHub.load();
+            const matrixCalls = calls.filter((url) => url.includes('/api/datahub/decision-matrix'));
+            assert.equal(matrixCalls.length, 3);
+            assert.match(matrixCalls[0], /fast=true/);
+            assert.match(matrixCalls[1], /max_wait_sec=6/);
+            assert.match(matrixCalls[2], /force_fallback=true/);
+            assert.match(tbody.innerHTML, /旧机会/);
+            assert.doesNotMatch(tbody.innerHTML, /加载失败/);
+            assert.match(elements['datahub-scope-note'].innerHTML, /刷新超时/);
+            assert.match(elements['datahub-scope-note'].innerHTML, /保留上次结果/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_research_datahub_full_timeout_uses_labeled_default_candidates_without_previous_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: id === 'datahub-scope' ? 'watchlist' : '',
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            };
+        }
+
+        const table = makeElement('datahub-matrix-table');
+        const tbody = makeElement('datahub-matrix-tbody');
+        table.querySelector = (selector) => selector === 'tbody' ? tbody : null;
+        const elements = {
+            'datahub-matrix-table': table,
+            'datahub-scope': makeElement('datahub-scope'),
+            'datahub-scope-note': makeElement('datahub-scope-note'),
+            'datahub-total': makeElement('datahub-total'),
+            'datahub-high-score': makeElement('datahub-high-score'),
+            'datahub-cheap': makeElement('datahub-cheap'),
+            'datahub-qlib-top': makeElement('datahub-qlib-top'),
+            'datahub-valuation-cov': makeElement('datahub-valuation-cov'),
+            'datahub-qlib-cov': makeElement('datahub-qlib-cov'),
+            'datahub-actionable': makeElement('datahub-actionable'),
+            'datahub-high-risk': makeElement('datahub-high-risk'),
+            'datahub-pipe-quote': makeElement('datahub-pipe-quote'),
+            'datahub-pipe-valuation': makeElement('datahub-pipe-valuation'),
+            'datahub-pipe-ai': makeElement('datahub-pipe-ai'),
+            'datahub-pipe-shadow': makeElement('datahub-pipe-shadow'),
+            'datahub-source-health': makeElement('datahub-source-health'),
+            'datahub-quality-summary': makeElement('datahub-quality-summary'),
+            'datahub-shadow-summary': makeElement('datahub-shadow-summary'),
+            'datahub-version-summary': makeElement('datahub-version-summary'),
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#datahub-matrix-table tbody' ? tbody : null,
+            addEventListener: () => {},
+        };
+        const calls = [];
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            watchlistCache: [{ code: '300750' }],
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url.includes('force_fallback=true')) {
+                    return {
+                        items: [{
+                            matrix_rank: 1,
+                            code: '600519',
+                            name: '贵州茅台',
+                            decision_score: 61,
+                            decision_label: '降级预览',
+                            risk_level: '中',
+                            reason_tags: ['默认候选'],
+                            risk_tags: ['数据源超时'],
+                            next_actions: ['稍后刷新'],
+                        }],
+                        summary: {
+                            total: 1,
+                            used_fallback: true,
+                            fallback_reason: 'client_timeout_default',
+                            signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                        },
+                    };
+                }
+                throw new Error('请求超时');
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+
+        (async () => {
+            await ResearchDataHub.load();
+            const matrixCalls = calls.filter((url) => url.includes('/api/datahub/decision-matrix'));
+            assert.equal(matrixCalls.length, 3);
+            assert.match(matrixCalls[2], /force_fallback=true/);
+            assert.match(tbody.innerHTML, /贵州茅台/);
+            assert.doesNotMatch(tbody.innerHTML, /加载失败/);
+            assert.match(elements['datahub-scope-note'].innerHTML, /默认候选/);
+            assert.match(elements['datahub-scope-note'].innerHTML, /降级预览/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_research_datahub_does_not_preserve_rows_after_scope_change():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: id === 'datahub-scope' ? 'codes' : '',
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            };
+        }
+
+        const table = makeElement('datahub-matrix-table');
+        const tbody = makeElement('datahub-matrix-tbody');
+        tbody.innerHTML = '<tr><td>旧自选机会</td></tr>';
+        table.querySelector = (selector) => selector === 'tbody' ? tbody : null;
+        const elements = {
+            'datahub-matrix-table': table,
+            'datahub-scope': makeElement('datahub-scope'),
+            'datahub-scope-note': makeElement('datahub-scope-note'),
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#datahub-matrix-table tbody' ? tbody : null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            watchlistCache: [{ code: '300750' }],
+            fetchJSON: async () => { throw new Error('请求超时'); },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+        ResearchDataHub._items = [{ code: '300750', name: '宁德时代' }];
+        ResearchDataHub._matrixResultKey = 'watchlist|';
+        ResearchDataHub._selected = [{ code: '600519', name: '贵州茅台' }];
+
+        (async () => {
+            await ResearchDataHub.load();
+            assert.doesNotMatch(tbody.innerHTML, /旧自选机会/);
+            assert.match(tbody.innerHTML, /加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_research_datahub_stale_fallback_failure_does_not_overwrite_new_request():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const note = { innerHTML: '新请求状态' };
+        const tbody = { innerHTML: '<tr><td>新请求结果</td></tr>' };
+        global.window = global;
+        global.document = {
+            getElementById: (id) => id === 'datahub-scope-note' ? note : null,
+            querySelector: (selector) => selector === '#datahub-matrix-table tbody' ? tbody : null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? ''),
+            watchlistCache: [{ code: '300750' }],
+            fetchJSON: async () => { throw new Error('请求超时'); },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/research-datahub.js', 'utf8'));
+        ResearchDataHub._matrixActiveScope = 'watchlist';
+        ResearchDataHub._matrixRequestId = 2;
+        ResearchDataHub._items = [{ code: '300750', name: '宁德时代' }];
+        ResearchDataHub._matrixResultKey = 'signal|';
+
+        (async () => {
+            await ResearchDataHub._loadFallbackMatrix('signal', '', 1, new Error('请求超时'), true);
+            assert.equal(note.innerHTML, '新请求状态');
+            assert.match(tbody.innerHTML, /新请求结果/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_open_paper_buy_defaults_to_trade_subtab_and_focuses_order_form():
     adapter = read("dashboard/static/core/business-adapter.js")
 
@@ -755,8 +1046,8 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
     assert "/static/app-bootstrap.js?v=25" in scripts
-    assert "/static/overview.js?v=21" in scripts
-    assert "/static/overview.js?v=21" in app
+    assert "/static/overview.js?v=22" in scripts
+    assert "/static/overview.js?v=22" in app
     assert "/static/alerts.js?v=4" in scripts
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=9" in scripts
@@ -766,7 +1057,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app
-    assert "/static/research-datahub.js?v=14" in app
+    assert "/static/research-datahub.js?v=15" in app
     assert "/static/research-valuation.js?v=15" in app
     assert "/static/stock-detail-core.js?v=7" in app
     assert "/static/stock-detail-valuation.js?v=13" in app

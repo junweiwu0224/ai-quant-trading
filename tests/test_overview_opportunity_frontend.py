@@ -525,6 +525,7 @@ def test_overview_load_starts_opportunities_after_watchlist_before_slow_snapshot
         global.PollManager = { register: () => {}, cancel: () => {} };
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+        App._overviewOpportunityResultKey = 'signal';
 
         (async () => {
             const pending = App.loadOverview();
@@ -608,14 +609,347 @@ def test_overview_opportunity_refresh_failure_preserves_previous_rows():
         global.PollManager = { register: () => {}, cancel: () => {} };
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+        App._overviewOpportunityResultKey = 'signal';
 
         (async () => {
             await App._loadOverviewOpportunities();
             assert.match(tbody.innerHTML, /旧机会/);
             assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
-            assert.match(elements['ov-opportunity-status'].innerHTML, /刷新失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /刷新超时/);
             assert.match(elements['ov-opportunity-status'].innerHTML, /保留上次结果/);
             assert.match(elements['ov-opportunity-hint'].textContent, /保留上次机会池结果/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_full_timeout_preserves_previous_rows_and_tries_default_fallback():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        tbody.innerHTML = '<tr><td>旧机会</td></tr>';
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            _overviewOpportunityItems: [{ code: '300750', name: '宁德时代' }],
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                throw new Error('请求超时');
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+        App._overviewOpportunityResultKey = 'signal';
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.equal(calls.length, 3);
+            assert.match(calls[0], /fast=true/);
+            assert.match(calls[1], /max_wait_sec=6/);
+            assert.match(calls[2], /force_fallback=true/);
+            assert.match(tbody.innerHTML, /旧机会/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /刷新超时/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /保留上次结果/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /保留上次机会池结果/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_full_timeout_uses_default_candidates_without_previous_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url.includes('force_fallback=true')) {
+                    return {
+                        items: [{
+                            matrix_rank: 1,
+                            code: '600519',
+                            name: '贵州茅台',
+                            decision_score: 61,
+                            decision_label: '降级预览',
+                            risk_level: '中',
+                            reason_tags: ['默认候选'],
+                            risk_tags: ['数据源超时'],
+                            next_actions: ['稍后刷新'],
+                        }],
+                        summary: {
+                            total: 1,
+                            used_fallback: true,
+                            fallback_reason: 'client_timeout_default',
+                            signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                        },
+                    };
+                }
+                throw new Error('请求超时');
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.equal(calls.length, 3);
+            assert.match(calls[2], /force_fallback=true/);
+            assert.match(tbody.innerHTML, /贵州茅台/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /范围 默认候选/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /降级预览/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_does_not_preserve_rows_after_scope_change():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        tbody.innerHTML = '<tr><td>旧信号机会</td></tr>';
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            watchlistCache: [{ code: '600519' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => { throw new Error('请求超时'); },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+        App._overviewOpportunityScope = 'watchlist';
+        App._overviewOpportunityItems = [{ code: '300750', name: '宁德时代' }];
+        App._overviewOpportunityResultKey = 'signal';
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.doesNotMatch(tbody.innerHTML, /旧信号机会/);
+            assert.match(tbody.innerHTML, /机会池加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_stale_fallback_failure_does_not_overwrite_new_request():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const status = { innerHTML: '新请求状态' };
+        const hint = { textContent: '新请求提示' };
+        const tbody = { innerHTML: '<tr><td>新请求结果</td></tr>' };
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => id === 'ov-opportunity-status' ? status : id === 'ov-opportunity-hint' ? hint : null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'watchlist',
+            _overviewOpportunityActiveScope: 'watchlist',
+            _overviewOpportunityRequestId: 2,
+            _overviewOpportunityItems: [{ code: '300750' }],
+            _overviewOpportunityResultKey: 'signal',
+            watchlistCache: [{ code: '600519' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => { throw new Error('请求超时'); },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunitiesFallback('signal', 1, new Error('请求超时'), true);
+            assert.equal(status.innerHTML, '新请求状态');
+            assert.equal(hint.textContent, '新请求提示');
+            assert.match(tbody.innerHTML, /新请求结果/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -783,6 +1117,6 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert ".opportunity-status-strip" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=21" in scripts
+    assert "/static/overview.js?v=22" in scripts
     assert "/api/signals/health?fast=true" in overview_js
     assert "/api/datahub/health?fast=true" in overview_js

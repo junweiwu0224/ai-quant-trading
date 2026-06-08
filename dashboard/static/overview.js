@@ -177,7 +177,11 @@ Object.assign(App, {
     async _loadOverviewOpportunities() {
         const tbody = document.querySelector('#ov-opportunity-table tbody');
         if (!tbody) return;
-        const hasPreviousItems = Array.isArray(this._overviewOpportunityItems) && this._overviewOpportunityItems.length > 0;
+        const scope = this._resolveOverviewOpportunityScope();
+        const requestKey = this._overviewOpportunityRequestKey(scope);
+        const hasPreviousItems = Array.isArray(this._overviewOpportunityItems)
+            && this._overviewOpportunityItems.length > 0
+            && this._overviewOpportunityResultKey === requestKey;
         if (!hasPreviousItems) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">加载中...</td></tr>';
         }
@@ -190,8 +194,7 @@ Object.assign(App, {
                 : '<span class="opportunity-status-item">正在加载</span>';
         }
         try {
-            const scope = this._resolveOverviewOpportunityScope();
-            const requestId = this._beginOverviewOpportunityRequest(scope);
+            const requestId = this._beginOverviewOpportunityRequest(scope, requestKey);
             this._updateOverviewOpportunityScopeButtons(scope);
             if (scope === 'watchlist' && !(this.watchlistCache || []).length) {
                 this._renderOverviewOpportunityEmptyWatchlist();
@@ -204,7 +207,11 @@ Object.assign(App, {
             } catch (fastError) {
                 if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
                 if (status) status.innerHTML = '<span class="opportunity-status-item">快速预览超时</span><span class="opportunity-status-item">完整估值补载中</span>';
-                await this._loadOverviewOpportunitiesFull(scope, requestId);
+                try {
+                    await this._loadOverviewOpportunitiesFull(scope, requestId);
+                } catch (fullError) {
+                    await this._loadOverviewOpportunitiesFallback(scope, requestId, fullError, hasPreviousItems);
+                }
                 return;
             }
             if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
@@ -221,14 +228,15 @@ Object.assign(App, {
         }
     },
 
-    _renderOverviewOpportunityLoadFailure(error, hasPreviousItems = false) {
+    _renderOverviewOpportunityLoadFailure(error, hasPreviousItems = false, options = {}) {
         const tbody = document.querySelector('#ov-opportunity-table tbody');
         const status = document.getElementById('ov-opportunity-status');
         const hint = document.getElementById('ov-opportunity-hint');
         const message = this.escapeHTML(error?.message || '未知错误');
         if (hasPreviousItems) {
             if (status) {
-                status.innerHTML = '<span class="opportunity-status-item">刷新失败</span><span class="opportunity-status-item">保留上次结果</span>';
+                const state = options.attemptedFallback ? '刷新超时' : '刷新失败';
+                status.innerHTML = `<span class="opportunity-status-item">${state}</span><span class="opportunity-status-item">保留上次结果</span>`;
             }
             if (hint) hint.textContent = `本次刷新失败：${message}；已保留上次机会池结果。`;
             return;
@@ -245,10 +253,34 @@ Object.assign(App, {
         this._renderOverviewOpportunityData(data, false, { scope, requestId });
     },
 
-    _beginOverviewOpportunityRequest(scope) {
+    async _loadOverviewOpportunitiesFallback(scope, requestId, error, hasPreviousItems = false) {
+        const query = this._buildOverviewOpportunityQuery(scope, { fast: true, forceFallback: true });
+        try {
+            const data = await this.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 8000 });
+            if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
+            const summary = data.summary || {};
+            data.summary = {
+                ...summary,
+                used_fallback: true,
+                fallback_reason: summary.fallback_reason || 'client_timeout_default',
+                fallback_error: error?.message || '',
+            };
+            if (hasPreviousItems) {
+                this._renderOverviewOpportunityLoadFailure(error, true, { attemptedFallback: true });
+                return;
+            }
+            this._renderOverviewOpportunityData(data, true, { scope, requestId });
+        } catch (fallbackError) {
+            if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
+            this._renderOverviewOpportunityLoadFailure(error || fallbackError, hasPreviousItems, { attemptedFallback: true });
+        }
+    },
+
+    _beginOverviewOpportunityRequest(scope, requestKey = null) {
         const nextId = (this._overviewOpportunityRequestId || 0) + 1;
         this._overviewOpportunityRequestId = nextId;
         this._overviewOpportunityActiveScope = scope;
+        this._overviewOpportunityActiveKey = requestKey || this._overviewOpportunityRequestKey(scope);
         return nextId;
     },
 
@@ -258,7 +290,7 @@ Object.assign(App, {
             && this._overviewOpportunityRequestId === requestId;
     },
 
-    _buildOverviewOpportunityQuery(scope = 'watchlist', { fast = true } = {}) {
+    _buildOverviewOpportunityQuery(scope = 'watchlist', { fast = true, forceFallback = false } = {}) {
         const normalizedScope = scope === 'qlib' ? 'signal' : scope;
         const requestedScope = ['watchlist', 'signal'].includes(normalizedScope) ? normalizedScope : 'signal';
         const query = new URLSearchParams();
@@ -269,7 +301,14 @@ Object.assign(App, {
         } else {
             query.set('max_wait_sec', '6');
         }
+        if (forceFallback) {
+            query.set('force_fallback', 'true');
+        }
         return query;
+    },
+
+    _overviewOpportunityRequestKey(scope = this._resolveOverviewOpportunityScope()) {
+        return ['watchlist', 'signal'].includes(scope) ? scope : 'signal';
     },
 
     _resolveOverviewOpportunityScope() {
@@ -326,10 +365,17 @@ Object.assign(App, {
         const items = data.items || [];
         if (!items.length) return;
         this._overviewOpportunityItems = items;
+        if (requestMeta) {
+            this._overviewOpportunityResultKey = this._overviewOpportunityRequestKey(requestMeta.scope);
+        }
         tbody.innerHTML = items.map((item) => this._renderOpportunityRow(item)).join('');
         this._renderOverviewOpportunityStatus(data.summary || {}, items.length, isFast);
         if (hint) {
             if (data.summary?.used_fallback) {
+                if (data.summary?.fallback_reason === 'client_timeout_default') {
+                    hint.textContent = '数据源刷新超时，当前展示默认候选降级预览；稍后刷新会自动恢复真实范围。';
+                    return;
+                }
                 hint.textContent = isFast
                     ? '当前使用默认候选快速预览；完整估值正在后台补齐。'
                     : '当前使用默认候选；加入自选股或生成 AI 信号缓存后会自动切换。';

@@ -119,19 +119,28 @@
         async load() {
             const tbody = document.querySelector('#datahub-matrix-table tbody');
             if (!tbody) return;
-            tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">加载中...</td></tr>';
-
             const scope = this._normalizeScope(document.getElementById('datahub-scope')?.value || 'watchlist');
+            const codes = this._selected.map((item) => item.code).join(',');
+            const requestKey = this._matrixRequestKey(scope, codes);
+            const hasPreviousItems = Array.isArray(this._items)
+                && this._items.length > 0
+                && this._matrixResultKey === requestKey;
+            if (hasPreviousItems) {
+                this._renderTransientNote('正在刷新，保留上次结果');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">加载中...</td></tr>';
+            }
+
             if (scope === 'watchlist') {
                 await this._refreshWatchlistCache();
             }
-            const codes = this._selected.map((item) => item.code).join(',');
-            const requestId = this._beginMatrixRequest(scope);
+            const requestId = this._beginMatrixRequest(scope, requestKey);
             this._renderScopeNote();
 
             try {
                 if (scope === 'codes' && !codes) {
                     this._items = [];
+                    this._matrixResultKey = requestKey;
                     this._render([], {});
                     return;
                 }
@@ -141,14 +150,22 @@
                     data = await App.fetchJSON(`/api/datahub/decision-matrix?${fastQuery.toString()}`, { silent: true, timeout: 8000 });
                 } catch (fastError) {
                     if (!this._isCurrentMatrixRequest(scope, requestId)) return;
-                    tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">快速预览超时，完整估值补载中...</td></tr>';
-                    data = await this._loadFullMatrix(scope, codes, requestId);
+                    if (!hasPreviousItems) {
+                        tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">快速预览超时，完整估值补载中...</td></tr>';
+                    }
+                    this._renderTransientNote(hasPreviousItems ? '快速预览超时，完整估值补载中；保留上次结果' : '快速预览超时，完整估值补载中');
+                    try {
+                        data = await this._loadFullMatrix(scope, codes, requestId);
+                    } catch (fullError) {
+                        data = await this._loadFallbackMatrix(scope, codes, requestId, fullError, hasPreviousItems);
+                    }
                 }
                 if (!data || !this._isCurrentMatrixRequest(scope, requestId)) return;
                 this._items = data.items || [];
+                this._matrixResultKey = requestKey;
                 this._render(this._items, data.summary || {});
             } catch (error) {
-                tbody.innerHTML = `<tr><td colspan="10" class="text-muted text-center">加载失败：${App.escapeHTML(error.message || '未知错误')}</td></tr>`;
+                this._renderLoadFailure(error, hasPreviousItems);
             }
         },
 
@@ -158,7 +175,31 @@
             return this._isCurrentMatrixRequest(scope, requestId) ? data : null;
         },
 
-        _buildMatrixQuery(scope, codes = '', { fast = true } = {}) {
+        async _loadFallbackMatrix(scope, codes, requestId, error, hasPreviousItems = false) {
+            const query = this._buildMatrixQuery(scope, codes, { fast: true, forceFallback: true });
+            try {
+                const data = await App.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 8000 });
+                if (!this._isCurrentMatrixRequest(scope, requestId)) return null;
+                const summary = data.summary || {};
+                data.summary = {
+                    ...summary,
+                    used_fallback: true,
+                    fallback_reason: summary.fallback_reason || 'client_timeout_default',
+                    fallback_error: error?.message || '',
+                };
+                if (hasPreviousItems) {
+                    this._renderLoadFailure(error, true, { attemptedFallback: true });
+                    return null;
+                }
+                return data;
+            } catch (fallbackError) {
+                if (!this._isCurrentMatrixRequest(scope, requestId)) return null;
+                this._renderLoadFailure(error || fallbackError, hasPreviousItems, { attemptedFallback: true });
+                return null;
+            }
+        },
+
+        _buildMatrixQuery(scope, codes = '', { fast = true, forceFallback = false } = {}) {
             const query = new URLSearchParams({ scope, limit: scope === 'signal' ? '50' : '30' });
             if (scope === 'codes') query.set('codes', codes);
             if (fast) {
@@ -166,18 +207,30 @@
             } else {
                 query.set('max_wait_sec', '6');
             }
+            if (forceFallback) {
+                query.set('force_fallback', 'true');
+            }
             return query;
         },
 
-        _beginMatrixRequest(scope) {
+        _beginMatrixRequest(scope, requestKey = null) {
             const requestId = (this._matrixRequestId || 0) + 1;
             this._matrixRequestId = requestId;
             this._matrixActiveScope = scope;
+            this._matrixActiveKey = requestKey || this._matrixRequestKey(scope);
             return requestId;
         },
 
         _isCurrentMatrixRequest(scope, requestId) {
             return this._matrixActiveScope === scope && this._matrixRequestId === requestId;
+        },
+
+        _matrixRequestKey(scope, codes = '') {
+            const normalized = this._normalizeScope(scope || 'watchlist');
+            const normalizedCodes = normalized === 'codes'
+                ? String(codes || '').split(',').map((code) => code.trim()).filter(Boolean).join(',')
+                : '';
+            return `${normalized}|${normalizedCodes}`;
         },
 
         async _refreshWatchlistCache() {
@@ -188,6 +241,31 @@
                 }
             } catch {
                 // Keep the last known cache; the matrix API is still authoritative.
+            }
+        },
+
+        _renderTransientNote(message) {
+            const note = document.getElementById('datahub-scope-note');
+            if (!note) return;
+            note.innerHTML = `<span class="coverage-pill">${App.escapeHTML(message)}</span>`;
+        },
+
+        _renderLoadFailure(error, hasPreviousItems = false, options = {}) {
+            const tbody = document.querySelector('#datahub-matrix-table tbody');
+            const note = document.getElementById('datahub-scope-note');
+            const message = App.escapeHTML(error?.message || '未知错误');
+            if (hasPreviousItems) {
+                if (note) {
+                    const state = options.attemptedFallback ? '刷新超时' : '刷新失败';
+                    note.innerHTML = `<span class="coverage-pill">${state}</span><span class="coverage-pill">保留上次结果</span><span class="coverage-pill">${message}</span>`;
+                }
+                return;
+            }
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-muted text-center">加载失败：${message}</td></tr>`;
+            }
+            if (note) {
+                note.innerHTML = `<span class="coverage-pill">加载失败</span><span class="coverage-pill">${message}</span>`;
             }
         },
 
@@ -309,12 +387,16 @@
             const signalBits = [`AI信号覆盖 ${qlib}`];
             if (signalQuality.label) signalBits.push(String(signalQuality.label));
             if (signalQuality.penalty_applied) signalBits.push('已降权');
+            const fallbackPill = summary.used_fallback
+                ? `<span class="coverage-pill">${summary.fallback_reason === 'client_timeout_default' ? '刷新超时 · 默认候选降级预览' : '默认候选'}</span>`
+                : '';
             note.innerHTML = [
+                fallbackPill,
                 `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
                 `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
                 `<span class="coverage-pill">${watchlistCount == null ? '' : `自选 ${App.escapeHTML(String(watchlistCount))} 只 · `}样本 ${App.escapeHTML(String(total))} 只</span>`,
                 `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · ${App.escapeHTML(signalBits.join(' · '))}</span>`,
-            ].join('');
+            ].filter(Boolean).join('');
         },
 
         async _openValuation(code) {

@@ -672,12 +672,28 @@
     }
   });
 
-  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, loadAgenticOrderDrafts, createAgenticOrderDrafts, submitAgenticPaperOrders, buildDefaultStrategyDSL };
-  document.addEventListener('DOMContentLoaded', () => {
+  let booted = false;
+  function shouldBoot() {
+    if (location.hash === '#research' && document.querySelector('.research-sub-tab.active')?.dataset?.subtab === 'agentic') {
+      return true;
+    }
+    return globalThis.App?.currentTab === 'research'
+      && globalThis.App?._researchActiveSubtab === 'agentic';
+  }
+
+  function boot() {
+    if (booted || !shouldBoot()) return false;
+    booted = true;
     loadBacktestSample();
     loadSignals();
     loadPaperStrategyCandidates();
     loadPaperStrategyExecutions();
     loadAgenticOrderDrafts();
+    return true;
+  }
+
+  window.AgenticSignals = { loadSignals, renderSignalCard, loadBacktestSample, runSampleBacktest, runCandidateBacktests, queuePaperStrategyCandidate, renderCandidateBacktestResults, loadPaperStrategyCandidates, confirmPaperStrategyCandidate, loadPaperStrategyExecutions, runPaperStrategyCandidate, confirmPaperStrategyExecution, loadAgenticOrderDrafts, createAgenticOrderDrafts, submitAgenticPaperOrders, buildDefaultStrategyDSL, boot };
+  document.addEventListener('DOMContentLoaded', () => {
+    boot();
   });
 })();

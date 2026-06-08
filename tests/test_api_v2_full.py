@@ -520,6 +520,64 @@ class TestMarket:
             market_router._cache.delete("market_radar")
             market_router._last_radar = previous_last_radar
 
+    def test_market_radar_fast_uses_local_daily_without_live_fetch(self, client, monkeypatch):
+        """GET /api/market/radar?fast=true — 首屏快路径不等待实时源"""
+        from dashboard.routers import market as market_router
+
+        previous_last_radar = market_router._last_radar
+        market_router._cache.delete("market_radar")
+        market_router._cache.delete("market_radar:fast")
+        market_router._last_radar = None
+        calls = {"live": 0}
+
+        local_rows = [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "price": 11.0,
+                "change_pct": 10.0,
+                "amplitude": 4.0,
+                "turnover_rate": 30.0,
+                "date": "2026-06-05",
+                "source": "local_stock_daily",
+            },
+            {
+                "code": "600519",
+                "name": "贵州茅台",
+                "price": 1570.0,
+                "change_pct": -2.0,
+                "amplitude": 3.0,
+                "turnover_rate": 20.0,
+                "date": "2026-06-05",
+                "source": "local_stock_daily",
+            },
+        ]
+
+        def fail_if_live_fetch():
+            calls["live"] += 1
+            raise RuntimeError("live source should not be used by fast path")
+
+        monkeypatch.setattr(market_router, "_fetch_market_radar_snapshot", fail_if_live_fetch)
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/radar?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert calls["live"] == 0
+            assert data["success"] is True
+            assert data["fast"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["local_fallback"] is True
+            assert data["total_stocks"] == 2
+            assert data["top_gainers"][0]["code"] == "000001"
+            assert data["top_losers"][0]["code"] == "600519"
+        finally:
+            market_router._cache.delete("market_radar")
+            market_router._cache.delete("market_radar:fast")
+            market_router._last_radar = previous_last_radar
+
     def test_market_breadth_uses_local_full_daily_coverage(self, client, monkeypatch):
         """GET /api/market/breadth — 返回本地全量覆盖池涨跌广度"""
         from dashboard.routers import market as market_router
@@ -579,6 +637,46 @@ class TestMarket:
         resp = client.get("/api/market/sectors")
         assert resp.status_code == 200
 
+    def test_market_sectors_fast_uses_local_daily_without_external_fetch(self, client, monkeypatch):
+        """GET /api/market/sectors?fast=true — 首屏快路径不等待板块源"""
+        from dashboard.routers import market as market_router
+
+        previous_last_sectors = market_router._last_sectors
+        market_router._cache.delete("sectors:industry")
+        market_router._cache.delete("sectors:industry:fast")
+        market_router._last_sectors = None
+        calls = {"external": 0}
+
+        local_rows = [
+            {"code": "000001", "name": "平安银行", "industry": "银行", "change_pct": 2.0, "amount": 1e10},
+            {"code": "600000", "name": "浦发银行", "industry": "银行", "change_pct": -1.0, "amount": 2e10},
+            {"code": "300750", "name": "宁德时代", "industry": "电池", "change_pct": 3.0, "amount": 3e10},
+        ]
+
+        def fail_if_external_fetch(sector_type):
+            calls["external"] += 1
+            raise RuntimeError("sector source should not be used by fast path")
+
+        monkeypatch.setattr(market_router, "_fetch_sector_ranking", fail_if_external_fetch)
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/sectors?type=industry&fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert calls["external"] == 0
+            assert data["success"] is True
+            assert data["fast"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["local_fallback"] is True
+            assert data["type"] == "industry"
+            assert [row["name"] for row in data["sectors"][:2]] == ["电池", "银行"]
+        finally:
+            market_router._cache.delete("sectors:industry")
+            market_router._cache.delete("sectors:industry:fast")
+            market_router._last_sectors = previous_last_sectors
+
     def test_market_heatmap_fetches_all_eastmoney_pages(self, client, monkeypatch):
         """GET /api/market/heatmap — 不只统计涨幅榜第一页前 100 个板块"""
         from dashboard.routers import market as market_router
@@ -633,6 +731,90 @@ class TestMarket:
             market_router._cache.delete("sector_heatmap")
             market_router._last_heatmap = previous_last_heatmap
 
+    def test_market_heatmap_fast_uses_local_daily_without_external_fetch(self, client, monkeypatch):
+        """GET /api/market/heatmap?fast=true — 首屏快路径不等待板块热力源"""
+        from dashboard.routers import market as market_router
+
+        previous_last_heatmap = market_router._last_heatmap
+        market_router._cache.delete("sector_heatmap")
+        market_router._cache.delete("sector_heatmap:fast")
+        market_router._last_heatmap = None
+        calls = {"external": 0}
+
+        local_rows = [
+            {"code": "000001", "name": "平安银行", "industry": "银行", "change_pct": 2.0, "amount": 1e10},
+            {"code": "600000", "name": "浦发银行", "industry": "银行", "change_pct": -1.0, "amount": 2e10},
+            {"code": "300750", "name": "宁德时代", "industry": "电池", "change_pct": 3.0, "amount": 3e10},
+        ]
+
+        def fail_if_external_fetch():
+            calls["external"] += 1
+            raise RuntimeError("heatmap source should not be used by fast path")
+
+        monkeypatch.setattr(market_router, "_fetch_sector_heatmap", fail_if_external_fetch)
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/heatmap?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert calls["external"] == 0
+            assert data["success"] is True
+            assert data["fast"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["local_fallback"] is True
+            assert data["total"] == 2
+            assert data["up_count"] == 2
+            assert data["down_count"] == 0
+            assert [row["name"] for row in data["sectors"][:2]] == ["电池", "银行"]
+        finally:
+            market_router._cache.delete("sector_heatmap")
+            market_router._cache.delete("sector_heatmap:fast")
+            market_router._last_heatmap = previous_last_heatmap
+
+    def test_market_heatmap_fast_uses_exchange_board_when_local_industry_is_sparse(self, client, monkeypatch):
+        """GET /api/market/heatmap?fast=true — 本地行业缺失时按交易板块全量聚合"""
+        from dashboard.routers import market as market_router
+
+        previous_last_heatmap = market_router._last_heatmap
+        market_router._cache.delete("sector_heatmap")
+        market_router._cache.delete("sector_heatmap:fast")
+        market_router._last_heatmap = None
+        local_rows = [
+            {"code": "000001", "name": "平安银行", "industry": "", "change_pct": 2.0, "amount": 1e10},
+            {"code": "600000", "name": "浦发银行", "industry": "", "change_pct": -1.0, "amount": 2e10},
+            {"code": "300750", "name": "宁德时代", "industry": "", "change_pct": 3.0, "amount": 3e10},
+            {"code": "688001", "name": "华兴源创", "industry": "", "change_pct": -2.0, "amount": 4e10},
+            {"code": "830799", "name": "艾融软件", "industry": "", "change_pct": 1.0, "amount": 5e10},
+        ]
+
+        monkeypatch.setattr(market_router, "_fetch_sector_heatmap", lambda: (_ for _ in ()).throw(RuntimeError("unused")))
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/heatmap?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["fast"] is True
+            assert data["local_fallback"] is True
+            assert data["grouping"] == "exchange_board"
+            assert data["weight_basis"] == "stock_count"
+            assert data["industry_coverage_pct"] == 0
+            names = {row["name"] for row in data["sectors"]}
+            assert {"深主板", "沪主板", "创业板", "科创板", "北交所"} <= names
+            assert "本地覆盖池" not in names
+            assert all(row["total_mv"] == 0 for row in data["sectors"])
+            assert all(row["stock_count"] == 1 for row in data["sectors"])
+            assert all(row["turnover_amount"] > 0 for row in data["sectors"])
+            assert "交易板块" in data["coverage_note"]
+        finally:
+            market_router._cache.delete("sector_heatmap")
+            market_router._cache.delete("sector_heatmap:fast")
+            market_router._last_heatmap = previous_last_heatmap
+
     def test_market_northbound_returns_soft_unavailable_state_when_source_fails(self, client, monkeypatch):
         """GET /api/market/northbound — 北向源不可用时不让情报页进入硬失败"""
         from dashboard.routers import market as market_router
@@ -659,6 +841,38 @@ class TestMarket:
             assert data["source"] == "eastmoney_northbound"
         finally:
             market_router._cache.delete("northbound")
+            market_router._last_northbound = previous_last_northbound
+
+    def test_market_northbound_fast_returns_soft_unavailable_without_external_fetch(self, client, monkeypatch):
+        """GET /api/market/northbound?fast=true — 无缓存时快路径不等待北向源"""
+        from dashboard.routers import market as market_router
+
+        previous_last_northbound = market_router._last_northbound
+        market_router._cache.delete("northbound")
+        market_router._cache.delete("northbound:fast")
+        market_router._last_northbound = None
+        calls = {"external": 0}
+
+        def fail_if_external_fetch():
+            calls["external"] += 1
+            raise RuntimeError("northbound source should not be used by fast path")
+
+        monkeypatch.setattr(market_router, "_fetch_northbound", fail_if_external_fetch)
+
+        try:
+            resp = client.get("/api/market/northbound?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert calls["external"] == 0
+            assert data["success"] is True
+            assert data["fast"] is True
+            assert data["source_unavailable"] is True
+            assert data["source"] == "eastmoney_northbound"
+            assert data["flow"] == []
+        finally:
+            market_router._cache.delete("northbound")
+            market_router._cache.delete("northbound:fast")
             market_router._last_northbound = previous_last_northbound
 
     def test_market_rules_list(self, client):

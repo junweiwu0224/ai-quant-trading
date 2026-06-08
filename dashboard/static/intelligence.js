@@ -10,6 +10,7 @@
     Object.assign(Intelligence, {
         state: Intelligence.state || {
             loaded: false,
+            marketLoaded: false,
             contextRegistered: false,
             delegatedActionsBound: false,
             iwencaiBound: false,
@@ -139,29 +140,56 @@
         },
 
         async load() {
-            const loaderDefs = [
+            const marketLoaderDefs = [
                 ['sentiment', this.loadSentiment],
                 ['news', this.loadNews],
                 ['heatmap', this.loadHeatmap],
                 ['hotspot', this.loadHotspot],
+            ].filter(([, fn]) => typeof fn === 'function');
+            const backgroundLoaderDefs = [
                 ['signals', this.loadMLPredictions],
                 ['signalBar', this.loadSignalBar],
             ].filter(([, fn]) => typeof fn === 'function');
             const loadedModules = this.state.loadedModules || (this.state.loadedModules = {});
-            const pendingLoaders = loaderDefs.filter(([name]) => loadedModules[name] !== true);
+            const pendingMarketLoaders = marketLoaderDefs.filter(([name]) => loadedModules[name] !== true);
 
-            if (this.state.loaded || pendingLoaders.length === 0) return;
+            if (!this.state.backgroundLoadingPromise) {
+                const pendingBackgroundLoaders = backgroundLoaderDefs.filter(([name]) => loadedModules[name] !== true);
+                if (pendingBackgroundLoaders.length > 0) {
+                    this.state.backgroundLoadingPromise = Promise.allSettled(pendingBackgroundLoaders.map(([, fn]) => fn.call(this)))
+                        .then((results) => {
+                            results.forEach((result, index) => {
+                                const [name] = pendingBackgroundLoaders[index];
+                                if (result.status === 'fulfilled') {
+                                    loadedModules[name] = true;
+                                }
+                            });
+                            this.state.loaded = [...marketLoaderDefs, ...backgroundLoaderDefs].every(([name]) => loadedModules[name] === true);
+                            return results;
+                        })
+                        .finally(() => {
+                            this.state.backgroundLoadingPromise = null;
+                        });
+                }
+            }
+
+            if (this.state.marketLoaded || pendingMarketLoaders.length === 0) {
+                this.state.marketLoaded = true;
+                this.state.loaded = [...marketLoaderDefs, ...backgroundLoaderDefs].every(([name]) => loadedModules[name] === true);
+                return [];
+            }
             if (this.state.loadingPromise) return this.state.loadingPromise;
 
-            this.state.loadingPromise = Promise.allSettled(pendingLoaders.map(([, fn]) => fn.call(this)))
+            this.state.loadingPromise = Promise.allSettled(pendingMarketLoaders.map(([, fn]) => fn.call(this)))
                 .then((results) => {
                     results.forEach((result, index) => {
-                        const [name] = pendingLoaders[index];
+                        const [name] = pendingMarketLoaders[index];
                         if (result.status === 'fulfilled') {
                             loadedModules[name] = true;
                         }
                     });
-                    this.state.loaded = loaderDefs.every(([name]) => loadedModules[name] === true);
+                    this.state.marketLoaded = marketLoaderDefs.every(([name]) => loadedModules[name] === true);
+                    this.state.loaded = [...marketLoaderDefs, ...backgroundLoaderDefs].every(([name]) => loadedModules[name] === true);
                     return results;
                 })
                 .finally(() => {

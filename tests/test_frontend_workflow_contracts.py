@@ -70,9 +70,9 @@ def test_signal_engine_is_primary_frontend_semantics():
     qlib_router = read("dashboard/routers/qlib.py")
     scheduler = read("data/scheduler/scheduler.py")
 
-    assert "/static/intelligence-signals.js?v=6" in app
+    assert "/static/intelligence-signals.js?v=8" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=71" in scripts
+    assert "/static/app.js?v=75" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -746,21 +746,21 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=48" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=71" in scripts
+    assert "/static/app.js?v=75" in scripts
     assert "/static/app-stock-ops.js?v=5" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
-    assert "/static/core/app-shell.js?v=24" in scripts
-    assert "/static/app-ui-shell.js?v=22" in scripts
+    assert "/static/core/app-shell.js?v=25" in scripts
+    assert "/static/app-ui-shell.js?v=26" in scripts
     assert "/static/app-workbench.js?v=2" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
-    assert "/static/app-bootstrap.js?v=21" in scripts
+    assert "/static/app-bootstrap.js?v=25" in scripts
     assert "/static/overview.js?v=21" in scripts
     assert "/static/overview.js?v=21" in app
     assert "/static/alerts.js?v=4" in scripts
     assert "/static/alerts.js?v=4" in app
-    assert "/static/overview-radar.js?v=6" in scripts
-    assert "/static/overview-radar.js?v=6" in app
+    assert "/static/overview-radar.js?v=9" in scripts
+    assert "/static/overview-radar.js?v=9" in app
     assert "/static/paper.js?v=10" in app
     assert "/static/paper-trading.js?v=6" in app
     assert "/static/compare.js?v=5" in app
@@ -772,7 +772,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/stock-detail-valuation.js?v=13" in app
     assert "/static/openclaw-conversations.js?v=3" in app
     assert "/static/openclaw-workbench.js?v=26" in app
-    assert "/static/intelligence.js?v=5" in app
+    assert "/static/intelligence.js?v=6" in app
 
     assert "minQueryLength" in search
     assert "minQueryLength: 1" in watchlist
@@ -802,6 +802,26 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "basket-clear-candidates" in template
     assert "全市场选股" in template
     assert "basket-advanced-json" in template
+
+
+def test_service_worker_precache_keeps_large_page_bundles_out_of_install_path():
+    sw = read("dashboard/static/sw.js")
+
+    static_assets_body = sw.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
+
+    assert "'/static/style.css'" in static_assets_body
+    assert "'/static/app.js'" in static_assets_body
+    assert "'/static/app-bootstrap.js'" in static_assets_body
+    for large_bundle in [
+        "/static/intelligence-market.js",
+        "/static/intelligence-signals.js",
+        "/static/research-datahub.js",
+        "/static/research-valuation.js",
+        "/static/stock-detail-core.js",
+        "/static/openclaw-workbench.js",
+        "/static/paper.js",
+    ]:
+        assert large_bundle not in static_assets_body
 
 
 def test_hash_sync_initializes_default_tab_when_cache_is_empty():
@@ -976,6 +996,192 @@ def test_overview_radar_timeout_renders_soft_placeholder():
             await App.OverviewRadar.loadRadar();
             assert.match(container.innerHTML, /市场雷达暂未返回/);
             assert.doesNotMatch(container.innerHTML, /请求超时|加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_radar_first_paint_uses_fast_market_endpoints():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeClassList(active = false) {
+            let isActive = active;
+            return {
+                contains: (name) => name === 'active' && isActive,
+                add: (name) => { if (name === 'active') isActive = true; },
+                remove: (name) => { if (name === 'active') isActive = false; },
+            };
+        }
+
+        const container = { innerHTML: '', offsetWidth: 720 };
+        const overviewPanel = { classList: makeClassList(true) };
+        const clickHandlers = {};
+        const tabs = [
+            'gainers',
+            'sectors',
+            'heatmap',
+            'northbound',
+        ].map((name, index) => ({
+            dataset: { tab: name },
+            classList: makeClassList(index === 0),
+            addEventListener: (event, handler) => {
+                if (event === 'click') clickHandlers[name] = handler;
+            },
+        }));
+        const calls = [];
+
+        global.window = { LocalMCP: null };
+        global.globalThis = global;
+        global.__AUTH_GATE_REQUIRED__ = true;
+        global.document = {
+            readyState: 'complete',
+            addEventListener: () => {},
+            querySelectorAll: (selector) => selector === '.radar-tab' ? tabs : [],
+            getElementById: (id) => {
+                if (id === 'radar-content') return container;
+                if (id === 'tab-overview') return overviewPanel;
+                if (id === 'heatmap-grid') return { innerHTML: '', offsetWidth: 720 };
+                return null;
+            },
+        };
+        global.App = {
+            fetchJSON: async (url, opts = {}) => {
+                calls.push(url);
+                assert.equal(opts.silent, true);
+                assert.equal(opts.timeout, 30000);
+                if (url.includes('/api/market/radar')) {
+                    return {
+                        success: true,
+                        source: 'local_stock_daily',
+                        local_fallback: true,
+                        top_gainers: [{ code: '000001', name: '平安银行', value: 10 }],
+                        top_losers: [],
+                        top_amplitude: [],
+                        top_turnover: [],
+                    };
+                }
+                if (url.includes('/api/market/sectors')) {
+                    return { success: true, sectors: [{ name: '银行', change_pct: 1, up_count: 1, down_count: 0, leader: '平安银行' }] };
+                }
+                if (url.includes('/api/market/heatmap')) {
+                    return { success: true, sectors: [{ name: '银行', change_pct: 1, total_mv: 100, up_count: 1, down_count: 0 }] };
+                }
+                if (url.includes('/api/market/northbound')) {
+                    return { success: true, today_net: 0, today_sh_net: 0, today_sz_net: 0, flow: [] };
+                }
+                throw new Error(`unexpected url: ${url}`);
+            },
+            escapeHTML: (value) => String(value ?? ''),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview-radar.js', 'utf8'));
+        App.OverviewRadar.init();
+
+        (async () => {
+            await App.OverviewRadar.loadRadar();
+            assert.equal(calls.pop(), '/api/market/radar?fast=true');
+
+            await clickHandlers.sectors();
+            assert.equal(calls.pop(), '/api/market/sectors?type=industry&fast=true');
+
+            await clickHandlers.heatmap();
+            assert.equal(calls.pop(), '/api/market/heatmap?fast=true');
+
+            await clickHandlers.northbound();
+            assert.equal(calls.pop(), '/api/market/northbound?fast=true');
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_radar_heatmap_renders_local_stock_count_weights():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeClassList(active = false) {
+            let isActive = active;
+            return {
+                contains: (name) => name === 'active' && isActive,
+                add: (name) => { if (name === 'active') isActive = true; },
+                remove: (name) => { if (name === 'active') isActive = false; },
+            };
+        }
+
+        const container = { innerHTML: '', offsetWidth: 720 };
+        const grid = { innerHTML: '', offsetWidth: 720 };
+        const overviewPanel = { classList: makeClassList(true) };
+        const clickHandlers = {};
+        const tabs = ['heatmap'].map((name) => ({
+            dataset: { tab: name },
+            classList: makeClassList(true),
+            addEventListener: (event, handler) => {
+                if (event === 'click') clickHandlers[name] = handler;
+            },
+        }));
+
+        global.window = { LocalMCP: null };
+        global.globalThis = global;
+        global.document = {
+            readyState: 'complete',
+            addEventListener: () => {},
+            querySelectorAll: (selector) => selector === '.radar-tab' ? tabs : [],
+            getElementById: (id) => {
+                if (id === 'radar-content') return container;
+                if (id === 'tab-overview') return overviewPanel;
+                if (id === 'heatmap-grid') return grid;
+                return null;
+            },
+        };
+        global.App = {
+            fetchJSON: async (url, opts = {}) => {
+                assert.equal(url, '/api/market/heatmap?fast=true');
+                assert.equal(opts.silent, true);
+                assert.equal(opts.timeout, 30000);
+                return {
+                    success: true,
+                    local_fallback: true,
+                    total: 2,
+                    sectors: [
+                        { name: '深主板', change_pct: 1.2, total_mv: 0, stock_count: 2200, up_count: 1400, down_count: 700, leader: '平安银行' },
+                        { name: '科创板', change_pct: -0.8, total_mv: 0, stock_count: 580, up_count: 180, down_count: 360, leader: '华兴源创' },
+                    ],
+                };
+            },
+            escapeHTML: (value) => String(value ?? ''),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview-radar.js', 'utf8'));
+        App.OverviewRadar.init();
+
+        (async () => {
+            await clickHandlers.heatmap();
+            assert.match(container.innerHTML, /口径 覆盖股数权重/);
+            assert.match(container.innerHTML, /展示 2\/2/);
+            assert.match(grid.innerHTML, /深主板/);
+            assert.match(grid.innerHTML, /科创板/);
+            assert.match(grid.innerHTML, /2,200只/);
+            assert.doesNotMatch(grid.innerHTML, /0亿/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);

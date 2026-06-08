@@ -1,6 +1,8 @@
 """Unified Signal Engine API."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 
 from config.settings import DB_PATH, QLIB_PRED_CACHE
@@ -94,7 +96,8 @@ async def signal_validation(
     provider: str = Query(DEFAULT_PROVIDER),
     top_n: int = Query(50, ge=1, le=500),
 ):
-    summary = validate_signal_provider(
+    summary = await asyncio.to_thread(
+        validate_signal_provider,
         provider=provider,
         db_path=DB_PATH,
         cache_path=QLIB_PRED_CACHE,

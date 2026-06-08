@@ -123,8 +123,12 @@
         return /请求超时|timeout/i.test(message);
     }
 
+    function fetchFastMarketJSON(url) {
+        return App.fetchJSON(url, { silent: true, timeout: 30000 });
+    }
+
     async function loadTopStocks(container) {
-        const data = await App.fetchJSON('/api/market/radar');
+        const data = await fetchFastMarketJSON('/api/market/radar?fast=true');
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
@@ -165,7 +169,7 @@
     }
 
     async function loadSectors(container) {
-        const data = await App.fetchJSON('/api/market/sectors?type=industry');
+        const data = await fetchFastMarketJSON('/api/market/sectors?type=industry&fast=true');
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
@@ -218,22 +222,54 @@
         return Math.abs(changePct) > 1.5 ? '#fff' : 'var(--text-primary)';
     }
 
+    function _heatmapWeight(sector) {
+        return Math.max(
+            0,
+            Number(sector.total_mv) ||
+            Number(sector.stock_count) ||
+            ((Number(sector.up_count) || 0) + (Number(sector.down_count) || 0)) ||
+            1,
+        );
+    }
+
+    function _heatmapWeightMeta(sector) {
+        const totalMv = Number(sector.total_mv);
+        if (Number.isFinite(totalMv) && totalMv > 0) {
+            return `${Math.round(totalMv).toLocaleString('zh-CN')}亿`;
+        }
+        const stockCount = Number(sector.stock_count);
+        if (Number.isFinite(stockCount) && stockCount > 0) {
+            return `${Math.round(stockCount).toLocaleString('zh-CN')}只`;
+        }
+        return '--';
+    }
+
+    function _heatmapWeightLabel(data, sectors) {
+        if (sectors.some((s) => Number(s.total_mv) > 0)) return '市值权重';
+        if (sectors.some((s) => Number(s.stock_count) > 0) || data.local_fallback) return '覆盖股数权重';
+        return '数量权重';
+    }
+
     async function loadHeatmap(container) {
-        const data = await App.fetchJSON('/api/market/heatmap');
+        const data = await fetchFastMarketJSON('/api/market/heatmap?fast=true');
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
 
-        const sectors = (data.sectors || []).filter(s => s.total_mv > 0);
+        const sectors = (data.sectors || [])
+            .map((s) => ({ ...s, _weight: _heatmapWeight(s) }))
+            .filter((s) => s._weight > 0);
 
-        // 按市值排序，大块在前
-        sectors.sort((a, b) => b.total_mv - a.total_mv);
+        // 按当前可用权重排序，大块在前
+        sectors.sort((a, b) => b._weight - a._weight);
 
         // 计算总面积和每个色块大小
-        const totalMV = sectors.reduce((sum, s) => sum + s.total_mv, 0);
+        const totalWeight = sectors.reduce((sum, s) => sum + s._weight, 0) || 1;
+        const weightLabel = _heatmapWeightLabel(data, sectors);
 
         container.innerHTML = _staleBanner(data) + `
+            <div class="radar-stale-hint">口径 ${App.escapeHTML(weightLabel)} · 展示 ${sectors.length}/${data.total || sectors.length}</div>
             <div class="heatmap-legend">
                 <span class="text-muted" style="font-size:var(--font-size-xs)">跌幅 5%</span>
                 <div class="heatmap-gradient"></div>
@@ -251,15 +287,15 @@
         const gap = 2;
         let html = '';
         let currentRow = [];
-        let currentRowMV = 0;
-        const rowTargetMV = totalMV / Math.max(1, Math.ceil(sectors.length / 8));
+        let currentRowWeight = 0;
+        const rowTargetWeight = totalWeight / Math.max(1, Math.ceil(sectors.length / 8));
 
         function flushRow() {
             if (currentRow.length === 0) return;
-            const rowMV = currentRow.reduce((s, r) => s + r.total_mv, 0);
+            const rowWeight = currentRow.reduce((s, r) => s + r._weight, 0);
             let x = 0;
             for (const s of currentRow) {
-                const w = Math.max(60, (s.total_mv / rowMV) * (containerWidth - gap * currentRow.length));
+                const w = Math.max(60, (s._weight / rowWeight) * (containerWidth - gap * currentRow.length));
                 const bg = _changeToColor(s.change_pct);
                 const fg = _changeToTextColor(s.change_pct);
                 const pctStr = (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%';
@@ -268,21 +304,21 @@
                 html += `<div class="heatmap-cell" style="
                     width:${w}px;height:${rowHeight}px;background:${bg};color:${fg};
                     font-size:${fontSize};
-                " title="${s.name} | 涨跌:${pctStr} | 上涨:${s.up_count} 下跌:${s.down_count} | 领涨:${s.leader || '--'}">
+                " title="${s.name} | 涨跌:${pctStr} | ${weightLabel}:${_heatmapWeightMeta(s)} | 上涨:${s.up_count} 下跌:${s.down_count} | 领涨:${s.leader || '--'}">
                     <div class="heatmap-cell-name">${App.escapeHTML(s.name)}</div>
                     <div class="heatmap-cell-pct">${pctStr}</div>
-                    ${showDetail ? `<div class="heatmap-cell-detail">${s.up_count}↑${s.down_count}↓</div>` : ''}
+                    ${showDetail ? `<div class="heatmap-cell-detail">${_heatmapWeightMeta(s)} · ${s.up_count}↑${s.down_count}↓</div>` : ''}
                 </div>`;
                 x += w;
             }
             currentRow = [];
-            currentRowMV = 0;
+            currentRowWeight = 0;
         }
 
         for (const s of sectors) {
             currentRow.push(s);
-            currentRowMV += s.total_mv;
-            if (currentRowMV >= rowTargetMV && currentRow.length >= 3) {
+            currentRowWeight += s._weight;
+            if (currentRowWeight >= rowTargetWeight && currentRow.length >= 3) {
                 flushRow();
             }
         }
@@ -292,7 +328,7 @@
     }
 
     async function loadNorthbound(container) {
-        const data = await App.fetchJSON('/api/market/northbound');
+        const data = await fetchFastMarketJSON('/api/market/northbound?fast=true');
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;

@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,15 +21,26 @@ def read_styles() -> str:
     return (ROOT / "dashboard/static/style.css").read_text(encoding="utf-8")
 
 
+def run_node(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["node", "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_agentic_signal_pool_container_and_script_are_registered():
     html = read_template()
     scripts = read_scripts()
+    app = (ROOT / "dashboard/static/app.js").read_text(encoding="utf-8")
 
     assert 'data-subtab="agentic"' in html
     assert 'id="research-panel-agentic"' in html
     assert 'id="agentic-signal-pool"' in html
     assert 'data-agentic-signal-list' in html
-    assert 'agentic-signals.js' in scripts
+    assert 'agentic-signals.js' not in scripts
+    assert '/static/agentic-signals.js?v=16' in app
 
 
 def test_agentic_signal_frontend_fetches_signal_api():
@@ -37,6 +50,59 @@ def test_agentic_signal_frontend_fetches_signal_api():
     assert "renderSignalCard" in js
     assert "data-agentic-action=\"promote-paper\"" in js
     assert "window.AgenticSignals" in js
+
+
+def test_agentic_frontend_does_not_boot_on_unrelated_deep_link():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const requested = [];
+        const listeners = {};
+        const element = { innerHTML: '', dataset: {}, classList: { toggle: () => {} } };
+        global.window = global;
+        global.location = { hash: '#intelligence' };
+        global.document = {
+            addEventListener: (name, handler) => { listeners[name] = handler; },
+            querySelector: (selector) => {
+                if ([
+                    '[data-agentic-sample-status]',
+                    '[data-agentic-signal-list]',
+                    '[data-agentic-paper-candidates]',
+                    '[data-agentic-paper-executions]',
+                    '[data-agentic-order-drafts]',
+                    '[data-agentic-current-action]',
+                    '[data-agentic-next-action]',
+                    '[data-agentic-history]',
+                    '[data-agentic-backtest-result]',
+                    '[data-agentic-candidate-results]',
+                ].includes(selector)) return element;
+                return null;
+            },
+            querySelectorAll: () => [],
+        };
+        global.fetch = async (url) => {
+            requested.push(url);
+            return { ok: true, status: 200, json: async () => ({ success: true }) };
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/agentic-signals.js', 'utf8'));
+        (async () => {
+            listeners.DOMContentLoaded();
+            await Promise.resolve();
+            assert.deepEqual(requested, []);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_agentic_signal_styles_exist():

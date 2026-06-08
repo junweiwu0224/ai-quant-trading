@@ -755,6 +755,9 @@
                     App.initAlpha();
                     this._tabCache[subtab] = Date.now();
                 }
+            } else if (subtab === 'agentic') {
+                await this.ensureBundle?.('research');
+                globalThis.AgenticSignals?.boot?.();
             }
             requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
         },

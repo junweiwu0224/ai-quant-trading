@@ -30,6 +30,36 @@
         }
         return requests[key];
     };
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const fetchWithSoftRetry = async (key, url, opts = {}) => {
+        const { retries = 1, retryDelay = 1500, ...fetchOpts } = opts;
+        let lastError = null;
+        for (let attempt = 0; attempt <= retries; attempt += 1) {
+            try {
+                return await fetchOnce(`${key}:${attempt}`, url, fetchOpts);
+            } catch (error) {
+                lastError = error;
+                if (attempt < retries) {
+                    await delay(retryDelay);
+                }
+            }
+        }
+        throw lastError;
+    };
+    const softTimeout = (promise, timeoutMs) => new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        promise.then(
+            (value) => finish(value),
+            (error) => finish({ __error: error }),
+        );
+    });
     const scoreFromBreadth = (data) => {
         const up = Number(data?.up_count) || 0;
         const down = Number(data?.down_count) || 0;
@@ -77,11 +107,24 @@
         return `<div class="intel-hotspot-status">${parts.join('')}</div>`;
     };
     const buildTreemapTiles = (sectors) => {
-        const ranked = sectors
+        const withWeights = sectors.map((sector) => ({
+            ...sector,
+            hasMarketValueWeight: Number(sector.total_mv) > 0,
+            hasStockCountWeight: Number(sector.stock_count) > 0,
+            weight: Math.max(
+                0,
+                Number(sector.total_mv) ||
+                Number(sector.stock_count) ||
+                ((Number(sector.up_count) || 0) + (Number(sector.down_count) || 0)) ||
+                1,
+            ),
+            change: Number(sector.change_pct) || 0,
+        }));
+        const ranked = withWeights
             .map((sector) => ({
                 ...sector,
-                weight: Math.max(0, Number(sector.total_mv) || 0),
-                change: Number(sector.change_pct) || 0,
+                weight: Math.max(0, Number(sector.weight) || 0),
+                change: Number(sector.change) || 0,
             }))
             .filter((sector) => sector.weight > 0)
             .sort((a, b) => b.weight - a.weight)
@@ -97,6 +140,26 @@
             const rowSpan = span >= 16 ? 2 : 1;
             return { sector, span, rowSpan, share, consumed };
         });
+    };
+    const heatmapWeightLabel = (tiles, data) => {
+        if (tiles.some(({ sector }) => Number(sector.total_mv) > 0)) {
+            return '按板块总市值权重';
+        }
+        if (tiles.some(({ sector }) => Number(sector.stock_count) > 0) || data?.local_fallback) {
+            return '本地覆盖股数权重';
+        }
+        return '板块数量权重';
+    };
+    const heatmapWeightMeta = (sector) => {
+        const marketValue = Number(sector.total_mv);
+        if (Number.isFinite(marketValue) && marketValue > 0) {
+            return `${Math.round(marketValue).toLocaleString('zh-CN')}亿`;
+        }
+        const stockCount = Number(sector.stock_count);
+        if (Number.isFinite(stockCount) && stockCount > 0) {
+            return `${Math.round(stockCount).toLocaleString('zh-CN')}只`;
+        }
+        return '--';
     };
     const renderEvidenceList = (title, items, type) => {
         const rows = (items || []).slice(0, 4);
@@ -208,8 +271,9 @@
                         <span>公式 (上涨-下跌)/(上涨+下跌+平盘)</span>
                     </div>
                 `;
-            } catch {
+            } catch (error) {
                 el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
+                throw error;
             }
         },
 
@@ -219,7 +283,7 @@
             if (!el) return;
 
             try {
-                const data = await fetchOnce('news', '/api/market/news');
+                const data = await fetchWithSoftRetry('news', '/api/market/news');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;
@@ -261,7 +325,8 @@
                         </div>
                     </div>`;
                 }).join('');
-            } catch {
+            } catch (error) {
+                console.warn('情报新闻加载失败', error);
                 el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
             }
         },
@@ -270,18 +335,17 @@
             const el = document.getElementById('intel-heatmap');
             if (!el) return;
 
-            try {
-                const data = await fetchOnce('heatmap', '/api/market/heatmap');
+            const renderHeatmap = (data) => {
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
-                    return;
+                    return false;
                 }
 
-                const sectors = (data.sectors || []).filter((s) => Number(s.total_mv) > 0);
+                const sectors = data.sectors || [];
                 const tiles = buildTreemapTiles(sectors);
                 if (tiles.length === 0) {
                     el.innerHTML = '<div class="text-muted text-center">暂无热力数据</div>';
-                    return;
+                    return false;
                 }
 
                 const upCount = Number.isFinite(Number(data.up_count))
@@ -302,16 +366,17 @@
                 const heatmapSource = data.source || (data.local_fallback ? 'local_stock_daily' : '');
                 const heatmapTime = data.generated_at || data.timestamp || '';
                 const coverageNote = data.coverage_note || (data.local_fallback ? '本地覆盖池降级热力' : '板块热力快照');
+                const weightLabel = heatmapWeightLabel(tiles, data);
 
                 const tileHtml = tiles.map(({ sector, span, rowSpan, share }) => {
                     const change = Number(sector.change_pct) || 0;
                     const pctStr = formatPct(change);
-                    const mvStr = Number.isFinite(Number(sector.total_mv)) ? `${Math.round(Number(sector.total_mv)).toLocaleString('zh-CN')}亿` : '--';
+                    const weightMeta = heatmapWeightMeta(sector);
                     const cls = change >= 0 ? 'up' : 'down';
-                    return `<button class="intel-treemap-tile ${cls}" data-intel-action="query-hotspot" data-concept="${safeHTML(sector.name || '')}" style="grid-column: span ${span};grid-row: span ${rowSpan};background:${heatColor(change)};color:${heatTextColor(change)}" title="${safeHTML(sector.name || '')} ${pctStr} · 市值权重 ${(share * 100).toFixed(1)}% · 领涨 ${safeHTML(sector.leader || '--')}">
+                    return `<button class="intel-treemap-tile ${cls}" data-intel-action="query-hotspot" data-concept="${safeHTML(sector.name || '')}" style="grid-column: span ${span};grid-row: span ${rowSpan};background:${heatColor(change)};color:${heatTextColor(change)}" title="${safeHTML(sector.name || '')} ${pctStr} · ${safeHTML(weightLabel)} ${(share * 100).toFixed(1)}% · 领涨 ${safeHTML(sector.leader || '--')}">
                         <span class="treemap-name">${safeHTML(sector.name || '')}</span>
                         <span class="treemap-pct">${pctStr}</span>
-                        <span class="treemap-meta">${mvStr} · ${Number(sector.up_count) || 0}↑ ${Number(sector.down_count) || 0}↓</span>
+                        <span class="treemap-meta">${weightMeta} · ${Number(sector.up_count) || 0}↑ ${Number(sector.down_count) || 0}↓</span>
                     </button>`;
                 }).join('');
 
@@ -323,7 +388,7 @@
                             <span>平盘 ${flatCount}</span>
                             <span>均值 ${formatPct(avgChange)}</span>
                             <span>全量板块 ${formatCount(totalCount)} · 当前展示 ${formatCount(displayCount)}</span>
-                            <span>口径 按板块总市值权重展示 Top 32</span>
+                            <span>口径 ${safeHTML(weightLabel)}展示 Top 32</span>
                             ${heatmapSource ? `<span>来源 ${safeHTML(sourceLabel(heatmapSource))}</span>` : ''}
                             ${heatmapTime ? `<span>更新 ${safeHTML(heatmapTime)}</span>` : ''}
                             ${data.stale ? '<span>缓存/降级</span>' : ''}
@@ -335,7 +400,61 @@
                         </div>
                     </div>
                     <div class="intel-treemap">${tileHtml}</div>`;
-            } catch {
+                return true;
+            };
+
+            try {
+                const configuredTimeout = Number(Intelligence.state?.heatmapSoftTimeoutMs);
+                const heatmapSoftTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+                    ? configuredTimeout
+                    : 2500;
+                const configuredFallbackDelay = Number(Intelligence.state?.heatmapFallbackDelayMs);
+                const heatmapFallbackDelayMs = Number.isFinite(configuredFallbackDelay) && configuredFallbackDelay > 0
+                    ? configuredFallbackDelay
+                    : 3500;
+                const heatmapPromise = fetchWithSoftRetry('heatmap', '/api/market/heatmap?fast=true');
+                const quickData = await softTimeout(heatmapPromise, heatmapSoftTimeoutMs);
+                if (quickData && quickData.__error) {
+                    throw quickData.__error;
+                }
+                if (quickData) {
+                    renderHeatmap(quickData);
+                    return;
+                }
+                const loadToken = `${Date.now()}:${Math.random()}`;
+                el.dataset.heatmapLoadingToken = loadToken;
+                el.innerHTML = `<div class="text-muted text-center intel-heatmap-loading" style="padding:24px">
+                    热力图后台更新中<br><small>使用本地全市场覆盖池生成，完成后自动刷新</small>
+                </div>`;
+                heatmapPromise
+                    .then((data) => {
+                        if (el.dataset.heatmapLoadingToken === loadToken) {
+                            renderHeatmap(data);
+                        }
+                    })
+                    .catch((error) => {
+                        console.warn('情报热力图后台加载失败', error);
+                        el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
+                    });
+                setTimeout(() => {
+                    if (el.dataset.heatmapLoadingToken !== loadToken || !el.querySelector?.('.intel-heatmap-loading')) {
+                        return;
+                    }
+                    fetchWithSoftRetry(`heatmap:fallback:${loadToken}`, '/api/market/heatmap?fast=true', { retries: 0 })
+                        .then((data) => {
+                            if (el.dataset.heatmapLoadingToken === loadToken) {
+                                renderHeatmap(data);
+                            }
+                        })
+                        .catch((error) => {
+                            console.warn('情报热力图兜底加载失败', error);
+                            if (el.dataset.heatmapLoadingToken === loadToken) {
+                                el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
+                            }
+                        });
+                }, heatmapFallbackDelayMs);
+            } catch (error) {
+                console.warn('情报热力图加载失败', error);
                 el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
             }
         },
@@ -345,7 +464,7 @@
             if (!el) return;
 
             try {
-                const data = await fetchOnce('hotspot', '/api/market/hotspot');
+                const data = await fetchWithSoftRetry('hotspot', '/api/market/hotspot');
                 if (!data.success) {
                     el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
                     return;
@@ -376,7 +495,8 @@
                 html += renderEvidenceList('主力净流入', data.fund_flow || [], 'flow');
                 html += '</div>';
                 el.innerHTML = html;
-            } catch {
+            } catch (error) {
+                console.warn('情报热点归因加载失败', error);
                 el.innerHTML = '<div class="text-muted text-center">加载失败</div>';
             }
         },

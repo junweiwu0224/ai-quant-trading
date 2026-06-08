@@ -46,6 +46,8 @@
 - 针对受影响前端页面的 browser smoke。
 - 受影响 E2E：`scripts/e2e-local.sh smoke` 或 `scripts/e2e-local.sh data-health`。
 
+本地 Dashboard/dev server 或 E2E server 启动属于人工触发的标准交付门禁：需要监听 `localhost`/`127.0.0.1` 时默认外部/非沙箱执行启动，但页面验证仍使用 Codex in-app Browser。启动前检查端口/PID，验证后清理临时服务。
+
 ### Level 3：高风险门禁
 
 需要用户确认或专门环境：
@@ -72,6 +74,7 @@
 ## 禁止放入 hooks
 
 - `docker compose up -d`、`docker compose down`。
+- 本地 Dashboard/dev server、E2E server 或任何长期监听端口的命令。
 - 安装依赖、升级依赖、修改 lock 文件。
 - 数据同步、数据库迁移、清库、清缓存。
 - OpenClaw/LLM 真实外部调用。

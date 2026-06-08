@@ -168,6 +168,273 @@ def test_authenticated_session_initializes_overview_widgets_after_auth_gate():
     assert result.returncode == 0, result.stderr
 
 
+def test_authenticated_session_does_not_block_overview_widgets_on_slow_overview_load():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const calls = [];
+        let resolveOverview;
+        global.window = global;
+        global.addEventListener = () => {};
+        global.document = {
+            addEventListener: () => {},
+            getElementById: () => null,
+            hidden: false,
+            body: { classList: { add: () => {}, toggle: () => {} } },
+        };
+        global.location = { hash: '#overview' };
+        global.globalThis = global;
+        global.localStorage = { getItem: () => null, setItem: () => {} };
+        global.ENABLE_WORKSPACE_V2 = false;
+        global.PollManager = { pauseAll: () => {}, resumeAll: () => {}, destroy: () => {} };
+        global.Watchlist = { init: () => calls.push('watchlist:init') };
+        global.RealtimeQuotes = {
+            onUpdate: () => calls.push('realtime:onUpdate'),
+            connect: () => calls.push('realtime:connect'),
+        };
+
+        global.App = {
+            ensureBundle: async (name) => calls.push(`bundle:${name}`),
+            loadOverview: async () => {
+                calls.push('overview:start');
+                await new Promise((resolve) => { resolveOverview = resolve; });
+                calls.push('overview:done');
+            },
+            _syncTabFromHash: () => calls.push('tab:sync'),
+            _startMarketRefresh: () => calls.push('market:start'),
+            _setTabTitle: () => {},
+            fetchJSON: async () => ({}),
+            toast: () => {},
+        };
+        global.App.OverviewRadar = { init: async () => calls.push('radar:init') };
+        global.App.Alerts = { init: async () => calls.push('alerts:init') };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-bootstrap.js', 'utf8'));
+        App.setDefaultDate = () => calls.push('date:default');
+
+        (async () => {
+            const session = App._activateAuthenticatedSession();
+            await Promise.resolve();
+            await Promise.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            assert.deepEqual(
+                calls.filter((item) => ['overview:start', 'radar:init', 'alerts:init'].includes(item)),
+                ['radar:init', 'alerts:init', 'overview:start'],
+            );
+
+            resolveOverview();
+            await session;
+            assert.ok(calls.includes('overview:done'));
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_authenticated_session_prioritizes_deep_link_before_overview_work():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const calls = [];
+        global.window = global;
+        global.addEventListener = () => {};
+        global.document = {
+            addEventListener: () => {},
+            getElementById: () => null,
+            hidden: false,
+            body: { classList: { add: () => {}, toggle: () => {} } },
+        };
+        global.location = { hash: '#intelligence' };
+        global.globalThis = global;
+        global.localStorage = { getItem: () => null, setItem: () => {} };
+        global.ENABLE_WORKSPACE_V2 = false;
+        global.PollManager = { pauseAll: () => {}, resumeAll: () => {}, destroy: () => {} };
+        global.Watchlist = { init: () => calls.push('watchlist:init') };
+        global.RealtimeQuotes = {
+            onUpdate: () => calls.push('realtime:onUpdate'),
+            connect: () => calls.push('realtime:connect'),
+        };
+
+        global.App = {
+            ensureBundle: async (name) => calls.push(`bundle:${name}`),
+            loadOverview: async () => calls.push('overview:load'),
+            _syncTabFromHash: () => calls.push('tab:sync'),
+            _startMarketRefresh: () => calls.push('market:start'),
+            _setTabTitle: () => {},
+            fetchJSON: async () => ({}),
+            toast: () => {},
+        };
+        global.App.OverviewRadar = { init: async () => calls.push('radar:init') };
+        global.App.Alerts = { init: async () => calls.push('alerts:init') };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-bootstrap.js', 'utf8'));
+        App.setDefaultDate = () => calls.push('date:default');
+
+        (async () => {
+            await App._activateAuthenticatedSession();
+            assert.equal(calls[0], 'date:default');
+            assert.ok(calls.includes('tab:sync'));
+            assert.ok(!calls.includes('overview:load'));
+            assert.ok(!calls.includes('radar:init'));
+            assert.ok(!calls.includes('alerts:init'));
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_authenticated_session_defers_overview_realtime_work_on_deep_link():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const calls = [];
+        global.window = global;
+        global.addEventListener = () => {};
+        global.document = {
+            addEventListener: () => {},
+            getElementById: () => null,
+            hidden: false,
+            body: { classList: { add: () => {}, toggle: () => {} } },
+        };
+        global.location = { hash: '#intelligence' };
+        global.globalThis = global;
+        global.localStorage = { getItem: () => null, setItem: () => {} };
+        global.ENABLE_WORKSPACE_V2 = false;
+        global.PollManager = { pauseAll: () => {}, resumeAll: () => {}, destroy: () => {} };
+        global.Watchlist = { init: () => calls.push('watchlist:init') };
+        global.RealtimeQuotes = {
+            onUpdate: () => calls.push('realtime:onUpdate'),
+            connect: () => calls.push('realtime:connect'),
+        };
+
+        global.App = {
+            ensureBundle: async (name) => calls.push(`bundle:${name}`),
+            loadOverview: async () => calls.push('overview:load'),
+            _syncTabFromHash: () => calls.push('tab:sync'),
+            _startMarketRefresh: () => calls.push('market:start'),
+            _setTabTitle: () => {},
+            fetchJSON: async () => ({}),
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-bootstrap.js', 'utf8'));
+        App.setDefaultDate = () => calls.push('date:default');
+
+        (async () => {
+            await App._activateAuthenticatedSession();
+            assert.ok(calls.includes('tab:sync'));
+            assert.ok(!calls.includes('market:start'));
+            assert.ok(!calls.includes('realtime:connect'));
+            assert.ok(!calls.includes('realtime:onUpdate'));
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_bootstrap_preloads_deep_link_bundle_while_account_state_loads():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const calls = [];
+        let resolveAccount;
+        global.window = global;
+        global.addEventListener = () => {};
+        global.document = {
+            addEventListener: () => {},
+            getElementById: () => null,
+            hidden: false,
+            body: { classList: { add: () => {}, toggle: () => {} } },
+        };
+        global.location = { hash: '#intelligence' };
+        global.globalThis = global;
+        global.localStorage = { getItem: () => null, setItem: () => {} };
+        global.ENABLE_WORKSPACE_V2 = false;
+        global.PollManager = { pauseAll: () => {}, resumeAll: () => {}, destroy: () => {} };
+        global.Watchlist = { init: () => calls.push('watchlist:init') };
+        global.RealtimeQuotes = {
+            onUpdate: () => calls.push('realtime:onUpdate'),
+            connect: () => calls.push('realtime:connect'),
+        };
+
+        global.App = {
+            ensureBundle: async (name) => calls.push(`bundle:${name}`),
+            _loadAccountState: async () => {
+                calls.push('account:start');
+                await new Promise((resolve) => { resolveAccount = resolve; });
+                calls.push('account:done');
+                return { user: { username: 'local' } };
+            },
+            _setAuthGate: () => calls.push('auth:gate'),
+            _initTableSorting: () => {},
+            _initCommandPalette: () => {},
+            _initGlobalShortcuts: () => {},
+            _initPWA: () => {},
+            bindTabs: () => {},
+            bindStaticActions: () => {},
+            _syncTabFromHash: () => calls.push('tab:sync'),
+            _activateAuthenticatedSession: async () => calls.push('session:activate'),
+            fetchJSON: async () => ({}),
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/app-bootstrap.js', 'utf8'));
+        App._activateAuthenticatedSession = async () => calls.push('session:activate');
+
+        (async () => {
+            const pending = App._bootstrapAuthAndApp();
+            await Promise.resolve();
+            await Promise.resolve();
+            assert.deepEqual(calls.slice(0, 2), ['bundle:intelligence', 'account:start']);
+            assert.ok(!calls.includes('app:start'));
+
+            resolveAccount();
+            await pending;
+            assert.ok(calls.includes('account:done'));
+            assert.ok(calls.includes('session:activate'));
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_switch_tab_action_can_open_research_datahub_subtab():
     script = textwrap.dedent(
         r"""

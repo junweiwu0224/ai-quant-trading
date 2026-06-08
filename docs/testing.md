@@ -34,6 +34,16 @@
 - OpenClaw E2E mock 要对齐真实 API 响应形状；切到设置页后等待 `/api/openclaw/status` 等异步状态请求完成，再断言 Skill 历史、权限或服务状态。
 - E2E 会产生 `test-results/`，该目录已在 `.gitignore` 中忽略。
 
+## 本地 QA / Dev Server
+
+Dashboard/dev server、E2E server 或任何需要监听 `localhost`/`127.0.0.1` 端口的浏览器 QA 命令，默认用外部/非沙箱执行启动；页面验证仍优先使用 Codex in-app Browser，以保留可视化检查、DOM 检查、console 检查和桌面/移动视口验证。
+
+- 启动前检查 `8001` 是否已有监听进程，并确认旧进程是否健康；不要把沙箱内 `curl 127.0.0.1` 失败直接当成服务不可用，必要时用 in-app Browser 做真实访问确认。
+- 优先使用项目脚本启动，例如 `.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service`。
+- E2E 和 browser smoke 使用本地测试数据，不执行真实交易、真实数据同步、外部 LLM/OpenClaw 写操作或生产配置变更。
+- 记录端口、PID 或后台会话；验证完成后停止临时服务，除非用户明确要求保留。
+- 普通 pytest、compileall、context pack verifier、静态前端契约测试等不需要监听端口的命令仍按常规执行。
+
 ## 测试环境
 
 `tests/conftest.py` 会设置：

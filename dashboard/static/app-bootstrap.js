@@ -15,13 +15,26 @@
         },
 
         async _bootstrapAuthAndApp() {
+            const routeBundlePromise = this._preloadCurrentRouteBundle?.();
             const account = await this._loadAccountState?.();
             if (!account) {
                 this._setAuthGate(true, { required: true });
                 return;
             }
+            await routeBundlePromise;
             this._setAuthGate(false);
             this._startAuthenticatedApp();
+        },
+
+        _preloadCurrentRouteBundle() {
+            const currentRoute = (location.hash || '').replace(/^#/, '') || 'overview';
+            const route = this._normalizeTab ? this._normalizeTab(currentRoute) : currentRoute;
+            if (!route || route === 'overview' || typeof this.ensureBundle !== 'function') {
+                return Promise.resolve();
+            }
+            return this.ensureBundle(route).catch((error) => {
+                console.warn('当前页面资源预加载失败', error);
+            });
         },
 
         _startAuthenticatedApp() {
@@ -140,10 +153,14 @@
         async _activateAuthenticatedSession() {
             this._sessionActive = true;
 
+            const currentHash = location.hash || '';
+            const currentRoute = currentHash.replace(/^#/, '') || 'overview';
+            const isOverviewRoute = currentRoute === 'overview';
+
             if (typeof this.setDefaultDate === 'function') {
                 void this.setDefaultDate();
             }
-            if (typeof this.loadStockList === 'function') {
+            if (isOverviewRoute && typeof this.loadStockList === 'function') {
                 void this.loadStockList();
             }
             if (typeof this.loadBenchmarks === 'function') {
@@ -152,7 +169,7 @@
             if (typeof this.initSidebar === 'function') {
                 this.initSidebar();
             }
-            if (typeof this._startMarketRefresh === 'function') {
+            if (isOverviewRoute && typeof this._startMarketRefresh === 'function') {
                 this._startMarketRefresh();
             }
             if (!this._watchlistBound) {
@@ -160,20 +177,15 @@
                 Watchlist.init();
             }
 
-            if (!this._realtimeUpdateBound) {
+            if (isOverviewRoute && !this._realtimeUpdateBound) {
                 this._realtimeUpdateBound = true;
                 RealtimeQuotes.onUpdate((data) => {
                     if (data._status) return;
                     this._updateWatchlistPrices(data);
                 });
+                RealtimeQuotes.connect();
             }
-            RealtimeQuotes.connect();
 
-            if (typeof this.loadOverview === 'function') {
-                await this.loadOverview();
-            }
-            await this._initOverviewWidgets?.();
-            const currentHash = location.hash || '';
             if (currentHash === '#stock') {
                 const restoredCode = await this._resolveStockRouteInitialCode();
                 if (restoredCode) {
@@ -181,6 +193,15 @@
                     await this.switchTab('stock', { replaceHash: false });
                     return;
                 }
+            }
+            if (currentRoute !== 'overview') {
+                this._syncTabFromHash();
+                return;
+            }
+
+            await this._initOverviewWidgets?.();
+            if (typeof this.loadOverview === 'function') {
+                await this.loadOverview();
             }
             this._syncTabFromHash();
         },

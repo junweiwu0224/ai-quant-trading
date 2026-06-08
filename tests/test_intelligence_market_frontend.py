@@ -13,6 +13,16 @@ def run_node(script: str) -> subprocess.CompletedProcess:
     )
 
 
+def test_intelligence_template_initial_state_is_loading_not_zero_or_dash():
+    template = Path("dashboard/templates/index.html").read_text(encoding="utf-8")
+
+    assert '<div class="signal-bar-score" id="signal-bar-score">加载中</div>' in template
+    assert '等待全市场广度' in template
+    assert '<span class="badge badge-sm" id="intel-news-count">--</span>' in template
+    assert '<span class="badge badge-sm" id="intel-news-count">0</span>' not in template
+    assert '<div class="signal-bar-score" id="signal-bar-score">--</div>' not in template
+
+
 def test_intelligence_heatmap_renders_weighted_treemap():
     script = textwrap.dedent(
         r"""
@@ -48,7 +58,7 @@ def test_intelligence_heatmap_renders_weighted_treemap():
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#x27;'),
             fetchJSON: async (url) => {
-                assert.equal(url, '/api/market/heatmap');
+                assert.equal(url, '/api/market/heatmap?fast=true');
                 return {
                     success: true,
                     total: 496,
@@ -88,6 +98,245 @@ def test_intelligence_heatmap_renders_weighted_treemap():
             assert.match(heatmap.innerHTML, /更新 2026-05-26T10:31:00/);
             assert.match(heatmap.innerHTML, /东方财富行业板块全量分页快照/);
             assert.doesNotMatch(heatmap.innerHTML, /class="heatmap-grid"/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_heatmap_renders_local_fast_rows_without_market_value():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                offsetWidth: 720,
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const heatmap = makeElement('intel-heatmap');
+        const elements = { 'intel-heatmap': heatmap };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/heatmap?fast=true');
+                return {
+                    success: true,
+                    fast: true,
+                    local_fallback: true,
+                    source: 'local_stock_daily',
+                    total: 2,
+                    up_count: 2,
+                    down_count: 0,
+                    flat_count: 0,
+                    avg_change_pct: 1.75,
+                    coverage_note: '本地 stock_daily 覆盖池，按行业聚合',
+                    sectors: [
+                        { name: '银行', change_pct: 1.0, total_mv: 0, stock_count: 42, up_count: 41, down_count: 1, leader: '平安银行' },
+                        { name: '电池', change_pct: 2.5, total_mv: 0, stock_count: 8, up_count: 8, down_count: 0, leader: '宁德时代' },
+                    ],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadHeatmap();
+            assert.match(heatmap.innerHTML, /intel-treemap/);
+            assert.match(heatmap.innerHTML, /intel-treemap-tile/);
+            assert.match(heatmap.innerHTML, /银行/);
+            assert.match(heatmap.innerHTML, /电池/);
+            assert.match(heatmap.innerHTML, /42只 · 41↑ 1↓/);
+            assert.match(heatmap.innerHTML, /8只 · 8↑ 0↓/);
+            assert.match(heatmap.innerHTML, /口径 本地覆盖股数权重展示 Top 32/);
+            assert.match(heatmap.innerHTML, /来源 本地日线覆盖池/);
+            assert.doesNotMatch(heatmap.innerHTML, /暂无热力数据/);
+            assert.doesNotMatch(heatmap.innerHTML, /0亿 · 41↑ 1↓/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_heatmap_shows_soft_placeholder_when_fast_request_is_slow():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '<div class="skeleton-block skeleton-pulse"></div>',
+                textContent: '',
+                dataset: {},
+                offsetWidth: 720,
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector(selector) {
+                    if (selector === '.intel-heatmap-loading' && this.innerHTML.includes('intel-heatmap-loading')) {
+                        return {};
+                    }
+                    return null;
+                },
+            };
+        }
+
+        const heatmap = makeElement('intel-heatmap');
+        const elements = { 'intel-heatmap': heatmap };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async () => new Promise(() => {}),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+        Intelligence.state = { heatmapSoftTimeoutMs: 25 };
+
+        (async () => {
+            const result = await Promise.race([
+                Intelligence.loadHeatmap().then(() => 'resolved'),
+                new Promise((resolve) => setTimeout(() => resolve('timeout'), 80)),
+            ]);
+            assert.equal(result, 'resolved');
+            assert.match(heatmap.innerHTML, /后台更新中/);
+            assert.doesNotMatch(heatmap.innerHTML, /skeleton-block/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_heatmap_fallback_replaces_slow_placeholder_with_tiles():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '<div class="skeleton-block skeleton-pulse"></div>',
+                textContent: '',
+                dataset: {},
+                offsetWidth: 720,
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector(selector) {
+                    if (selector === '.intel-heatmap-loading' && this.innerHTML.includes('intel-heatmap-loading')) {
+                        return {};
+                    }
+                    return null;
+                },
+            };
+        }
+
+        const heatmap = makeElement('intel-heatmap');
+        const elements = { 'intel-heatmap': heatmap };
+        const calls = [];
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (calls.length === 1) {
+                    return new Promise(() => {});
+                }
+                return {
+                    success: true,
+                    fast: true,
+                    local_fallback: true,
+                    source: 'local_stock_daily',
+                    total: 2,
+                    up_count: 1,
+                    down_count: 1,
+                    flat_count: 0,
+                    avg_change_pct: 0.4,
+                    coverage_note: '本地 stock_daily 覆盖池，按交易板块聚合',
+                    sectors: [
+                        { name: '沪主板', change_pct: 0.9, total_mv: 0, stock_count: 1705, up_count: 964, down_count: 688, leader: '曙光股份' },
+                        { name: '科创板', change_pct: -0.3, total_mv: 0, stock_count: 610, up_count: 296, down_count: 311, leader: '中船特气' },
+                    ],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+        Intelligence.state = { heatmapSoftTimeoutMs: 20, heatmapFallbackDelayMs: 30 };
+
+        (async () => {
+            await Intelligence.loadHeatmap();
+            assert.match(heatmap.innerHTML, /后台更新中/);
+
+            await new Promise((resolve) => setTimeout(resolve, 90));
+            assert.deepEqual(calls, ['/api/market/heatmap?fast=true', '/api/market/heatmap?fast=true']);
+            assert.match(heatmap.innerHTML, /intel-treemap/);
+            assert.match(heatmap.innerHTML, /沪主板/);
+            assert.match(heatmap.innerHTML, /科创板/);
+            assert.doesNotMatch(heatmap.innerHTML, /后台更新中/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -423,6 +672,81 @@ def test_intelligence_news_empty_state_keeps_timestamp_and_source_context():
     assert result.returncode == 0, result.stderr
 
 
+def test_intelligence_news_retries_once_after_transient_failure():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const list = makeElement('intel-news-list');
+        const count = makeElement('intel-news-count');
+        const elements = {
+            'intel-news-list': list,
+            'intel-news-count': count,
+        };
+        let calls = 0;
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/news');
+                calls += 1;
+                if (calls === 1) {
+                    throw new Error('请求超时');
+                }
+                return {
+                    success: true,
+                    timestamp: '2026-06-06T23:20:00',
+                    source: 'eastmoney_news',
+                    news: [
+                        { title: '政策催化带动板块活跃', time: '2026-06-06 22:42:26', source: '东方财富快讯', sentiment: 0.2 },
+                    ],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadNews();
+            assert.equal(calls, 2);
+            assert.equal(String(count.textContent), '1');
+            assert.match(list.innerHTML, /政策催化带动板块活跃/);
+            assert.doesNotMatch(list.innerHTML, /加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_intelligence_signal_bar_uses_full_market_breadth_only():
     script = textwrap.dedent(
         r"""
@@ -569,8 +893,8 @@ def test_intelligence_signal_bar_recovers_when_shared_breadth_arrives_after_time
         (async () => {
             const loading = Intelligence.loadSignalBar();
             await new Promise((resolve) => setTimeout(resolve, 1600));
-            assert.equal(score.textContent, '--');
-            assert.match(sources.innerHTML, /广度不可用/);
+            assert.equal(score.textContent, '计算中');
+            assert.match(sources.innerHTML, /全市场广度计算中/);
 
             resolveBreadth({
                 success: true,
@@ -588,7 +912,7 @@ def test_intelligence_signal_bar_recovers_when_shared_breadth_arrives_after_time
             assert.equal(score.textContent, '广度分 +17');
             assert.match(sources.innerHTML, /口径 全市场广度/);
             assert.match(sources.innerHTML, /样本 5,515\/5,525/);
-            assert.doesNotMatch(sources.innerHTML, /广度不可用/);
+            assert.doesNotMatch(sources.innerHTML, /全市场广度计算中/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -757,9 +1081,14 @@ def test_intelligence_signal_pool_renders_validation_summary():
 
         (async () => {
             await Intelligence.loadMLPredictions();
-            assert.deepEqual(calls, ['/api/signals/top?limit=50', '/api/signals/validation?top_n=50']);
+            assert.deepEqual(calls, ['/api/signals/top?limit=50']);
             assert.match(panel.innerHTML, /AI 信号池/);
             assert.match(panel.innerHTML, /验证摘要/);
+            assert.match(panel.innerHTML, /状态 未验证/);
+            assert.match(panel.innerHTML, /历史验证后台更新中/);
+
+            await Intelligence.state.signalValidationLoadingPromise;
+            assert.deepEqual(calls, ['/api/signals/top?limit=50', '/api/signals/validation?top_n=50']);
             assert.match(panel.innerHTML, /样本 42 天/);
             assert.match(panel.innerHTML, /Top超额 \+1\.23%/);
             assert.match(panel.innerHTML, /胜率 58\.6%/);
@@ -855,6 +1184,11 @@ def test_intelligence_signal_pool_rows_use_provider_validation_when_record_unver
 
         (async () => {
             await Intelligence.loadMLPredictions();
+            assert.match(panel.innerHTML, /全市场 5,197 只 · Top 1 · 未验证/);
+            assert.match(panel.innerHTML, /状态 未验证/);
+            assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">未验证<\/td>/);
+
+            await Intelligence.state.signalValidationLoadingPromise;
             assert.match(panel.innerHTML, /全市场 5,197 只 · Top 1 · 验证中性/);
             assert.match(panel.innerHTML, /状态 验证中性/);
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证中性<\/td>/);
@@ -873,7 +1207,90 @@ def test_intelligence_signal_pool_rows_use_provider_validation_when_record_unver
     assert result.returncode == 0, result.stderr
 
 
-def test_intelligence_load_retries_failed_signal_pool_after_other_modules_succeed():
+def test_intelligence_signal_pool_first_paint_does_not_request_slow_validation():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+            };
+        }
+
+        const panel = makeElement('intel-ml-pred');
+        const elements = { 'intel-ml-pred': panel };
+        const calls = [];
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url === '/api/signals/validation?top_n=50') {
+                    await new Promise(() => {});
+                }
+                if (url === '/api/signals/top?limit=50') {
+                    return {
+                        success: true,
+                        date: '2026-06-05',
+                        total: 5197,
+                        provider: 'local_momentum',
+                        model_version: 'local_momentum_v1',
+                        raw_source: 'legacy_qlib',
+                        generated_at: '2026-06-07T12:30:00',
+                        predictions: [
+                            { code: '600519', name: '贵州茅台', score: 0.91, price: 1600, signal_confidence: 'unverified' },
+                        ],
+                    };
+                }
+                throw new Error(`unexpected url: ${url}`);
+            },
+            toast: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-signals.js', 'utf8'));
+
+        (async () => {
+            const result = await Promise.race([
+                Intelligence.loadMLPredictions().then(() => 'loaded'),
+                new Promise((resolve) => setTimeout(() => resolve('timeout'), 25)),
+            ]);
+            assert.equal(result, 'loaded');
+            assert.deepEqual(calls, ['/api/signals/top?limit=50']);
+            assert.match(panel.innerHTML, /AI 信号池/);
+            assert.match(panel.innerHTML, /状态 未验证/);
+            assert.doesNotMatch(panel.innerHTML, /预测加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_load_does_not_block_market_modules_on_slow_signal_pool():
     script = textwrap.dedent(
         r"""
         const assert = require('node:assert/strict');
@@ -884,6 +1301,156 @@ def test_intelligence_load_retries_failed_signal_pool_after_other_modules_succee
         global.document = {
             readyState: 'complete',
             addEventListener: () => {},
+            getElementById: () => null,
+        };
+        global.__AUTH_GATE_REQUIRED__ = false;
+        global.App = {
+            registerContext: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+
+        const calls = [];
+        let resolveSignal;
+        Intelligence.loadSentiment = async () => calls.push('sentiment');
+        Intelligence.loadNews = async () => calls.push('news');
+        Intelligence.loadHeatmap = async () => calls.push('heatmap');
+        Intelligence.loadHotspot = async () => calls.push('hotspot');
+        Intelligence.loadMLPredictions = async () => {
+            calls.push('signals:start');
+            await new Promise((resolve) => { resolveSignal = resolve; });
+            calls.push('signals:done');
+        };
+        Intelligence.loadSignalBar = async () => calls.push('signalBar');
+
+        (async () => {
+            const result = await Intelligence.load();
+            assert.deepEqual(result.map((item) => item.status), ['fulfilled', 'fulfilled', 'fulfilled', 'fulfilled']);
+            assert.ok(calls.includes('sentiment'));
+            assert.ok(calls.includes('news'));
+            assert.ok(calls.includes('heatmap'));
+            assert.ok(calls.includes('hotspot'));
+            assert.ok(calls.includes('signals:start'));
+            assert.equal(Intelligence.state.marketLoaded, true);
+            assert.equal(Intelligence.state.loaded, false);
+
+            resolveSignal();
+            await Intelligence.state.backgroundLoadingPromise;
+            assert.ok(calls.includes('signals:done'));
+            assert.equal(Intelligence.state.loaded, true);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_load_retries_real_sentiment_failure_after_error_state():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const sentiment = makeElement('intel-sentiment');
+        const elements = { 'intel-sentiment': sentiment };
+        let breadthCalls = 0;
+
+        global.window = global;
+        global.document = {
+            readyState: 'complete',
+            addEventListener: () => {},
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+        };
+        global.__AUTH_GATE_REQUIRED__ = false;
+        global.App = {
+            registerContext: () => {},
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                if (url !== '/api/market/breadth') {
+                    throw new Error(`unexpected url: ${url}`);
+                }
+                breadthCalls += 1;
+                if (breadthCalls === 1) {
+                    throw new Error('请求超时');
+                }
+                return {
+                    success: true,
+                    source: 'local_stock_daily',
+                    stock_count: 5525,
+                    effective_count: 5515,
+                    up_count: 2982,
+                    down_count: 2089,
+                    flat_count: 124,
+                    limit_up: 96,
+                    limit_down: 19,
+                    latest_date: '2026-06-05',
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            const first = await Intelligence.load();
+            assert.equal(first[0].status, 'rejected');
+            assert.equal(Intelligence.state.loadedModules.sentiment, undefined);
+            assert.equal(Intelligence.state.marketLoaded, false);
+            assert.match(sentiment.innerHTML, /加载失败/);
+
+            const second = await Intelligence.load();
+            assert.equal(second[0].status, 'fulfilled');
+            assert.equal(breadthCalls, 2);
+            assert.equal(Intelligence.state.loadedModules.sentiment, true);
+            assert.equal(Intelligence.state.marketLoaded, true);
+            assert.match(sentiment.innerHTML, /上涨/);
+            assert.doesNotMatch(sentiment.innerHTML, /加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_load_retries_failed_signal_pool_after_market_modules_succeed():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = global;
+        global.document = {
+            readyState: 'complete',
+            addEventListener: () => {},
+            getElementById: () => null,
         };
         global.__AUTH_GATE_REQUIRED__ = false;
         global.App = {
@@ -906,15 +1473,91 @@ def test_intelligence_load_retries_failed_signal_pool_after_other_modules_succee
 
         (async () => {
             const first = await Intelligence.load();
-            assert.deepEqual(first.map((item) => item.status), ['fulfilled', 'rejected']);
+            await Intelligence.state.backgroundLoadingPromise;
+            assert.deepEqual(first.map((item) => item.status), ['fulfilled']);
+            assert.equal(Intelligence.state.marketLoaded, true);
             assert.equal(Intelligence.state.loaded, false);
             assert.equal(signalCalls, 1);
 
             const second = await Intelligence.load();
-            assert.deepEqual(second.map((item) => item.status), ['fulfilled']);
+            await Intelligence.state.backgroundLoadingPromise;
+            assert.deepEqual(second.map((item) => item.status), []);
             assert.equal(signalCalls, 2);
             assert.equal(newsCalls, 1);
             assert.equal(Intelligence.state.loaded, true);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_intelligence_hotspot_retries_once_after_transient_failure():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const hotspot = makeElement('intel-hotspot');
+        const elements = { 'intel-hotspot': hotspot };
+        let calls = 0;
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/market/hotspot');
+                calls += 1;
+                if (calls === 1) {
+                    throw new Error('请求超时');
+                }
+                return {
+                    success: true,
+                    timestamp: '2026-05-26 10:30:00',
+                    partial_errors: ['concept', 'industry', 'fund_flow'],
+                    summary: '暂无热点数据',
+                    hot_concepts: [],
+                    hot_industries: [],
+                    fund_flow: [],
+                };
+            },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-market.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.loadHotspot();
+            assert.equal(calls, 2);
+            assert.match(hotspot.innerHTML, /暂无热点数据/);
+            assert.match(hotspot.innerHTML, /数据源异常/);
+            assert.match(hotspot.innerHTML, /暂无数据/);
+            assert.doesNotMatch(hotspot.innerHTML, /加载失败/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -934,16 +1577,17 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     app_ui_shell = Path("dashboard/static/app-ui-shell.js").read_text(encoding="utf-8")
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
-    assert "/static/intelligence.js?v=5" in app_js
-    assert "/static/intelligence-market.js?v=7" in app_js
+    assert "/static/intelligence.js?v=6" in app_js
+    assert "/static/intelligence-market.js?v=12" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=6" in app_js
+    assert "/static/intelligence-signals.js?v=8" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=71" in scripts
-    assert "/static/app-ui-shell.js?v=22" in scripts
-    assert "/sw.js?v=33" in app_ui_shell
-    assert "ai-quant-v112" in service_worker
-    assert "/static/intelligence-signals.js" in service_worker
+    assert "/static/app.js?v=75" in scripts
+    assert "/static/app-ui-shell.js?v=26" in scripts
+    assert "/sw.js?v=38" in app_ui_shell
+    assert "ai-quant-v121" in service_worker
+    static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
+    assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
     assert ".intel-treemap" in styles
     assert ".intel-hotspot-status" in styles
@@ -1061,7 +1705,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=22" in scripts
+    assert "/static/core/app-shell.js?v=25" in scripts
 
 
 def test_iwencai_ai_analysis_uses_focused_summary_rows_not_raw_fields():

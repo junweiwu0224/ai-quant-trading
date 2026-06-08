@@ -1,4 +1,6 @@
 import sqlite3
+import asyncio
+import time
 from pathlib import Path
 
 
@@ -118,3 +120,36 @@ def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
     assert payload["total"] == 2
     assert payload["fast_mode"] is True
     assert "validation" not in payload
+
+
+def test_signal_validation_endpoint_runs_validation_off_event_loop(monkeypatch):
+    from data.signals.models import SignalValidationSummary
+    from dashboard.routers import signals
+
+    async def ticker():
+        await asyncio.sleep(0.01)
+        return "tick"
+
+    def slow_validation(*args, **kwargs):
+        time.sleep(0.05)
+        return SignalValidationSummary(
+            provider="local_momentum",
+            model_version="local_momentum_v1",
+            status="validated",
+            confidence="validated_neutral",
+            sample_days=1,
+            metrics={},
+        )
+
+    monkeypatch.setattr(signals, "validate_signal_provider", slow_validation)
+
+    async def scenario():
+        validation_task = asyncio.create_task(signals.signal_validation(top_n=50))
+        ticker_result = await ticker()
+        assert ticker_result == "tick"
+        assert validation_task.done() is False
+        payload = await validation_task
+        assert payload["success"] is True
+        assert payload["confidence"] == "validated_neutral"
+
+    asyncio.run(scenario())

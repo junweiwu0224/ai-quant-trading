@@ -28,6 +28,7 @@ _TTL_RADAR = 30   # 30 秒缓存
 _TTL_BREADTH = 60
 _TTL_SECTOR = 60
 _TTL_NORTH = 120
+_MIN_LOCAL_INDUSTRY_COVERAGE = 0.5
 
 # 上一次成功数据（休市时回退用）
 _last_radar: dict | None = None
@@ -293,6 +294,15 @@ def _build_local_radar_result() -> dict[str, Any] | None:
     return _build_radar_result(stocks, source="local_stock_daily", local=True)
 
 
+def _with_fast_path(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **result,
+        "fast": True,
+        "fast_path": True,
+        "fast_path_note": "首屏快路径，优先使用本地覆盖池/缓存，不同步等待外部行情源",
+    }
+
+
 def _build_market_breadth_result() -> dict[str, Any]:
     breadth = DataStorage().get_market_breadth()
     return {
@@ -338,13 +348,33 @@ async def get_market_breadth():
 
 
 @router.get("/radar")
-async def get_market_radar():
+async def get_market_radar(fast: bool = False):
     """市场雷达：全A股涨跌幅/振幅/换手率 TOP 10"""
     global _last_radar
-    cache_key = "market_radar"
+    cache_key = "market_radar:fast" if fast else "market_radar"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
+
+    if fast:
+        local_result = await asyncio.to_thread(_build_local_radar_result)
+        if local_result:
+            result = _with_fast_path(local_result)
+            _cache.set(cache_key, result, _TTL_RADAR)
+            _last_radar = result
+            return result
+        if _last_radar:
+            result = _with_fast_path({**_last_radar, "stale": True, "stale_reason": "fast_local_coverage_unavailable"})
+            _cache.set(cache_key, result, _TTL_RADAR)
+            return result
+        return {
+            "success": False,
+            "fast": True,
+            "fast_path": True,
+            "error": "本地 stock_daily 覆盖池暂无可用数据",
+            "source": "local_stock_daily",
+            "total_stocks": 0,
+        }
 
     if _last_radar:
         if _last_radar.get("source") == "eastmoney_full_market_rank":
@@ -375,35 +405,85 @@ async def get_market_radar():
 
 
 def _build_local_sector_rows() -> list[dict[str, Any]]:
+    return _build_local_sector_snapshot()["sectors"]
+
+
+def _exchange_board_name(code: str) -> str:
+    plain = str(code or "").lower()
+    if plain.startswith(("sh", "sz", "bj")):
+        plain = plain[2:]
+    if plain.startswith(("43", "83", "87", "88", "92")):
+        return "北交所"
+    if plain.startswith(("688", "689")):
+        return "科创板"
+    if plain.startswith(("300", "301", "302")):
+        return "创业板"
+    if plain.startswith(("600", "601", "603", "605")):
+        return "沪主板"
+    if plain.startswith(("000", "001", "002", "003")):
+        return "深主板"
+    return "其他A股"
+
+
+def _build_local_sector_snapshot() -> dict[str, Any]:
     stocks = _local_market_stock_rows()
+    total_stocks = len(stocks)
+    industry_covered = len([s for s in stocks if str(s.get("industry") or "").strip()])
+    industry_coverage_pct = round((industry_covered / total_stocks) * 100, 2) if total_stocks else 0
+    grouping = "industry" if total_stocks and industry_coverage_pct >= (_MIN_LOCAL_INDUSTRY_COVERAGE * 100) else "exchange_board"
+
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for stock in stocks:
-        industry = str(stock.get("industry") or "本地覆盖池")
-        groups[industry].append(stock)
+        industry = str(stock.get("industry") or "").strip()
+        if grouping == "industry":
+            name = industry or "未分类"
+        else:
+            name = _exchange_board_name(str(stock.get("code") or ""))
+        groups[name].append(stock)
 
     sectors = []
-    for industry, items in groups.items():
+    for name, items in groups.items():
         changes = [float(s["change_pct"]) for s in items if s.get("change_pct") is not None]
         if not changes:
             continue
         leader = max(items, key=lambda s: s.get("change_pct") if s.get("change_pct") is not None else -999)
+        turnover_amount = round(sum(float(s.get("amount") or 0) for s in items) / 1e8, 2)
         sectors.append(
             {
-                "code": industry,
-                "name": industry,
+                "code": name,
+                "name": name,
                 "change_pct": round(sum(changes) / len(changes), 2),
+                "stock_count": len(items),
                 "up_count": len([s for s in items if (s.get("change_pct") or 0) > 0]),
                 "down_count": len([s for s in items if (s.get("change_pct") or 0) < 0]),
                 "leader": leader.get("name") or leader.get("code") or "",
                 "leader_code": leader.get("code") or "",
                 "leader_change": round(float(leader.get("change_pct") or 0), 2),
-                "total_mv": round(sum(float(s.get("amount") or 0) for s in items) / 1e8, 2),
+                "total_mv": 0,
+                "turnover_amount": turnover_amount,
                 "main_net_inflow": 0,
                 "source": "local_stock_daily",
+                "grouping": grouping,
+                "weight_basis": "stock_count",
             }
         )
     sectors.sort(key=lambda item: item["change_pct"], reverse=True)
-    return sectors
+    return {
+        "sectors": sectors,
+        "grouping": grouping,
+        "weight_basis": "stock_count",
+        "stock_count": total_stocks,
+        "industry_covered": industry_covered,
+        "industry_coverage_pct": industry_coverage_pct,
+    }
+
+
+def _local_sector_coverage_note(snapshot: dict[str, Any], kind: str) -> str:
+    grouping = snapshot.get("grouping")
+    coverage = snapshot.get("industry_coverage_pct", 0)
+    if grouping == "industry":
+        return f"本地 stock_daily 覆盖股票池行业{kind}，行业覆盖 {coverage}% ，按覆盖股票数权重"
+    return f"本地 stock_daily 覆盖股票池交易板块{kind}，stock_info 行业覆盖 {coverage}% ，按覆盖股票数权重"
 
 
 # ── 板块轮动 ──
@@ -442,13 +522,40 @@ def _fetch_sector_ranking(sector_type: str = "industry") -> list[dict]:
 
 
 @router.get("/sectors")
-async def get_sector_ranking(type: str = "industry"):
+async def get_sector_ranking(type: str = "industry", fast: bool = False):
     """板块轮动排名"""
     global _last_sectors
-    cache_key = f"sectors:{type}"
+    cache_key = f"sectors:{type}:fast" if fast else f"sectors:{type}"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
+
+    if fast:
+        snapshot = await asyncio.to_thread(_build_local_sector_snapshot)
+        sectors = snapshot["sectors"]
+        if sectors:
+            result = _with_fast_path({
+                "success": True,
+                "sectors": sectors,
+                "type": type,
+                "source": "local_stock_daily",
+                "local_fallback": True,
+                "stale": True,
+                "coverage_note": _local_sector_coverage_note(snapshot, "轮动"),
+                "grouping": snapshot["grouping"],
+                "weight_basis": snapshot["weight_basis"],
+                "stock_count": snapshot["stock_count"],
+                "industry_covered": snapshot["industry_covered"],
+                "industry_coverage_pct": snapshot["industry_coverage_pct"],
+            })
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            _last_sectors = result
+            return result
+        if _last_sectors:
+            result = _with_fast_path({**_last_sectors, "stale": True, "stale_reason": "fast_local_coverage_unavailable"})
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            return result
+        return {"success": False, "fast": True, "fast_path": True, "error": "本地行业覆盖池暂无可用数据", "sectors": []}
 
     try:
         sectors = await asyncio.to_thread(_fetch_sector_ranking, type)
@@ -460,7 +567,8 @@ async def get_sector_ranking(type: str = "industry"):
         logger.error(f"板块排名失败: {e}")
         if _last_sectors:
             return {**_last_sectors, "stale": True}
-        sectors = await asyncio.to_thread(_build_local_sector_rows)
+        snapshot = await asyncio.to_thread(_build_local_sector_snapshot)
+        sectors = snapshot["sectors"]
         if sectors:
             result = {
                 "success": True,
@@ -469,7 +577,12 @@ async def get_sector_ranking(type: str = "industry"):
                 "source": "local_stock_daily",
                 "local_fallback": True,
                 "stale": True,
-                "coverage_note": "本地 stock_daily 覆盖股票池行业轮动",
+                "coverage_note": _local_sector_coverage_note(snapshot, "轮动"),
+                "grouping": snapshot["grouping"],
+                "weight_basis": snapshot["weight_basis"],
+                "stock_count": snapshot["stock_count"],
+                "industry_covered": snapshot["industry_covered"],
+                "industry_coverage_pct": snapshot["industry_coverage_pct"],
             }
             _cache.set(cache_key, result, _TTL_SECTOR)
             _last_sectors = result
@@ -546,13 +659,44 @@ def _fetch_sector_heatmap() -> dict[str, Any]:
 
 
 @router.get("/heatmap")
-async def get_sector_heatmap():
+async def get_sector_heatmap(fast: bool = False):
     """板块热力图（行业板块涨跌幅色块矩阵）"""
     global _last_heatmap
-    cache_key = "sector_heatmap"
+    cache_key = "sector_heatmap:fast" if fast else "sector_heatmap"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
+
+    if fast:
+        snapshot = await asyncio.to_thread(_build_local_sector_snapshot)
+        sectors = snapshot["sectors"]
+        if sectors:
+            summary = _sector_heatmap_summary(sectors)
+            result = _with_fast_path({
+                "success": True,
+                "sectors": sectors,
+                "total": len(sectors),
+                "fetched": len(sectors),
+                "source": "local_stock_daily",
+                "local_fallback": True,
+                "stale": True,
+                "coverage_note": _local_sector_coverage_note(snapshot, "热力"),
+                "grouping": snapshot["grouping"],
+                "weight_basis": snapshot["weight_basis"],
+                "stock_count": snapshot["stock_count"],
+                "industry_covered": snapshot["industry_covered"],
+                "industry_coverage_pct": snapshot["industry_coverage_pct"],
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                **summary,
+            })
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            _last_heatmap = result
+            return result
+        if _last_heatmap:
+            result = _with_fast_path({**_last_heatmap, "stale": True, "stale_reason": "fast_local_coverage_unavailable"})
+            _cache.set(cache_key, result, _TTL_SECTOR)
+            return result
+        return {"success": False, "fast": True, "fast_path": True, "error": "本地行业热力覆盖池暂无可用数据", "sectors": []}
 
     try:
         data = await asyncio.to_thread(_fetch_sector_heatmap)
@@ -564,7 +708,8 @@ async def get_sector_heatmap():
         logger.error(f"板块热力图失败: {e}")
         if _last_heatmap:
             return {**_last_heatmap, "stale": True}
-        sectors = await asyncio.to_thread(_build_local_sector_rows)
+        snapshot = await asyncio.to_thread(_build_local_sector_snapshot)
+        sectors = snapshot["sectors"]
         if sectors:
             summary = _sector_heatmap_summary(sectors)
             result = {
@@ -575,7 +720,12 @@ async def get_sector_heatmap():
                 "source": "local_stock_daily",
                 "local_fallback": True,
                 "stale": True,
-                "coverage_note": "本地 stock_daily 覆盖股票池行业热力",
+                "coverage_note": _local_sector_coverage_note(snapshot, "热力"),
+                "grouping": snapshot["grouping"],
+                "weight_basis": snapshot["weight_basis"],
+                "stock_count": snapshot["stock_count"],
+                "industry_covered": snapshot["industry_covered"],
+                "industry_coverage_pct": snapshot["industry_coverage_pct"],
                 "generated_at": datetime.now().isoformat(timespec="seconds"),
                 **summary,
             }
@@ -624,13 +774,32 @@ def _fetch_northbound() -> dict:
 
 
 @router.get("/northbound")
-async def get_northbound():
+async def get_northbound(fast: bool = False):
     """北向资金净流入"""
     global _last_northbound
-    cache_key = "northbound"
+    cache_key = "northbound:fast" if fast else "northbound"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
+
+    if fast:
+        if _last_northbound:
+            result = _with_fast_path({**_last_northbound, "stale": True})
+            _cache.set(cache_key, result, _TTL_NORTH)
+            return result
+        result = _with_fast_path({
+            "success": True,
+            "today_net": 0,
+            "today_sh_net": 0,
+            "today_sz_net": 0,
+            "flow": [],
+            "source": "eastmoney_northbound",
+            "source_unavailable": True,
+            "stale": True,
+            "stale_reason": "fast_path_skipped_external_source",
+        })
+        _cache.set(cache_key, result, _TTL_NORTH)
+        return result
 
     try:
         data = await asyncio.to_thread(_fetch_northbound)

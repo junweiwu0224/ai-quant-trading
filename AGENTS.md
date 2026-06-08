@@ -56,6 +56,7 @@
 - Dashboard API：优先使用对应 pytest；数据展示风险可跑 `.venv/bin/python scripts/dashboard_data_health.py`。
 - 前端渲染/契约：运行对应 `tests/test_*frontend*.py` 或 `.venv/bin/python scripts/frontend_data_render_audit.py`。
 - 真实浏览器流程：先启动 Dashboard，再跑 `scripts/e2e-local.sh smoke`、`scripts/e2e-local.sh data-health` 或 `scripts/e2e-local.sh all`。
+- 本地 Dashboard/dev server、E2E server 或任何需要监听 `localhost`/`127.0.0.1` 端口的 QA 命令，默认使用外部/非沙箱执行启动；页面验证仍优先使用 Codex in-app Browser。启动前检查 `8001` 端口和旧进程健康状态，验证后停止临时服务，除非用户明确要求保留。
 - Docker/部署：`docker compose up -d` 会启动服务并写本地数据目录，执行前确认。
 
 ## Hooks 和质量门禁

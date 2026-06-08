@@ -27,6 +27,8 @@ def test_signal_top_api_returns_unified_rows(client, monkeypatch, tmp_path):
     assert payload["total"] == 2
     assert payload["primary_collection"] == "signals"
     assert payload["legacy_aliases"]["predictions"] == "signals"
+    assert payload["runtime_boundary"] == "signals"
+    assert payload["raw_source_role"] == "legacy_cache"
     assert payload["predictions"] == payload["signals"]
     assert payload["signals"][0]["code"] == "600519"
     assert payload["signals"][0]["signal_provider"] == "local_momentum"

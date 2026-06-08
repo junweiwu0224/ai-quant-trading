@@ -120,6 +120,8 @@ def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
     assert payload["primary_collection"] == "signals"
     assert payload["legacy_aliases"]["predictions"] == "signals"
     assert payload["legacy_adapters"]["qlib"] == "/api/qlib/health"
+    assert payload["runtime_boundary"] == "signals"
+    assert payload["raw_source_role"] == "legacy_cache"
     assert payload["total"] == 2
     assert payload["fast_mode"] is True
     assert "validation" not in payload

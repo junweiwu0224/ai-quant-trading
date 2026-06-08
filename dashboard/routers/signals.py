@@ -11,6 +11,10 @@ from data.signals.validation import validate_signal_provider
 from dashboard.routers.qlib import _enrich_with_stock_info
 
 router = APIRouter()
+SIGNAL_API_META = {
+    "runtime_boundary": "signals",
+    "raw_source_role": "legacy_cache",
+}
 
 
 def _enrich_records(records):
@@ -52,6 +56,7 @@ async def top_signals(
             "predictions": [],
             "primary_collection": "signals",
             "legacy_aliases": {"predictions": "signals"},
+            **SIGNAL_API_META,
             **meta,
         }
     rows = _enrich_records(records)
@@ -61,6 +66,7 @@ async def top_signals(
         "predictions": rows,
         "primary_collection": "signals",
         "legacy_aliases": {"predictions": "signals"},
+        **SIGNAL_API_META,
         "date": records[0].date if records else meta.get("latest_date"),
         "total": meta.get("total") or 0,
         "provider": meta.get("provider") or DEFAULT_PROVIDER,
@@ -91,6 +97,7 @@ async def signal_health(
         "primary_collection": "signals",
         "legacy_aliases": {"predictions": "signals"},
         "legacy_adapters": {"qlib": "/api/qlib/health"},
+        **SIGNAL_API_META,
         "provider": meta.get("provider") or provider,
         "model_version": meta.get("model_version") or "",
         "latest_date": meta.get("latest_date"),

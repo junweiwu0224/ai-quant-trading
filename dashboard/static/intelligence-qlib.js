@@ -60,8 +60,9 @@
                     fetchShared('signalValidation50', '/api/signals/validation?top_n=50').catch(() => null),
                 ]);
 
-                if (!data || !data.predictions || data.predictions.length === 0) {
-                    el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无预测数据</div>';
+                const predictions = Array.isArray(data?.signals) ? data.signals : (data?.predictions || []);
+                if (!data || predictions.length === 0) {
+                    el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无信号数据</div>';
                     return;
                 }
 
@@ -103,11 +104,11 @@
                     </div>` : `
                     <div class="qlib-validation-summary">
                         <span class="qlib-validation-title">验证摘要</span>
-                        <span>状态 unverified</span>
+                        <span>状态 未验证</span>
                         <span>历史样本不足，信号已在机会池降权</span>
                     </div>`;
 
-                const preds = data.predictions;
+                const preds = predictions;
                 const total = preds.length;
                 const scores = preds.map((p) => p.score);
                 const minScore = Math.min(...scores);
@@ -200,7 +201,7 @@
                     App.toast(`已推送 ${codes.length} 只股票至选股器`, 'success');
                 });
             } catch {
-                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">预测加载失败</div>';
+                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">信号加载失败</div>';
             }
         },
 

@@ -99,8 +99,19 @@ def test_signal_train_routes_are_primary_aliases(client, monkeypatch):
 
     assert train_resp.status_code == 200
     assert status_resp.status_code == 200
-    assert train_resp.json() == {"success": True, "message": "started"}
-    assert status_resp.json() == {"training": False}
+    assert train_resp.json() == {
+        "success": True,
+        "message": "started",
+        "primary_action": "refresh_signals",
+        "legacy_adapter": "/api/qlib/train",
+        "adapter_for": "signals",
+    }
+    assert status_resp.json() == {
+        "training": False,
+        "primary_action": "refresh_signals_status",
+        "legacy_adapter": "/api/qlib/train/status",
+        "adapter_for": "signals",
+    }
     assert called_urls == [qlib_router.QLIB_TRAIN_URL, qlib_router.QLIB_TRAIN_STATUS_URL]
 
 

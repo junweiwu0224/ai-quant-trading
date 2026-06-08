@@ -151,7 +151,15 @@ async def train_signal_model():
     """触发 AI 信号模型刷新。"""
     from dashboard.routers.qlib import qlib_train
 
-    return await qlib_train()
+    payload = await qlib_train()
+    if not isinstance(payload, dict):
+        return payload
+    return {
+        **payload,
+        "primary_action": "refresh_signals",
+        "legacy_adapter": "/api/qlib/train",
+        "adapter_for": "signals",
+    }
 
 
 @router.get("/train/status")
@@ -159,4 +167,12 @@ async def signal_train_status():
     """查询 AI 信号模型刷新状态。"""
     from dashboard.routers.qlib import qlib_train_status
 
-    return await qlib_train_status()
+    payload = await qlib_train_status()
+    if not isinstance(payload, dict):
+        return payload
+    return {
+        **payload,
+        "primary_action": "refresh_signals_status",
+        "legacy_adapter": "/api/qlib/train/status",
+        "adapter_for": "signals",
+    }

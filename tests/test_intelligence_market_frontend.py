@@ -1598,6 +1598,16 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert ".intel-sent-meta" in styles
 
 
+def test_legacy_intelligence_qlib_asset_uses_signal_wording_only():
+    legacy_asset = Path("dashboard/static/intelligence-qlib.js").read_text(encoding="utf-8")
+
+    assert "暂无预测数据" not in legacy_asset
+    assert "预测加载失败" not in legacy_asset
+    assert "历史预测缓存" not in legacy_asset
+    assert "暂无信号数据" in legacy_asset
+    assert "信号加载失败" in legacy_asset
+
+
 def test_iwencai_normalizes_exchange_suffix_codes_and_renders_focused_result_table():
     script = textwrap.dedent(
         r"""

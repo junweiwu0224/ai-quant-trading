@@ -8,7 +8,11 @@ def test_strategy_dsl_accepts_ranked_rotation_template():
 
 def test_strategy_dsl_keeps_legacy_qlib_aliases():
     dsl = StrategyDSL("ranked_rotation", "qlib_top", "qlib_score", [{"qlib_score_min": 0.5}], "daily", 5, 0.05, 0.12, 10)
-    assert validate_strategy_dsl(dsl).universe == "qlib_top"
+    normalized = validate_strategy_dsl(dsl)
+
+    assert normalized.universe == "signal_top"
+    assert normalized.rank_by == "signal_score"
+    assert normalized.filters == [{"signal_score_min": 0.5}]
 
 
 def test_strategy_dsl_rejects_unsafe_strategy_type():

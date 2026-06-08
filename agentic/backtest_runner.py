@@ -51,7 +51,8 @@ class AgenticBacktestRunner:
 def _build_backtest_request(compiled_request: dict[str, Any]):
     from dashboard.routers.backtest import BacktestRequest
 
-    payload = {key: value for key, value in compiled_request.items() if key != "agentic"}
+    public_metadata = {"agentic", "legacy_strategy", "strategy_display_name"}
+    payload = {key: value for key, value in compiled_request.items() if key not in public_metadata}
     return BacktestRequest(**payload)
 
 

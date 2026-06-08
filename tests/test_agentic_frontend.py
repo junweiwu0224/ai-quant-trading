@@ -40,7 +40,7 @@ def test_agentic_signal_pool_container_and_script_are_registered():
     assert 'id="agentic-signal-pool"' in html
     assert 'data-agentic-signal-list' in html
     assert 'agentic-signals.js' not in scripts
-    assert '/static/agentic-signals.js?v=16' in app
+    assert '/static/agentic-signals.js?v=17' in app
 
 
 def test_agentic_signal_frontend_fetches_signal_api():
@@ -309,8 +309,20 @@ def test_agentic_confirmed_execution_can_create_order_drafts_from_frontend():
     assert "createAgenticOrderDrafts" in js
     assert "/api/agentic/strategy/order-drafts" in js
     assert "loadAgenticOrderDrafts" in js
-    assert "item.strategy_display_name || item.strategy_name" in js
+    assert "displayStrategyLabel(item)" in js
+    assert "displayStrategyId(item)" in js
     assert "agentic-order-draft-list" in read_styles()
+
+
+def test_agentic_frontend_prefers_canonical_signal_ids_for_display():
+    js = read_agentic_signals()
+
+    assert "displayCandidateId" in js
+    assert "displayStrategyId" in js
+    assert "canonical_candidate_id || item?.candidate_id" in js
+    assert "strategy_display_id || item?.strategy_name" in js
+    assert "strategy_display_name || item?.name || displayStrategyId(item)" in js
+    assert "strategy_display_id || item?.strategy_name || displayCandidateId(item)" in js
 
 
 def test_agentic_confirmed_execution_can_submit_real_paper_orders_from_frontend():

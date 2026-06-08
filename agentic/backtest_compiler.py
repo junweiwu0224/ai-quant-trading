@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic.models import normalize_signal_code
-from agentic.strategy_dsl import StrategyDSL, validate_strategy_dsl
+from agentic.strategy_dsl import StrategyDSL, legacy_aliases_for_dsl, validate_strategy_dsl
 
 
 @dataclass(frozen=True)
@@ -21,26 +21,33 @@ class BacktestCompileRequest:
     period: str = "daily"
 
 
+SIGNAL_STRATEGY_ADAPTER = "qlib_signal"
+SIGNAL_STRATEGY_ID = "signal_score_strategy"
+SIGNAL_STRATEGY_DISPLAY_NAME = "AI信号策略"
+
+
 class BacktestCompiler:
     def compile(self, request: BacktestCompileRequest) -> dict[str, Any]:
-        dsl = validate_strategy_dsl(request.dsl)
+        original_dsl = request.dsl
+        dsl = validate_strategy_dsl(original_dsl)
+        legacy_aliases = legacy_aliases_for_dsl(original_dsl, dsl)
         codes = _normalize_codes(request.codes)
         if not codes:
             raise ValueError("codes is required for backtest compilation")
 
-        if dsl.strategy_type == "ranked_rotation" and dsl.rank_by in {"signal_score", "qlib_score"}:
-            strategy = "qlib_signal"
+        if dsl.strategy_type == "ranked_rotation" and dsl.rank_by == "signal_score":
+            strategy = SIGNAL_STRATEGY_ADAPTER
             params = {
                 "mode": "ranking",
                 "top_n": dsl.max_holdings,
                 "position_pct": 0.9,
                 "score_normalize": True,
             }
-        elif dsl.strategy_type == "threshold_signal" and dsl.rank_by in {"signal_score", "qlib_score"}:
-            strategy = "qlib_signal"
+        elif dsl.strategy_type == "threshold_signal" and dsl.rank_by == "signal_score":
+            strategy = SIGNAL_STRATEGY_ADAPTER
             params = {
                 "mode": "absolute",
-                "buy_threshold": _filter_value(dsl.filters, "signal_score_min", _filter_value(dsl.filters, "qlib_score_min", 0.5)),
+                "buy_threshold": _filter_value(dsl.filters, "signal_score_min", 0.5),
                 "sell_threshold": -0.3,
                 "position_pct": 0.9,
                 "score_normalize": True,
@@ -52,8 +59,11 @@ class BacktestCompiler:
             strategy = "momentum"
             params = {"lookback": 20, "entry_threshold": 0.05, "position_pct": 0.9}
 
+        is_signal_adapter = strategy == SIGNAL_STRATEGY_ADAPTER
         return {
             "strategy": strategy,
+            "legacy_strategy": strategy if is_signal_adapter else "",
+            "strategy_display_name": SIGNAL_STRATEGY_DISPLAY_NAME if is_signal_adapter else strategy,
             "codes": codes,
             "start_date": request.start_date,
             "end_date": request.end_date,
@@ -79,6 +89,10 @@ class BacktestCompiler:
                 "filters": dsl.filters,
                 "rebalance": dsl.rebalance,
                 "max_holding_days": dsl.max_holding_days,
+                "signal_strategy": SIGNAL_STRATEGY_ID if is_signal_adapter else strategy,
+                "strategy_adapter": strategy,
+                "is_legacy_adapter": is_signal_adapter,
+                "legacy_aliases": legacy_aliases,
             },
         }
 

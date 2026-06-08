@@ -15,6 +15,10 @@ SUPPORTED_FILTERS = {
     "qlib_score_min",
 }
 
+LEGACY_UNIVERSE_ALIASES = {"qlib_top": "signal_top"}
+LEGACY_RANK_BY_ALIASES = {"qlib_score": "signal_score"}
+LEGACY_FILTER_ALIASES = {"qlib_score_min": "signal_score_min"}
+
 
 @dataclass(frozen=True)
 class StrategyDSL:
@@ -30,6 +34,7 @@ class StrategyDSL:
 
 
 def validate_strategy_dsl(dsl: StrategyDSL) -> StrategyDSL:
+    dsl = normalize_strategy_dsl(dsl)
     if dsl.strategy_type not in SUPPORTED_STRATEGY_TYPES:
         raise ValueError(f"unsupported strategy_type: {dsl.strategy_type}")
     if dsl.universe not in SUPPORTED_UNIVERSES:
@@ -55,3 +60,44 @@ def validate_strategy_dsl(dsl: StrategyDSL) -> StrategyDSL:
         if key not in SUPPORTED_FILTERS:
             raise ValueError(f"unsupported filter: {key}")
     return dsl
+
+
+def normalize_strategy_dsl(dsl: StrategyDSL) -> StrategyDSL:
+    filters = dsl.filters
+    if isinstance(filters, list):
+        filters = [
+            {LEGACY_FILTER_ALIASES.get(key, key): value for key, value in item.items()}
+            if isinstance(item, dict)
+            else item
+            for item in filters
+        ]
+    return StrategyDSL(
+        strategy_type=dsl.strategy_type,
+        universe=LEGACY_UNIVERSE_ALIASES.get(dsl.universe, dsl.universe),
+        rank_by=LEGACY_RANK_BY_ALIASES.get(dsl.rank_by, dsl.rank_by),
+        filters=filters,
+        rebalance=dsl.rebalance,
+        max_holdings=dsl.max_holdings,
+        stop_loss=dsl.stop_loss,
+        take_profit=dsl.take_profit,
+        max_holding_days=dsl.max_holding_days,
+    )
+
+
+def legacy_aliases_for_dsl(original: StrategyDSL, normalized: StrategyDSL) -> dict[str, Any]:
+    aliases: dict[str, Any] = {}
+    if original.universe != normalized.universe:
+        aliases["universe"] = original.universe
+    if original.rank_by != normalized.rank_by:
+        aliases["rank_by"] = original.rank_by
+    filter_aliases = []
+    if isinstance(original.filters, list):
+        for item in original.filters:
+            if not isinstance(item, dict):
+                continue
+            for key in item:
+                if LEGACY_FILTER_ALIASES.get(key) in {next(iter(n)) for n in normalized.filters if isinstance(n, dict) and n}:
+                    filter_aliases.append(key)
+    if filter_aliases:
+        aliases["filters"] = filter_aliases
+    return aliases

@@ -27,6 +27,11 @@ def test_compiler_maps_ranked_rotation_signal_dsl_to_backtest_request():
     )
 
     assert req["strategy"] == "qlib_signal"
+    assert req["strategy_display_name"] == "AI信号策略"
+    assert req["legacy_strategy"] == "qlib_signal"
+    assert req["agentic"]["signal_strategy"] == "signal_score_strategy"
+    assert req["agentic"]["strategy_adapter"] == "qlib_signal"
+    assert req["agentic"]["is_legacy_adapter"] is True
     assert req["codes"] == ["605066", "000001"]
     assert req["start_date"] == "2024-01-01"
     assert req["end_date"] == "2024-12-31"
@@ -37,6 +42,37 @@ def test_compiler_maps_ranked_rotation_signal_dsl_to_backtest_request():
     assert req["params"]["position_pct"] == 0.9
     assert req["risk_config"]["stop_loss_pct"] == 0.05
     assert req["risk_config"]["take_profit_pct"] == 0.12
+
+
+def test_compiler_normalizes_legacy_qlib_dsl_to_signal_metadata():
+    dsl = StrategyDSL(
+        strategy_type="threshold_signal",
+        universe="qlib_top",
+        rank_by="qlib_score",
+        filters=[{"qlib_score_min": 0.7}],
+        rebalance="daily",
+        max_holdings=3,
+        stop_loss=0.05,
+        take_profit=None,
+        max_holding_days=8,
+    )
+
+    req = BacktestCompiler().compile(
+        BacktestCompileRequest(dsl, ["600519"], "2024-01-01", "2024-12-31", 50000)
+    )
+
+    assert req["strategy"] == "qlib_signal"
+    assert req["legacy_strategy"] == "qlib_signal"
+    assert req["strategy_display_name"] == "AI信号策略"
+    assert req["params"]["buy_threshold"] == 0.7
+    assert req["agentic"]["universe"] == "signal_top"
+    assert req["agentic"]["rank_by"] == "signal_score"
+    assert req["agentic"]["filters"] == [{"signal_score_min": 0.7}]
+    assert req["agentic"]["legacy_aliases"] == {
+        "universe": "qlib_top",
+        "rank_by": "qlib_score",
+        "filters": ["qlib_score_min"],
+    }
 
 
 def test_compiler_rejects_empty_codes():

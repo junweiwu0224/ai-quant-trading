@@ -152,7 +152,7 @@ const App = {
             '/static/intelligence-signals.js?v=8',
             '/static/research-datahub.js?v=15',
             '/static/research-valuation.js?v=15',
-            '/static/agentic-signals.js?v=16',
+            '/static/agentic-signals.js?v=17',
         ],
         stock: [
             '/static/stock-detail.js?v=7',

@@ -17,6 +17,7 @@ class ResearchPipeline:
     def run(self, code: str, context: dict | None = None) -> ResearchJob:
         context = dict(context or {})
         normalized_code = normalize_signal_code(code)
+        used_legacy_score = "signal_score" not in context and "qlib_score" in context
         signal_score = _as_score(context.get("signal_score", context.get("qlib_score", 0.0)))
         decision = "paper_candidate" if signal_score >= PAPER_CANDIDATE_THRESHOLD else "observe"
         now = _utc_now_iso()
@@ -24,16 +25,16 @@ class ResearchPipeline:
             "code": normalized_code,
             "decision": decision,
             "signal_score": signal_score,
-            "qlib_score": signal_score,
             "roles": {
                 "signal": {"score": signal_score},
-                "qlib": {"score": signal_score},
                 "market": {"summary": context.get("market", "market context unavailable")},
                 "theme": {"theme": context.get("theme", "unclassified")},
                 "bear": {"risk": context.get("risk", "position sizing and stop-loss required")},
                 "decision": {"rationale": _decision_rationale(decision)},
             },
         }
+        if used_legacy_score:
+            final_report["input_aliases"] = {"qlib_score": "signal_score"}
         job = ResearchJob(
             id=f"research_{uuid4().hex}",
             code=normalized_code,

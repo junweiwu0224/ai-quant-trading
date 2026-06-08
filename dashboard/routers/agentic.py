@@ -90,7 +90,12 @@ class CreateOrderDraftsPayload(BaseModel):
 
 _LEGACY_STRATEGY_DISPLAY_NAMES = {
     "qlib_ranked_core": "AI信号基线轮动",
+    "signal_ranked_core": "AI信号基线轮动",
     "Qlib 核心轮动": "AI信号基线轮动",
+}
+
+_LEGACY_CANDIDATE_ID_ALIASES = {
+    "qlib_ranked_core": "signal_ranked_core",
 }
 
 
@@ -100,15 +105,40 @@ def _public_strategy_name(candidate_id: str | None, name: str | None) -> str:
     return _LEGACY_STRATEGY_DISPLAY_NAMES.get(candidate_key) or _LEGACY_STRATEGY_DISPLAY_NAMES.get(name_key) or name_key or candidate_key
 
 
+def _canonical_candidate_id(candidate_id: str | None) -> str:
+    value = str(candidate_id or "").strip()
+    return _LEGACY_CANDIDATE_ID_ALIASES.get(value, value)
+
+
+def _legacy_candidate_id(candidate_id: str | None) -> str:
+    value = str(candidate_id or "").strip()
+    canonical = _canonical_candidate_id(value)
+    return value if canonical != value else ""
+
+
+def _public_strategy_id(strategy_name: str | None) -> str:
+    raw = str(strategy_name or "").strip()
+    prefix = "agentic:"
+    if not raw.startswith(prefix):
+        return _canonical_candidate_id(raw)
+    return f"{prefix}{_canonical_candidate_id(raw.removeprefix(prefix))}"
+
+
 def _public_candidate_payload(candidate) -> dict[str, Any]:
     payload = asdict(candidate)
-    payload["name"] = _public_strategy_name(payload.get("candidate_id"), payload.get("name"))
+    candidate_id = payload.get("candidate_id")
+    payload["canonical_candidate_id"] = _canonical_candidate_id(candidate_id)
+    payload["legacy_candidate_id"] = _legacy_candidate_id(candidate_id)
+    payload["name"] = _public_strategy_name(candidate_id, payload.get("name"))
     return payload
 
 
 def _public_execution_payload(execution) -> dict[str, Any]:
     payload = asdict(execution)
-    payload["name"] = _public_strategy_name(payload.get("candidate_id"), payload.get("name"))
+    candidate_id = payload.get("candidate_id")
+    payload["canonical_candidate_id"] = _canonical_candidate_id(candidate_id)
+    payload["legacy_candidate_id"] = _legacy_candidate_id(candidate_id)
+    payload["name"] = _public_strategy_name(candidate_id, payload.get("name"))
     return payload
 
 
@@ -116,7 +146,24 @@ def _public_order_draft_payload(draft) -> dict[str, Any]:
     payload = asdict(draft)
     strategy_name = str(payload.get("strategy_name") or "")
     candidate_id = strategy_name.removeprefix("agentic:")
+    display_id = _public_strategy_id(strategy_name)
+    payload["strategy_display_id"] = display_id
+    payload["legacy_strategy_name"] = strategy_name if display_id != strategy_name else ""
     payload["strategy_display_name"] = _public_strategy_name(candidate_id, strategy_name)
+    return payload
+
+
+def _public_paper_order_payload(order) -> dict[str, Any]:
+    payload = order.to_dict()
+    raw_strategy = str(payload.get("strategy_name") or "")
+    display_id = _public_strategy_id(raw_strategy)
+    if display_id != raw_strategy:
+        payload["legacy_strategy_name"] = raw_strategy
+        payload["strategy_name"] = display_id
+    else:
+        payload["legacy_strategy_name"] = ""
+    candidate_id = raw_strategy.removeprefix("agentic:")
+    payload["strategy_display_name"] = _public_strategy_name(candidate_id, raw_strategy)
     return payload
 
 
@@ -270,7 +317,7 @@ def submit_agentic_paper_orders(execution_id: str, payload: CreateOrderDraftsPay
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"success": True, "orders": [item.to_dict() for item in orders]}
+    return {"success": True, "orders": [_public_paper_order_payload(item) for item in orders]}
 
 @router.post("/strategy/run-candidates")
 async def run_strategy_candidates(payload: RunCandidateBacktestsPayload):

@@ -57,6 +57,10 @@ def test_agentic_compile_backtest_endpoint_returns_backtest_request(client):
     assert body["success"] is True
     req = body["backtest_request"]
     assert req["strategy"] == "qlib_signal"
+    assert req["legacy_strategy"] == "qlib_signal"
+    assert req["strategy_display_name"] == "AI信号策略"
+    assert req["agentic"]["signal_strategy"] == "signal_score_strategy"
+    assert req["agentic"]["strategy_adapter"] == "qlib_signal"
     assert req["codes"] == ["605066", "000001"]
     assert req["params"]["mode"] == "ranking"
     assert req["risk_config"]["stop_loss_pct"] == 0.05
@@ -255,6 +259,8 @@ def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, mon
     body = resp.json()
     assert body["success"] is True
     assert body["candidate"]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidate"]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["candidate"]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["candidate"]["name"] == "AI信号基线轮动"
     assert body["candidate"]["status"] == "paper_candidate"
     assert body["candidate"]["requires_confirmation"] is True
@@ -308,6 +314,8 @@ def test_agentic_paper_strategy_candidate_list_normalizes_legacy_qlib_names(clie
     body = resp.json()
     assert body["success"] is True
     assert body["candidates"][0]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidates"][0]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["candidates"][0]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["candidates"][0]["name"] == "AI信号基线轮动"
 
 
@@ -339,6 +347,8 @@ def test_agentic_paper_strategy_candidate_can_be_confirmed(client, monkeypatch):
     body = resp.json()
     assert body["success"] is True
     assert body["candidate"]["candidate_id"] == "qlib_ranked_core"
+    assert body["candidate"]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["candidate"]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["candidate"]["name"] == "AI信号基线轮动"
     assert body["candidate"]["status"] == "paper_active"
     assert body["candidate"]["requires_confirmation"] is False
@@ -372,6 +382,8 @@ def test_agentic_active_paper_strategy_candidate_can_generate_pending_intent(cli
     body = resp.json()
     assert body["success"] is True
     assert body["execution"]["candidate_id"] == "qlib_ranked_core"
+    assert body["execution"]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["execution"]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["execution"]["name"] == "AI信号基线轮动"
     assert body["execution"]["status"] == "paper_intent_pending"
     assert body["execution"]["requires_confirmation"] is True
@@ -409,6 +421,8 @@ def test_agentic_paper_execution_can_be_confirmed_with_risk_gate(client, monkeyp
     body = resp.json()
     assert body["success"] is True
     assert body["execution"]["candidate_id"] == "qlib_ranked_core"
+    assert body["execution"]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["execution"]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["execution"]["name"] == "AI信号基线轮动"
     assert body["execution"]["status"] == "paper_intent_confirmed"
     assert body["execution"]["requires_confirmation"] is False
@@ -444,6 +458,8 @@ def test_agentic_paper_execution_list_normalizes_legacy_qlib_names(client, monke
     body = resp.json()
     assert body["success"] is True
     assert body["executions"][0]["candidate_id"] == "qlib_ranked_core"
+    assert body["executions"][0]["canonical_candidate_id"] == "signal_ranked_core"
+    assert body["executions"][0]["legacy_candidate_id"] == "qlib_ranked_core"
     assert body["executions"][0]["name"] == "AI信号基线轮动"
 
 
@@ -483,6 +499,8 @@ def test_agentic_confirmed_execution_can_create_order_drafts(client, monkeypatch
     assert body["drafts"][0]["status"] == "draft_pending"
     assert body["drafts"][0]["volume"] == 200
     assert body["drafts"][0]["strategy_name"] == "agentic:qlib_ranked_core"
+    assert body["drafts"][0]["strategy_display_id"] == "agentic:signal_ranked_core"
+    assert body["drafts"][0]["legacy_strategy_name"] == "agentic:qlib_ranked_core"
     assert body["drafts"][0]["strategy_display_name"] == "AI信号基线轮动"
 
 
@@ -519,3 +537,6 @@ def test_agentic_confirmed_execution_can_submit_real_paper_orders(client, monkey
     assert body["success"] is True
     assert body["orders"][0]["order_id"] == "ORD-AGENTIC1"
     assert body["orders"][0]["status"] == "pending"
+    assert body["orders"][0]["strategy_name"] == "agentic:signal_ranked_core"
+    assert body["orders"][0]["legacy_strategy_name"] == "agentic:qlib_ranked_core"
+    assert body["orders"][0]["strategy_display_name"] == "AI信号基线轮动"

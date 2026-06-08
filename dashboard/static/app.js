@@ -104,7 +104,7 @@ const App = {
             '/static/risk-alerts.js?v=2',
         ],
         paper: [
-            '/static/paper.js?v=10',
+            '/static/paper.js?v=11',
             '/static/paper-trading.js?v=7',
             '/static/paper-trading-trade.js?v=1',
             '/static/paper-trading-position.js?v=1',

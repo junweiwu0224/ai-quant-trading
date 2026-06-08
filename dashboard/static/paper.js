@@ -127,21 +127,21 @@ const Paper = {
     },
 
     async trainSignalModel() {
-        if (!confirm('开始刷新 AI 信号模型？\n这需要几分钟时间，刷新期间不影响其他功能。')) return;
+        if (!confirm('开始刷新 AI 信号？\n这需要几分钟时间，刷新期间不影响其他功能。')) return;
         const btn = document.getElementById('pp-train-btn');
         try {
-            if (btn) { btn.disabled = true; btn.textContent = '训练中...'; }
+            if (btn) { btn.disabled = true; btn.textContent = '刷新中...'; }
             const data = await App.fetchJSON('/api/signals/train', { method: 'POST' });
             if (data.success) {
-                App.toast('AI 信号模型刷新已启动，请稍后查看预测结果', 'success');
+                App.toast('AI 信号刷新已启动，请稍后查看结果', 'success');
                 this._pollTrainStatus();
             } else {
-                App.toast(data.message || '训练启动失败', 'error');
+                App.toast(data.message || '刷新启动失败', 'error');
             }
         } catch (e) {
-            App.toast('训练请求失败: ' + e.message, 'error');
+            App.toast('刷新请求失败: ' + e.message, 'error');
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '训练ML'; }
+            if (btn) { btn.disabled = false; btn.textContent = '刷新信号'; }
         }
     },
 
@@ -156,7 +156,7 @@ const Paper = {
                 if (data.training) {
                     setTimeout(check, 10000);
                 } else {
-                    App.toast('AI 信号模型刷新完成！', 'success');
+                    App.toast('AI 信号刷新完成！', 'success');
                 }
             } catch { /* ignore */ }
         };

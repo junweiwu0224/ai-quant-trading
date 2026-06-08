@@ -72,7 +72,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=8" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=77" in scripts
+    assert "/static/app.js?v=78" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -89,12 +89,18 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "scope === 'signal'" in valuation
     assert "trainSignalModel" in paper
     assert "globalThis.Paper = Paper" in paper
-    assert "开始刷新 AI 信号模型" in paper
+    assert "开始刷新 AI 信号？" in paper
+    assert "AI 信号刷新已启动，请稍后查看结果" in paper
+    assert "开始刷新 AI 信号模型" not in paper
+    assert "AI 信号模型刷新" not in paper
+    assert "训练请求失败" not in paper
     assert "App.fetchJSON('/api/signals/train', { method: 'POST' })" in paper
     assert "App.fetchJSON('/api/signals/train/status')" in paper
     assert "App.fetchJSON('/api/qlib/train'" not in paper
     assert "App.fetchJSON('/api/qlib/train/status')" not in paper
     assert "qlib 训练" not in paper
+    assert 'id="pp-train-btn" title="刷新 AI 信号">刷新信号</button>' in template
+    assert "训练ML" not in template
     assert '"name": "signal_strategy"' in manager
     assert '"legacy_alias_for": "signal_strategy"' in manager
     assert "基于 AI 信号分数" in manager
@@ -1045,7 +1051,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=48" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=77" in scripts
+    assert "/static/app.js?v=78" in scripts
     assert "/static/app-stock-ops.js?v=5" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=25" in scripts
@@ -1060,7 +1066,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/alerts.js?v=4" in app
     assert "/static/overview-radar.js?v=9" in scripts
     assert "/static/overview-radar.js?v=9" in app
-    assert "/static/paper.js?v=10" in app
+    assert "/static/paper.js?v=11" in app
     assert "/static/paper-trading.js?v=7" in app
     assert "/static/backtest-strategies.js?v=2" in app
     assert "/static/compare.js?v=5" in app

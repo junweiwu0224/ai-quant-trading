@@ -149,7 +149,7 @@ const App = {
             '/static/intelligence.js?v=6',
             '/static/intelligence-market.js?v=12',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=8',
+            '/static/intelligence-signals.js?v=9',
             '/static/research-datahub.js?v=15',
             '/static/research-valuation.js?v=15',
             '/static/agentic-signals.js?v=17',
@@ -176,7 +176,7 @@ const App = {
             '/static/intelligence.js?v=6',
             '/static/intelligence-market.js?v=12',
             '/static/intelligence-iwencai.js?v=3',
-            '/static/intelligence-signals.js?v=8',
+            '/static/intelligence-signals.js?v=9',
         ],
         llm: [
             '/static/llm.js?v=10',

@@ -1052,7 +1052,7 @@ def test_intelligence_signal_pool_renders_validation_summary():
                         model_version: 'local_momentum_v1',
                         raw_source: 'legacy_qlib',
                         generated_at: '2026-06-07T12:30:00',
-                        predictions: [
+                        signals: [
                             { code: '600519', name: '贵州茅台', score: 0.91, price: 1600, amount: 100000000, signal_confidence: 'validated_positive' },
                             { code: '000001', name: '平安银行', score: 0.75, price: 12.3, amount: 80000000, signal_confidence: 'validated_positive' },
                         ],
@@ -1097,7 +1097,9 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /可信口径/);
             assert.match(panel.innerHTML, /来源 local_momentum/);
             assert.match(panel.innerHTML, /模型 local_momentum_v1/);
-            assert.match(panel.innerHTML, /兼容缓存 历史预测缓存 \(legacy_qlib\)/);
+            assert.match(panel.innerHTML, /兼容缓存 历史兼容信号缓存/);
+            assert.doesNotMatch(panel.innerHTML, /legacy_qlib/);
+            assert.doesNotMatch(panel.innerHTML, /历史预测缓存/);
             assert.match(panel.innerHTML, /覆盖 5,197 只/);
             assert.match(panel.innerHTML, /展示 Top 2/);
             assert.match(panel.innerHTML, /生成 2026-06-07T12:30:00/);
@@ -1106,6 +1108,7 @@ def test_intelligence_signal_pool_renders_validation_summary():
             assert.match(panel.innerHTML, /<td class="qlib-td qlib-td-ic">验证偏正<\/td>/);
             assert.match(panel.innerHTML, /信号日期: 2026-06-05/);
             assert.doesNotMatch(panel.innerHTML, /qlib LightGBM/i);
+            assert.doesNotMatch(panel.innerHTML, /暂无预测数据/);
             assert.doesNotMatch(panel.innerHTML, />validated_positive</);
         })().catch((error) => {
             console.error(error);
@@ -1580,12 +1583,12 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence.js?v=6" in app_js
     assert "/static/intelligence-market.js?v=12" in app_js
     assert "/static/intelligence-iwencai.js?v=3" in app_js
-    assert "/static/intelligence-signals.js?v=8" in app_js
+    assert "/static/intelligence-signals.js?v=9" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=78" in scripts
+    assert "/static/app.js?v=79" in scripts
     assert "/static/app-ui-shell.js?v=26" in scripts
-    assert "/sw.js?v=42" in app_ui_shell
-    assert "ai-quant-v125" in service_worker
+    assert "/sw.js?v=43" in app_ui_shell
+    assert "ai-quant-v126" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker

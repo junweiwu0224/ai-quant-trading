@@ -41,8 +41,8 @@
     };
     const signalColor = (score) => (score >= 10 ? '#22c55e' : score <= -10 ? '#dc2626' : '#f59e0b');
     const signalRawSourceName = (value) => ({
-        legacy_qlib: '历史预测缓存',
-        qlib: '历史预测缓存',
+        legacy_qlib: '历史兼容信号缓存',
+        qlib: '历史兼容信号缓存',
         local_momentum: '本地动量信号',
     }[String(value || '').trim()] || String(value || '未知来源'));
     const breadthSourceName = (value) => ({
@@ -102,9 +102,9 @@
             const el = document.getElementById('intel-ml-pred');
             if (!el) return;
 
-            const preds = data.predictions || [];
+            const preds = Array.isArray(data.signals) ? data.signals : (data.predictions || []);
             if (preds.length === 0) {
-                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无预测数据</div>';
+                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无信号数据</div>';
                 return;
             }
 
@@ -115,7 +115,7 @@
             const modelVersion = data.model_version || '--';
             const rawSourceKey = String(data.raw_source || data.source || '').trim();
             const rawSource = rawSourceKey ? signalRawSourceName(rawSourceKey) : '';
-            const legacySourceNote = rawSourceKey ? `兼容缓存 ${rawSource} (${rawSourceKey})` : 'Signal Engine';
+            const legacySourceNote = rawSourceKey ? `兼容缓存 ${rawSource}` : 'Signal Engine';
             const generatedAt = data.generated_at || data.updated_at || '--';
             const validationDays = validation?.success ? String(validation.sample_days ?? 0) : '0';
             const trustSummary = `
@@ -236,8 +236,9 @@
             try {
                 const data = await fetchShared('signalTop50', '/api/signals/top?limit=50');
 
-                if (!data || !data.predictions || data.predictions.length === 0) {
-                    el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无预测数据</div>';
+                const signals = Array.isArray(data?.signals) ? data.signals : (data?.predictions || []);
+                if (!data || signals.length === 0) {
+                    el.innerHTML = '<div class="text-muted text-center" style="padding:16px">暂无信号数据</div>';
                     return;
                 }
 
@@ -264,7 +265,7 @@
                     }
                 });
             } catch {
-                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">预测加载失败</div>';
+                el.innerHTML = '<div class="text-muted text-center" style="padding:16px">信号加载失败</div>';
                 throw new Error('signal_pool_load_failed');
             }
         },

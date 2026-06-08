@@ -1097,6 +1097,9 @@ class TestQlib:
         assert payload["last_update"] == "2026-05-22"
         assert payload["prediction_total"] == 2
         assert payload["service_url"] == qlib_router.QLIB_SERVICE_URL
+        assert payload["legacy"] is True
+        assert payload["primary_endpoint"] == "/api/signals/health"
+        assert payload["adapter_for"] == "signals"
 
     def test_qlib_health_reports_daily_sync_status(self, client, monkeypatch, tmp_path):
         cache_path = tmp_path / "predictions_cache.json"

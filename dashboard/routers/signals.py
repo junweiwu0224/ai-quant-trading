@@ -88,6 +88,9 @@ async def signal_health(
     payload = {
         "success": True,
         "status": status,
+        "primary_collection": "signals",
+        "legacy_aliases": {"predictions": "signals"},
+        "legacy_adapters": {"qlib": "/api/qlib/health"},
         "provider": meta.get("provider") or provider,
         "model_version": meta.get("model_version") or "",
         "latest_date": meta.get("latest_date"),

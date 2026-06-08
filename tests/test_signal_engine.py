@@ -117,6 +117,9 @@ def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "online"
+    assert payload["primary_collection"] == "signals"
+    assert payload["legacy_aliases"]["predictions"] == "signals"
+    assert payload["legacy_adapters"]["qlib"] == "/api/qlib/health"
     assert payload["total"] == 2
     assert payload["fast_mode"] is True
     assert "validation" not in payload

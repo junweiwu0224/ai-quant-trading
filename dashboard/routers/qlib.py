@@ -21,6 +21,11 @@ SYNC_STATUS_FILE = QLIB_SYNC_STATUS
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "db" / "quant.db"
 QLIB_TRAIN_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train"
 QLIB_TRAIN_STATUS_URL = f"{QLIB_SERVICE_URL.rstrip('/')}/train/status"
+LEGACY_QLIB_HEALTH_META = {
+    "legacy": True,
+    "adapter_for": "signals",
+    "primary_endpoint": "/api/signals/health",
+}
 _PREDICTIONS_CACHE: dict[str, object] = {
     "path": None,
     "mtime_ns": None,
@@ -336,6 +341,7 @@ async def qlib_health():
             return {
                 "success": True,
                 "status": "offline",
+                **LEGACY_QLIB_HEALTH_META,
                 "last_update": None,
                 "cache_age_hours": None,
                 "cache_exists": False,
@@ -370,6 +376,7 @@ async def qlib_health():
         return {
             "success": True,
             "status": status,
+            **LEGACY_QLIB_HEALTH_META,
             "last_update": latest_date,
             "cache_age_hours": round(age_hours, 1),
             "cache_exists": True,
@@ -383,6 +390,7 @@ async def qlib_health():
         return {
             "success": True,
             "status": "offline",
+            **LEGACY_QLIB_HEALTH_META,
             "last_update": None,
             "cache_age_hours": None,
             "cache_exists": False,

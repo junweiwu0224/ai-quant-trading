@@ -66,13 +66,23 @@ BUILTIN_STRATEGIES = [
         "builtin": True,
     },
     {
-        "name": "qlib_signal",
-        "label": "ML 信号策略",
+        "name": "signal_strategy",
+        "label": "AI 信号策略",
         "type": "机器学习",
         "description": "基于 AI 信号分数的量化信号策略。支持绝对阈值和截面排名两种模式。",
         "params": {"mode": "absolute", "top_n": 3, "buy_threshold": 0.5, "sell_threshold": -0.3, "position_pct": 0.9, "score_normalize": True},
         "tags": ["ML", "AI信号", "机器学习"],
         "builtin": True,
+    },
+    {
+        "name": "qlib_signal",
+        "label": "AI 信号策略（兼容旧ID）",
+        "type": "机器学习",
+        "description": "兼容旧 qlib_signal ID；新建工作流请使用 signal_strategy。",
+        "params": {"mode": "absolute", "top_n": 3, "buy_threshold": 0.5, "sell_threshold": -0.3, "position_pct": 0.9, "score_normalize": True},
+        "tags": ["ML", "AI信号", "兼容"],
+        "builtin": True,
+        "legacy_alias_for": "signal_strategy",
     },
 ]
 

@@ -35,6 +35,7 @@ def _get_builtin_classes() -> dict[str, type]:
         "rsi": RSIStrategy,
         "macd": MACDStrategy,
         "kdj": KDJStrategy,
+        "signal_strategy": QlibSignalStrategy,
         "qlib_signal": QlibSignalStrategy,
     })
     return _BUILTIN_STRATEGY_CLASSES
@@ -54,8 +55,8 @@ def _create_builtin_strategy(name: str, cls: type, params: dict):
     from strategy.qlib_signal import QlibSignalStrategy
 
     filtered = _filter_params(cls, params)
-    # qlib_signal 兼容 ID 使用 AI 信号服务加载分数
-    if name == "qlib_signal":
+    # signal_strategy/qlib_signal 使用 AI 信号服务加载分数
+    if name in {"signal_strategy", "qlib_signal"}:
         return QlibSignalStrategy.from_service(
             service_url=QLIB_SERVICE_URL,
             **filtered,

@@ -72,11 +72,13 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=8" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=76" in scripts
+    assert "/static/app.js?v=77" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
     assert '<option value="signal" selected>AI信号覆盖池</option>' in template
+    assert '<option value="signal_strategy">AI 信号策略</option>' in template
+    assert '<option value="qlib_signal">AI 信号策略</option>' not in template
     assert 'ML 信号策略 (qlib)' not in template
     assert 'title="重新训练 qlib ML 模型"' not in template
 
@@ -93,6 +95,8 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "App.fetchJSON('/api/qlib/train'" not in paper
     assert "App.fetchJSON('/api/qlib/train/status')" not in paper
     assert "qlib 训练" not in paper
+    assert '"name": "signal_strategy"' in manager
+    assert '"legacy_alias_for": "signal_strategy"' in manager
     assert "基于 AI 信号分数" in manager
     assert "qlib 预测缓存不存在" not in backtest
     assert "qlib 训练" not in backtest
@@ -101,7 +105,11 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "从 qlib 服务加载" not in signal_strategy
     assert "AI 信号服务不可用" in signal_strategy
     assert "qlib_signal 需要从 qlib 服务加载预测分数" not in paper_control
-    assert "qlib_signal 兼容 ID 使用 AI 信号服务加载分数" in paper_control
+    assert '"signal_strategy": QlibSignalStrategy' in paper_control
+    assert '"qlib_signal": QlibSignalStrategy' in paper_control
+    assert "signal_strategy/qlib_signal 使用 AI 信号服务加载分数" in paper_control
+    assert "!s.legacy_alias_for" in read("dashboard/static/backtest-strategies.js")
+    assert "!s.legacy_alias_for" in read("dashboard/static/paper-trading.js")
     assert 'tags=["qlib 预测"]' not in dashboard_app
     assert 'tags=["AI 信号兼容接口"]' in dashboard_app
     assert "Qlib 服务健康检查" not in qlib_router
@@ -1037,7 +1045,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=48" in template
     assert "/static/search.js?v=13" in scripts
     assert "/static/watchlist.js?v=9" in scripts
-    assert "/static/app.js?v=76" in scripts
+    assert "/static/app.js?v=77" in scripts
     assert "/static/app-stock-ops.js?v=5" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=25" in scripts
@@ -1053,7 +1061,8 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/overview-radar.js?v=9" in scripts
     assert "/static/overview-radar.js?v=9" in app
     assert "/static/paper.js?v=10" in app
-    assert "/static/paper-trading.js?v=6" in app
+    assert "/static/paper-trading.js?v=7" in app
+    assert "/static/backtest-strategies.js?v=2" in app
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=5" in app
     assert "/static/alpha-tools.js?v=5" in app

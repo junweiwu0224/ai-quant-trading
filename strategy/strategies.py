@@ -14,5 +14,6 @@ STRATEGIES = {
     "rsi": RSIStrategy,
     "macd": MACDStrategy,
     "kdj": KDJStrategy,
+    "signal_strategy": QlibSignalStrategy,
     "qlib_signal": QlibSignalStrategy,
 }

@@ -140,7 +140,7 @@ class TestPaperStateManager:
 # ── PaperEngine 测试 ──
 
 class TestPaperEngine:
-    def test_create_builtin_qlib_strategy_uses_configured_service_url(self, monkeypatch):
+    def test_create_builtin_signal_strategy_uses_configured_service_url(self, monkeypatch):
         called = {}
 
         class StubQlibSignalStrategy:
@@ -157,7 +157,7 @@ class TestPaperEngine:
         monkeypatch.setattr("strategy.qlib_signal.QlibSignalStrategy", StubQlibSignalStrategy)
 
         strategy = _create_builtin_strategy(
-            "qlib_signal",
+            "signal_strategy",
             StubQlibSignalStrategy,
             {"buy_threshold": 0.6, "top_n": 5},
         )
@@ -166,6 +166,31 @@ class TestPaperEngine:
         assert called["service_url"] == QLIB_SERVICE_URL
         assert called["kwargs"]["buy_threshold"] == 0.6
         assert called["kwargs"]["top_n"] == 5
+
+    def test_legacy_qlib_strategy_id_remains_service_alias(self, monkeypatch):
+        called = {}
+
+        class StubQlibSignalStrategy:
+            def __init__(self, buy_threshold=0.5):
+                self.buy_threshold = buy_threshold
+
+            @classmethod
+            def from_service(cls, service_url, **kwargs):
+                called["service_url"] = service_url
+                called["kwargs"] = kwargs
+                return "legacy-stub-strategy"
+
+        monkeypatch.setattr("strategy.qlib_signal.QlibSignalStrategy", StubQlibSignalStrategy)
+
+        strategy = _create_builtin_strategy(
+            "qlib_signal",
+            StubQlibSignalStrategy,
+            {"buy_threshold": 0.7},
+        )
+
+        assert strategy == "legacy-stub-strategy"
+        assert called["service_url"] == QLIB_SERVICE_URL
+        assert called["kwargs"]["buy_threshold"] == 0.7
 
     def _make_engine(self, strategy=None, codes=None, tmpdir=None):
         """创建测试引擎"""

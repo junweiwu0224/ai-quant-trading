@@ -27,15 +27,46 @@ class TestBacktestAPI:
         res = client.get("/api/backtest/strategies")
         assert res.status_code == 200
         strategies = res.json()
-        assert len(strategies) == 7
+        assert len(strategies) == 8
         names = [s["name"] for s in strategies]
+        by_name = {s["name"]: s for s in strategies}
         assert "dual_ma" in names
         assert "bollinger" in names
         assert "momentum" in names
         assert "rsi" in names
         assert "macd" in names
         assert "kdj" in names
+        assert "signal_strategy" in names
         assert "qlib_signal" in names
+        assert by_name["qlib_signal"]["legacy_alias_for"] == "signal_strategy"
+
+    def test_create_signal_strategy_loads_predictions_cache(self, monkeypatch):
+        from dashboard.routers import backtest
+
+        captured = {}
+
+        class StubSignalStrategy:
+            def __init__(self, predictions=None, buy_threshold=0.5):
+                captured["predictions"] = predictions
+                captured["buy_threshold"] = buy_threshold
+
+        monkeypatch.setitem(backtest.STRATEGIES, "signal_strategy", StubSignalStrategy)
+        monkeypatch.setattr(
+            backtest,
+            "_load_qlib_predictions",
+            lambda start, end: {"2026-06-05": {"600519": 0.9}},
+        )
+
+        strategy = backtest._create_strategy(
+            "signal_strategy",
+            {"buy_threshold": 0.7},
+            "2026-06-01",
+            "2026-06-05",
+        )
+
+        assert isinstance(strategy, StubSignalStrategy)
+        assert captured["predictions"] == {"2026-06-05": {"600519": 0.9}}
+        assert captured["buy_threshold"] == 0.7
 
     def test_search_stocks(self):
         res = client.get("/api/backtest/stocks")

@@ -25,6 +25,7 @@ collector = StockCollector()
 
 # AI 信号缓存路径；变量名保留为兼容旧预测缓存位置
 _QLIB_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "qlib" / "predictions_cache.json"
+_SIGNAL_STRATEGY_NAMES = {"signal_strategy", "qlib_signal"}
 
 
 def _load_qlib_predictions(start_date: str, end_date: str) -> dict[str, dict[str, float]]:
@@ -60,9 +61,9 @@ def _filter_params(cls: type, params: dict) -> dict:
 
 
 def _create_strategy(name: str, params: dict | None = None, start_date: str = "", end_date: str = ""):
-    """创建策略实例，qlib_signal 兼容 ID 自动加载 AI 信号缓存"""
+    """创建策略实例，AI 信号策略自动加载信号缓存"""
     params = params or {}
-    if name == "qlib_signal" and "predictions" not in params:
+    if name in _SIGNAL_STRATEGY_NAMES and "predictions" not in params:
         predictions = _load_qlib_predictions(start_date, end_date)
         if predictions:
             params = {**params, "predictions": predictions}
@@ -398,6 +399,7 @@ async def list_strategies():
             "label": s.get("label", s["name"]),
             "type": s.get("type", "自定义"),
             "params": s.get("params", {}),
+            "legacy_alias_for": s.get("legacy_alias_for"),
         }
         for s in strategies
     ]
@@ -1108,9 +1110,9 @@ async def ws_backtest(ws: WebSocket):
             slippage=req.get("slippage", 0.002),
             enable_risk=req.get("enable_risk", False),
         )
-        # qlib_signal 兼容 ID：加载 AI 信号缓存并检查日期范围
+        # AI 信号策略：加载信号缓存并检查日期范围
         raw_params = req.get("params") or {}
-        if strategy_name == "qlib_signal":
+        if strategy_name in _SIGNAL_STRATEGY_NAMES:
             predictions = _load_qlib_predictions(req.get("start_date", ""), req.get("end_date", ""))
             if predictions:
                 raw_params = {**raw_params, "predictions": predictions}

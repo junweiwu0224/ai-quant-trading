@@ -46,8 +46,9 @@ Object.assign(App, {
 
         try {
             const strategies = await this.fetchJSON('/api/backtest/strategies');
+            const visibleStrategies = (strategies || []).filter(s => !s.legacy_alias_for);
             this._strategiesData = strategies;
-            select.innerHTML = strategies.map(s =>
+            select.innerHTML = visibleStrategies.map(s =>
                 `<option value="${this.escapeHTML(s.name)}">${this.escapeHTML(s.label)}</option>`
             ).join('');
             this._onStrategyChange();

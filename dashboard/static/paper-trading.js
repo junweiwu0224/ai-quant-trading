@@ -95,7 +95,7 @@ const PaperTrading = {
     async loadStrategyList() {
         try {
             const data = await App.fetchJSON('/api/strategy/list');
-            const strategies = data.data || data || [];
+            const strategies = (data.data || data || []).filter(s => !s.legacy_alias_for);
             const select = document.getElementById('pp-strategy');
             if (!select || !Array.isArray(strategies)) return;
 

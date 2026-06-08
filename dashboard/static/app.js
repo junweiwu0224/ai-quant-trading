@@ -105,7 +105,7 @@ const App = {
         ],
         paper: [
             '/static/paper.js?v=10',
-            '/static/paper-trading.js?v=6',
+            '/static/paper-trading.js?v=7',
             '/static/paper-trading-trade.js?v=1',
             '/static/paper-trading-position.js?v=1',
             '/static/paper-trading-performance.js?v=1',
@@ -130,7 +130,7 @@ const App = {
         research: [
             '/static/backtest.js?v=4',
             '/static/backtest-analysis.js?v=1',
-            '/static/backtest-strategies.js?v=1',
+            '/static/backtest-strategies.js?v=2',
             '/static/alpha.js?v=5',
             '/static/alpha-charts.js?v=1',
             '/static/alpha-factors.js?v=1',

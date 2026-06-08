@@ -25,6 +25,9 @@ def test_signal_top_api_returns_unified_rows(client, monkeypatch, tmp_path):
     assert payload["model_version"] == "local_momentum_v1"
     assert payload["date"] == "2026-05-22"
     assert payload["total"] == 2
+    assert payload["primary_collection"] == "signals"
+    assert payload["legacy_aliases"]["predictions"] == "signals"
+    assert payload["predictions"] == payload["signals"]
     assert payload["signals"][0]["code"] == "600519"
     assert payload["signals"][0]["signal_provider"] == "local_momentum"
     assert payload["signals"][0]["qlib_rank"] == 1

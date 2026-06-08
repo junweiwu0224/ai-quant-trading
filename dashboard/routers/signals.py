@@ -46,12 +46,21 @@ async def top_signals(
         cache_path=QLIB_PRED_CACHE,
     )
     if meta.get("error"):
-        return {"success": False, "signals": [], "predictions": [], **meta}
+        return {
+            "success": False,
+            "signals": [],
+            "predictions": [],
+            "primary_collection": "signals",
+            "legacy_aliases": {"predictions": "signals"},
+            **meta,
+        }
     rows = _enrich_records(records)
     return {
         "success": True,
         "signals": rows,
         "predictions": rows,
+        "primary_collection": "signals",
+        "legacy_aliases": {"predictions": "signals"},
         "date": records[0].date if records else meta.get("latest_date"),
         "total": meta.get("total") or 0,
         "provider": meta.get("provider") or DEFAULT_PROVIDER,

@@ -100,6 +100,7 @@ def test_signal_engine_is_primary_frontend_semantics():
     assert "App.fetchJSON('/api/qlib/train/status')" not in paper
     assert "qlib 训练" not in paper
     assert 'id="pp-train-btn" title="刷新 AI 信号">刷新信号</button>' in template
+    assert 'id="ai-train-btn">训练AI模型</button>' in template
     assert "训练ML" not in template
     assert '"name": "signal_strategy"' in manager
     assert '"legacy_alias_for": "signal_strategy"' in manager

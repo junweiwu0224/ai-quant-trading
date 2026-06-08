@@ -5,7 +5,9 @@ def test_builtin_agents_cover_quant_research_and_signal_sources():
     registry = AgentRegistry.default()
 
     assert registry.get("signal_agent").name == "Signal Engine Agent"
+    assert registry.get("signal_agent").legacy_alias_for == ""
     assert registry.get("qlib_agent").name == "Signal Engine Agent"
+    assert registry.get("qlib_agent").legacy_alias_for == "signal_agent"
     assert "read_qlib" not in registry.get("qlib_agent").permissions
     assert set(registry.get("qlib_agent").permissions) == {"read_market", "publish_signal"}
     assert registry.get("hotspot_agent").kind == "signal"

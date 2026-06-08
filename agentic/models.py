@@ -58,6 +58,7 @@ class AgentProfile:
     description: str
     permissions: tuple[str, ...] | list[str] = field(default_factory=tuple)
     enabled: bool = True
+    legacy_alias_for: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "permissions", tuple(self.permissions))

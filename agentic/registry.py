@@ -24,6 +24,7 @@ class AgentRegistry:
                     "signal",
                     "Legacy alias for Signal Engine ranked momentum signals.",
                     ["read_market", "publish_signal"],
+                    legacy_alias_for="signal_agent",
                 ),
                 AgentProfile(
                     "hotspot_agent",

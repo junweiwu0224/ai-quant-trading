@@ -4,7 +4,9 @@ def test_agentic_agents_endpoint_lists_builtin_agents(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
-    assert any(item["id"] == "qlib_agent" for item in body["agents"])
+    agents = {item["id"]: item for item in body["agents"]}
+    assert "signal_agent" in agents
+    assert agents["qlib_agent"]["legacy_alias_for"] == "signal_agent"
 
 
 def test_agentic_signals_endpoint_returns_list(client, monkeypatch, tmp_path):

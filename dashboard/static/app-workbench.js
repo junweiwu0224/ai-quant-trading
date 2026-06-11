@@ -64,12 +64,20 @@
                     silent: true,
                 });
 
-                this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', { maxResults: 30 });
+                this.btMultiSearch = new MultiSearchBox('bt-code', 'bt-code-dropdown', 'bt-codes-tags', {
+                    maxResults: 30,
+                    minQueryLength: 1,
+                    emptyScope: 'watchlist',
+                    idleMessage: '自选股为空，输入代码或名称搜索全市场',
+                });
                 this.btMultiSearch.setDataSource(watchlistFirstSource);
                 this._bindBacktestSnapshotInvalidation?.();
 
                 const alphaSearch = new SearchBox('alpha-code', 'alpha-code-dropdown', {
                     maxResults: 30,
+                    minQueryLength: 1,
+                    emptyScope: 'watchlist',
+                    idleMessage: '自选股为空，输入代码或名称搜索全市场',
                     formatItem: (s) => `${s.code} ${s.name || ''}`,
                 });
                 alphaSearch.setDataSource(watchlistFirstSource);
@@ -77,7 +85,12 @@
                     document.getElementById('alpha-code').value = item.code;
                 });
 
-                this.paperMultiSearch = new MultiSearchBox('pp-codes', 'pp-codes-dropdown', 'pp-codes-tags', { maxResults: 30 });
+                this.paperMultiSearch = new MultiSearchBox('pp-codes', 'pp-codes-dropdown', 'pp-codes-tags', {
+                    maxResults: 30,
+                    minQueryLength: 1,
+                    emptyScope: 'watchlist',
+                    idleMessage: '自选股为空，输入代码或名称搜索全市场',
+                });
                 this.paperMultiSearch.setDataSource(watchlistFirstSource);
 
                 Watchlist.setSelected(this.watchlistCache.map(s => s.code));

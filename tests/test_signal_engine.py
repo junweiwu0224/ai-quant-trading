@@ -93,7 +93,7 @@ def test_signal_validation_reports_top_return_metrics(tmp_path):
     assert summary.metrics["1d"]["rank_ic"] > 0
 
 
-def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
+def test_signal_health_fast_returns_light_validation_without_full_validation(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     from dashboard.app import app
@@ -124,7 +124,13 @@ def test_signal_health_fast_skips_validation(monkeypatch, tmp_path):
     assert payload["raw_source_role"] == "legacy_cache"
     assert payload["total"] == 2
     assert payload["fast_mode"] is True
-    assert "validation" not in payload
+    assert payload["validation"]["provider"] == "local_momentum"
+    assert payload["validation"]["model_version"] == "local_momentum_v1"
+    assert payload["validation"]["confidence"] == "unverified"
+    assert payload["validation"]["sample_days"] == 0
+    assert payload["validation"]["status"] == "fast_mode"
+    assert payload["validation"]["penalty_applied"] is True
+    assert payload["validation"]["metrics"] == {}
 
 
 def test_signal_validation_endpoint_runs_validation_off_event_loop(monkeypatch):

@@ -20,6 +20,7 @@ from loguru import logger
 
 from data.collector.cache import TTLCache
 from data.collector.http_client import fetch_json
+from data.signals.engine import build_signal_context
 from data.storage.storage import DataStorage
 
 router = APIRouter()
@@ -276,6 +277,7 @@ def _build_radar_result(stocks: list[dict[str, Any]], *, source: str, local: boo
         "top_turnover": _market_pick(stocks, "turnover_rate"),
         "total_stocks": len(stocks),
         "source": source,
+        "universe": "local_stock_daily_coverage_pool" if local else "all_a",
         "latest_date": latest_dates[-1] if latest_dates else None,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -301,6 +303,31 @@ def _with_fast_path(result: dict[str, Any]) -> dict[str, Any]:
         "fast_path": True,
         "fast_path_note": "首屏快路径，优先使用本地覆盖池/缓存，不同步等待外部行情源",
     }
+
+
+def _empty_heatmap_result(
+    *,
+    source: str,
+    reason: str,
+    error: str,
+    fast: bool = False,
+    coverage_note: str | None = None,
+) -> dict[str, Any]:
+    result = {
+        "success": False,
+        "error": error,
+        "sectors": [],
+        "total": 0,
+        "fetched": 0,
+        "source": source,
+        "universe": "eastmoney_industry_boards_all" if source == "eastmoney_sector_board" else "local_stock_daily_coverage_pool",
+        "coverage_note": coverage_note or "板块热力源不可用，当前无可用热力数据",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_unavailable": True,
+        "stale": True,
+        "stale_reason": reason,
+    }
+    return _with_fast_path(result) if fast else result
 
 
 def _build_market_breadth_result() -> dict[str, Any]:
@@ -373,6 +400,12 @@ async def get_market_radar(fast: bool = False):
             "fast_path": True,
             "error": "本地 stock_daily 覆盖池暂无可用数据",
             "source": "local_stock_daily",
+            "universe": "local_stock_daily_coverage_pool",
+            "coverage_note": "本地 stock_daily 覆盖池暂无可用数据，市场雷达不可计算",
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "source_unavailable": True,
+            "stale": True,
+            "stale_reason": "fast_local_coverage_unavailable",
             "total_stocks": 0,
         }
 
@@ -400,6 +433,11 @@ async def get_market_radar(fast: bool = False):
             "error": f"全市场行情源不可用: {e}",
             "source": "eastmoney_full_market_rank",
             "universe": "all_a",
+            "coverage_note": "东方财富全A股延迟快照不可用，且本地 stock_daily 覆盖池暂无可用数据",
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "source_unavailable": True,
+            "stale": True,
+            "stale_reason": "live_and_local_market_unavailable",
             "total_stocks": 0,
         }
 
@@ -484,6 +522,240 @@ def _local_sector_coverage_note(snapshot: dict[str, Any], kind: str) -> str:
     if grouping == "industry":
         return f"本地 stock_daily 覆盖股票池行业{kind}，行业覆盖 {coverage}% ，按覆盖股票数权重"
     return f"本地 stock_daily 覆盖股票池交易板块{kind}，stock_info 行业覆盖 {coverage}% ，按覆盖股票数权重"
+
+
+def _sector_member_group_name(stock: dict[str, Any], grouping: str) -> str:
+    if grouping == "industry":
+        return str(stock.get("industry") or "").strip() or "未分类"
+    return _exchange_board_name(str(stock.get("code") or ""))
+
+
+def _fmt_amount_yi(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value) / 1e8, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_sector_signal_overlap(members: list[dict[str, Any]]) -> dict[str, Any]:
+    codes = {str(item.get("code") or "").strip() for item in members if item.get("code")}
+    if not codes:
+        return {
+            "count": 0,
+            "items": [],
+            "missing_reason": "板块暂无成分股，无法计算 Signal 重叠",
+        }
+    try:
+        signal_context = build_signal_context(top_limit=500)
+    except Exception as exc:
+        return {
+            "count": 0,
+            "items": [],
+            "missing_reason": f"Signal 覆盖池读取失败: {exc}",
+        }
+
+    signal_items = signal_context.get("items") if isinstance(signal_context, dict) else {}
+    if not isinstance(signal_items, dict) or not signal_items:
+        return {
+            "count": 0,
+            "items": [],
+            "provider": (signal_context or {}).get("provider") if isinstance(signal_context, dict) else "",
+            "model_version": (signal_context or {}).get("model_version") if isinstance(signal_context, dict) else "",
+            "latest_date": (signal_context or {}).get("latest_date") if isinstance(signal_context, dict) else "",
+            "missing_reason": "Signal 覆盖池暂无可用记录",
+        }
+
+    name_by_code = {str(item.get("code") or ""): str(item.get("name") or item.get("code") or "") for item in members}
+    matched = []
+    for code in codes:
+        signal = signal_items.get(code)
+        if not signal:
+            continue
+        matched.append({
+            "code": code,
+            "name": name_by_code.get(code, code),
+            "signal_rank": signal.get("signal_rank") or signal.get("qlib_rank"),
+            "signal_score": signal.get("signal_score") if signal.get("signal_score") is not None else signal.get("qlib_score"),
+            "signal_confidence": signal.get("signal_confidence") or "unverified",
+        })
+    matched.sort(key=lambda item: item.get("signal_rank") or 10_000)
+    payload = {
+        "count": len(matched),
+        "items": matched[:8],
+        "provider": signal_context.get("provider") or "",
+        "model_version": signal_context.get("model_version") or "",
+        "latest_date": signal_context.get("latest_date") or "",
+        "raw_source": signal_context.get("raw_source") or "",
+        "coverage_note": f"Signal Top 500 与本板块成分重叠 {len(matched)} 只",
+    }
+    if not matched:
+        payload["missing_reason"] = "Signal Top 500 暂无本板块成分股"
+    return payload
+
+
+def _build_sector_evidence_context(
+    *,
+    sector_name: str,
+    grouping: str,
+    members: list[dict[str, Any]],
+    display_members: list[dict[str, Any]],
+    generated_at: str,
+    total_pool: int,
+) -> dict[str, Any]:
+    changes = [float(item.get("change_pct") or 0) for item in members]
+    amounts = [float(item.get("amount") or 0) for item in members if item.get("amount") is not None]
+    up_count = len([value for value in changes if value > 0])
+    down_count = len([value for value in changes if value < 0])
+    flat_count = max(len(members) - up_count - down_count, 0)
+    avg_change = round(sum(changes) / len(changes), 2) if changes else 0
+    leader = members[0] if members else None
+    top_amount_member = max(members, key=lambda item: float(item.get("amount") or 0), default=None)
+    total_amount = sum(amounts) if amounts else 0
+    signal_overlap = _build_sector_signal_overlap(members)
+
+    return {
+        "sector_name": sector_name,
+        "grouping": grouping,
+        "generated_at": generated_at,
+        "universe": "local_stock_daily_coverage_pool",
+        "summary": {
+            "title": f"{sector_name} 板块证据",
+            "member_count": len(members),
+            "display_count": len(display_members),
+            "source_pool_count": total_pool,
+            "avg_change_pct": avg_change,
+            "up_count": up_count,
+            "down_count": down_count,
+            "flat_count": flat_count,
+            "leader": leader,
+            "direction": "扩散偏强" if up_count > down_count else ("扩散偏弱" if down_count > up_count else "多空均衡"),
+        },
+        "liquidity": {
+            "total_amount": total_amount if amounts else None,
+            "total_amount_yi": _fmt_amount_yi(total_amount) if amounts else None,
+            "avg_amount_yi": _fmt_amount_yi(total_amount / len(amounts)) if amounts else None,
+            "top_amount_member": top_amount_member,
+            "coverage_note": "以本地 stock_daily amount 作为量能代理",
+            "missing_reason": "" if amounts else "本地 stock_daily 暂无成交额字段",
+        },
+        "signal_overlap": signal_overlap,
+        "news_research": {
+            "status": "missing",
+            "items": [],
+            "missing_reason": "板块级新闻/研报证据尚未接入；当前仅在新闻主题面板做个股/主题映射",
+        },
+        "related_index": {
+            "status": "missing",
+            "items": [],
+            "missing_reason": "本地覆盖池暂未维护行业/概念关联指数映射",
+        },
+        "next_actions": [
+            {"id": "send_screener", "label": "发送到选股器", "requires": "members"},
+            {"id": "open_stock", "label": "打开成分股工作台", "requires": "selected_member"},
+            {"id": "draft_backtest", "label": "生成板块篮子回测草案", "requires": "members", "status": "deferred"},
+        ],
+    }
+
+
+def _build_local_sector_members(name: str, grouping: str = "industry", limit: int = 30) -> dict[str, Any]:
+    sector_name = str(name or "").strip()
+    normalized_grouping = "industry" if str(grouping or "").strip() == "industry" else "exchange_board"
+    safe_limit = max(1, min(int(limit or 30), 100))
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    stocks = _local_market_stock_rows()
+    total_pool = len(stocks)
+    members = [
+        stock for stock in stocks
+        if _sector_member_group_name(stock, normalized_grouping) == sector_name
+    ]
+    members.sort(
+        key=lambda item: (
+            float(item.get("change_pct") if item.get("change_pct") is not None else -999),
+            float(item.get("amount") or 0),
+        ),
+        reverse=True,
+    )
+
+    display_members = []
+    for stock in members[:safe_limit]:
+        change_pct = stock.get("change_pct")
+        amount = stock.get("amount")
+        display_members.append(
+            {
+                "code": str(stock.get("code") or ""),
+                "name": str(stock.get("name") or stock.get("code") or ""),
+                "sector_name": sector_name,
+                "grouping": normalized_grouping,
+                "industry": str(stock.get("industry") or ""),
+                "price": stock.get("price"),
+                "change_pct": round(float(change_pct), 2) if change_pct is not None else None,
+                "amount": amount,
+                "turnover_amount": round(float(amount or 0) / 1e8, 2) if amount is not None else None,
+                "date": stock.get("date"),
+                "source": "local_stock_daily",
+                "rank_reason": f"{sector_name}板块成分股，按涨跌幅和成交额排序",
+            }
+        )
+
+    up_count = len([s for s in members if (s.get("change_pct") or 0) > 0])
+    down_count = len([s for s in members if (s.get("change_pct") or 0) < 0])
+    result = {
+        "success": bool(sector_name),
+        "sector_name": sector_name,
+        "grouping": normalized_grouping,
+        "source": "local_stock_daily",
+        "provider": "market_sector_members",
+        "universe": "local_stock_daily_coverage_pool",
+        "generated_at": generated_at,
+        "timestamp": generated_at,
+        "coverage_note": "本地 stock_daily 覆盖池板块成分，按最新交易日涨跌幅和成交额排序",
+        "total_count": len(members),
+        "effective_count": len(members),
+        "display_count": len(display_members),
+        "source_pool_count": total_pool,
+        "up_count": up_count,
+        "down_count": down_count,
+        "flat_count": max(len(members) - up_count - down_count, 0),
+        "members": display_members,
+        "evidence_context": _build_sector_evidence_context(
+            sector_name=sector_name,
+            grouping=normalized_grouping,
+            members=members,
+            display_members=display_members,
+            generated_at=generated_at,
+            total_pool=total_pool,
+        ),
+        "source_context": {
+            "source": "market:sector-heatmap",
+            "sourceLabel": "板块",
+            "context_type": "sector",
+            "sector_name": sector_name,
+            "universe": "local_stock_daily_coverage_pool",
+            "rank_reason": f"{sector_name}板块成分股，按涨跌幅和成交额排序",
+        },
+        "stale": True,
+        "stale_reason": "local_daily_snapshot",
+    }
+    if not sector_name:
+        result.update(
+            {
+                "success": False,
+                "source_unavailable": True,
+                "missing_reason": "sector_name_required",
+                "coverage_note": "缺少板块名称，无法生成成分股列表",
+            }
+        )
+    elif not members:
+        result.update(
+            {
+                "source_unavailable": False,
+                "missing_reason": f"本地覆盖池暂无{sector_name}成分股",
+                "coverage_note": f"本地 stock_daily 覆盖池暂无 {sector_name} 成分股",
+            }
+        )
+    return result
 
 
 # ── 板块轮动 ──
@@ -588,6 +860,21 @@ async def get_sector_ranking(type: str = "industry", fast: bool = False):
             _last_sectors = result
             return result
         return {"success": False, "error": str(e), "sectors": []}
+
+
+@router.get("/sector-members")
+async def get_sector_members(name: str, grouping: str = "industry", limit: int = 30):
+    """板块成分股（本地 stock_daily 覆盖池，只读联动数据）"""
+    normalized_name = str(name or "").strip()
+    normalized_grouping = "industry" if str(grouping or "").strip() == "industry" else "exchange_board"
+    safe_limit = max(1, min(int(limit or 30), 100))
+    cache_key = f"sector_members:{normalized_grouping}:{normalized_name}:{safe_limit}"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+    result = await asyncio.to_thread(_build_local_sector_members, normalized_name, normalized_grouping, safe_limit)
+    _cache.set(cache_key, result, _TTL_SECTOR)
+    return result
 
 
 # ── 板块热力图 ──
@@ -696,7 +983,13 @@ async def get_sector_heatmap(fast: bool = False):
             result = _with_fast_path({**_last_heatmap, "stale": True, "stale_reason": "fast_local_coverage_unavailable"})
             _cache.set(cache_key, result, _TTL_SECTOR)
             return result
-        return {"success": False, "fast": True, "fast_path": True, "error": "本地行业热力覆盖池暂无可用数据", "sectors": []}
+        return _empty_heatmap_result(
+            source="local_stock_daily",
+            reason="fast_local_coverage_unavailable",
+            error="本地行业热力覆盖池暂无可用数据",
+            fast=True,
+            coverage_note="本地 stock_daily 覆盖池暂无可用行业热力数据",
+        )
 
     try:
         data = await asyncio.to_thread(_fetch_sector_heatmap)
@@ -732,7 +1025,12 @@ async def get_sector_heatmap(fast: bool = False):
             _cache.set(cache_key, result, _TTL_SECTOR)
             _last_heatmap = result
             return result
-        return {"success": False, "error": str(e), "sectors": []}
+        return _empty_heatmap_result(
+            source="eastmoney_sector_board",
+            reason="heatmap_source_unavailable",
+            error=str(e),
+            coverage_note="东方财富行业板块热力源不可用，且本地 stock_daily 覆盖池暂无可用行业热力数据",
+        )
 
 
 # ── 北向资金 ──
@@ -836,6 +1134,81 @@ _TTL_HOTSPOT = 120  # 2 分钟缓存
 _last_hotspot: dict | None = None
 
 
+def _empty_hotspot_result(
+    error: str = "",
+    reason: str = "hotspot_source_unavailable",
+    coverage_note: str = "热点归因源不可用，当前无可用热点数据",
+) -> dict[str, Any]:
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    result: dict[str, Any] = {
+        "success": True,
+        "source": "hotspot_attribution",
+        "provider": "hotspot_attribution",
+        "generated_at": generated_at,
+        "timestamp": generated_at,
+        "coverage_note": coverage_note,
+        "summary": "暂无热点数据",
+        "hot_concepts": [],
+        "hot_industries": [],
+        "concepts": [],
+        "industries": [],
+        "fund_flow": [],
+        "source_status": {
+            "concept": {"ok": False, "count": 0, "message": reason},
+            "industry": {"ok": False, "count": 0, "message": reason},
+            "fund_flow": {"ok": False, "count": 0, "message": reason},
+        },
+        "source_unavailable": True,
+        "stale": True,
+        "stale_reason": reason,
+        "partial_errors": [error] if error else [reason],
+    }
+    if error:
+        result["error"] = error
+    return result
+
+
+def _normalize_hotspot_result(data: dict[str, Any]) -> dict[str, Any]:
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    hot_concepts = data.get("hot_concepts") or data.get("concepts") or []
+    hot_industries = data.get("hot_industries") or data.get("industries") or []
+    fund_flow = data.get("fund_flow") or []
+    partial_errors = list(data.get("partial_errors") or data.get("errors") or [])
+    source_status = data.get("source_status") or {}
+    source_unavailable = not hot_concepts and not hot_industries and not fund_flow
+    if source_unavailable and not partial_errors:
+        partial_errors = ["empty_hotspot_source"]
+
+    result: dict[str, Any] = {
+        "success": True,
+        "source": data.get("source") or "hotspot_attribution",
+        "provider": data.get("provider") or "hotspot_attribution",
+        "generated_at": data.get("generated_at") or generated_at,
+        "timestamp": data.get("timestamp") or data.get("generated_at") or generated_at,
+        "coverage_note": data.get("coverage_note") or "热点归因：概念、行业和资金流聚合快照",
+        **data,
+        "hot_concepts": hot_concepts,
+        "hot_industries": hot_industries,
+        "concepts": hot_concepts,
+        "industries": hot_industries,
+        "fund_flow": fund_flow,
+    }
+    if source_status:
+        result["source_status"] = source_status
+    if partial_errors:
+        result["partial_errors"] = partial_errors
+    if source_unavailable:
+        result.update(
+            {
+                "source_unavailable": True,
+                "stale": True,
+                "stale_reason": "empty_hotspot_source",
+                "coverage_note": data.get("coverage_note") or "热点归因源当前无可用记录",
+            }
+        )
+    return result
+
+
 @router.get("/hotspot")
 async def get_hotspot():
     """热点归因分析（概念板块+行业+资金流向）"""
@@ -848,15 +1221,33 @@ async def get_hotspot():
     try:
         from alpha.hotspot_attribution import get_hotspot_attribution
         data = await get_hotspot_attribution()
-        result = {"success": True, **data}
+        result = _normalize_hotspot_result(data if isinstance(data, dict) else {})
         _cache.set(cache_key, result, _TTL_HOTSPOT)
         _last_hotspot = result
         return result
     except Exception as e:
         logger.error(f"热点归因失败: {e}")
         if _last_hotspot:
-            return {**_last_hotspot, "stale": True}
-        return {"success": False, "error": str(e)}
+            generated_at = datetime.now().isoformat(timespec="seconds")
+            partial_errors = list(_last_hotspot.get("partial_errors") or [])
+            partial_errors.append(str(e))
+            return {
+                **_last_hotspot,
+                "success": True,
+                "source": _last_hotspot.get("source") or "hotspot_attribution",
+                "provider": _last_hotspot.get("provider") or "hotspot_attribution",
+                "generated_at": _last_hotspot.get("generated_at") or generated_at,
+                "timestamp": _last_hotspot.get("timestamp")
+                or _last_hotspot.get("generated_at")
+                or generated_at,
+                "coverage_note": _last_hotspot.get("coverage_note") or "热点归因源异常，展示最近一次缓存",
+                "source_unavailable": True,
+                "stale": True,
+                "stale_reason": "hotspot_source_unavailable",
+                "partial_errors": partial_errors,
+                "error": str(e),
+            }
+        return _empty_hotspot_result(str(e))
 
 
 # ── 市场新闻 ──
@@ -877,7 +1268,30 @@ async def get_market_news():
     try:
         from alpha.news_collector import fetch_market_news_summary
         data = await fetch_market_news_summary()
-        result = {"success": True, **data}
+        source_errors = data.get("errors") or data.get("partial_errors") or []
+        source_names = [item.get("name") for item in data.get("sources", []) if isinstance(item, dict)]
+        source_unavailable = not data.get("news") and (not data.get("sources") or bool(source_errors))
+        generated_at = datetime.now().isoformat(timespec="seconds")
+        result = {
+            "success": True,
+            "source": "market_news_multi_source",
+            "generated_at": generated_at,
+            "timestamp": data.get("timestamp") or generated_at,
+            "coverage_note": (
+                f"多源市场新闻聚合：{', '.join(source_names)}"
+                if source_names
+                else "多源市场新闻聚合，当前新闻源无可用记录"
+            ),
+            **data,
+        }
+        if source_unavailable:
+            result.update(
+                {
+                    "source_unavailable": True,
+                    "stale": True,
+                    "stale_reason": str(source_errors[0] if source_errors else "empty_news_source"),
+                }
+            )
         _cache.set(cache_key, result, _TTL_NEWS)
         _last_news = result
         return result
@@ -885,4 +1299,17 @@ async def get_market_news():
         logger.error(f"市场新闻获取失败: {e}")
         if _last_news:
             return {**_last_news, "stale": True}
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "source": "market_news_multi_source",
+            "generated_at": (generated_at := datetime.now().isoformat(timespec="seconds")),
+            "timestamp": generated_at,
+            "coverage_note": "多源市场新闻聚合异常，暂无可用缓存",
+            "source_unavailable": True,
+            "stale": True,
+            "stale_reason": "market_news_source_unavailable",
+            "news": [],
+            "sources": [],
+            "overall_sentiment": 0,
+        }

@@ -157,8 +157,11 @@
             await App.addAllToWatchlist(codes);
         },
 
-        async renderFromPool(codes, query) {
+        async renderFromPool(codes, query, source_context = null) {
             if (!codes || codes.length === 0) return;
+            this.state = this.state || {};
+            this.state.lastSourceContext = source_context || null;
+            this.state.lastSourceQuery = query || '';
             this.setLastPoolCodes(codes.slice(0, 100));
             const manualTab = document.querySelector('.screener-tab[data-tab="manual"]');
             if (manualTab) manualTab.click();

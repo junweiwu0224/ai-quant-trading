@@ -122,9 +122,60 @@ Object.assign(globalThis.StockDetail, {
         try {
             const data = await App.fetchJSON(`/api/stock/capital-flow/${code}?days=20`);
             if (!data || stale()) return;
+            const flow = Array.isArray(data.flow) ? data.flow : [];
+            if (!flow.length) {
+                this._setWorkbenchEvents?.('capital_flow', [], {
+                    type: 'capital_flow',
+                    title: '资金流暂缺',
+                    source: 'stock_capital_flow',
+                    source_label: '资金流',
+                    status: 'missing',
+                    missing_reason: '资金流接口暂未返回近20日数据',
+                });
+            } else {
+                this._setWorkbenchEvents?.('capital_flow', flow.slice(-20).map((f) => {
+                    const mainNet = Number(f.main_net ?? ((Number(f.super_net) || 0) + (Number(f.big_net) || 0)));
+                    const direction = Number.isFinite(mainNet)
+                        ? (mainNet > 0 ? 'increase' : mainNet < 0 ? 'decrease' : 'flat')
+                        : '';
+                    const amountText = Number.isFinite(mainNet)
+                        ? `${mainNet >= 0 ? '净流入' : '净流出'} ${Math.abs(mainNet) >= 1e8 ? (Math.abs(mainNet) / 1e8).toFixed(2) + '亿' : (Math.abs(mainNet) / 1e4).toFixed(0) + '万'}`
+                        : '主力资金更新';
+                    return {
+                        type: 'capital_flow',
+                        status: 'ready',
+                        title: direction === 'increase' ? '主力资金净流入' : direction === 'decrease' ? '主力资金净流出' : '主力资金更新',
+                        detail: [
+                            amountText,
+                            f.super_net != null ? `超大单 ${(Number(f.super_net) / 1e4).toFixed(0)}万` : '',
+                            f.big_net != null ? `大单 ${(Number(f.big_net) / 1e4).toFixed(0)}万` : '',
+                        ].filter(Boolean).join(' · '),
+                        at: f.date || '',
+                        date_key: this._stockDataDateKey?.(f.date) || f.date || '',
+                        source: 'stock_capital_flow',
+                        source_label: '资金流',
+                        direction,
+                        value: Number.isFinite(mainNet) ? mainNet : null,
+                        raw: f,
+                    };
+                }), {
+                    type: 'capital_flow',
+                    source: 'stock_capital_flow',
+                    source_label: '资金流',
+                });
+            }
             this._renderCapitalChart(data.flow);
         } catch (e) {
             console.error('加载资金流向失败:', e);
+            if (stale && stale()) return;
+            this._setWorkbenchEvents?.('capital_flow', [], {
+                type: 'capital_flow',
+                title: '资金流加载失败',
+                source: 'stock_capital_flow',
+                source_label: '资金流',
+                status: 'missing',
+                missing_reason: '资金流数据加载失败',
+            });
         }
     },
 

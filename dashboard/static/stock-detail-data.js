@@ -11,6 +11,19 @@ Object.assign(globalThis.StockDetail, {
         return vol.toFixed(0);
     },
 
+    _stockDataDateKey(value) {
+        const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/);
+        return match ? match[0] : '';
+    },
+
+    _stockDataSentimentDirection(score) {
+        const value = Number(score);
+        if (!Number.isFinite(value)) return '';
+        if (value > 0.2) return 'positive';
+        if (value < -0.2) return 'negative';
+        return 'neutral';
+    },
+
     /** 计算阶段涨幅 */
     async _loadPeriodReturns(code, stale) {
         try {
@@ -187,8 +200,55 @@ Object.assign(globalThis.StockDetail, {
     async _loadDividends(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/dividends/${code}`);
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('dividend', [], {
+                    type: 'dividend',
+                    title: '分红数据暂缺',
+                    source: 'stock_dividends',
+                    source_label: '分红',
+                    status: 'missing',
+                    missing_reason: '分红接口未返回数据',
+                });
+                return;
+            }
             const dividends = data.dividends;
+            if (!dividends || dividends.length === 0) {
+                this._setWorkbenchEvents('dividend', [], {
+                    type: 'dividend',
+                    title: '分红记录暂缺',
+                    source: 'stock_dividends',
+                    source_label: '分红',
+                    status: 'missing',
+                    missing_reason: '暂无分红记录',
+                });
+            } else {
+                this._setWorkbenchEvents('dividend', dividends.map((d) => {
+                    const at = d.notice_date || d.report_date || d.ex_date || d.record_date || '';
+                    return {
+                        type: 'dividend',
+                        status: 'ready',
+                        title: d.bonus ? `分红方案：${d.bonus}` : '分红方案',
+                        detail: [
+                            d.progress ? `进度：${d.progress}` : '',
+                            d.report_date ? `报告期：${d.report_date}` : '',
+                            d.notice_date ? `公告日：${d.notice_date}` : '',
+                        ].filter(Boolean).join(' · '),
+                        at,
+                        date_key: this._stockDataDateKey(at),
+                        source: 'stock_dividends',
+                        source_label: '分红',
+                        direction: d.progress || '',
+                        value: d.bonus || null,
+                        link_url: d.url || d.link_url || '',
+                        raw: d,
+                    };
+                }), {
+                    type: 'dividend',
+                    source: 'stock_dividends',
+                    source_label: '分红',
+                });
+            }
             const tbody = document.getElementById('sd-dividends-body');
             if (!tbody) return;
 
@@ -207,6 +267,15 @@ Object.assign(globalThis.StockDetail, {
             `).join('');
         } catch (e) {
             console.error('加载分红数据失败:', e);
+            if (stale()) return;
+            this._setWorkbenchEvents('dividend', [], {
+                type: 'dividend',
+                title: '分红加载失败',
+                source: 'stock_dividends',
+                source_label: '分红',
+                status: 'missing',
+                missing_reason: '分红数据加载失败',
+            });
         }
     },
 
@@ -214,8 +283,48 @@ Object.assign(globalThis.StockDetail, {
     async _loadAnnouncements(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/announcements/${code}`);
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('announcement', [], {
+                    type: 'announcement',
+                    title: '公告数据暂缺',
+                    source: 'stock_announcements',
+                    source_label: '公告',
+                    status: 'missing',
+                    missing_reason: '公告接口未返回数据',
+                });
+                return;
+            }
             const announcements = data.announcements;
+            if (!announcements || announcements.length === 0) {
+                this._setWorkbenchEvents('announcement', [], {
+                    type: 'announcement',
+                    title: '公告暂缺',
+                    source: 'stock_announcements',
+                    source_label: '公告',
+                    status: 'missing',
+                    missing_reason: '暂无公告',
+                });
+            } else {
+                this._setWorkbenchEvents('announcement', announcements.map((a) => ({
+                    type: 'announcement',
+                    status: 'ready',
+                    title: a.title || '公告',
+                    detail: [a.type, a.date].filter(Boolean).join(' · '),
+                    at: a.date || a.time || '',
+                    date_key: this._stockDataDateKey(a.date || a.time),
+                    source: 'stock_announcements',
+                    source_label: a.type || '公告',
+                    direction: a.type || '',
+                    value: a.type || null,
+                    link_url: a.url || a.link_url || '',
+                    raw: a,
+                })), {
+                    type: 'announcement',
+                    source: 'stock_announcements',
+                    source_label: '公告',
+                });
+            }
             const container = document.getElementById('sd-announcements');
             if (!container) return;
 
@@ -233,6 +342,15 @@ Object.assign(globalThis.StockDetail, {
             `).join('');
         } catch (e) {
             console.error('加载公告失败:', e);
+            if (stale()) return;
+            this._setWorkbenchEvents('announcement', [], {
+                type: 'announcement',
+                title: '公告加载失败',
+                source: 'stock_announcements',
+                source_label: '公告',
+                status: 'missing',
+                missing_reason: '公告数据加载失败',
+            });
         }
     },
 
@@ -240,9 +358,54 @@ Object.assign(globalThis.StockDetail, {
     async _loadNews(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/news/${code}?limit=15`);
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('news', [], {
+                    type: 'news',
+                    title: '新闻数据暂缺',
+                    source: 'stock_news',
+                    source_label: '新闻',
+                    status: 'missing',
+                    missing_reason: '新闻接口未返回数据',
+                });
+                return;
+            }
             const news = data.news || [];
             const sentiment = data.sentiment || {};
+            if (!news.length) {
+                this._setWorkbenchEvents('news', [], {
+                    type: 'news',
+                    title: '新闻暂缺',
+                    source: 'stock_news',
+                    source_label: '新闻',
+                    status: 'missing',
+                    missing_reason: '暂无新闻',
+                });
+            } else {
+                this._setWorkbenchEvents('news', news.map((n) => {
+                    const at = n.time || n.date || n.publish_time || n.datetime || '';
+                    const score = Number(n.sentiment);
+                    const scoreText = Number.isFinite(score) ? `情绪 ${score.toFixed(2)}` : '';
+                    return {
+                        type: 'news',
+                        status: 'ready',
+                        title: n.title || '个股新闻',
+                        detail: [n.summary || n.digest || '', scoreText].filter(Boolean).join(' · '),
+                        at,
+                        date_key: this._stockDataDateKey(at),
+                        source: 'stock_news',
+                        source_label: n.source || '新闻',
+                        direction: this._stockDataSentimentDirection(score),
+                        value: Number.isFinite(score) ? score : null,
+                        link_url: n.url || n.link_url || n.link || '',
+                        raw: n,
+                    };
+                }), {
+                    type: 'news',
+                    source: 'stock_news',
+                    source_label: '新闻',
+                });
+            }
             const container = document.getElementById('sd-news');
             if (!container) return;
 
@@ -275,6 +438,14 @@ Object.assign(globalThis.StockDetail, {
         } catch (e) {
             console.error('加载新闻失败:', e);
             if (stale()) return;
+            this._setWorkbenchEvents('news', [], {
+                type: 'news',
+                title: '新闻加载失败',
+                source: 'stock_news',
+                source_label: '新闻',
+                status: 'missing',
+                missing_reason: '新闻数据加载失败',
+            });
             const container = document.getElementById('sd-news');
             if (container) {
                 container.innerHTML = '<p class="text-muted">新闻加载失败</p>';
@@ -332,9 +503,71 @@ Object.assign(globalThis.StockDetail, {
     async _loadNorthbound(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/northbound/${code}`);
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('northbound', [], {
+                    type: 'northbound',
+                    title: '北向资金暂缺',
+                    source: 'northbound',
+                    source_label: '北向资金',
+                    status: 'missing',
+                    missing_reason: '北向资金接口未返回数据',
+                });
+                return;
+            }
             const records = data.records || [];
             const latest = data.latest || {};
+            if (!records.length) {
+                this._setWorkbenchEvents('northbound', [], {
+                    type: 'northbound',
+                    title: '北向持仓记录暂缺',
+                    source: 'northbound',
+                    source_label: '北向资金',
+                    status: 'missing',
+                    missing_reason: '暂无北向资金持仓记录',
+                });
+            } else {
+                this._setWorkbenchEvents('northbound', records.slice(0, 20).map((r) => {
+                    const changeShares = Number(r.change_shares);
+                    const holdShares = Number(r.hold_shares);
+                    const direction = Number.isFinite(changeShares)
+                        ? (changeShares > 0 ? 'increase' : changeShares < 0 ? 'decrease' : 'flat')
+                        : '';
+                    const title = direction === 'increase'
+                        ? '北向增持'
+                        : direction === 'decrease'
+                            ? '北向减持'
+                            : '北向持仓更新';
+                    const changeText = Number.isFinite(changeShares)
+                        ? `变动 ${changeShares > 0 ? '+' : ''}${changeShares.toFixed(2)}万股`
+                        : '';
+                    const holdText = Number.isFinite(holdShares)
+                        ? `持股 ${holdShares.toFixed(2)}万股`
+                        : '';
+                    return {
+                        type: 'northbound',
+                        status: 'ready',
+                        title,
+                        detail: [
+                            changeText,
+                            holdText,
+                            r.hold_ratio != null ? `持股占比 ${Number(r.hold_ratio).toFixed(2)}%` : '',
+                        ].filter(Boolean).join(' · '),
+                        at: r.date || '',
+                        date_key: this._stockDataDateKey(r.date),
+                        source: 'northbound',
+                        source_label: '北向资金',
+                        direction,
+                        value: Number.isFinite(changeShares) ? changeShares : null,
+                        link_url: r.url || r.link_url || '',
+                        raw: r,
+                    };
+                }), {
+                    type: 'northbound',
+                    source: 'northbound',
+                    source_label: '北向资金',
+                });
+            }
 
             // 更新统计数据
             const setVal = (id, val) => {
@@ -421,6 +654,15 @@ Object.assign(globalThis.StockDetail, {
             }, 'sd-north');
         } catch (e) {
             console.error('加载北向资金失败:', e);
+            if (stale()) return;
+            this._setWorkbenchEvents('northbound', [], {
+                type: 'northbound',
+                title: '北向资金加载失败',
+                source: 'northbound',
+                source_label: '北向资金',
+                status: 'missing',
+                missing_reason: '北向资金数据加载失败',
+            });
         }
     },
 

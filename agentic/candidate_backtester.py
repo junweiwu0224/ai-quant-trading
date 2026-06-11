@@ -6,6 +6,7 @@ from typing import Any
 from agentic.backtest_compiler import BacktestCompileRequest
 from agentic.backtest_runner import AgenticBacktestResult, AgenticBacktestRunner
 from agentic.sample_selector import BacktestSample, BacktestSampleSelector
+from agentic.signal_validation import SignalValidationGate, evaluate_signal_validation
 from agentic.strategy_candidates import StrategyCandidate, StrategyCandidateGenerator
 from agentic.strategy_lab import StrategyIterationResult
 
@@ -67,6 +68,7 @@ class StrategyCandidateBacktester:
     ) -> CandidateBacktestBatch:
         sample = self.sample_selector.select(min_days=min_days, max_codes=max_codes)
         candidates = self.candidate_generator.generate(context=context, limit=limit)
+        signal_validation = evaluate_signal_validation((context or {}).get("signal_validation"))
         results: list[CandidateBacktestResult] = []
         for candidate in candidates:
             result = await self.runner.run_and_evaluate(
@@ -78,18 +80,23 @@ class StrategyCandidateBacktester:
                     initial_cash=initial_cash,
                 )
             )
-            results.append(_attach_candidate(candidate, result))
+            results.append(_attach_candidate(candidate, result, signal_validation))
         return CandidateBacktestBatch(sample=sample, results=sorted(results, key=_rank_key, reverse=True))
 
 
-def _attach_candidate(candidate: StrategyCandidate, result: AgenticBacktestResult) -> CandidateBacktestResult:
+def _attach_candidate(
+    candidate: StrategyCandidate,
+    result: AgenticBacktestResult,
+    signal_validation: SignalValidationGate,
+) -> CandidateBacktestResult:
+    promotion = _apply_signal_validation_gate(result.promotion, signal_validation)
     return CandidateBacktestResult(
         candidate=candidate,
         compiled_request=result.compiled_request,
         backtest_response=result.backtest_response,
         metrics=result.metrics,
-        promotion=result.promotion,
-        gate_checks=_build_gate_checks(candidate, result.metrics, result.promotion),
+        promotion=promotion,
+        gate_checks=_build_gate_checks(candidate, result.metrics, promotion, signal_validation),
     )
 
 
@@ -97,6 +104,7 @@ def _build_gate_checks(
     candidate: StrategyCandidate,
     metrics: dict[str, Any],
     promotion: StrategyIterationResult,
+    signal_validation: SignalValidationGate,
 ) -> list[dict[str, Any]]:
     trades = int(_float_metric(metrics.get("trades")))
     drawdown = _float_metric(metrics.get("max_drawdown"))
@@ -112,7 +120,7 @@ def _build_gate_checks(
             "id": "backtest_quality",
             "label": "回测表现",
             "passed": bool(promotion.promoted),
-            "detail": f"Sharpe {sharpe:g}，晋级结果：{promotion.reason}",
+            "detail": f"Sharpe {sharpe:g}，晋级结果：{_promotion_reason_label(promotion.reason)}",
         },
         {
             "id": "risk_boundary",
@@ -126,7 +134,39 @@ def _build_gate_checks(
             "passed": True,
             "detail": "Signal Engine 分数只提供基线因子，不单独决定是否进入模拟盘",
         },
+        signal_validation.to_gate_check(),
     ]
+
+
+def _apply_signal_validation_gate(
+    promotion: StrategyIterationResult,
+    signal_validation: SignalValidationGate,
+) -> StrategyIterationResult:
+    if signal_validation.passed or not promotion.promoted:
+        return promotion
+    metrics = dict(promotion.metrics)
+    metrics["signal_validation"] = {
+        "confidence": signal_validation.confidence,
+        "sample_days": signal_validation.sample_days,
+        "passed": False,
+    }
+    return StrategyIterationResult(
+        promotion.dsl,
+        metrics,
+        False,
+        signal_validation.reason,
+    )
+
+
+def _promotion_reason_label(reason: str) -> str:
+    return {
+        "passed promotion gate": "通过晋级门槛",
+        "AI signal is not validated": "AI 信号未验证",
+        "AI signal validation sample is insufficient": "AI 验证样本不足",
+        "insufficient trades": "交易次数不足",
+        "sharpe below threshold": "Sharpe 未达标",
+        "max drawdown exceeded": "最大回撤超限",
+    }.get(reason, reason or "-")
 
 
 def _rank_key(result: CandidateBacktestResult) -> tuple[int, float, float, int]:

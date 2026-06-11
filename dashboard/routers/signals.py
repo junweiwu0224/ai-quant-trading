@@ -17,6 +17,19 @@ SIGNAL_API_META = {
 }
 
 
+def _light_validation(provider: str, meta: dict) -> dict:
+    return {
+        "provider": meta.get("provider") or provider or DEFAULT_PROVIDER,
+        "model_version": meta.get("model_version") or "",
+        "confidence": "unverified",
+        "sample_days": 0,
+        "status": "fast_mode",
+        "message": "fast health skips historical validation; signal is treated as unverified until validation endpoint completes",
+        "penalty_applied": True,
+        "metrics": {},
+    }
+
+
 def _enrich_records(records):
     codes = [record.code for record in records]
     info_map = _enrich_with_stock_info(codes)
@@ -28,6 +41,8 @@ def _enrich_records(records):
             {
                 "name": info.get("name", record.code),
                 "industry": info.get("industry", "--"),
+                "sector": info.get("sector", ""),
+                "industry_source": info.get("industry_source", "missing"),
                 "price": info.get("price"),
                 "volume": info.get("volume"),
                 "amount": info.get("amount"),
@@ -105,8 +120,7 @@ async def signal_health(
         "raw_source": meta.get("raw_source") or "legacy_qlib",
         "fast_mode": fast,
     }
-    if validation is not None:
-        payload["validation"] = validation.to_dict()
+    payload["validation"] = validation.to_dict() if validation is not None else _light_validation(provider, meta)
     return payload
 
 

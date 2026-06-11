@@ -148,7 +148,12 @@ def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
         )
         for row in cur.fetchall():
             plain = requested_by_storage_code.get(row["code"], _plain_code(row["code"]))
-            result[plain] = {"name": row["name"], "industry": row["industry"] or "--"}
+            industry = str(row["industry"] or "").strip()
+            result[plain] = {
+                "name": row["name"],
+                "industry": industry or "--",
+                "industry_source": "stock_info" if industry else "missing",
+            }
 
         # 批量查询每只股票的最新收盘价、成交量、成交额
         cur.execute(
@@ -168,6 +173,37 @@ def _enrich_with_stock_info(codes: list[str]) -> dict[str, dict]:
                 result[plain]["price"] = round(row["close"], 2)
                 result[plain]["volume"] = row["volume"]
                 result[plain]["amount"] = row["amount"]
+
+        missing_industry_codes = [
+            code
+            for code in {_plain_code(item) for item in codes}
+            if code and (not result.get(code, {}).get("industry") or result.get(code, {}).get("industry") == "--")
+        ]
+        if missing_industry_codes:
+            try:
+                from data.storage.storage import DataStorage
+
+                storage = DataStorage(db_url=f"sqlite:///{DB_PATH}")
+                for plain in missing_industry_codes:
+                    snapshot = storage.get_latest_data_snapshot(plain, "valuation") or {}
+                    payload = snapshot.get("payload") if isinstance(snapshot, dict) else {}
+                    if not isinstance(payload, dict):
+                        continue
+                    industry = str(payload.get("industry") or "").strip()
+                    sector = str(payload.get("sector") or "").strip()
+                    name = str(payload.get("name") or payload.get("stock_name") or "").strip()
+                    if not industry and not sector and not name:
+                        continue
+                    info = result.setdefault(plain, {"name": plain, "industry": "--", "industry_source": "missing"})
+                    if name and (not info.get("name") or info.get("name") == plain):
+                        info["name"] = name
+                    if industry:
+                        info["industry"] = industry
+                        info["industry_source"] = "valuation_snapshot"
+                    if sector:
+                        info["sector"] = sector
+            except Exception as exc:
+                logger.debug(f"估值快照补齐股票行业失败: {exc}")
     except Exception as e:
         logger.warning(f"查询股票信息失败: {e}")
     finally:

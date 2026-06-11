@@ -250,6 +250,93 @@ def test_overview_opportunity_renders_all_returned_preview_rows():
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_next_actions_are_grouped_by_workflow_intent():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        const html = App._renderOpportunityRow({
+            matrix_rank: 1,
+            code: '300750',
+            name: '宁德时代',
+            decision_score: 85,
+            decision_label: '重点研究',
+            risk_level: '中',
+            reason_tags: ['PEG≤1'],
+            risk_tags: ['AI未验证'],
+            next_actions: ['补看同业估值', '继续观察', '模拟小仓验证', '问龙虾生成交易计划'],
+        });
+
+        assert.match(html, /datahub-action-tag action-data[^>]*>补看同业估值/);
+        assert.match(html, /datahub-action-tag action-watch[^>]*>继续观察/);
+        assert.match(html, /datahub-action-tag action-trade[^>]*>模拟小仓验证/);
+        assert.match(html, /datahub-action-tag action-research[^>]*>问龙虾生成交易计划/);
+        assert.doesNotMatch(html, /datahub-next-tag/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_row_keeps_stock_meta_compact():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        const html = App._renderOpportunityRow({
+            matrix_rank: 1,
+            code: '600396',
+            name: '华电辽能',
+            industry: '电力、热力、燃气及水生产和供应业-电力、热力生产和供应业',
+            decision_score: 74,
+            decision_label: '可跟踪',
+            peg_next_year: 0.83,
+            risk_level: '中',
+            reason_tags: ['PEG≤1', '高增长', '信号候选'],
+            risk_tags: ['AI未验证'],
+            next_actions: ['继续观察'],
+        });
+
+        assert.match(html, /class="[^"]*opportunity-stock-meta/);
+        assert.match(html, />600396 · 电力、热力、燃气及水生产和供应业</);
+        assert.match(html, /title="电力、热力、燃气及水生产和供应业-电力、热力生产和供应业"/);
+        assert.doesNotMatch(html, />600396 电力、热力、燃气及水生产和供应业-电力、热力生产和供应业</);
+    """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_ignores_stale_full_response():
     script = textwrap.dedent(
         r"""
@@ -825,6 +912,114 @@ def test_overview_opportunity_full_timeout_uses_default_candidates_without_previ
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_background_full_failure_marks_fast_preview_degraded():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                className: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+            'ov-opportunity-trust': makeElement('ov-opportunity-trust'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                if (url.includes('fast=true')) {
+                    return {
+                        items: [{
+                            matrix_rank: 1,
+                            code: '300750',
+                            name: '宁德时代',
+                            decision_score: 74,
+                            decision_label: '快速预览',
+                            risk_level: '中',
+                            reason_tags: ['AI候选'],
+                            risk_tags: ['AI未验证'],
+                            next_actions: ['打开完整矩阵'],
+                        }],
+                        summary: {
+                            total: 1,
+                            signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                            fast_mode: true,
+                        },
+                    };
+                }
+                throw new Error('完整估值超时');
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            await Promise.resolve();
+            await Promise.resolve();
+            assert.equal(calls.length, 2);
+            assert.match(tbody.innerHTML, /宁德时代/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /完整估值补载失败/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /保留快速预览/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /完整估值补载失败/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /完整估值超时/);
+            assert.match(elements['ov-opportunity-trust'].innerHTML, /需复核/);
+            assert.match(elements['ov-opportunity-trust'].innerHTML, /保留快速预览/);
+            assert.match(elements['ov-opportunity-trust'].className, /trust-review/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_does_not_preserve_rows_after_scope_change():
     script = textwrap.dedent(
         r"""
@@ -891,7 +1086,8 @@ def test_overview_opportunity_does_not_preserve_rows_after_scope_change():
         (async () => {
             await App._loadOverviewOpportunities();
             assert.doesNotMatch(tbody.innerHTML, /旧信号机会/);
-            assert.match(tbody.innerHTML, /机会池加载失败/);
+            assert.match(tbody.innerHTML, /本地应急/);
+            assert.match(tbody.innerHTML, /沪深300ETF/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -1101,6 +1297,547 @@ def test_overview_opportunity_status_prefers_signal_sync_status():
     assert result.returncode == 0, result.stderr
 
 
+def test_overview_opportunity_status_renders_source_time_and_coverage_notes():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const status = { innerHTML: '' };
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => id === 'ov-opportunity-status' ? status : null,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        App._renderOverviewOpportunityStatus({
+            total: 8,
+            universe: 'signal_top',
+            source: 'signal_engine',
+            generated_at: '2026-06-10T10:11:12',
+            effective_count: 50,
+            total_count: 5197,
+            coverage_note: '机构预测覆盖池，不等同全量日线',
+            source_unavailable: true,
+            stale: true,
+            stale_reason: 'signal_cache_unavailable',
+            signal_status: 'offline',
+            signal_coverage_pct: 0,
+            valuation_coverage_pct: 25,
+            signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+        }, 8, true);
+
+        assert.match(status.innerHTML, /来源 Signal Engine/);
+        assert.match(status.innerHTML, /更新 2026-06-10T10:11:12/);
+        assert.match(status.innerHTML, /有效 50\/5,197/);
+        assert.match(status.innerHTML, /非全量/);
+        assert.match(status.innerHTML, /数据源异常/);
+        assert.match(status.innerHTML, /缓存数据/);
+        assert.match(status.innerHTML, /原因 signal_cache_unavailable/);
+        assert.match(status.innerHTML, /机构预测覆盖池，不等同全量日线/);
+    """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_all_timeouts_use_local_emergency_preview_without_previous_rows():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const calls = [];
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async (url) => {
+                calls.push(url);
+                throw new Error('请求超时');
+            },
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._loadOverviewOpportunities();
+            assert.equal(calls.length, 3);
+            assert.match(calls[0], /fast=true/);
+            assert.match(calls[1], /max_wait_sec=6/);
+            assert.match(calls[2], /force_fallback=true/);
+            assert.match(tbody.innerHTML, /本地应急/);
+            assert.match(tbody.innerHTML, /沪深300ETF/);
+            assert.match(tbody.innerHTML, /300ETF/);
+            assert.doesNotMatch(tbody.innerHTML, />0\.00<\/td>/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /范围 本地应急/);
+            assert.match(elements['ov-opportunity-status'].innerHTML, /快速预览/);
+            assert.match(elements['ov-opportunity-hint'].textContent, /本地应急机会池/);
+            assert.doesNotMatch(tbody.innerHTML, /机会池加载失败/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_trust_panel_marks_real_default_and_emergency_states():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                className: '',
+                disabled: false,
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+            'ov-opportunity-trust': makeElement('ov-opportunity-trust'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        const realItem = {
+            matrix_rank: 1,
+            code: '300750',
+            name: '宁德时代',
+            decision_score: 88,
+            decision_label: '重点研究',
+            risk_level: '中',
+            reason_tags: ['PEG≤1'],
+            risk_tags: [],
+            next_actions: ['进重点池'],
+        };
+
+        App._renderOverviewOpportunityData({
+            items: [realItem],
+            summary: {
+                total: 1,
+                signal_status: 'fresh',
+                signal_coverage_pct: 100,
+                valuation_coverage_pct: 100,
+                signal_quality: { label: '验证中性', sample_days: 30, penalty_applied: false },
+            },
+        }, false);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /真实合成/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /可进入研发复核/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /data-ov-opportunity-refresh/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /data-subtab="datahub"/);
+
+        App._renderOverviewOpportunityData({
+            items: [realItem],
+            summary: {
+                total: 1,
+                used_fallback: true,
+                fallback_reason: 'client_timeout_default',
+                signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+            },
+        }, true);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /降级预览/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /默认候选/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /先刷新或打开完整矩阵/);
+
+        App._renderOverviewOpportunityLocalEmergency(new Error('请求超时'));
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /本地应急/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /不可作为真实信号/);
+        assert.match(elements['ov-opportunity-trust'].className, /trust-emergency/);
+        assert.doesNotMatch(tbody.innerHTML, /小仓|模拟|买入|交易/);
+        assert.match(tbody.innerHTML, /稍后刷新/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_trust_panel_marks_low_coverage_real_data_as_needs_review():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                className: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+            'ov-opportunity-trust': makeElement('ov-opportunity-trust'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        App._renderOverviewOpportunityData({
+            items: [{
+                matrix_rank: 1,
+                code: '300750',
+                name: '宁德时代',
+                decision_score: 88,
+                decision_label: '可跟踪',
+                risk_level: '中',
+                reason_tags: ['AI候选'],
+                risk_tags: ['AI未验证'],
+                next_actions: ['打开完整矩阵'],
+            }],
+            summary: {
+                total: 8,
+                valuation_coverage_pct: 0,
+                signal_coverage_pct: 100,
+                signal_status: 'fresh',
+                signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                fast_mode: true,
+            },
+        }, true);
+
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /需复核/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /估值覆盖不足/);
+        assert.match(elements['ov-opportunity-trust'].innerHTML, /信号未验证/);
+        assert.match(elements['ov-opportunity-trust'].className, /trust-review/);
+        assert.doesNotMatch(elements['ov-opportunity-trust'].className, /trust-real/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_openclaw_prompt_keeps_signal_trust_boundary():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: () => null,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        const sent = [];
+        let activeTab = '';
+        global.App = {
+            _overviewOpportunityItems: [{
+                code: '300750',
+                name: '宁德时代',
+                decision_score: 74,
+                decision_label: '可跟踪',
+                risk_level: '中',
+                risk_tags: ['AI未验证'],
+                next_actions: ['继续观察', '补齐缺失数据'],
+                signal_rank: 2,
+                signal_score: 0.998,
+                signal_provider: 'local_momentum',
+                signal_confidence: 'unverified',
+                signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+            }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async (tab) => { activeTab = tab; },
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+        global.OpenClawWorkbench = {
+            maybeInitForTab: async () => {},
+            send: async (prompt) => { sent.push(prompt); },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        (async () => {
+            await App._askOpportunityOpenClaw('300750');
+            assert.equal(activeTab, 'openclaw');
+            assert.equal(sent.length, 1);
+            const prompt = sent[0];
+            assert.match(prompt, /AI未验证/);
+            assert.match(prompt, /样本 0 天/);
+            assert.match(prompt, /已降权/);
+            assert.match(prompt, /本地动量信号/);
+            assert.match(prompt, /仅供观察/);
+            assert.match(prompt, /不要给实盘下单建议/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_overview_opportunity_trust_refresh_button_reloads_current_pool():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        let panelClick = null;
+        function makeElement(id) {
+            return {
+                id,
+                innerHTML: '',
+                textContent: '',
+                dataset: {},
+                className: '',
+                disabled: false,
+                classList: {
+                    add: () => {},
+                    remove: () => {},
+                    toggle: () => {},
+                },
+                addEventListener: (event, handler) => {
+                    if (id === 'ov-opportunity-trust' && event === 'click') panelClick = handler;
+                },
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                setAttribute: () => {},
+            };
+        }
+
+        const elements = {
+            'ov-opportunity-table': makeElement('ov-opportunity-table'),
+            'ov-opportunity-hint': makeElement('ov-opportunity-hint'),
+            'ov-opportunity-status': makeElement('ov-opportunity-status'),
+            'ov-opportunity-trust': makeElement('ov-opportunity-trust'),
+        };
+        const tbody = makeElement('ov-opportunity-tbody');
+        elements['ov-opportunity-table'].querySelector = (selector) => selector === 'tbody' ? tbody : null;
+
+        global.window = { dispatchEvent: () => {}, addEventListener: () => {} };
+        global.requestAnimationFrame = (fn) => fn();
+        global.Event = function Event(name) { this.name = name; };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#ov-opportunity-table tbody' ? tbody : null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        };
+        global.location = { hash: '#overview' };
+        global.App = {
+            _overviewOpportunityScope: 'signal',
+            watchlistCache: [{ code: '300750' }],
+            escapeHTML: (value) => String(value ?? ''),
+            fetchJSON: async () => ({ items: [], summary: {} }),
+            toast: () => {},
+            switchTab: async () => {},
+            addToWatchlist: async () => {},
+        };
+        global.Watchlist = { render: () => {}, setSelectedItems: () => {} };
+        global.Utils = { formatBeijingTime: (value) => value, skeletonRows: () => '', todayBeijing: () => '2026-05-26', _bjOpts: {} };
+        global.ChartFactory = { line: () => {}, showEmpty: () => {} };
+        global.RealtimeQuotes = { getStatus: () => 'disconnected', getAllQuotes: () => ({}) };
+        global.PollManager = { register: () => {}, cancel: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/overview.js', 'utf8'));
+
+        let reloads = 0;
+        App._loadOverviewOpportunities = async () => { reloads += 1; };
+        App._bindOverviewOpportunityActions();
+        assert.equal(typeof panelClick, 'function');
+
+        (async () => {
+            const refreshBtn = { disabled: false };
+            await panelClick({
+                preventDefault: () => {},
+                target: {
+                    closest: (selector) => selector === '[data-ov-opportunity-refresh]' ? refreshBtn : null,
+                },
+            });
+
+            assert.equal(reloads, 1);
+            assert.equal(refreshBtn.disabled, false);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_overview_opportunity_template_and_styles_are_present():
     template = Path("dashboard/templates/index.html").read_text(encoding="utf-8")
     styles = Path("dashboard/static/style.css").read_text(encoding="utf-8")
@@ -1114,9 +1851,14 @@ def test_overview_opportunity_template_and_styles_are_present():
     assert 'data-ov-opportunity-scope="default"' not in template
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert 'data-ov-opportunity-scope="watchlist" aria-pressed="false">自选</button>' in template
+    assert 'id="ov-opportunity-trust"' in template
+    assert 'data-ov-opportunity-refresh' in overview_js
+    assert 'data-subtab="datahub"' in overview_js
     assert ".opportunity-status-strip" in styles
+    assert ".opportunity-trust-panel" in styles
+    assert ".opportunity-trust-badge" in styles
     assert ".opportunity-scope-toggle" in styles
     assert ".opportunity-evidence-tags" in styles
-    assert "/static/overview.js?v=22" in scripts
+    assert "/static/overview.js?v=32" in scripts
     assert "/api/signals/health?fast=true" in overview_js
     assert "/api/datahub/health?fast=true" in overview_js

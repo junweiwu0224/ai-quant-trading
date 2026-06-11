@@ -7,6 +7,11 @@ if (!globalThis.StockDetail) {
 Object.assign(globalThis.StockDetail, {
     async _loadTimeline(code, stale) {
         this._currentPeriod = 'timeline';
+        this._syncWorkbenchChartState?.({ period: 'timeline' });
+        const indicatorEl = document.querySelector('.sd-indicator-selector');
+        if (indicatorEl) indicatorEl.style.display = 'none';
+        const infoPanel = document.getElementById('sd-timeline-info');
+        if (infoPanel) infoPanel.classList.remove('hidden');
         try {
             const data = await App.fetchJSON(`/api/stock/timeline/${code}`);
             if (!data || (stale && stale())) return;
@@ -248,15 +253,71 @@ Object.assign(globalThis.StockDetail, {
             return new Date(timeStr).getTime();
         };
 
+        const toFiniteNumber = (value) => {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        };
+
+        const dateKeyFromTime = (timeStr) => (
+            typeof timeStr === 'string' && timeStr.length >= 10 ? timeStr.slice(0, 10) : ''
+        );
+
+        const buildSelectedTimelineCandle = (trend, kLineData, idx) => {
+            const safeIndex = Number.isInteger(idx) && idx >= 0
+                ? idx
+                : trends.findIndex(item => item === trend || item.time === trend?.time);
+            const price = toFiniteNumber(trend?.close ?? kLineData?.close);
+            const avg = toFiniteNumber(trend?.avg_price ?? kLineData?.avg_price ?? kLineData?.avg);
+            const prev = toFiniteNumber(preClose);
+            const change = price != null && prev != null ? price - prev : null;
+            const changePct = change != null && prev ? (change / prev) * 100 : null;
+            const timestamp = kLineData?.timestamp ?? (trend?.time ? parseTime(trend.time) : null);
+
+            return {
+                period: 'timeline',
+                timestamp,
+                time: trend?.time || kLineData?.time || '',
+                dataIndex: safeIndex >= 0 ? safeIndex : null,
+                date_key: dateKeyFromTime(trend?.time || kLineData?.time),
+                price,
+                close: price,
+                avg,
+                avg_price: avg,
+                change,
+                change_pct: changePct,
+                volume: toFiniteNumber(trend?.volume ?? kLineData?.volume),
+            };
+        };
+
+        const syncSelectedTimelineCandle = (trend, kLineData, idx) => {
+            const selectedCandle = buildSelectedTimelineCandle(trend, kLineData, idx);
+            if (selectedCandle) this._syncWorkbenchChartState?.({ selectedCandle });
+        };
+
         // 加载分时数据
-        chart.applyNewData(trends.map(t => ({
-            timestamp: parseTime(t.time),
-            open: t.close,
-            high: t.close,
-            low: t.close,
-            close: t.close,
-            volume: t.volume,
-        })));
+        const chartData = trends.map(t => {
+            const price = toFiniteNumber(t.close);
+            const prev = toFiniteNumber(preClose);
+            const change = price != null && prev != null ? price - prev : null;
+            return {
+                timestamp: parseTime(t.time),
+                time: t.time,
+                date_key: dateKeyFromTime(t.time),
+                open: t.close,
+                high: t.close,
+                low: t.close,
+                close: t.close,
+                price: t.close,
+                avg: t.avg_price,
+                avg_price: t.avg_price,
+                change,
+                change_pct: change != null && prev ? (change / prev) * 100 : null,
+                volume: t.volume,
+            };
+        });
+        this._currentChartData = chartData;
+        chart.applyNewData(chartData);
+        this._renderStockChartEventLayer?.(chartData);
 
         // 设置默认缩放：确保显示完整交易时段（9:30-15:00 = 242根1分钟线）
         const fullDayBars = 242;
@@ -312,7 +373,9 @@ Object.assign(globalThis.StockDetail, {
         const infoPanel = document.getElementById('sd-timeline-info');
         if (infoPanel) infoPanel.classList.remove('hidden');
         const lastTrend = trends[trends.length - 1];
+        const dataListCache = chart.getDataList();
         this._updateTimelineInfo(lastTrend, preClose, trends);
+        syncSelectedTimelineCandle(lastTrend, dataListCache[dataListCache.length - 1], trends.length - 1);
 
         // Y轴左侧涨跌幅浮层标签（十字线跟随）
         let tlLeftEl = container.querySelector('.sd-crosshair-label-left');
@@ -325,12 +388,14 @@ Object.assign(globalThis.StockDetail, {
         chart.subscribeAction('onCrosshairChange', (crosshair) => {
             if (!crosshair || !crosshair.kLineData) {
                 this._updateTimelineInfo(lastTrend, preClose, trends);
+                syncSelectedTimelineCandle(lastTrend, dataListCache[dataListCache.length - 1], trends.length - 1);
                 tlLeftEl.style.display = 'none';
                 return;
             }
             const idx = crosshair.dataIndex;
             const t = trends[idx];
             if (t) this._updateTimelineInfo(t, preClose, trends);
+            syncSelectedTimelineCandle(t, crosshair.kLineData, idx);
 
             // 左侧跟随十字线显示涨跌幅
             const price = crosshair.kLineData.close;

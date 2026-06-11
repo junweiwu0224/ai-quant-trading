@@ -205,6 +205,9 @@ const PaperTrading = {
                 placeholder: '搜索股票代码或名称...',
                 formatItem: (s) => `${s.code} ${s.name}`,
                 maxResults: 15,
+                minQueryLength: 1,
+                emptyScope: 'watchlist',
+                idleMessage: '自选股为空，输入代码或名称搜索全市场',
             });
             this._codeSearch.setDataSource((query) => App.searchStockPickerCandidates(query, {
                 limit: 50,

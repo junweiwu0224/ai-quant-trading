@@ -90,6 +90,16 @@ def test_research_toolbar_asset_versions_are_bumped_for_browser_cache():
     template = read_template()
     scripts = read_scripts_partial()
 
-    assert "/static/style.css?v=48" in template
-    assert "/static/core/app-shell.js?v=25" in scripts
-    assert "/static/app-ui-shell.js?v=26" in scripts
+    assert "/static/style.css?v=73" in template
+    assert "/static/core/app-shell.js?v=28" in scripts
+    assert "/static/core/command-palette.js?v=2" in scripts
+    assert "/static/app-ui-shell.js?v=39" in scripts
+
+
+def test_mobile_research_subtabs_avoid_fixed_user_shell_bar():
+    styles = read_styles()
+
+    assert "@media (max-width: 640px)" in styles
+    assert ".research-sub-tabs {" in styles
+    assert "top: 56px;" in styles
+    assert "z-index: 190;" in styles

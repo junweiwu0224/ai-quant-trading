@@ -438,7 +438,7 @@
                 }
             });
 
-            this.on('iwencai:send-to-screener', async ({ pool, query }) => {
+            this.on('iwencai:send-to-screener', async ({ pool, query, source_context }) => {
                 await this.ensureBundle?.('research');
                 const codes = Array.isArray(pool)
                     ? Array.from(new Set(pool.map((code) => String(code || '').trim()).filter(Boolean)))
@@ -453,27 +453,113 @@
                                 this._tabCache['screener'] = Date.now();
                             }
                             if (App.Screener.renderFromPool) {
-                                App.Screener.renderFromPool(codes, query);
+                                App.Screener.renderFromPool(codes, query, source_context || null);
                             }
                         }
                     });
                 });
             });
 
-            this.on('iwencai:analyze', async ({ query, data }) => {
+            this.on('iwencai:analyze', async ({ query, data, source_context }) => {
                 await this.ensureBundle?.('llm');
                 if (typeof App.LLM !== 'undefined') {
                     this.toast('已发送至 AI 助手', 'info');
                     App.LLM.openCopilot();
+                    const conditions = Array.isArray(source_context?.parsed_conditions)
+                        ? source_context.parsed_conditions
+                            .map((item) => item?.raw_text || item?.field)
+                            .filter(Boolean)
+                            .slice(0, 6)
+                        : [];
+                    const contextLine = source_context && typeof source_context === 'object'
+                        ? `\n来源上下文：${JSON.stringify({
+                            source: source_context.source || 'iwencai',
+                            result_pool_id: source_context.result_pool_id || '',
+                            selected_bucket: source_context.selected_bucket || '',
+                            intent_type: source_context.intent_type || '',
+                            parsed_conditions: conditions,
+                            condition_hit_count: source_context.condition_hit_count || {},
+                        })}`
+                        : '';
                     let msg;
                     if (data && Array.isArray(data.summaryRows) && data.summaryRows.length > 0) {
                         const rows = data.summaryRows.slice(0, 10);
-                        msg = `请分析以下问财查询结果：\n查询：${query}\n精简数据：${JSON.stringify(rows)}`;
+                        msg = `请分析以下问财查询结果：\n查询：${query}${contextLine}\n精简数据：${JSON.stringify(rows)}`;
                     } else {
-                        msg = query;
+                        msg = `${query || ''}${contextLine}`;
                     }
                     setTimeout(() => App.LLM.sendQuick(msg), 400);
                 }
+            });
+
+            const buildBasketCandidates = (items) => {
+                const seen = new Set();
+                return (Array.isArray(items) ? items : [])
+                    .map((item, index) => {
+                        const code = String(item?.code || '').trim();
+                        if (!/^\d{6}$/.test(code) || seen.has(code)) return null;
+                        seen.add(code);
+                        const probability = Number(item?.probability ?? item?.score);
+                        const candidate = {
+                            code,
+                            name: String(item?.name || code).trim(),
+                            industry: String(item?.industry || item?.sector || '').trim(),
+                        };
+                        if (Number.isFinite(probability)) {
+                            candidate.probability = probability;
+                        } else if (Number.isFinite(Number(item?.rank_score))) {
+                            candidate.rank_score = Number(item.rank_score);
+                        } else {
+                            candidate.rank = index + 1;
+                        }
+                        return candidate;
+                    })
+                    .filter(Boolean)
+                    .slice(0, 50);
+            };
+
+            const openResearchBasketDraft = async ({ query, candidates, source_context, draftMode }) => {
+                const normalized = buildBasketCandidates(candidates);
+                if (!normalized.length) {
+                    this.toast('问财候选池为空，未生成篮子草案', 'warning');
+                    return;
+                }
+                await this.ensureBundle?.('research');
+                await this.switchTab('research', { subtab: 'basket' });
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (typeof App.initAlpha === 'function') {
+                            App.initAlpha();
+                        }
+                        if (typeof App._setBasketCandidates === 'function') {
+                            App._setBasketCandidates(normalized);
+                        }
+                        const textarea = document.getElementById('basket-candidates');
+                        if (textarea) {
+                            textarea.dataset.sourceContext = JSON.stringify(source_context || {});
+                            textarea.dataset.sourceQuery = query || '';
+                        }
+                        this._iwencaiBasketDraft = {
+                            query: query || '',
+                            candidates: normalized,
+                            source_context: source_context || null,
+                            draftMode: draftMode || 'basket',
+                            created_at: new Date().toISOString(),
+                        };
+                        const message = draftMode === 'backtest'
+                            ? `已生成 ${normalized.length} 只问财候选的回测草案，请在篮子页确认参数后手动执行计划回测`
+                            : `已生成 ${normalized.length} 只问财候选的篮子草案`;
+                        this.toast(message, normalized.length ? 'success' : 'warning');
+                    });
+                });
+            };
+
+            this.on('iwencai:create-basket', async ({ query, candidates, source_context }) => {
+                await openResearchBasketDraft({ query, candidates, source_context, draftMode: 'basket' });
+            });
+
+            this.on('iwencai:draft-backtest', async ({ query, candidates, source_context }) => {
+                await openResearchBasketDraft({ query, candidates, source_context, draftMode: 'backtest' });
             });
 
             this.on('data:portfolio-updated', ({ source } = {}) => {
@@ -886,6 +972,7 @@
                 await this.ensureBundle?.('intelligence');
                 globalThis.Intelligence?.init?.();
                 globalThis.Intelligence?.load?.();
+                window.dispatchEvent?.(new Event('aiq:intelligence-tab-active'));
             }
 
             requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));

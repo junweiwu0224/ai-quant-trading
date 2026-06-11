@@ -71,6 +71,17 @@ class AgenticRepository:
 
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS agentic_candidate_backtest_results (
+                    id TEXT PRIMARY KEY,
+                    result TEXT NOT NULL,
+                    sample TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS agentic_paper_strategy_executions (
                     id TEXT PRIMARY KEY,
                     candidate_record_id TEXT NOT NULL,
@@ -276,6 +287,38 @@ class AgenticRepository:
         if row is None:
             raise KeyError(f"paper strategy candidate not found: {candidate_id}")
         return _row_to_paper_strategy_candidate(row)
+
+    def save_candidate_backtest_result(self, result: dict[str, Any], sample: dict[str, Any]) -> str:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        result_id = f"candidate_result_{uuid4().hex}"
+        created_at = datetime.now(timezone.utc).isoformat()
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agentic_candidate_backtest_results (
+                    id, result, sample, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (result_id, _to_json(dict(result or {})), _to_json(dict(sample or {})), created_at),
+            )
+            conn.commit()
+        return result_id
+
+    def get_candidate_backtest_result(self, result_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        with get_connection(self.db_path, readonly=True) as conn:
+            row = conn.execute(
+                """
+                SELECT result, sample
+                FROM agentic_candidate_backtest_results
+                WHERE id = ?
+                """,
+                (result_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"candidate backtest result not found: {result_id}")
+        return _from_json(row["result"], {}), _from_json(row["sample"], {})
 
     def update_paper_strategy_candidate_status(
         self, candidate_id: str, status: str, requires_confirmation: bool

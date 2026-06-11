@@ -59,7 +59,103 @@
     const RESULT_KIND = Object.freeze({
         ACTION: 'action',
         STOCK: 'stock',
+        TASK: 'task',
     });
+
+    const TASK_INTENT = Object.freeze({
+        EMPTY: 'empty',
+        STOCK_LOOKUP: 'stock_lookup',
+        FUNCTION_NAV: 'function_nav',
+        NATURAL_LANGUAGE_SCREENER: 'natural_language_screener',
+        MARKET_TOPIC: 'market_topic',
+        MARKET_QUESTION: 'market_question',
+    });
+
+    const TASK_BUCKET_META = Object.freeze({
+        natural_language_screener: {
+            id: 'screener',
+            label: '问财选股',
+            title: '用问财解析选股条件',
+            description: '拆解自然语言条件，生成候选池并保留来源上下文',
+        },
+        market_topic: {
+            id: 'sector',
+            label: '板块/主题',
+            title: '用问财追踪板块主题',
+            description: '进入情报页查看主题、成分股、新闻和后续动作',
+        },
+        market_question: {
+            id: 'question',
+            label: '市场问句',
+            title: '用问财回答市场问题',
+            description: '把问句路由到情报工作台，继续收窄、解释或生成篮子',
+        },
+    });
+
+    const DEFAULT_IWENCAI_CONTEXT_FIELDS = Object.freeze([
+        'raw_query',
+        'intent_type',
+        'selected_bucket',
+        'result_pool_id',
+        'parsed_conditions',
+    ]);
+    const DEFAULT_IWENCAI_ACTIONS = Object.freeze(['open_stock', 'send_screener', 'analyze', 'create_basket', 'draft_backtest']);
+
+    function goldenQuestion(item) {
+        const route = item.route || 'iwencai';
+        const bucket = item.bucket || item.primary_bucket || 'question';
+        const isIwencai = route === 'iwencai';
+        return Object.freeze({
+            ...item,
+            route,
+            bucket,
+            primary_bucket: item.primary_bucket || bucket,
+            expected_status: item.expected_status || null,
+            allowed_fallback_status: item.allowed_fallback_status || (isIwencai ? ['partial_result', 'degraded_data'] : []),
+            required_actions: item.required_actions || (
+                isIwencai
+                    ? DEFAULT_IWENCAI_ACTIONS
+                    : (route === 'stock' ? ['open_stock'] : ['execute_function'])
+            ),
+            required_source_context: item.required_source_context || (
+                isIwencai ? DEFAULT_IWENCAI_CONTEXT_FIELDS : ['raw_query', 'intent_type', 'selected_bucket']
+            ),
+            required_visible_reason: item.required_visible_reason || item.query,
+        });
+    }
+
+    const GLOBAL_SEARCH_GOLDEN_QUERIES = Object.freeze([
+        goldenQuestion({ id: 'stock-code-600519', query: '600519', intent_type: 'stock_lookup', bucket: 'stocks', route: 'stock', required_visible_reason: '明确股票代码直达行情' }),
+        goldenQuestion({ id: 'stock-name-maotai', query: '贵州茅台', intent_type: 'stock_lookup', bucket: 'stocks', route: 'stock', required_visible_reason: '明确股票名称直达行情' }),
+        goldenQuestion({ id: 'stock-ambiguous-zhongxin', query: '中信', intent_type: 'stock_lookup', bucket: 'stocks', route: 'stock', expected_status: 'needs_disambiguation', required_visible_reason: '股票简称存在歧义，需要候选列表' }),
+        goldenQuestion({ id: 'stock-ambiguous-pingan', query: '平安', intent_type: 'stock_lookup', bucket: 'stocks', route: 'stock', expected_status: 'needs_disambiguation', required_visible_reason: '股票简称存在歧义，需要候选列表' }),
+        goldenQuestion({ id: 'function-paper', query: '打开模拟盘', intent_type: 'function_nav', bucket: 'functions', route: 'function', required_visible_reason: '功能导航直达模拟盘' }),
+        goldenQuestion({ id: 'function-datahub', query: '切到数据中枢', intent_type: 'function_nav', bucket: 'functions', route: 'function', required_visible_reason: '功能导航直达数据中枢' }),
+        goldenQuestion({ id: 'screener-dividend-value-volume', query: '高股息 低估值 近5日放量', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '股息率、估值、成交量条件拆解' }),
+        goldenQuestion({ id: 'screener-roe-volume', query: '近5日放量且ROE大于15%', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '成交量和ROE条件拆解' }),
+        goldenQuestion({ id: 'screener-inflow-turnover', query: '近3日主力净流入 换手率大于5%', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '资金流和换手率条件拆解' }),
+        goldenQuestion({ id: 'screener-breakout-low-pe', query: '突破20日新高且市盈率低于20', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '趋势突破和估值条件拆解' }),
+        goldenQuestion({ id: 'screener-risk-exclusion', query: '剔除ST 低负债率 高ROE', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '风险排除条件保留' }),
+        goldenQuestion({ id: 'screener-smallcap-quality', query: '小市值 高毛利率 低商誉', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', required_visible_reason: '市值、毛利率、商誉条件拆解' }),
+        goldenQuestion({ id: 'topic-semiconductor-why', query: '半导体今天为什么上涨？', intent_type: 'market_topic', bucket: 'sector', route: 'iwencai', required_visible_reason: '主题归因和证据分桶' }),
+        goldenQuestion({ id: 'topic-robot', query: '机器人概念有哪些成分股在放量', intent_type: 'market_topic', bucket: 'sector', route: 'iwencai', required_visible_reason: '主题成分股和放量条件联动' }),
+        goldenQuestion({ id: 'topic-cpo-flow', query: 'CPO板块主力资金和新闻催化', intent_type: 'market_topic', bucket: 'sector', route: 'iwencai', required_visible_reason: '资金和新闻证据分桶' }),
+        goldenQuestion({ id: 'topic-hk-connect', query: '沪深港通资金今天流向哪些行业', intent_type: 'market_topic', bucket: 'sector', route: 'iwencai', required_visible_reason: '跨市场资金视角' }),
+        goldenQuestion({ id: 'topic-ai-compute', query: '算力板块今天谁最强', intent_type: 'market_topic', bucket: 'sector', route: 'iwencai', required_visible_reason: '板块强弱和成分股榜单' }),
+        goldenQuestion({ id: 'question-risk', query: '今天市场最大的风险是什么？', intent_type: 'market_question', bucket: 'question', route: 'iwencai', required_visible_reason: '市场风险证据分桶' }),
+        goldenQuestion({ id: 'question-news-impact', query: '这条新闻会影响哪些股票？', intent_type: 'market_question', bucket: 'question', route: 'iwencai', required_visible_reason: '新闻来源上下文保留' }),
+        goldenQuestion({ id: 'question-basket-backtest', query: '把高股息低估值组合生成回测草案', intent_type: 'market_question', bucket: 'question', route: 'iwencai', required_visible_reason: '只生成草案，不自动执行回测', required_actions: ['create_basket', 'draft_backtest', 'analyze'] }),
+        goldenQuestion({ id: 'question-market-breadth', query: '今天全市场广度为什么偏强', intent_type: 'market_question', bucket: 'question', route: 'iwencai', required_visible_reason: '市场广度指标解释' }),
+        goldenQuestion({ id: 'question-no-match', query: '不存在的奇怪条件abcxyz只看火星概念', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'no_match', allowed_fallback_status: ['needs_disambiguation'], required_actions: ['analyze'], required_visible_reason: '无匹配股票' }),
+        goldenQuestion({ id: 'failure-unsupported-field', query: '只看外星营收增长且火星订单爆发', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', expected_status: 'degraded_data', allowed_fallback_status: ['no_match'], required_actions: ['analyze'], required_visible_reason: '字段不支持或缺少数据源' }),
+        goldenQuestion({ id: 'failure-timeout', query: '问财接口超时后保留上下文', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'failed', allowed_fallback_status: ['degraded_data'], required_actions: ['analyze'], required_visible_reason: '请求超时后保留上下文' }),
+        goldenQuestion({ id: 'failure-rate-limit', query: '问财限流时如何继续筛选', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'degraded_data', allowed_fallback_status: ['failed'], required_actions: ['analyze'], required_visible_reason: '限流或源不可用' }),
+        goldenQuestion({ id: 'failure-stale-cache', query: '缓存过期但先看历史候选池', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'degraded_data', allowed_fallback_status: ['partial_result'], required_actions: ['open_stock', 'analyze'], required_visible_reason: '缓存过期或数据日期偏旧' }),
+        goldenQuestion({ id: 'failure-degraded-hit-count', query: '字段命中数不可用时显示原因', intent_type: 'natural_language_screener', bucket: 'screener', route: 'iwencai', expected_status: 'degraded_data', allowed_fallback_status: ['partial_result'], required_actions: ['open_stock', 'analyze'], required_visible_reason: '条件命中数不可用' }),
+        goldenQuestion({ id: 'partial-topic-evidence', query: '只有候选股没有新闻证据时如何处理', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'partial_result', allowed_fallback_status: ['degraded_data'], required_visible_reason: '部分证据缺失但候选池保留' }),
+        goldenQuestion({ id: 'needs-disambiguation', query: '中信今天能不能买', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'needs_disambiguation', allowed_fallback_status: ['partial_result'], required_actions: ['open_stock', 'analyze'], required_visible_reason: '股票主体存在歧义' }),
+        goldenQuestion({ id: 'requires-confirmation', query: '把这批股票全部加入自选', intent_type: 'market_question', bucket: 'question', route: 'iwencai', expected_status: 'requires_confirmation', allowed_fallback_status: [], required_actions: ['analyze'], required_visible_reason: '写入动作需要确认' }),
+    ]);
 
     const DEFAULT_TRACE_PREFIX = 'command-palette';
     const DEFAULT_REQUEST_PREFIX = 'command-palette';
@@ -152,7 +248,10 @@
             isLoading: false,
             actionResults: [],
             stockResults: [],
+            taskResults: [],
+            resultBuckets: [],
             mergedResults: [],
+            activeIntent: null,
             activeRequestId: null,
             error: null,
             meta: {
@@ -243,13 +342,18 @@
             const nextQuery = normalized.clearQuery ? '' : this._state.query;
             const nextActionResults = normalized.clearQuery ? [] : this._state.actionResults;
             const nextStockResults = normalized.clearQuery ? [] : this._state.stockResults;
+            const nextTaskResults = normalized.clearQuery ? [] : this._state.taskResults;
+            const nextResultBuckets = normalized.clearQuery ? [] : this._state.resultBuckets;
             const nextMergedResults = normalized.clearQuery ? [] : this._state.mergedResults;
             this._setState({
                 isOpen: false,
                 query: nextQuery,
                 actionResults: nextActionResults,
                 stockResults: nextStockResults,
+                taskResults: nextTaskResults,
+                resultBuckets: nextResultBuckets,
                 mergedResults: nextMergedResults,
+                activeIntent: normalized.clearQuery ? null : this._state.activeIntent,
                 selectedIndex: this._clampSelectedIndex(this._state.selectedIndex, nextMergedResults.length),
                 isLoading: false,
                 activeRequestId: null,
@@ -409,18 +513,25 @@
                         traceId: normalized.traceId,
                         actionCount: 0,
                         stockCount: 0,
+                        taskCount: 0,
                         mergedCount: 0,
                         error: null,
                     };
                 }
 
-                const mergedResults = this._buildMergedResults(snapshotMode, actionResults, stockResults);
+                const activeIntent = this._classifyGlobalSearchIntent(snapshotQuery, { actionResults, stockResults });
+                const taskResults = this._buildTaskRouterResults(snapshotMode, snapshotQuery, activeIntent);
+                const resultBuckets = this._buildResultBuckets(actionResults, stockResults, taskResults, activeIntent);
+                const mergedResults = this._buildMergedResults(snapshotMode, actionResults, stockResults, taskResults, activeIntent);
                 const selectedIndex = this._resolveSelectedIndex(mergedResults.length);
 
                 this._setState({
                     actionResults,
                     stockResults,
+                    taskResults,
+                    resultBuckets,
                     mergedResults,
+                    activeIntent,
                     selectedIndex,
                     isLoading: false,
                     activeRequestId: requestId,
@@ -438,6 +549,9 @@
                     traceId: normalized.traceId,
                     actionCount: actionResults.length,
                     stockCount: stockResults.length,
+                    taskCount: taskResults.length,
+                    intentType: activeIntent?.type || null,
+                    resultBuckets: cloneValue(resultBuckets),
                     mergedCount: mergedResults.length,
                 });
                 this._emitSelectionChanged(normalized.source, normalized.traceId);
@@ -448,6 +562,9 @@
                     traceId: normalized.traceId,
                     actionCount: actionResults.length,
                     stockCount: stockResults.length,
+                    taskCount: taskResults.length,
+                    intentType: activeIntent?.type || null,
+                    resultBuckets: cloneValue(resultBuckets),
                     mergedCount: mergedResults.length,
                     error: null,
                 };
@@ -459,6 +576,7 @@
                         traceId: normalized.traceId,
                         actionCount: 0,
                         stockCount: 0,
+                        taskCount: 0,
                         mergedCount: 0,
                         error: null,
                     };
@@ -468,7 +586,10 @@
                 this._setState({
                     actionResults: snapshotMode === PALETTE_MODE.STOCK ? [] : this._state.actionResults,
                     stockResults: snapshotMode === PALETTE_MODE.ACTION ? [] : this._state.stockResults,
+                    taskResults: [],
+                    resultBuckets: [],
                     mergedResults: [],
+                    activeIntent: null,
                     selectedIndex: -1,
                     isLoading: false,
                     activeRequestId: requestId,
@@ -494,6 +615,7 @@
                     traceId: normalized.traceId,
                     actionCount: 0,
                     stockCount: 0,
+                    taskCount: 0,
                     mergedCount: 0,
                     error: errorShape,
                 };
@@ -543,6 +665,36 @@
         getSelectedItem() {
             const item = this._state.mergedResults[this._state.selectedIndex] || null;
             return item ? this._snapshotValue(item) : null;
+        }
+
+        getGoldenQuestions() {
+            return this._snapshotValue(GLOBAL_SEARCH_GOLDEN_QUERIES);
+        }
+
+        async classifyIntent(params) {
+            const safeParams = typeof params === 'string' ? { query: params } : (isPlainObject(params) ? params : {});
+            const query = typeof safeParams.query === 'string' ? safeParams.query : '';
+            const mode = this._normalizeMode(safeParams.mode || PALETTE_MODE.MIXED);
+            const traceId = typeof safeParams.traceId === 'string' && safeParams.traceId.trim()
+                ? safeParams.traceId.trim()
+                : this._createTraceId(DEFAULT_TRACE_PREFIX);
+            const requestId = typeof safeParams.requestId === 'string' && safeParams.requestId.trim()
+                ? safeParams.requestId.trim()
+                : this._createRequestId(DEFAULT_REQUEST_PREFIX);
+            const actionResults = this._buildActionResults(mode, query);
+            let stockResults = [];
+            try {
+                stockResults = await this._loadStockResults({
+                    mode,
+                    query,
+                    requestId,
+                    source: 'command-palette:classify-intent',
+                    traceId,
+                });
+            } catch (error) {
+                stockResults = [];
+            }
+            return this._snapshotValue(this._classifyGlobalSearchIntent(query, { actionResults, stockResults }));
         }
 
         selectIndex(params) {
@@ -629,6 +781,31 @@
                         status: actionResult.status,
                         result: actionResult.output,
                         error: actionResult.error ? cloneValue(actionResult.error) : null,
+                    };
+                    this._emitExecutionResult(result, normalized.item, normalized.source);
+                    if (result.ok && normalized.closeOnSuccess) {
+                        this.close({
+                            clearQuery: false,
+                            source: normalized.source,
+                            traceId: normalized.traceId,
+                        });
+                    }
+                    return result;
+                }
+
+                if (normalized.item.kind === RESULT_KIND.TASK) {
+                    const taskResult = await this._executeTaskRouterItem(normalized.item);
+                    const result = {
+                        ok: taskResult.ok === true,
+                        kind: RESULT_KIND.TASK,
+                        traceId: normalized.traceId,
+                        requestId: normalized.requestId,
+                        status: taskResult.ok === true ? EXECUTION_STATUS.SUCCESS : EXECUTION_STATUS.FAILED,
+                        result: taskResult.ok === true ? taskResult : null,
+                        error: taskResult.ok === true ? null : {
+                            message: taskResult.error || 'Failed to route global search task',
+                            code: taskResult.code || null,
+                        },
                     };
                     this._emitExecutionResult(result, normalized.item, normalized.source);
                     if (result.ok && normalized.closeOnSuccess) {
@@ -965,14 +1142,361 @@
                 : [];
         }
 
-        _buildMergedResults(mode, actionResults, stockResults) {
+        _classifyGlobalSearchIntent(query, context = {}) {
+            const rawQuery = typeof query === 'string' ? query.trim() : '';
+            if (!rawQuery) {
+                return {
+                    type: TASK_INTENT.EMPTY,
+                    confidence: 0,
+                    reason: '空查询',
+                    query: '',
+                    normalized_query: '',
+                    bucket: null,
+                };
+            }
+
+            const actionResults = Array.isArray(context.actionResults) ? context.actionResults : [];
+            const stockResults = Array.isArray(context.stockResults) ? context.stockResults : [];
+            const normalizedQuery = rawQuery.toLowerCase();
+            const golden = GLOBAL_SEARCH_GOLDEN_QUERIES.find((item) => item.query === rawQuery);
+            if (golden) {
+                return {
+                    type: golden.intent_type,
+                    confidence: 0.96,
+                    reason: `命中全局搜索黄金问句: ${golden.id}`,
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: golden.bucket,
+                    golden_id: golden.id,
+                    route: golden.route,
+                    expected_status: golden.expected_status || null,
+                    allowed_fallback_status: cloneValue(golden.allowed_fallback_status || []),
+                    required_actions: cloneValue(golden.required_actions || []),
+                    required_source_context: cloneValue(golden.required_source_context || []),
+                    required_visible_reason: golden.required_visible_reason || '',
+                    primary_bucket: golden.primary_bucket || golden.bucket,
+                };
+            }
+            const hasQuestionSignal = /[?？]|为什么|怎么看|如何|分析|新闻|研报|机会|风险|原因|异动|归因|解读|影响/.test(rawQuery);
+            const hasScreenerSignal = /高股息|低估值|放量|缩量|近\d+\s*日|主力|净流入|换手|量比|市盈率|市净率|分红|股息|roe|roa|pe|pb|macd|kdj|突破|新高|低位|低市盈率/i.test(rawQuery);
+            const hasTopicSignal = /板块|概念|行业|主题|赛道|半导体|机器人|新能源|银行|算力|光模块|cpo|ai|低空经济|医药|军工|消费|电力|有色|汽车|券商|港股通|沪深港通/i.test(rawQuery);
+            const exactCode = /^\d{6}$/.test(rawQuery);
+            const exactStockMatch = stockResults.some((item) => {
+                const code = typeof item.code === 'string' ? item.code.trim() : '';
+                const name = typeof item.name === 'string' ? item.name.trim() : '';
+                return code === rawQuery || name === rawQuery;
+            });
+
+            if ((exactCode || exactStockMatch) && !hasQuestionSignal && !hasScreenerSignal && !hasTopicSignal) {
+                return {
+                    type: TASK_INTENT.STOCK_LOOKUP,
+                    confidence: exactCode ? 0.98 : 0.9,
+                    reason: '匹配到明确股票代码或名称',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: 'stocks',
+                };
+            }
+
+            if (hasScreenerSignal) {
+                return {
+                    type: TASK_INTENT.NATURAL_LANGUAGE_SCREENER,
+                    confidence: 0.86,
+                    reason: '包含可解析的选股条件',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: TASK_BUCKET_META.natural_language_screener.id,
+                };
+            }
+
+            if (hasTopicSignal) {
+                return {
+                    type: TASK_INTENT.MARKET_TOPIC,
+                    confidence: hasQuestionSignal ? 0.82 : 0.78,
+                    reason: '包含板块、主题或跨市场线索',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: TASK_BUCKET_META.market_topic.id,
+                };
+            }
+
+            if (hasQuestionSignal) {
+                return {
+                    type: TASK_INTENT.MARKET_QUESTION,
+                    confidence: 0.8,
+                    reason: '包含市场问句或解释需求',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: TASK_BUCKET_META.market_question.id,
+                };
+            }
+
+            if (actionResults.length > 0 && stockResults.length === 0) {
+                return {
+                    type: TASK_INTENT.FUNCTION_NAV,
+                    confidence: 0.74,
+                    reason: '更像功能导航',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: 'functions',
+                };
+            }
+
+            if (stockResults.length > 0) {
+                return {
+                    type: TASK_INTENT.STOCK_LOOKUP,
+                    confidence: 0.68,
+                    reason: '更像股票检索',
+                    query: rawQuery,
+                    normalized_query: normalizedQuery,
+                    bucket: 'stocks',
+                };
+            }
+
+            return {
+                type: TASK_INTENT.MARKET_QUESTION,
+                confidence: 0.56,
+                reason: '未命中股票或功能，作为市场问句处理',
+                query: rawQuery,
+                normalized_query: normalizedQuery,
+                bucket: TASK_BUCKET_META.market_question.id,
+            };
+        }
+
+        _buildTaskRouterResults(mode, query, intent) {
+            if (mode !== PALETTE_MODE.MIXED || !intent || !intent.query) {
+                return [];
+            }
+            if (![TASK_INTENT.NATURAL_LANGUAGE_SCREENER, TASK_INTENT.MARKET_TOPIC, TASK_INTENT.MARKET_QUESTION].includes(intent.type)) {
+                return [];
+            }
+
+            const meta = TASK_BUCKET_META[intent.type] || TASK_BUCKET_META.market_question;
+            const sourceContext = this._buildTaskSourceContext(intent, meta);
+            return [this._snapshotValue({
+                kind: RESULT_KIND.TASK,
+                id: `global-search-task:${intent.type}:${this._buildTaskSlug(intent.query)}`,
+                title: meta.title,
+                description: meta.description,
+                query: intent.query,
+                intent: cloneValue(intent),
+                intent_type: intent.type,
+                raw_query: intent.query,
+                bucket: meta.id,
+                bucketLabel: meta.label,
+                enabled: true,
+                source_context: cloneValue(sourceContext),
+                metadata: {
+                    route: 'iwencai',
+                    intent_type: intent.type,
+                    bucket: meta.id,
+                    raw_query: intent.query,
+                    source_context: cloneValue(sourceContext),
+                },
+            })];
+        }
+
+        _buildResultBuckets(actionResults, stockResults, taskResults, activeIntent) {
+            const buckets = [];
+            if (stockResults.length) {
+                buckets.push({
+                    id: 'stocks',
+                    name: '行情',
+                    type: 'stock_lookup',
+                    count: stockResults.length,
+                    active: activeIntent?.bucket === 'stocks',
+                });
+            }
+            if (actionResults.length) {
+                buckets.push({
+                    id: 'functions',
+                    name: '功能',
+                    type: 'function_nav',
+                    count: actionResults.length,
+                    active: activeIntent?.bucket === 'functions',
+                });
+            }
+            taskResults.forEach((item) => {
+                const id = item.bucket || item.source_context?.selected_bucket || 'question';
+                if (buckets.some((bucket) => bucket.id === id)) {
+                    return;
+                }
+                buckets.push({
+                    id,
+                    name: item.bucketLabel || item.source_context?.bucket_label || item.title || '问句',
+                    type: item.intent_type || item.intent?.type || item.source_context?.intent_type || 'market_question',
+                    count: 1,
+                    active: true,
+                });
+            });
+            return buckets.map((bucket) => this._snapshotValue(bucket));
+        }
+
+        _buildTaskSourceContext(intent, meta) {
+            const slug = this._buildTaskSlug(intent.query);
+            return {
+                source: 'global_search',
+                sourceLabel: '全局搜索',
+                context_type: 'global_search_task',
+                query: intent.query,
+                raw_query: intent.query,
+                intent_type: intent.type,
+                intent_confidence: intent.confidence,
+                selected_bucket: meta.id,
+                bucket_label: meta.label,
+                result_pool_id: `global-search:${slug}`,
+                parsed_conditions: [],
+                condition_hit_count: {},
+                expected_status: intent.expected_status || null,
+                allowed_fallback_status: cloneValue(intent.allowed_fallback_status || []),
+                required_actions: cloneValue(intent.required_actions || []),
+                required_source_context: cloneValue(intent.required_source_context || []),
+                rank_reason: `全局搜索: ${intent.query}`,
+            };
+        }
+
+        _buildTaskSlug(query) {
+            const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+            const safe = normalized
+                .replace(/\s+/g, '-')
+                .replace(/[^\w\u4e00-\u9fa5-]+/g, '')
+                .slice(0, 48);
+            return safe || 'query';
+        }
+
+        _buildMergedResults(mode, actionResults, stockResults, taskResults = [], activeIntent = null) {
             if (mode === PALETTE_MODE.ACTION) {
                 return actionResults;
             }
             if (mode === PALETTE_MODE.STOCK) {
                 return stockResults;
             }
-            return [...actionResults, ...stockResults];
+            const taskFirst = activeIntent && [
+                TASK_INTENT.NATURAL_LANGUAGE_SCREENER,
+                TASK_INTENT.MARKET_TOPIC,
+                TASK_INTENT.MARKET_QUESTION,
+            ].includes(activeIntent.type);
+            return taskFirst
+                ? [...taskResults, ...stockResults, ...actionResults]
+                : [...actionResults, ...stockResults, ...taskResults];
+        }
+
+        async _executeTaskRouterItem(item) {
+            const query = typeof item.query === 'string' ? item.query.trim() : '';
+            if (!query) {
+                return {
+                    ok: false,
+                    error: 'Task router item requires query',
+                    code: 'TASK_QUERY_EMPTY',
+                };
+            }
+
+            const sourceContext = isPlainObject(item.source_context)
+                ? cloneValue(item.source_context)
+                : (isPlainObject(item.metadata?.source_context) ? cloneValue(item.metadata.source_context) : {});
+            const selectedBucket = item.bucket || sourceContext.selected_bucket || null;
+            const app = global.App || {};
+
+            if (typeof app.ensureBundle === 'function') {
+                await app.ensureBundle('intelligence');
+            }
+            if (typeof app.switchTab === 'function') {
+                await app.switchTab('intelligence');
+            }
+            await this._waitForIntelligencePageLoad();
+            const intelligence = await this._waitForIwencaiRunner();
+            if (typeof intelligence.bindIwencai === 'function') {
+                intelligence.bindIwencai();
+            }
+
+            const input = global.document && typeof global.document.getElementById === 'function'
+                ? global.document.getElementById('intel-iwencai-input')
+                : null;
+            if (input) {
+                input.value = query;
+            }
+
+            if (typeof intelligence.runIwencai !== 'function') {
+                return {
+                    ok: false,
+                    error: 'Intelligence.runIwencai is not available',
+                    code: 'IWENCAI_UNAVAILABLE',
+                };
+            }
+
+            const output = await intelligence.runIwencai({
+                source: 'global_search',
+                query,
+                raw_query: sourceContext.raw_query || query,
+                intent_type: sourceContext.intent_type || item.intent?.type || item.intent_type || TASK_INTENT.MARKET_QUESTION,
+                selected_bucket: selectedBucket,
+                source_context: {
+                    ...sourceContext,
+                    query,
+                    raw_query: sourceContext.raw_query || query,
+                    selected_bucket: selectedBucket,
+                    intent_type: sourceContext.intent_type || item.intent?.type || item.intent_type || TASK_INTENT.MARKET_QUESTION,
+                },
+            });
+
+            return {
+                ok: true,
+                route: 'iwencai',
+                query,
+                selected_bucket: selectedBucket,
+                source_context: {
+                    ...sourceContext,
+                    query,
+                    raw_query: sourceContext.raw_query || query,
+                    selected_bucket: selectedBucket,
+                    intent_type: sourceContext.intent_type || item.intent?.type || item.intent_type || TASK_INTENT.MARKET_QUESTION,
+                },
+                output: output === undefined ? null : cloneValue(output),
+            };
+        }
+
+        async _waitForIwencaiRunner(timeoutMs = 5000) {
+            const startedAt = getNow();
+            while (getNow() - startedAt <= timeoutMs) {
+                const intelligence = global.Intelligence || {};
+                if (typeof intelligence.runIwencai === 'function') {
+                    return intelligence;
+                }
+                await new Promise((resolve) => {
+                    if (typeof global.setTimeout === 'function') {
+                        global.setTimeout(resolve, 50);
+                        return;
+                    }
+                    resolve();
+                });
+            }
+            return global.Intelligence || {};
+        }
+
+        async _waitForIntelligencePageLoad(timeoutMs = 5000) {
+            const startedAt = getNow();
+            while (getNow() - startedAt <= timeoutMs) {
+                const intelligence = global.Intelligence || {};
+                const loadingPromise = intelligence.state?.loadingPromise;
+                if (loadingPromise && typeof loadingPromise.then === 'function') {
+                    try {
+                        await loadingPromise;
+                    } catch (error) {
+                        return;
+                    }
+                    return;
+                }
+                if (global.document?.getElementById?.('intel-iwencai-result')) {
+                    return;
+                }
+                await new Promise((resolve) => {
+                    if (typeof global.setTimeout === 'function') {
+                        global.setTimeout(resolve, 50);
+                        return;
+                    }
+                    resolve();
+                });
+            }
         }
 
         _resolveSelectedIndex(resultLength) {
@@ -1314,6 +1838,35 @@
                 };
             }
 
+            if (item.kind === RESULT_KIND.TASK) {
+                const query = typeof item.query === 'string' ? item.query.trim() : '';
+                if (!query) {
+                    throw createCommandPaletteError('Task item requires query', 'INVALID_TASK_ITEM');
+                }
+                const sourceContext = isPlainObject(item.source_context)
+                    ? cloneValue(item.source_context)
+                    : (isPlainObject(item.metadata?.source_context) ? cloneValue(item.metadata.source_context) : null);
+                return {
+                    kind: RESULT_KIND.TASK,
+                    id: typeof item.id === 'string' && item.id.trim()
+                        ? item.id.trim()
+                        : `global-search-task:${this._buildTaskSlug(query)}`,
+                    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '用问财处理这个问题',
+                    description: typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null,
+                    query,
+                    raw_query: typeof item.raw_query === 'string' && item.raw_query.trim() ? item.raw_query.trim() : query,
+                    intent: isPlainObject(item.intent) ? cloneValue(item.intent) : null,
+                    intent_type: typeof item.intent_type === 'string' && item.intent_type.trim()
+                        ? item.intent_type.trim()
+                        : (isPlainObject(item.intent) && typeof item.intent.type === 'string' ? item.intent.type : sourceContext?.intent_type || null),
+                    bucket: typeof item.bucket === 'string' && item.bucket.trim() ? item.bucket.trim() : null,
+                    bucketLabel: typeof item.bucketLabel === 'string' && item.bucketLabel.trim() ? item.bucketLabel.trim() : null,
+                    enabled: item.enabled !== false,
+                    source_context: sourceContext,
+                    metadata: isPlainObject(item.metadata) ? cloneValue(item.metadata) : null,
+                };
+            }
+
             throw createCommandPaletteError('Unsupported result item kind', 'INVALID_RESULT_ITEM_KIND');
         }
 
@@ -1347,6 +1900,8 @@
         refreshResults: commandPaletteInternal.refreshResults.bind(commandPaletteInternal),
         moveSelection: commandPaletteInternal.moveSelection.bind(commandPaletteInternal),
         getSelectedItem: commandPaletteInternal.getSelectedItem.bind(commandPaletteInternal),
+        getGoldenQuestions: commandPaletteInternal.getGoldenQuestions.bind(commandPaletteInternal),
+        classifyIntent: commandPaletteInternal.classifyIntent.bind(commandPaletteInternal),
         selectIndex: commandPaletteInternal.selectIndex.bind(commandPaletteInternal),
         executeSelection: commandPaletteInternal.executeSelection.bind(commandPaletteInternal),
         executeItem: commandPaletteInternal.executeItem.bind(commandPaletteInternal),

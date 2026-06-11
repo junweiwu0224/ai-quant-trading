@@ -44,6 +44,8 @@ Object.assign(App, {
         if (document.getElementById('formula-code') && document.getElementById('formula-code-dropdown') && typeof SearchBox !== 'undefined') {
             this.formulaCodeSearch = new SearchBox('formula-code', 'formula-code-dropdown', {
                 maxResults: 30,
+                minQueryLength: 1,
+                emptyScope: 'watchlist',
                 idleMessage: '自选股为空，输入代码或名称搜索全市场',
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
@@ -62,6 +64,8 @@ Object.assign(App, {
         if (document.getElementById('basket-code-input') && document.getElementById('basket-code-dropdown') && document.getElementById('basket-code-tags') && typeof MultiSearchBox !== 'undefined') {
             this.basketMultiSearch = new MultiSearchBox('basket-code-input', 'basket-code-dropdown', 'basket-code-tags', {
                 maxResults: 40,
+                minQueryLength: 1,
+                emptyScope: 'watchlist',
                 idleMessage: '自选股为空，输入代码或名称搜索全市场',
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
@@ -178,13 +182,20 @@ Object.assign(App, {
     _normalizeBasketCandidate(item, index = 0) {
         const code = String(item?.code || '').trim();
         if (!/^\d{6}$/.test(code)) return null;
-        const probability = Number(item?.probability);
-        return {
+        const probability = Number(item?.probability ?? item?.score);
+        const candidate = {
             code,
             name: String(item?.name || code).trim(),
             industry: String(item?.industry || item?.sector || '').trim(),
-            probability: Number.isFinite(probability) ? probability : Math.max(0.5, 0.82 - index * 0.03),
         };
+        if (Number.isFinite(probability)) {
+            candidate.probability = probability;
+        } else if (Number.isFinite(Number(item?.rank_score))) {
+            candidate.rank_score = Number(item.rank_score);
+        } else {
+            candidate.rank = index + 1;
+        }
+        return candidate;
     },
 
     _setBasketCandidates(items, { syncPicker = true } = {}) {

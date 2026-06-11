@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from dashboard.app import app
 from dashboard.routers import qlib as qlib_router
+from dashboard.session import current_account
 from engine.migrate import init_database
 from engine.models import Direction
 
@@ -265,16 +266,78 @@ class TestStrategy:
 class TestWatchlist:
     """自选股端点"""
 
+    @pytest.fixture
+    def watchlist_account(self):
+        account = {
+            "user": {"id": "watch-user", "username": "watch-user"},
+            "workspace": {"id": "watch-workspace"},
+            "permissions": {},
+        }
+        app.dependency_overrides[current_account] = lambda: account
+        try:
+            yield account
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
     def test_get_watchlist(self, client):
         """GET /api/watchlist — 自选股列表"""
         resp = client.get("/api/watchlist")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_add_watchlist_rejects_invalid_code(self, client):
+    def test_get_watchlist_uses_current_workspace(self, client, monkeypatch, watchlist_account):
+        """GET /api/watchlist — 当前工作区自选股列表"""
+        from dashboard.routers import watchlist as watchlist_router
+
+        calls = {}
+        def fake_get_watchlist_with_info(workspace_id):
+            calls["workspace_id"] = workspace_id
+            return []
+
+        monkeypatch.setattr(
+            watchlist_router.storage,
+            "get_watchlist_with_info",
+            fake_get_watchlist_with_info,
+        )
+
+        resp = client.get("/api/watchlist")
+
+        assert resp.status_code == 200
+        assert calls["workspace_id"] == "watch-workspace"
+
+    def test_add_watchlist_rejects_invalid_code(self, client, watchlist_account):
         resp = client.post("/api/watchlist", json={"code": "600519.SH"})
         assert resp.status_code == 400
 
-    def test_add_watchlist_rejects_unknown_code(self, client, monkeypatch):
+    def test_add_watchlist_uses_current_workspace(self, client, monkeypatch, watchlist_account):
+        from dashboard.routers import watchlist as watchlist_router
+
+        calls = {}
+        stock_list = pd.DataFrame({"code": ["600519"], "name": ["贵州茅台"]})
+        def fake_add_to_watchlist(code, workspace_id):
+            calls["add"] = (code, workspace_id)
+            return False
+
+        monkeypatch.setattr(watchlist_router.storage, "get_stock_list", lambda: stock_list)
+        monkeypatch.setattr(
+            watchlist_router.storage,
+            "add_to_watchlist",
+            fake_add_to_watchlist,
+        )
+        monkeypatch.setattr(
+            watchlist_router,
+            "get_quote_service",
+            lambda: type("QS", (), {
+                "get_or_fetch_quote": lambda self, code: None,
+                "subscribe": lambda self, codes: None,
+            })(),
+        )
+
+        resp = client.post("/api/watchlist", json={"code": "600519"})
+
+        assert resp.status_code == 200
+        assert calls["add"] == ("600519", "watch-workspace")
+
+    def test_add_watchlist_rejects_unknown_code(self, client, monkeypatch, watchlist_account):
         from dashboard.routers import watchlist as watchlist_router
 
         class FakeCollector:
@@ -291,11 +354,15 @@ class TestWatchlist:
 
         assert resp.status_code == 404
 
-    def test_remove_watchlist_normalizes_code_before_unsubscribe(self, client, monkeypatch):
+    def test_remove_watchlist_normalizes_code_before_unsubscribe(self, client, monkeypatch, watchlist_account):
         from dashboard.routers import watchlist as watchlist_router
 
         calls = {}
-        monkeypatch.setattr(watchlist_router.storage, "remove_from_watchlist", lambda code: calls.setdefault("removed", code) == "600519")
+        monkeypatch.setattr(
+            watchlist_router.storage,
+            "remove_from_watchlist",
+            lambda code, workspace_id: calls.setdefault("removed", (code, workspace_id)) == ("600519", "watch-workspace"),
+        )
         monkeypatch.setattr(
             watchlist_router,
             "get_quote_service",
@@ -305,7 +372,7 @@ class TestWatchlist:
         resp = client.delete("/api/watchlist/sh600519")
 
         assert resp.status_code == 200
-        assert calls["removed"] == "600519"
+        assert calls["removed"] == ("600519", "watch-workspace")
         assert calls["unsubscribed"] == ["600519"]
 
     def test_realtime_quotes_status(self, client):
@@ -578,6 +645,46 @@ class TestMarket:
             market_router._cache.delete("market_radar:fast")
             market_router._last_radar = previous_last_radar
 
+    def test_market_radar_local_fallback_exposes_trust_metadata(self, client, monkeypatch):
+        """GET /api/market/radar?fast=true — 本地覆盖池回退说明统计口径"""
+        from dashboard.routers import market as market_router
+
+        previous_last_radar = market_router._last_radar
+        market_router._cache.delete("market_radar")
+        market_router._cache.delete("market_radar:fast")
+        market_router._last_radar = None
+
+        local_rows = [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "price": 11.0,
+                "change_pct": 10.0,
+                "amplitude": 4.0,
+                "turnover_rate": 30.0,
+                "date": "2026-06-05",
+                "source": "local_stock_daily",
+            },
+        ]
+
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/radar?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["universe"] == "local_stock_daily_coverage_pool"
+            assert data["coverage_note"]
+            assert data["generated_at"]
+            assert data["fast_path_note"]
+        finally:
+            market_router._cache.delete("market_radar")
+            market_router._cache.delete("market_radar:fast")
+            market_router._last_radar = previous_last_radar
+
     def test_market_breadth_uses_local_full_daily_coverage(self, client, monkeypatch):
         """GET /api/market/breadth — 返回本地全量覆盖池涨跌广度"""
         from dashboard.routers import market as market_router
@@ -631,6 +738,145 @@ class TestMarket:
         finally:
             market_router._cache.delete("market_breadth")
             market_router._last_breadth = previous_last_breadth
+
+    def test_market_news_empty_response_exposes_source_unavailable_metadata(self, client, monkeypatch):
+        """GET /api/market/news — 空新闻不能伪装成真实 0 条"""
+        from dashboard.routers import market as market_router
+
+        previous_last_news = market_router._last_news
+        market_router._cache.delete("market_news")
+        market_router._last_news = None
+
+        async def fake_news_summary():
+            return {
+                "timestamp": "2026-06-08T15:30:00",
+                "news": [],
+                "overall_sentiment": 0,
+                "sources": [],
+                "errors": ["no_news_source"],
+            }
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "alpha.news_collector",
+            type("FakeNewsCollector", (), {"fetch_market_news_summary": fake_news_summary}),
+        )
+
+        try:
+            resp = client.get("/api/market/news")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "market_news_multi_source"
+            assert data["generated_at"]
+            assert data["timestamp"] == "2026-06-08T15:30:00"
+            assert data["coverage_note"]
+            assert data["source_unavailable"] is True
+            assert data["stale"] is True
+            assert data["stale_reason"] == "no_news_source"
+        finally:
+            market_router._cache.delete("market_news")
+            market_router._last_news = previous_last_news
+
+    def test_market_news_without_source_timestamp_uses_generated_timestamp(self, client, monkeypatch):
+        """GET /api/market/news — 成功路径必须给前端可用 timestamp"""
+        from dashboard.routers import market as market_router
+
+        previous_last_news = market_router._last_news
+        market_router._cache.delete("market_news")
+        market_router._last_news = None
+
+        async def fake_news_summary():
+            return {
+                "news": [{"title": "市场回暖", "time": "2026-06-08 15:29:00", "source": "东方财富快讯"}],
+                "overall_sentiment": 0.2,
+                "sources": [{"name": "东方财富快讯"}],
+            }
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "alpha.news_collector",
+            type("FakeNewsCollector", (), {"fetch_market_news_summary": fake_news_summary}),
+        )
+
+        try:
+            resp = client.get("/api/market/news")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "market_news_multi_source"
+            assert data["timestamp"]
+            assert data["generated_at"] == data["timestamp"]
+            assert data["coverage_note"] == "多源市场新闻聚合：东方财富快讯"
+            assert data["news"][0]["title"] == "市场回暖"
+        finally:
+            market_router._cache.delete("market_news")
+            market_router._last_news = previous_last_news
+
+    def test_market_news_returns_linked_stock_and_topic_metadata(self, client, monkeypatch):
+        """GET /api/market/news — 新闻应透传股票/主题关联元数据"""
+        from dashboard.routers import market as market_router
+
+        previous_last_news = market_router._last_news
+        market_router._cache.delete("market_news")
+        market_router._last_news = None
+
+        async def fake_news_summary():
+            return {
+                "timestamp": "2026-06-08T15:30:00",
+                "news": [
+                    {
+                        "title": "宁德时代带动新能源车产业链订单增长",
+                        "time": "2026-06-08 15:29:00",
+                        "source": "东方财富快讯",
+                        "sentiment": 0.4,
+                        "stocks": [
+                            {"code": "300750", "name": "宁德时代", "industry": "电力设备", "match": "name"}
+                        ],
+                        "topics": [
+                            {"name": "电力设备", "match": "stock", "stock_count": 1},
+                            {"name": "新能源车", "match": "keyword", "stock_count": 0},
+                        ],
+                        "value_score": 8.4,
+                        "value_reasons": ["关联个股", "关联主题", "情绪显著"],
+                    }
+                ],
+                "overall_sentiment": 0.4,
+                "sources": [{"name": "东方财富快讯", "count": 1}],
+                "linked_news_count": 1,
+                "linked_stock_count": 1,
+                "topic_count": 2,
+                "ranking": {
+                    "method": "actionable_value",
+                    "description": "按个股关联、主题关联、情绪强度和来源可信度综合排序",
+                },
+            }
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "alpha.news_collector",
+            type("FakeNewsCollector", (), {"fetch_market_news_summary": fake_news_summary}),
+        )
+
+        try:
+            resp = client.get("/api/market/news")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["linked_news_count"] == 1
+            assert data["linked_stock_count"] == 1
+            assert data["topic_count"] == 2
+            assert data["ranking"]["method"] == "actionable_value"
+            assert data["news"][0]["stocks"][0]["code"] == "300750"
+            assert data["news"][0]["topics"][1]["name"] == "新能源车"
+            assert data["news"][0]["value_score"] == 8.4
+            assert data["news"][0]["value_reasons"] == ["关联个股", "关联主题", "情绪显著"]
+        finally:
+            market_router._cache.delete("market_news")
+            market_router._last_news = previous_last_news
 
     def test_market_sectors(self, client):
         """GET /api/market/sectors — 板块数据"""
@@ -815,6 +1061,226 @@ class TestMarket:
             market_router._cache.delete("sector_heatmap:fast")
             market_router._last_heatmap = previous_last_heatmap
 
+    def test_market_heatmap_fast_empty_response_exposes_trust_metadata(self, client, monkeypatch):
+        """GET /api/market/heatmap?fast=true — 空热力也必须说明来源和降级原因"""
+        from dashboard.routers import market as market_router
+
+        previous_last_heatmap = market_router._last_heatmap
+        market_router._cache.delete("sector_heatmap")
+        market_router._cache.delete("sector_heatmap:fast")
+        market_router._last_heatmap = None
+
+        monkeypatch.setattr(market_router, "_fetch_sector_heatmap", lambda: (_ for _ in ()).throw(RuntimeError("unused")))
+        monkeypatch.setattr(market_router, "_build_local_sector_snapshot", lambda: {
+            "sectors": [],
+            "grouping": "industry",
+            "weight_basis": "stock_count",
+            "stock_count": 0,
+            "industry_covered": 0,
+            "industry_coverage_pct": 0,
+        })
+
+        try:
+            resp = client.get("/api/market/heatmap?fast=true")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is False
+            assert data["fast"] is True
+            assert data["fast_path"] is True
+            assert data["source"] == "local_stock_daily"
+            assert data["source_unavailable"] is True
+            assert data["stale"] is True
+            assert data["stale_reason"] == "fast_local_coverage_unavailable"
+            assert data["coverage_note"]
+            assert data["generated_at"]
+            assert data["total"] == 0
+            assert data["fetched"] == 0
+            assert data["sectors"] == []
+        finally:
+            market_router._cache.delete("sector_heatmap")
+            market_router._cache.delete("sector_heatmap:fast")
+            market_router._last_heatmap = previous_last_heatmap
+
+    def test_market_heatmap_live_empty_response_exposes_trust_metadata(self, client, monkeypatch):
+        """GET /api/market/heatmap — 外部源和本地源都失败时不能裸返回空 sectors"""
+        from dashboard.routers import market as market_router
+
+        previous_last_heatmap = market_router._last_heatmap
+        market_router._cache.delete("sector_heatmap")
+        market_router._cache.delete("sector_heatmap:fast")
+        market_router._last_heatmap = None
+
+        monkeypatch.setattr(market_router, "_fetch_sector_heatmap", lambda: (_ for _ in ()).throw(RuntimeError("heatmap unavailable")))
+        monkeypatch.setattr(market_router, "_build_local_sector_snapshot", lambda: {
+            "sectors": [],
+            "grouping": "industry",
+            "weight_basis": "stock_count",
+            "stock_count": 0,
+            "industry_covered": 0,
+            "industry_coverage_pct": 0,
+        })
+
+        try:
+            resp = client.get("/api/market/heatmap")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is False
+            assert data["source"] == "eastmoney_sector_board"
+            assert data["source_unavailable"] is True
+            assert data["stale"] is True
+            assert data["stale_reason"] == "heatmap_source_unavailable"
+            assert "heatmap unavailable" in data["error"]
+            assert data["coverage_note"]
+            assert data["generated_at"]
+            assert data["total"] == 0
+            assert data["fetched"] == 0
+            assert data["sectors"] == []
+        finally:
+            market_router._cache.delete("sector_heatmap")
+            market_router._cache.delete("sector_heatmap:fast")
+            market_router._last_heatmap = previous_last_heatmap
+
+    def test_market_sector_members_returns_local_constituents_with_trust_context(self, client, monkeypatch):
+        """GET /api/market/sector-members — 板块热力图可钻到本地覆盖池成分股"""
+        from dashboard.routers import market as market_router
+
+        market_router._cache.delete("sector_members:industry:银行:10")
+        local_rows = [
+            {"code": "000001", "name": "平安银行", "industry": "银行", "change_pct": 2.0, "amount": 1e10, "price": 11.2},
+            {"code": "600000", "name": "浦发银行", "industry": "银行", "change_pct": -1.0, "amount": 2e10, "price": 8.5},
+            {"code": "300750", "name": "宁德时代", "industry": "电池", "change_pct": 3.0, "amount": 3e10, "price": 210.0},
+        ]
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+        monkeypatch.setattr(
+            market_router,
+            "build_signal_context",
+            lambda top_limit=500: {
+                "provider": "local_momentum",
+                "model_version": "local_momentum_v1",
+                "latest_date": "2026-06-05",
+                "raw_source": "legacy_qlib",
+                "items": {
+                    "000001": {
+                        "signal_rank": 3,
+                        "signal_score": 0.91,
+                        "signal_confidence": "validated_positive",
+                    }
+                },
+            },
+        )
+
+        try:
+            resp = client.get("/api/market/sector-members?name=银行&grouping=industry&limit=10")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["sector_name"] == "银行"
+            assert data["source"] == "local_stock_daily"
+            assert data["universe"] == "local_stock_daily_coverage_pool"
+            assert data["grouping"] == "industry"
+            assert data["total_count"] == 2
+            assert data["effective_count"] == 2
+            assert data["display_count"] == 2
+            assert data["generated_at"]
+            assert "本地 stock_daily" in data["coverage_note"]
+            assert [item["code"] for item in data["members"]] == ["000001", "600000"]
+            assert data["members"][0]["sector_name"] == "银行"
+            assert data["members"][0]["source"] == "local_stock_daily"
+            evidence = data["evidence_context"]
+            assert evidence["summary"]["direction"] == "多空均衡"
+            assert evidence["summary"]["member_count"] == 2
+            assert evidence["summary"]["leader"]["code"] == "000001"
+            assert evidence["liquidity"]["total_amount_yi"] == 300.0
+            assert evidence["liquidity"]["top_amount_member"]["code"] == "600000"
+            assert evidence["signal_overlap"]["count"] == 1
+            assert evidence["signal_overlap"]["items"][0]["code"] == "000001"
+            assert evidence["signal_overlap"]["provider"] == "local_momentum"
+            assert evidence["news_research"]["status"] == "missing"
+            assert "新闻/研报" in evidence["news_research"]["missing_reason"]
+            assert evidence["related_index"]["status"] == "missing"
+            assert [item["id"] for item in evidence["next_actions"]] == ["send_screener", "open_stock", "draft_backtest"]
+            assert data["source_context"]["context_type"] == "sector"
+            assert data["source_context"]["sector_name"] == "银行"
+        finally:
+            market_router._cache.delete("sector_members:industry:银行:10")
+
+    def test_market_sector_members_evidence_uses_full_sector_not_display_limit(self, client, monkeypatch):
+        """GET /api/market/sector-members — 证据上下文按全量板块计算，不被 limit 截断"""
+        from dashboard.routers import market as market_router
+
+        market_router._cache.delete("sector_members:industry:银行:1")
+        local_rows = [
+            {"code": "000001", "name": "平安银行", "industry": "银行", "change_pct": 3.0, "amount": 1e10, "price": 11.2},
+            {"code": "600000", "name": "浦发银行", "industry": "银行", "change_pct": 2.0, "amount": 5e10, "price": 8.5},
+            {"code": "601398", "name": "工商银行", "industry": "银行", "change_pct": 1.0, "amount": 2e10, "price": 6.2},
+        ]
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+        monkeypatch.setattr(
+            market_router,
+            "build_signal_context",
+            lambda top_limit=500: {
+                "provider": "local_momentum",
+                "model_version": "local_momentum_v1",
+                "latest_date": "2026-06-05",
+                "items": {
+                    "600000": {
+                        "signal_rank": 9,
+                        "signal_score": 0.88,
+                        "signal_confidence": "validated_positive",
+                    }
+                },
+            },
+        )
+
+        try:
+            resp = client.get("/api/market/sector-members?name=银行&grouping=industry&limit=1")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["display_count"] == 1
+            assert [item["code"] for item in data["members"]] == ["000001"]
+            evidence = data["evidence_context"]
+            assert evidence["summary"]["member_count"] == 3
+            assert evidence["summary"]["leader"]["code"] == "000001"
+            assert evidence["liquidity"]["total_amount_yi"] == 800.0
+            assert evidence["liquidity"]["top_amount_member"]["code"] == "600000"
+            assert evidence["signal_overlap"]["count"] == 1
+            assert evidence["signal_overlap"]["items"][0]["code"] == "600000"
+        finally:
+            market_router._cache.delete("sector_members:industry:银行:1")
+
+    def test_market_sector_members_empty_result_is_not_source_unavailable(self, client, monkeypatch):
+        """GET /api/market/sector-members — 无匹配成分是成功空态，不应误报数据源异常"""
+        from dashboard.routers import market as market_router
+
+        market_router._cache.delete("sector_members:industry:银行:10")
+        local_rows = [
+            {"code": "300750", "name": "宁德时代", "industry": "电池", "change_pct": 3.0, "amount": 3e10, "price": 210.0},
+        ]
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+
+        try:
+            resp = client.get("/api/market/sector-members?name=银行&grouping=industry&limit=10")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["members"] == []
+            assert data["total_count"] == 0
+            assert data["source_unavailable"] is False
+            assert data["missing_reason"] == "本地覆盖池暂无银行成分股"
+            assert "暂无 银行 成分股" in data["coverage_note"]
+            assert data["source_context"]["context_type"] == "sector"
+            assert data["evidence_context"]["summary"]["member_count"] == 0
+            assert data["evidence_context"]["signal_overlap"]["missing_reason"] == "板块暂无成分股，无法计算 Signal 重叠"
+            assert data["evidence_context"]["news_research"]["status"] == "missing"
+            assert data["evidence_context"]["related_index"]["status"] == "missing"
+        finally:
+            market_router._cache.delete("sector_members:industry:银行:10")
+
     def test_market_northbound_returns_soft_unavailable_state_when_source_fails(self, client, monkeypatch):
         """GET /api/market/northbound — 北向源不可用时不让情报页进入硬失败"""
         from dashboard.routers import market as market_router
@@ -842,6 +1308,45 @@ class TestMarket:
         finally:
             market_router._cache.delete("northbound")
             market_router._last_northbound = previous_last_northbound
+
+    def test_market_hotspot_returns_soft_unavailable_state_when_source_fails(self, client, monkeypatch):
+        """GET /api/market/hotspot — 热点源不可用时不让情报页硬失败"""
+        from dashboard.routers import market as market_router
+
+        previous_last_hotspot = market_router._last_hotspot
+        market_router._cache.delete("hotspot")
+        market_router._last_hotspot = None
+
+        async def fail_hotspot():
+            raise RuntimeError("hotspot unavailable")
+
+        import alpha.hotspot_attribution as hotspot_module
+
+        monkeypatch.setattr(hotspot_module, "get_hotspot_attribution", fail_hotspot)
+
+        try:
+            resp = client.get("/api/market/hotspot")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "hotspot_attribution"
+            assert data["provider"] == "hotspot_attribution"
+            assert data["source_unavailable"] is True
+            assert data["stale"] is True
+            assert data["stale_reason"] == "hotspot_source_unavailable"
+            assert "hotspot unavailable" in data["error"]
+            assert data["coverage_note"]
+            assert data["generated_at"]
+            assert data["timestamp"] == data["generated_at"]
+            assert data["summary"] == "暂无热点数据"
+            assert data["concepts"] == []
+            assert data["industries"] == []
+            assert data["fund_flow"] == []
+            assert "hotspot unavailable" in data["partial_errors"][0]
+        finally:
+            market_router._cache.delete("hotspot")
+            market_router._last_hotspot = previous_last_hotspot
 
     def test_market_northbound_fast_returns_soft_unavailable_without_external_fetch(self, client, monkeypatch):
         """GET /api/market/northbound?fast=true — 无缓存时快路径不等待北向源"""

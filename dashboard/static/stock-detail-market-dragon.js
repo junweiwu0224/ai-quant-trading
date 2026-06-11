@@ -8,11 +8,73 @@ Object.assign(globalThis.StockDetail, {
     async _loadDragonTiger(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/stock/dragon-tiger/${code}?days=90`);
-            if (!data || stale()) return;
+            if (stale && stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents?.('dragon_tiger', [], {
+                    type: 'dragon_tiger',
+                    title: '龙虎榜暂缺',
+                    source: 'stock_dragon_tiger',
+                    source_label: '龙虎榜',
+                    status: 'missing',
+                    missing_reason: '龙虎榜接口未返回数据',
+                });
+                return;
+            }
+            this._setDragonTigerWorkbenchEvents(data);
             this._renderDragonTiger(data);
         } catch (e) {
             console.error('加载龙虎榜分析失败:', e);
+            if (stale && stale()) return;
+            this._setWorkbenchEvents?.('dragon_tiger', [], {
+                type: 'dragon_tiger',
+                title: '龙虎榜加载失败',
+                source: 'stock_dragon_tiger',
+                source_label: '龙虎榜',
+                status: 'missing',
+                missing_reason: '龙虎榜数据加载失败',
+            });
         }
+    },
+
+    _setDragonTigerWorkbenchEvents(data = {}) {
+        const records = Array.isArray(data.records) ? data.records : [];
+        if (!data.success || !records.length) {
+            this._setWorkbenchEvents?.('dragon_tiger', [], {
+                type: 'dragon_tiger',
+                title: '龙虎榜暂缺',
+                source: 'stock_dragon_tiger',
+                source_label: '龙虎榜',
+                status: 'missing',
+                missing_reason: '近90日暂无龙虎榜上榜记录',
+            });
+            return;
+        }
+        this._setWorkbenchEvents?.('dragon_tiger', records.slice(0, 12).map((record) => {
+            const net = Number(record.net_amount);
+            const changeRate = Number(record.change_rate);
+            const reasons = Array.isArray(record.reasons) ? record.reasons.filter(Boolean) : [];
+            return {
+                type: 'dragon_tiger',
+                status: 'ready',
+                title: net > 0 ? '龙虎榜净买入' : net < 0 ? '龙虎榜净卖出' : '龙虎榜上榜',
+                detail: [
+                    Number.isFinite(net) ? `净额 ${net >= 0 ? '+' : ''}${(net / 10000).toFixed(2)}亿` : '',
+                    Number.isFinite(changeRate) ? `当日涨跌 ${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%` : '',
+                    reasons.join('、'),
+                ].filter(Boolean).join(' · '),
+                at: record.date || '',
+                date_key: this._stockDataDateKey?.(record.date) || record.date || '',
+                source: 'stock_dragon_tiger',
+                source_label: '龙虎榜',
+                direction: net > 0 ? 'increase' : net < 0 ? 'decrease' : 'flat',
+                value: Number.isFinite(net) ? net : null,
+                raw: record,
+            };
+        }), {
+            type: 'dragon_tiger',
+            source: 'stock_dragon_tiger',
+            source_label: '龙虎榜',
+        });
     },
 
     _renderDragonTiger(data) {

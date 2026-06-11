@@ -19,7 +19,13 @@ Object.assign(globalThis.StockDetail, {
         const container = document.getElementById('sd-multitimeframe');
         if (!container || !data.success) return;
 
-        const { daily, weekly, monthly, resonance, resonance_label, strength } = data;
+        const fallbackFrame = { trend: 'neutral', strength: 0, signals: [] };
+        const daily = data.daily && typeof data.daily === 'object' ? data.daily : fallbackFrame;
+        const weekly = data.weekly && typeof data.weekly === 'object' ? data.weekly : fallbackFrame;
+        const monthly = data.monthly && typeof data.monthly === 'object' ? data.monthly : fallbackFrame;
+        const resonance = data.resonance || 'neutral';
+        const resonance_label = data.resonance_label || '多周期数据暂缺';
+        const strength = Number.isFinite(Number(data.strength)) ? Number(data.strength) : 0;
 
         function trendIcon(trend) {
             if (trend === 'bullish') return '<span class="text-up">&#9650;</span>';

@@ -22,6 +22,16 @@ const normalizeStockSearchResults = (payload) => {
     });
 };
 
+const stockSearchEmptyScopeItems = (scope, limit) => {
+    if (scope !== 'watchlist') return [];
+    const app = globalThis.App || (typeof App !== 'undefined' ? App : {});
+    const list = normalizeStockSearchResults(app.watchlistCache || []);
+    if (Number.isFinite(limit) && limit > 0) {
+        return list.slice(0, limit);
+    }
+    return list;
+};
+
 class SearchBox {
     constructor(inputId, dropdownId, options = {}) {
         this.trigger = document.getElementById(inputId);
@@ -36,6 +46,7 @@ class SearchBox {
             debounceMs: 300,
             minQueryLength: 0,
             idleMessage: '输入代码或名称开始搜索',
+            emptyScope: null,
             inlineFilter: defaultInlineFilter,
             ...options,
         };
@@ -184,9 +195,8 @@ class SearchBox {
         const version = ++this._searchVersion;
 
         if (q.length < this.options.minQueryLength) {
-            this._items = [];
-            this._activeIdx = -1;
-            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(this.options.idleMessage)}</div>`;
+            const emptyItems = stockSearchEmptyScopeItems(this.options.emptyScope, this.options.maxResults);
+            this._renderResults(emptyItems, version);
             return;
         }
 
@@ -201,19 +211,24 @@ class SearchBox {
             // 检查是否是最新的搜索请求
             if (version !== this._searchVersion) return;
 
-            const sliced = items.slice(0, this.options.maxResults);
-            this._items = sliced;
-            this._activeIdx = sliced.length > 0 ? 0 : -1;
-
-            if (sliced.length === 0) {
-                this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
-                return;
-            }
-
-            this.listEl.innerHTML = sliced.map((s, i) => this._renderItem(s, i, i === 0)).join('');
+            this._renderResults(items.slice(0, this.options.maxResults), version, '无匹配结果');
         } catch (e) {
             this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
+    }
+
+    _renderResults(items, version, emptyMessage = this.options.idleMessage) {
+        if (version !== this._searchVersion) return;
+        const list = normalizeStockSearchResults(items).slice(0, this.options.maxResults);
+        this._items = list;
+        this._activeIdx = list.length > 0 ? 0 : -1;
+
+        if (list.length === 0) {
+            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(emptyMessage)}</div>`;
+            return;
+        }
+
+        this.listEl.innerHTML = list.map((s, i) => this._renderItem(s, i, i === 0)).join('');
     }
 
     _renderItem(s, i, active) {
@@ -265,6 +280,7 @@ class MultiSearchBox {
             debounceMs: 300,
             minQueryLength: 0,
             idleMessage: '输入代码或名称开始搜索',
+            emptyScope: null,
             inlineFilter: defaultInlineFilter,
             ...options,
         };
@@ -444,9 +460,8 @@ class MultiSearchBox {
         const version = ++this._searchVersion;
 
         if (q.length < this.options.minQueryLength) {
-            this._items = [];
-            this._activeIdx = -1;
-            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(this.options.idleMessage)}</div>`;
+            const emptyItems = stockSearchEmptyScopeItems(this.options.emptyScope, this.options.maxResults);
+            this._renderResults(emptyItems, version);
             return;
         }
 
@@ -461,22 +476,27 @@ class MultiSearchBox {
             // 检查是否是最新的搜索请求
             if (version !== this._searchVersion) return;
 
-            const selectedCodes = new Set(this._selected.map(s => s.code));
-
-            // 过滤掉已选中的股票
-            const filtered = all.filter(s => !selectedCodes.has(s.code));
-            this._items = filtered.slice(0, this.options.maxResults);
-            this._activeIdx = this._items.length > 0 ? 0 : -1;
-
-            if (this._items.length === 0) {
-                this.listEl.innerHTML = '<div class="sb-empty">无匹配结果</div>';
-                return;
-            }
-
-            this.listEl.innerHTML = this._items.map((s, i) => this._renderItem(s, i, i === 0)).join('');
+            this._renderResults(all, version, '无匹配结果');
         } catch (e) {
             this.listEl.innerHTML = '<div class="sb-empty">搜索失败，请重试</div>';
         }
+    }
+
+    _renderResults(items, version, emptyMessage = this.options.idleMessage) {
+        if (version !== this._searchVersion) return;
+        const selectedCodes = new Set(this._selected.map(s => s.code));
+        const list = normalizeStockSearchResults(items)
+            .filter(s => !selectedCodes.has(s.code))
+            .slice(0, this.options.maxResults);
+        this._items = list;
+        this._activeIdx = list.length > 0 ? 0 : -1;
+
+        if (list.length === 0) {
+            this.listEl.innerHTML = `<div class="sb-empty">${App.escapeHTML(emptyMessage)}</div>`;
+            return;
+        }
+
+        this.listEl.innerHTML = list.map((s, i) => this._renderItem(s, i, i === 0)).join('');
     }
 
     _renderItem(s, i, active) {

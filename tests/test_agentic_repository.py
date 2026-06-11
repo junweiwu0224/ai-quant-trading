@@ -104,3 +104,20 @@ def test_repository_saves_and_lists_paper_strategy_candidates(tmp_path):
 
     assert rows == [candidate]
     assert rows[0].requires_confirmation is True
+
+
+def test_repository_saves_and_gets_candidate_backtest_results(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    result = {
+        "candidate": {"id": "signal_ranked_core", "name": "AI信号基线轮动"},
+        "metrics": {"trades": 18, "sharpe": 1.1},
+        "promotion": {"promoted": True, "reason": "passed promotion gate"},
+    }
+    sample = {"codes": ["000001"], "trading_days": 60}
+
+    result_id = repo.save_candidate_backtest_result(result, sample)
+    restored_result, restored_sample = repo.get_candidate_backtest_result(result_id)
+
+    assert result_id.startswith("candidate_result_")
+    assert restored_result == result
+    assert restored_sample == sample

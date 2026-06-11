@@ -98,7 +98,21 @@
       'sharpe below threshold': '收益稳定性不够，暂不建议进入模拟盘',
       'drawdown above threshold': '回撤偏大，暂不建议进入模拟盘',
       'passed promotion gate': '通过晋级门槛，可以加入模拟盘候选',
+      'AI signal is not validated': 'AI 信号未验证，不能进入模拟盘候选',
+      'AI signal validation sample is insufficient': 'AI 验证样本不足，不能进入模拟盘候选',
     })[reason] || reason || '-';
+  }
+
+  function hasFailedSignalValidation(item) {
+    const checks = Array.isArray(item?.gate_checks) ? item.gate_checks : [];
+    return item?.promotion?.reason === 'AI signal is not validated'
+      || checks.some(check => check?.id === 'signal_validation' && check?.passed === false);
+  }
+
+  function hasInsufficientSignalValidationSample(item) {
+    const checks = Array.isArray(item?.gate_checks) ? item.gate_checks : [];
+    return item?.promotion?.reason === 'AI signal validation sample is insufficient'
+      || checks.some(check => check?.id === 'signal_validation' && check?.passed === false && String(check?.detail || '').includes('样本不足'));
   }
 
   function buildCandidateDiagnosis(results) {
@@ -108,8 +122,13 @@
     const insufficientTrades = items.filter(item => item.promotion?.reason === 'insufficient trades').length;
     const sharpeFailed = items.filter(item => item.promotion?.reason === 'sharpe below threshold').length;
     const drawdownFailed = items.filter(item => item.promotion?.reason === 'max drawdown exceeded').length;
+    const signalValidationFailed = items.filter(hasFailedSignalValidation).length;
+    const signalValidationSampleInsufficient = items.filter(hasInsufficientSignalValidationSample).length;
     const notes = [];
     if (promoted) notes.push(`${promoted} 个策略可以进入模拟盘候选`);
+    if (signalValidationSampleInsufficient) notes.push(`${signalValidationSampleInsufficient} 个策略 AI 验证样本不足，不能进入模拟盘候选`);
+    const unverifiedOnly = signalValidationFailed - signalValidationSampleInsufficient;
+    if (unverifiedOnly > 0) notes.push(`${unverifiedOnly} 个策略 AI 信号未验证，不能进入模拟盘候选`);
     if (zeroTrade) notes.push(`${zeroTrade} 个策略产生交易为 0，可能是预测覆盖不足，也可能是该策略条件在样本内没有触发`);
     if (insufficientTrades && insufficientTrades > zeroTrade) notes.push(`${insufficientTrades - zeroTrade} 个策略交易次数不足，样本太少时不建议实跑`);
     if (sharpeFailed) notes.push(`${sharpeFailed} 个策略 Sharpe 没达标，说明收益波动后不够稳`);
@@ -117,10 +136,14 @@
     if (!notes.length) notes.push('本轮候选没有明显错误，但尚未达到模拟盘晋级门槛');
     const action = promoted
       ? '下一步：选择晋级策略加入模拟盘候选。'
-      : zeroTrade
+      : signalValidationSampleInsufficient
+        ? '下一步：等待更多验证样本；AI 验证样本不足前不要进入模拟盘。'
+        : signalValidationFailed
+        ? '下一步：先跑信号验证；AI 信号未验证前不要进入模拟盘。'
+        : zeroTrade
         ? '下一步：先确认 AI 信号历史缓存已覆盖回测期；若已覆盖，就调整没有触发交易的策略参数。'
         : '下一步：降低策略风险或调整候选参数后重新回测。';
-    return { promoted, zeroTrade, insufficientTrades, sharpeFailed, drawdownFailed, notes, action };
+    return { promoted, zeroTrade, insufficientTrades, sharpeFailed, drawdownFailed, signalValidationFailed, signalValidationSampleInsufficient, notes, action };
   }
 
   function currentActionItem() {
@@ -275,6 +298,7 @@
       { label: '回测表现', passed: false, detail: '等待 Sharpe、回撤和交易次数' },
       { label: '风控边界', passed: false, detail: '模拟盘前需要组合风控' },
       { label: 'AI信号仅基线', passed: true, detail: 'Signal Engine 不是最终裁判' },
+      { label: 'AI信号验证', passed: false, detail: '等待验证样本' },
     ];
     return `
       <div class="agentic-gate-checks">
@@ -325,7 +349,7 @@
             <p>${esc(candidate.thesis || '')}</p>
             ${renderGateChecks(item.gate_checks)}
             <span>${promotion.promoted ? '可进入模拟盘候选' : '暂不进入模拟盘'} · ${esc(promotionReason(promotion.reason))}</span>
-            ${promotion.promoted ? `<button class="btn btn-primary btn-sm" data-agentic-action="queue-paper-strategy" data-candidate-index="${index}">加入模拟盘候选</button>` : ''}
+            ${promotion.promoted ? `<button class="btn btn-primary btn-sm" data-agentic-action="queue-paper-strategy" data-candidate-index="${index}" data-result-id="${esc(item.result_id || '')}">加入模拟盘候选</button>` : ''}
           </div>
           <div class="agentic-candidate-metrics">
             <span>交易 <b>${esc(metrics.trades ?? '-')}</b></span>
@@ -404,14 +428,19 @@
     }
   }
 
-  async function queuePaperStrategyCandidate(index) {
+  async function queuePaperStrategyCandidate(index, resultId = '') {
     const result = state.candidateBatch?.results?.[Number(index)];
     if (!result || !result.promotion?.promoted) return;
+    resultId = String(resultId || result.result_id || '').trim();
+    if (!resultId) {
+      renderCandidateBacktestResults('加入模拟盘候选失败：服务端候选结果已失效，请重新回测候选');
+      return;
+    }
     try {
       const data = await agenticFetchJson('/api/agentic/strategy/paper-candidates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sample: state.candidateBatch.sample, result }),
+        body: JSON.stringify({ result_id: resultId }),
       });
       state.paperCandidates = [data.candidate, ...state.paperCandidates.filter(item => item.id !== data.candidate.id)];
       renderAgenticWorkbench();
@@ -669,7 +698,7 @@
     if (action === 'refresh-signals') loadSignals();
     if (action === 'run-sample-backtest') runSampleBacktest();
     if (action === 'run-candidate-backtests') runCandidateBacktests();
-    if (action === 'queue-paper-strategy') queuePaperStrategyCandidate(event.target?.dataset?.candidateIndex);
+    if (action === 'queue-paper-strategy') queuePaperStrategyCandidate(event.target?.dataset?.candidateIndex, event.target?.dataset?.resultId);
     if (action === 'refresh-paper-candidates') loadPaperStrategyCandidates();
     if (action === 'confirm-paper-strategy') confirmPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);
     if (action === 'run-paper-strategy') runPaperStrategyCandidate(event.target?.dataset?.paperCandidateId);

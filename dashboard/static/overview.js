@@ -163,6 +163,21 @@ Object.assign(App, {
                 }
             });
         }
+        const trust = document.getElementById('ov-opportunity-trust');
+        if (trust && trust.dataset.bound !== '1') {
+            trust.dataset.bound = '1';
+            trust.addEventListener('click', async (event) => {
+                const refreshBtn = event.target.closest('[data-ov-opportunity-refresh]');
+                if (!refreshBtn) return;
+                event.preventDefault();
+                refreshBtn.disabled = true;
+                try {
+                    await this._loadOverviewOpportunities();
+                } finally {
+                    refreshBtn.disabled = false;
+                }
+            });
+        }
         const toggle = document.querySelector('.opportunity-scope-toggle');
         if (!toggle || toggle.dataset.bound === '1') return;
         toggle.dataset.bound = '1';
@@ -193,6 +208,10 @@ Object.assign(App, {
                 ? '<span class="opportunity-status-item">正在刷新</span><span class="opportunity-status-item">保留上次结果</span>'
                 : '<span class="opportunity-status-item">正在加载</span>';
         }
+        this._renderOverviewOpportunityTrust({
+            state: hasPreviousItems ? 'refreshing' : 'loading',
+            text: hasPreviousItems ? '正在刷新机会池，当前表格保留上次结果。' : '正在拉取机会池数据。',
+        });
         try {
             const requestId = this._beginOverviewOpportunityRequest(scope, requestKey);
             this._updateOverviewOpportunityScopeButtons(scope);
@@ -222,7 +241,9 @@ Object.assign(App, {
                 return;
             }
             this._renderOverviewOpportunityData(fastData, true, { scope, requestId });
-            this._loadOverviewOpportunitiesFull(scope, requestId).catch(() => {});
+            this._loadOverviewOpportunitiesFull(scope, requestId).catch((fullError) => {
+                this._markOverviewOpportunityFullBackfillFailure(fullError, scope, requestId);
+            });
         } catch (error) {
             this._renderOverviewOpportunityLoadFailure(error, hasPreviousItems);
         }
@@ -239,18 +260,51 @@ Object.assign(App, {
                 status.innerHTML = `<span class="opportunity-status-item">${state}</span><span class="opportunity-status-item">保留上次结果</span>`;
             }
             if (hint) hint.textContent = `本次刷新失败：${message}；已保留上次机会池结果。`;
+            this._renderOverviewOpportunityTrust({
+                state: 'stale',
+                title: options.attemptedFallback ? '刷新超时' : '刷新失败',
+                text: '已保留上次机会池结果；建议稍后刷新，或打开完整矩阵复核。',
+            });
             return;
         }
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">机会池加载失败：${message}</td></tr>`;
         }
         if (status) status.innerHTML = '<span class="opportunity-status-item">加载失败</span>';
+        this._renderOverviewOpportunityTrust({
+            state: 'failed',
+            title: '加载失败',
+            text: `本次请求失败：${message}；可以重新刷新或打开完整矩阵查看数据源状态。`,
+        });
     },
 
     async _loadOverviewOpportunitiesFull(scope, requestId) {
         const query = this._buildOverviewOpportunityQuery(scope, { fast: false });
         const data = await this.fetchJSON(`/api/datahub/decision-matrix?${query.toString()}`, { silent: true, timeout: 20000 });
         this._renderOverviewOpportunityData(data, false, { scope, requestId });
+    },
+
+    _markOverviewOpportunityFullBackfillFailure(error, scope, requestId) {
+        if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
+        const status = document.getElementById('ov-opportunity-status');
+        const hint = document.getElementById('ov-opportunity-hint');
+        const message = this.escapeHTML(error?.message || '未知错误');
+        if (status) {
+            const current = status.innerHTML || '';
+            status.innerHTML = [
+                current,
+                '<span class="opportunity-status-item">完整估值补载失败</span>',
+                '<span class="opportunity-status-item">保留快速预览</span>',
+            ].filter(Boolean).join('');
+        }
+        if (hint) {
+            hint.textContent = `完整估值补载失败：${message}；当前保留快速预览，建议刷新或打开完整矩阵复核。`;
+        }
+        this._renderOverviewOpportunityTrust({
+            state: 'review',
+            title: '需复核',
+            text: `完整估值补载失败，当前保留快速预览；错误：${message}。`,
+        });
     },
 
     async _loadOverviewOpportunitiesFallback(scope, requestId, error, hasPreviousItems = false) {
@@ -272,7 +326,11 @@ Object.assign(App, {
             this._renderOverviewOpportunityData(data, true, { scope, requestId });
         } catch (fallbackError) {
             if (!this._isCurrentOverviewOpportunityRequest(scope, requestId)) return;
-            this._renderOverviewOpportunityLoadFailure(error || fallbackError, hasPreviousItems, { attemptedFallback: true });
+            if (hasPreviousItems) {
+                this._renderOverviewOpportunityLoadFailure(error || fallbackError, true, { attemptedFallback: true });
+                return;
+            }
+            this._renderOverviewOpportunityLocalEmergency(error || fallbackError, { scope, requestId });
         }
     },
 
@@ -353,6 +411,81 @@ Object.assign(App, {
             qlib_status: 'online',
             fast_mode: true,
         }, 0, true);
+        this._renderOverviewOpportunityTrust({
+            state: 'empty',
+            title: '等待自选',
+            text: '自选为空；添加股票后会生成专属机会池。',
+        });
+    },
+
+    _overviewOpportunityLocalEmergencyItems() {
+        return [
+            {
+                matrix_rank: 1,
+                code: '510300',
+                name: '沪深300ETF',
+                industry: '宽基ETF',
+                decision_score: 52,
+                decision_label: '本地应急',
+                peg_next_year: null,
+                risk_level: '中',
+                reason_tags: ['本地应急', '宽基分散'],
+                risk_tags: ['数据源超时'],
+                next_actions: ['稍后刷新', '加入自选跟踪', '问龙虾复核'],
+            },
+            {
+                matrix_rank: 2,
+                code: '510500',
+                name: '中证500ETF',
+                industry: '宽基ETF',
+                decision_score: 49,
+                decision_label: '本地应急',
+                peg_next_year: null,
+                risk_level: '中',
+                reason_tags: ['本地应急', '中盘覆盖'],
+                risk_tags: ['数据源超时'],
+                next_actions: ['稍后刷新', '观察量能'],
+            },
+            {
+                matrix_rank: 3,
+                code: '159915',
+                name: '创业板ETF',
+                industry: '宽基ETF',
+                decision_score: 46,
+                decision_label: '本地应急',
+                peg_next_year: null,
+                risk_level: '中',
+                reason_tags: ['本地应急', '成长风格'],
+                risk_tags: ['波动较高', '数据源超时'],
+                next_actions: ['稍后刷新', '等待真实数据恢复'],
+            },
+        ];
+    },
+
+    _renderOverviewOpportunityLocalEmergency(error, requestMeta = null) {
+        if (requestMeta && !this._isCurrentOverviewOpportunityRequest(requestMeta.scope, requestMeta.requestId)) {
+            return;
+        }
+        const hint = document.getElementById('ov-opportunity-hint');
+        const items = this._overviewOpportunityLocalEmergencyItems();
+        this._renderOverviewOpportunityData({
+            items,
+            summary: {
+                total: items.length,
+                used_fallback: true,
+                local_emergency: true,
+                fallback_reason: 'local_emergency',
+                fallback_error: error?.message || '',
+                valuation_coverage_pct: null,
+                signal_coverage_pct: null,
+                signal_status: 'offline',
+                signal_quality: { label: '未验证', sample_days: 0, penalty_applied: true },
+                fast_mode: true,
+            },
+        }, true, requestMeta);
+        if (hint) {
+            hint.textContent = `数据源请求超时，当前展示本地应急机会池；不代表真实信号，稍后刷新会自动恢复。`;
+        }
     },
 
     _renderOverviewOpportunityData(data, isFast, requestMeta = null) {
@@ -366,12 +499,17 @@ Object.assign(App, {
         if (!items.length) return;
         this._overviewOpportunityItems = items;
         if (requestMeta) {
-            this._overviewOpportunityResultKey = this._overviewOpportunityRequestKey(requestMeta.scope);
+            this._overviewOpportunityResultKey = data.summary?.local_emergency
+                ? 'local-emergency'
+                : this._overviewOpportunityRequestKey(requestMeta.scope);
         }
         tbody.innerHTML = items.map((item) => this._renderOpportunityRow(item)).join('');
         this._renderOverviewOpportunityStatus(data.summary || {}, items.length, isFast);
+        this._renderOverviewOpportunityTrust(this._overviewOpportunityTrustState(data.summary || {}, isFast));
         if (hint) {
-            if (data.summary?.used_fallback) {
+            if (data.summary?.local_emergency) {
+                hint.textContent = '数据源请求超时，当前展示本地应急机会池；不代表真实信号，稍后刷新会自动恢复。';
+            } else if (data.summary?.used_fallback) {
                 if (data.summary?.fallback_reason === 'client_timeout_default') {
                     hint.textContent = '数据源刷新超时，当前展示默认候选降级预览；稍后刷新会自动恢复真实范围。';
                     return;
@@ -395,11 +533,12 @@ Object.assign(App, {
         const valuation = this._fmtOverviewPct(summary.valuation_coverage_pct);
         const qlibCoverage = this._fmtOverviewPct(summary.signal_coverage_pct ?? summary.qlib_coverage_pct);
         const qlibStatus = qlibStatusMap[summary.signal_status || summary.qlib_status] || summary.signal_status || summary.qlib_status || '未知';
-        const scopeLabel = summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
+        const scopeLabel = summary.local_emergency ? '本地应急' : summary.used_fallback ? '默认候选' : this._overviewOpportunityScopeLabel(this._overviewOpportunityScope);
         const cacheAge = (summary.signal_cache_age_label || summary.qlib_cache_age_label) ? ` · ${this.escapeHTML(summary.signal_cache_age_label || summary.qlib_cache_age_label)}` : '';
         const signalQuality = this._formatOverviewSignalQuality(summary);
         const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
         const syncStatus = this._formatOverviewQlibSyncStatus(summary.signal_sync_status || summary.qlib_sync_status);
+        const trustItems = this._formatOverviewOpportunityStatusTrustItems(summary);
         const items = [
             `候选 ${this.escapeHTML(total)} 只`,
             `范围 ${this.escapeHTML(scopeLabel)}`,
@@ -408,9 +547,132 @@ Object.assign(App, {
             `信号覆盖 ${this.escapeHTML(qlibCoverage)}`,
             signalQuality,
             mode,
+            ...trustItems,
         ];
         if (syncStatus) items.splice(5, 0, syncStatus);
         status.innerHTML = items.map((text) => `<span class="opportunity-status-item">${text}</span>`).join('');
+    },
+
+    _formatOverviewOpportunityStatusTrustItems(summary = {}) {
+        const items = [];
+        const source = summary.source || summary.provider || summary.signal_provider || summary.qlib_provider;
+        if (source) {
+            items.push(`来源 ${this._overviewSignalSourceLabel(source)}`);
+        }
+        const updatedAt = summary.generated_at || summary.timestamp || summary.updated_at || summary.finished_at;
+        if (updatedAt) {
+            items.push(`更新 ${updatedAt}`);
+        }
+        const effectiveRaw = summary.effective_count ?? summary.valid_count ?? summary.covered_count;
+        const totalRaw = summary.total_count ?? summary.stock_count ?? summary.universe_count;
+        const effective = Number(effectiveRaw);
+        const total = Number(totalRaw);
+        if (Number.isFinite(effective) && Number.isFinite(total) && total > 0) {
+            items.push(`有效 ${Math.round(effective).toLocaleString('zh-CN')}/${Math.round(total).toLocaleString('zh-CN')}`);
+        } else if (Number.isFinite(effective) && effective >= 0) {
+            items.push(`有效 ${Math.round(effective).toLocaleString('zh-CN')}`);
+        }
+        const universe = String(summary.universe || '').trim();
+        const coverageNote = String(summary.coverage_note || '').trim();
+        if (
+            summary.partial === true ||
+            summary.full_market === false ||
+            /非全量|not\s*full|partial/i.test(coverageNote) ||
+            (universe && !/all[_-]?a|full/i.test(universe))
+        ) {
+            items.push('非全量');
+        }
+        if (summary.source_unavailable) {
+            items.push('数据源异常');
+        }
+        if (summary.stale) {
+            items.push('缓存数据');
+        }
+        if (summary.stale_reason) {
+            items.push(`原因 ${summary.stale_reason}`);
+        }
+        if (coverageNote) {
+            items.push(coverageNote);
+        }
+        return items.map((item) => this.escapeHTML(item));
+    },
+
+    _overviewOpportunityTrustState(summary = {}, isFast = false) {
+        if (summary.local_emergency) {
+            return {
+                state: 'emergency',
+                title: '本地应急',
+                text: '本地应急不可作为真实信号；仅用于页面不断链，先刷新或打开完整矩阵复核。',
+            };
+        }
+        if (summary.used_fallback) {
+            return {
+                state: 'fallback',
+                title: summary.fallback_reason === 'client_timeout_default' ? '降级预览' : '默认候选',
+                text: '当前来自默认候选降级预览，先刷新或打开完整矩阵确认真实范围。',
+            };
+        }
+        const signalStatus = summary.signal_status || summary.qlib_status || '';
+        const signalQuality = summary.signal_quality || {};
+        const quality = signalQuality.label ? ` · ${signalQuality.label}` : '';
+        const mode = isFast || summary.fast_mode ? '快速预览' : '完整估值';
+        const valuationCoverage = Number(summary.valuation_coverage_pct);
+        const sampleDays = Number(signalQuality.sample_days);
+        const reviewReasons = [];
+        if (!Number.isFinite(valuationCoverage) || valuationCoverage < 50) reviewReasons.push('估值覆盖不足');
+        if (/未验证|unverified/i.test(String(signalQuality.label || ''))) reviewReasons.push('信号未验证');
+        if (signalQuality.penalty_applied) reviewReasons.push('已降权');
+        if (Number.isFinite(sampleDays) && sampleDays <= 0) reviewReasons.push('样本不足');
+        if (signalStatus === 'offline' || signalStatus === 'empty') reviewReasons.push('AI信号离线');
+        if (reviewReasons.length) {
+            return {
+                state: 'review',
+                title: '需复核',
+                text: `${mode}已返回，但${reviewReasons.slice(0, 3).join('、')}；先打开完整矩阵确认后再纳入研究。`,
+            };
+        }
+        return {
+            state: 'real',
+            title: '真实合成',
+            text: `${mode}已基于估值、AI信号和风险标签合成${quality}，可进入研发复核。`,
+        };
+    },
+
+    _renderOverviewOpportunityTrust(info = {}) {
+        const panel = document.getElementById('ov-opportunity-trust');
+        if (!panel) return;
+        const state = info.state || 'loading';
+        const title = info.title || {
+            loading: '正在加载',
+            refreshing: '正在刷新',
+            empty: '等待数据',
+            stale: '保留旧结果',
+            failed: '加载失败',
+            real: '真实合成',
+            fallback: '降级预览',
+            emergency: '本地应急',
+        }[state] || '状态未知';
+        const text = info.text || '机会池会标明真实合成、降级预览或本地应急状态。';
+        const trustClass = {
+            real: info.muted ? 'trust-muted' : 'trust-real',
+            fallback: 'trust-fallback',
+            emergency: 'trust-emergency',
+            review: 'trust-review',
+            stale: 'trust-stale',
+            failed: 'trust-failed',
+            empty: 'trust-empty',
+            refreshing: 'trust-loading',
+            loading: 'trust-loading',
+        }[state] || 'trust-loading';
+        panel.className = `opportunity-trust-panel ${trustClass}`;
+        panel.innerHTML = `
+            <span class="opportunity-trust-badge">${this.escapeHTML(title)}</span>
+            <span class="opportunity-trust-text">${this.escapeHTML(text)}</span>
+            <span class="opportunity-trust-actions">
+                <button class="btn btn-xs" type="button" data-ov-opportunity-refresh>刷新</button>
+                <button class="btn btn-xs" type="button" data-app-action="switch-tab" data-tab="research" data-subtab="datahub">打开完整矩阵</button>
+            </span>
+        `;
     },
 
     _formatOverviewSignalQuality(summary = {}) {
@@ -455,6 +717,34 @@ Object.assign(App, {
         }[scope] || 'AI信号 Top';
     },
 
+    _overviewActionIntentClass(action) {
+        const text = String(action || '');
+        if (/问龙虾|研究|重点池/.test(text)) return 'action-research';
+        if (/模拟|交易|小仓|买入|卖出/.test(text)) return 'action-trade';
+        if (/观察|跟踪|自选|监控|等待/.test(text)) return 'action-watch';
+        if (/补|核对|查|估值详情|同业估值|PEG|目标价|缺失数据/.test(text)) return 'action-data';
+        if (/暂缓|保留/.test(text)) return 'action-hold';
+        return 'action-watch';
+    },
+
+    _renderOverviewOpportunityActions(actions) {
+        const list = Array.isArray(actions) ? actions.slice(0, 4) : [];
+        if (!list.length) return '<span class="text-muted">--</span>';
+        return list.map((action) => {
+            const cls = this._overviewActionIntentClass(action);
+            return `<span class="datahub-action-tag ${cls}">${this.escapeHTML(action)}</span>`;
+        }).join('');
+    },
+
+    _renderOverviewOpportunityStockMeta(item) {
+        const code = String(item?.code || '').trim();
+        const industry = String(item?.industry || '').trim();
+        const primaryIndustry = industry.split(/\s*[-｜|/]\s*/).find((part) => part.trim())?.trim() || '';
+        const meta = [code, primaryIndustry].filter(Boolean).join(' · ') || '--';
+        const title = industry ? ` title="${this.escapeHTML(industry)}"` : '';
+        return `<div class="opportunity-stock-meta text-muted text-xs"${title}>${this.escapeHTML(meta)}</div>`;
+    },
+
     _renderOpportunityRow(item) {
         const score = Number(item.decision_score || 0);
         const scoreCls = score >= 78 ? 'score-hot' : score >= 62 ? 'score-warm' : score >= 45 ? 'score-neutral' : 'score-cold';
@@ -466,7 +756,7 @@ Object.assign(App, {
             <td>${item.matrix_rank || '--'}</td>
             <td>
                 <button class="link-button datahub-stock-link" data-ov-opportunity-action="stock" data-code="${this.escapeHTML(item.code || '')}">${this.escapeHTML(item.name || item.code || '--')}</button>
-                <div class="text-muted text-xs">${this.escapeHTML(item.code || '')} ${this.escapeHTML(item.industry || '')}</div>
+                ${this._renderOverviewOpportunityStockMeta(item)}
                 <div class="opportunity-evidence-tags">${reasonTags.map((tag) => `<span class="datahub-reason-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无评分依据</span>'}</div>
             </td>
             <td><span class="datahub-score ${scoreCls}">${score}</span><span class="datahub-decision-label">${this.escapeHTML(item.decision_label || '--')}</span></td>
@@ -475,7 +765,7 @@ Object.assign(App, {
                 <span class="datahub-risk-pill ${riskCls}">${this.escapeHTML(item.risk_level || '--')}</span>
                 <div class="opportunity-risk-tags">${riskTags.map((tag) => `<span class="datahub-risk-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无明显风险</span>'}</div>
             </td>
-            <td>${actions.slice(0, 2).map((tag) => `<span class="datahub-next-tag">${this.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted">--</span>'}</td>
+            <td>${this._renderOverviewOpportunityActions(actions)}</td>
             <td class="datahub-actions">
                 <button class="btn btn-xs" data-ov-opportunity-action="watchlist" data-code="${this.escapeHTML(item.code || '')}">自选</button>
                 <button class="btn btn-xs" data-ov-opportunity-action="ask" data-code="${this.escapeHTML(item.code || '')}">问龙虾</button>
@@ -485,18 +775,71 @@ Object.assign(App, {
 
     async _askOpportunityOpenClaw(code) {
         const item = (this._overviewOpportunityItems || []).find((stock) => stock.code === code) || { code };
+        const signalTrust = this._overviewOpportunitySignalTrustLine(item);
+        const riskLine = Array.isArray(item.risk_tags) && item.risk_tags.length
+            ? `显式风险：${item.risk_tags.join('、')}。`
+            : '显式风险：暂无明显风险。';
         const prompt = [
             `请基于首页数据机会池分析 ${item.name || code}(${code})。`,
             `决策评分：${item.decision_score ?? '--'}，标签：${item.decision_label || '--'}，风险：${item.risk_level || '--'}。`,
+            `AI信号：${item.signal_rank || item.qlib_rank ? `排名 ${item.signal_rank || item.qlib_rank}，分数 ${this._fmtOverviewNum(item.signal_score ?? item.qlib_score, 3)}，来源 ${item.signal_provider || item.qlib_provider || 'local_momentum'}` : '暂无覆盖'}。`,
+            signalTrust,
+            riskLine,
             `下一步建议：${(item.next_actions || []).join('、') || '--'}。`,
-            '请给我一个模拟盘观察计划，不要给实盘下单建议。',
+            '请给我一个模拟盘观察计划；仅供观察，不要给实盘下单建议。',
         ].join('\n');
         await App.switchTab('openclaw');
         await globalThis.OpenClawWorkbench?.maybeInitForTab?.('openclaw');
         await globalThis.OpenClawWorkbench?.send?.(prompt);
     },
 
+    _overviewOpportunitySignalTrustLine(item = {}) {
+        const provider = this._overviewSignalSourceLabel(item.signal_provider || item.qlib_provider || 'local_momentum') || '未知来源';
+        const rank = item.signal_rank || item.qlib_rank;
+        const confidence = item.signal_confidence || item.qlib_confidence || item.signal_quality?.confidence || 'unverified';
+        const label = item.signal_quality?.label || this._overviewSignalConfidenceLabel(confidence) || '未验证';
+        const sampleDays = Number(item.signal_quality?.sample_days ?? item.signal_sample_days);
+        const sample = Number.isFinite(sampleDays) ? `样本 ${sampleDays} 天` : '样本未知';
+        const riskText = (item.risk_tags || []).join('、');
+        const penalty = item.signal_quality?.penalty_applied || /AI未验证|AI未覆盖/.test(riskText);
+        const status = rank ? `AI${label}` : 'AI未覆盖';
+        const action = penalty ? '已降权，仅供观察' : '按正常权重参与评分';
+        return `信号可信度：${status}，${sample}，来源 ${provider}，${action}。`;
+    },
+
+    _overviewSignalSourceLabel(value) {
+        const key = String(value || '').trim();
+        const labels = {
+            local_stock_daily: '本地日线',
+            local_stock_daily_coverage_pool: '本地日线',
+            local_derived: '本地推导',
+            local_momentum: '本地动量信号',
+            astock: '研报估值',
+            research_report: '研报估值',
+            market_news_multi_source: '市场新闻聚合',
+            eastmoney: '东方财富',
+            ths: '同花顺',
+            tushare: 'Tushare',
+            signal_engine: 'Signal Engine',
+            legacy_qlib: 'Qlib兼容',
+            qlib: 'Qlib兼容',
+        };
+        return labels[key] || key;
+    },
+
+    _overviewSignalConfidenceLabel(value) {
+        const labels = {
+            validated_positive: '验证偏正',
+            validated_neutral: '验证中性',
+            validated_weak: '验证偏弱',
+            unverified: '未验证',
+        };
+        const key = String(value || '').trim();
+        return labels[key] || key;
+    },
+
     _fmtOverviewNum(value, digits = 2) {
+        if (value === null || typeof value === 'undefined' || value === '') return '--';
         return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '--';
     },
 
@@ -761,6 +1104,24 @@ Object.assign(App, {
             const stockDaily = data.stock_daily || {};
             const fullDailySync = data.full_daily_sync || {};
             const shadow = data.shadow || {};
+            const stockInfoIntegrity = data.stock_info_integrity || {};
+            const stockInfoCleanup = data.stock_info_cleanup_preview || {};
+            const stockInfoCleanupRows = Number(stockInfoIntegrity.duplicate_extra_row_count || 0);
+            const stockInfoWrongPrefix = Number(stockInfoIntegrity.wrong_prefix_count || 0);
+            const stockInfoMissingIndustry = Number(stockInfoIntegrity.merged_blank_industry_count || 0);
+            const stockInfoMergeRequired = Number(stockInfoCleanup.merge_required_count || 0);
+            const stockInfoReadyCleanup = Number(stockInfoCleanup.cleanup_ready_count || 0);
+            const stockInfoLabel = stockInfoCleanupRows > 0
+                ? `${data.stock_count ?? '--'} · 待清理${stockInfoCleanupRows}`
+                : `${data.stock_count ?? '--'} · 干净`;
+            const stockInfoQualityParts = [];
+            if (stockInfoWrongPrefix > 0) stockInfoQualityParts.push(`错前缀${stockInfoWrongPrefix}`);
+            if (stockInfoMergeRequired > 0 || stockInfoReadyCleanup > 0) {
+                stockInfoQualityParts.push(`需合并${stockInfoMergeRequired}`);
+                stockInfoQualityParts.push(`可直删${stockInfoReadyCleanup}`);
+            }
+            if (stockInfoMissingIndustry > 0) stockInfoQualityParts.push(`缺行业${stockInfoMissingIndustry}`);
+            const stockInfoQualityLabel = stockInfoQualityParts.length ? stockInfoQualityParts.join(' · ') : '无底层缺口';
             const age = quote.last_update_age_sec;
             const quoteLabel = quote.running
                 ? (age == null ? '运行中' : `${Math.round(age)}秒前`)
@@ -789,7 +1150,8 @@ Object.assign(App, {
                 : '无数据';
             const syncLabel = fullDailySync.status_label || '未同步';
             root.innerHTML = `
-                <div class="datahub-health-item"><span>股票名录</span><strong>${this.escapeHTML(data.stock_count ?? '--')}</strong></div>
+                <div class="datahub-health-item"><span>股票名录</span><strong>${this.escapeHTML(stockInfoLabel)}</strong></div>
+                <div class="datahub-health-item"><span>名录质量</span><strong>${this.escapeHTML(stockInfoQualityLabel)}</strong></div>
                 <div class="datahub-health-item"><span>日线覆盖</span><strong>${this.escapeHTML(dailyCoverageLabel)}</strong></div>
                 <div class="datahub-health-item"><span>最新日线</span><strong>${this.escapeHTML(latestDailyLabel)}</strong></div>
                 <div class="datahub-health-item"><span>全量同步</span><strong>${this.escapeHTML(syncLabel)}</strong></div>

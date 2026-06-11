@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 def test_signal_top_api_returns_unified_rows(client, monkeypatch, tmp_path):
     from dashboard.routers import signals as signal_router
 
@@ -33,6 +36,72 @@ def test_signal_top_api_returns_unified_rows(client, monkeypatch, tmp_path):
     assert payload["signals"][0]["code"] == "600519"
     assert payload["signals"][0]["signal_provider"] == "local_momentum"
     assert payload["signals"][0]["qlib_rank"] == 1
+
+
+def test_signal_top_api_uses_valuation_snapshot_as_industry_fallback(client, monkeypatch, tmp_path):
+    from data.storage.storage import DataStorage
+    from dashboard.routers import qlib as qlib_router
+    from dashboard.routers import signals as signal_router
+
+    db_path = tmp_path / "quant.db"
+    storage = DataStorage(db_url=f"sqlite:///{db_path}")
+    storage.save_stock_info(pd.DataFrame([{"code": "sh600396", "name": "华电辽能", "industry": ""}]))
+    storage.save_data_snapshot(
+        "600396",
+        "valuation",
+        "local_derived",
+        "v1",
+        {
+            "name": "华电辽能",
+            "industry": "电力、热力、燃气及水生产和供应业-电力、热力生产和供应业",
+            "sector": "电力",
+        },
+    )
+
+    cache_path = tmp_path / "predictions_cache.json"
+    cache_path.write_text(
+        '{"method":"local_momentum_v1","predictions":{"2026-05-22":{"600396":0.81}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(signal_router, "QLIB_PRED_CACHE", cache_path)
+    monkeypatch.setattr(qlib_router, "DB_PATH", db_path)
+
+    resp = client.get("/api/signals/top?limit=1")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    signal = payload["signals"][0]
+    assert signal["name"] == "华电辽能"
+    assert signal["industry"] == "电力、热力、燃气及水生产和供应业-电力、热力生产和供应业"
+    assert signal["sector"] == "电力"
+    assert signal["industry_source"] == "valuation_snapshot"
+
+
+def test_signal_health_fast_mode_returns_light_validation_evidence(client, monkeypatch, tmp_path):
+    from dashboard.routers import signals as signal_router
+
+    cache_path = tmp_path / "predictions_cache.json"
+    cache_path.write_text(
+        '{"method":"local_momentum_v1","predictions":{"2026-05-22":{"600519":0.81,"000001":0.62}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(signal_router, "QLIB_PRED_CACHE", cache_path)
+
+    def fail_validation(*args, **kwargs):
+        raise AssertionError("fast signal health must not run full historical validation")
+
+    monkeypatch.setattr(signal_router, "validate_signal_provider", fail_validation)
+
+    resp = client.get("/api/signals/health?fast=true")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["fast_mode"] is True
+    assert payload["validation"]["confidence"] == "unverified"
+    assert payload["validation"]["sample_days"] == 0
+    assert payload["validation"]["provider"] == "local_momentum"
+    assert payload["validation"]["penalty_applied"] is True
 
 
 def test_qlib_top_api_is_legacy_signal_adapter(client, monkeypatch, tmp_path):

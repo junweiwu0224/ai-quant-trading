@@ -266,8 +266,33 @@ const Watchlist = {
             }).join('');
         } else {
             if (hintEl) hintEl.textContent = '';
-            stockBody.innerHTML = '<tr><td colspan="7" class="text-muted">暂无自选股，使用上方搜索框添加</td></tr>';
+            stockBody.innerHTML = this._renderEmptyRows();
         }
+    },
+
+    _renderEmptyRows() {
+        const account = App._accountState || {};
+        const user = account.user || {};
+        const workspace = account.workspace || {};
+        const displayName = user.display_name || user.username || '未登录';
+        const workspaceName = workspace.name || '默认工作区';
+        const workspaceSlug = workspace.slug || workspace.openclaw_workspace_id || '';
+        const workspaceHint = workspaceSlug
+            ? `${workspaceName} · ${workspaceSlug}`
+            : workspaceName;
+
+        return `
+            <tr>
+                <td colspan="7">
+                    <div class="watchlist-empty-state">
+                        <strong>暂无自选股</strong>
+                        <span>当前账号 ${App.escapeHTML(displayName)} · 当前工作区 ${App.escapeHTML(workspaceHint)}</span>
+                        <span>使用上方搜索框添加；如果你记得这里应该有股票，请先确认是否切到了正确账号或工作区。</span>
+                        <button type="button" class="btn btn-xs" data-user-action="open-login">切换账号</button>
+                    </div>
+                </td>
+            </tr>
+        `;
     },
 
     _renderConcepts(concepts) {

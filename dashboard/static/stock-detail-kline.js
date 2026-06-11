@@ -7,6 +7,11 @@ if (!globalThis.StockDetail) {
 Object.assign(globalThis.StockDetail, {
     async _loadKline(code, period) {
         this._currentPeriod = period;
+        this._syncWorkbenchChartState?.({ period });
+        const indicatorEl = document.querySelector('.sd-indicator-selector');
+        if (indicatorEl) indicatorEl.style.display = '';
+        const infoPanel = document.getElementById('sd-timeline-info');
+        if (infoPanel) infoPanel.classList.add('hidden');
         try {
             const data = await App.fetchJSON(`/api/stock/kline/${code}?period=${period}&count=200`);
             if (!data || !data.klines) return;
@@ -240,6 +245,11 @@ Object.assign(globalThis.StockDetail, {
             el.className = el.className.replace(/\s*kl-(up|down|flat)\s*/g, '').trim() + ' ' + colorClass;
         };
 
+        const toFiniteNumber = (value) => {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        };
+
         // 计算 MA 值
         const calcMA = (dataList, idx, period) => {
             if (idx < period - 1) return null;
@@ -281,6 +291,37 @@ Object.assign(globalThis.StockDetail, {
             spans.maRow.innerHTML = maHtml;
         };
 
+        const buildSelectedKlineCandle = (kLineData, dataList, idx) => {
+            if (!kLineData) return null;
+            const safeIndex = Number.isInteger(idx) && idx >= 0
+                ? idx
+                : dataList.findIndex(item => item === kLineData || item.timestamp === kLineData.timestamp);
+            const prevClose = safeIndex > 0 ? dataList[safeIndex - 1]?.close : kLineData.open;
+            const close = toFiniteNumber(kLineData.close);
+            const prev = toFiniteNumber(prevClose);
+            const change = close != null && prev != null ? close - prev : null;
+            const changePct = change != null && prev ? (change / prev) * 100 : null;
+
+            return {
+                period: this._currentPeriod || 'daily',
+                timestamp: kLineData.timestamp ?? null,
+                dataIndex: safeIndex >= 0 ? safeIndex : null,
+                date_key: kLineData.date_key || (kLineData.timestamp ? fmtDate(kLineData.timestamp) : ''),
+                open: toFiniteNumber(kLineData.open),
+                high: toFiniteNumber(kLineData.high),
+                low: toFiniteNumber(kLineData.low),
+                close,
+                volume: toFiniteNumber(kLineData.volume),
+                change,
+                change_pct: changePct,
+            };
+        };
+
+        const syncSelectedKlineCandle = (kLineData, dataList, idx) => {
+            const selectedCandle = buildSelectedKlineCandle(kLineData, dataList, idx);
+            if (selectedCandle) this._syncWorkbenchChartState?.({ selectedCandle });
+        };
+
         // 初始化 KLineChart（中文 + 跟随页面主题）
         const chart = klinecharts.init(container, { locale: 'zh-CN', styles: this._klineStyles() });
         this._klineChart = chart;
@@ -288,17 +329,22 @@ Object.assign(globalThis.StockDetail, {
         // 加载 K 线数据（timestamp 转毫秒）
         const chartData = klines.map(k => ({
             timestamp: new Date(k.date + 'T00:00:00+08:00').getTime(),
+            date_key: k.date,
             open: k.open,
             high: k.high,
             low: k.low,
             close: k.close,
             volume: k.volume,
         }));
+        this._currentChartData = chartData;
         chart.applyNewData(chartData);
+        this._renderStockChartEventLayer?.(chartData);
 
         // 默认显示最后一根 K 线
         if (chartData.length > 0) {
-            updateTooltip(chartData[chartData.length - 1], chartData, chartData.length - 1);
+            const lastIndex = chartData.length - 1;
+            updateTooltip(chartData[lastIndex], chartData, lastIndex);
+            syncSelectedKlineCandle(chartData[lastIndex], chartData, lastIndex);
         }
 
         // MA 均线（叠加主图）
@@ -325,11 +371,14 @@ Object.assign(globalThis.StockDetail, {
             if (!crosshair || !crosshair.kLineData) {
                 // 十字线离开，显示最后一根 K 线
                 if (dataListCache.length > 0) {
-                    updateTooltip(dataListCache[dataListCache.length - 1], dataListCache, dataListCache.length - 1);
+                    const lastIndex = dataListCache.length - 1;
+                    updateTooltip(dataListCache[lastIndex], dataListCache, lastIndex);
+                    syncSelectedKlineCandle(dataListCache[lastIndex], dataListCache, lastIndex);
                 }
                 return;
             }
             updateTooltip(crosshair.kLineData, dataListCache, crosshair.dataIndex);
+            syncSelectedKlineCandle(crosshair.kLineData, dataListCache, crosshair.dataIndex);
         });
 
         // 自适应宽度
@@ -353,6 +402,7 @@ Object.assign(globalThis.StockDetail, {
             }
 
             this._currentIndicator = newValue;
+            this._syncWorkbenchIndicatorState?.(newValue);
 
             if (this._currentPeriod === 'timeline') {
                 // 分时模式下选指标 → 自动切到日K

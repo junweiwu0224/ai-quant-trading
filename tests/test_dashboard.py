@@ -168,6 +168,53 @@ class TestValuationDataHubAPI:
         assert "AI未验证" in decision["risk_tags"]
         assert decision["decision_score"] >= 60
 
+    def test_decision_score_downgrades_unverified_signal_without_reports(self):
+        from dashboard.routers.datahub import _score_decision
+
+        decision = _score_decision(
+            {
+                "peg_next_year": 0.46,
+                "growth_next_year_pct": 100,
+                "report_count": 0,
+            },
+            {
+                "qlib_rank": 12,
+                "qlib_score": 0.998,
+                "signal_confidence": "unverified",
+            },
+        )
+
+        assert "AI未验证" in decision["risk_tags"]
+        assert "无研报预测" in decision["risk_tags"]
+        assert decision["decision_score"] < 78
+        assert decision["decision_label"] != "重点研究"
+        assert "进重点池" not in decision["next_actions"]
+        assert "模拟小仓验证" not in decision["next_actions"]
+        assert "补齐缺失数据" in decision["next_actions"]
+
+    def test_decision_score_downgrades_unverified_signal_even_with_good_valuation(self):
+        from dashboard.routers.datahub import _score_decision
+
+        decision = _score_decision(
+            {
+                "peg_next_year": 0.82,
+                "growth_next_year_pct": 35,
+                "report_count": 3,
+            },
+            {
+                "qlib_rank": 2,
+                "qlib_score": 0.998,
+                "signal_confidence": "unverified",
+            },
+        )
+
+        assert "AI未验证" in decision["risk_tags"]
+        assert decision["decision_score"] < 78
+        assert decision["decision_label"] != "重点研究"
+        assert "进重点池" not in decision["next_actions"]
+        assert "模拟小仓验证" not in decision["next_actions"]
+        assert "继续观察" in decision["next_actions"]
+
     def test_signal_validation_quality_summary_explains_unverified_penalty(self):
         from dashboard.routers.datahub import _signal_validation_quality
 
@@ -531,6 +578,12 @@ class TestValuationDataHubAPI:
         assert "stock_daily" in data
         assert "daily_covered" in data["stock_daily"]
         assert "full_daily_sync" in data
+        assert "stock_info_integrity" in data
+        assert "duplicate_plain_count" in data["stock_info_integrity"]
+        assert "wrong_prefix_count" in data["stock_info_integrity"]
+        assert "stock_info_cleanup_preview" in data
+        assert "mode" in data["stock_info_cleanup_preview"]
+        assert data["stock_info_cleanup_preview"]["mode"] == "preview_only"
 
     def test_datahub_health_uses_signal_health_not_legacy_qlib_health(self, monkeypatch):
         from dashboard.routers import datahub
@@ -647,17 +700,29 @@ class TestValuationDataHubAPI:
 
     def test_datahub_decision_matrix_uses_full_qlib_items_beyond_display_top(self, monkeypatch):
         storage = DataStorage()
+        include_calls = []
+
+        def light_context(top_limit=None, include_codes=None):
+            include_calls.append(list(include_codes or []))
+            return {
+                "latest_date": "2026-06-05",
+                "total": 3,
+                "items": {
+                    "600519": {"qlib_rank": 1, "qlib_score": 0.91},
+                    "000001": {"qlib_rank": 2, "qlib_score": 0.82},
+                    "002475": {"qlib_rank": 3, "qlib_score": 0.73},
+                },
+                "ordered_codes": ["600519"],
+            }
+
         monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
-        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=None: {
-            "latest_date": "2026-06-05",
-            "total": 3,
-            "items": {
-                "600519": {"qlib_rank": 1, "qlib_score": 0.91},
-                "000001": {"qlib_rank": 2, "qlib_score": 0.82},
-                "002475": {"qlib_rank": 3, "qlib_score": 0.73},
-            },
-            "ordered_codes": ["600519"],
-        })
+        monkeypatch.setattr("dashboard.routers.datahub._load_signal_context_light", light_context)
+        monkeypatch.setattr(
+            "dashboard.routers.datahub._load_qlib_context",
+            lambda top_limit=None: (_ for _ in ()).throw(
+                AssertionError("fast explicit-code preview should not build full signal context")
+            ),
+        )
         app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
 
         try:
@@ -672,6 +737,7 @@ class TestValuationDataHubAPI:
         assert item["qlib_score"] == 0.73
         assert "AI未覆盖" not in item["risk_tags"]
         assert any(tag.startswith("信号") for tag in item["reason_tags"])
+        assert include_calls == [["002475"]]
 
     def test_decision_score_missing_signal_uses_signal_wait_action(self):
         from dashboard.routers.datahub import _score_decision
@@ -693,8 +759,8 @@ class TestValuationDataHubAPI:
         storage = DataStorage()
         monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
         monkeypatch.setattr(
-            "dashboard.routers.datahub._load_qlib_context",
-            lambda top_limit=None: {
+            "dashboard.routers.datahub._load_signal_context_light",
+            lambda top_limit=None, include_codes=None: {
                 "latest_date": "2026-06-05",
                 "total": 2,
                 "items": {
@@ -750,6 +816,25 @@ class TestValuationDataHubAPI:
         assert res.status_code == 200
         data = res.json()
         assert data["items"]
+        assert [item["code"] for item in data["items"]] == ["600519"]
+        assert data["summary"]["used_fallback"] is True
+        assert data["summary"]["fallback_reason"] == "forced_default"
+
+    def test_datahub_decision_matrix_force_fallback_works_in_full_mode(self, monkeypatch):
+        storage = DataStorage()
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(storage, "get_watchlist", lambda workspace_id: ["000001"])
+        monkeypatch.setattr("dashboard.routers.datahub._fallback_seed_codes", lambda storage, limit: ["600519"][:limit])
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=watchlist&limit=3&force_fallback=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        data = res.json()
         assert [item["code"] for item in data["items"]] == ["600519"]
         assert data["summary"]["used_fallback"] is True
         assert data["summary"]["fallback_reason"] == "forced_default"
@@ -901,6 +986,54 @@ class TestValuationDataHubAPI:
         assert summary["signal_quality"]["label"] == "未验证"
         assert calls == []
 
+    def test_datahub_decision_matrix_fast_signal_scope_uses_light_signal_context(self, monkeypatch):
+        from dashboard.routers import datahub
+
+        storage = DataStorage()
+        full_context_calls = []
+
+        def slow_full_context(top_limit=None):
+            full_context_calls.append(top_limit)
+            raise AssertionError("fast opportunity preview should not build full signal context")
+
+        def light_context(top_limit=None, include_codes=None):
+            return {
+                "latest_date": "2026-06-05",
+                "total": 1,
+                "provider": "local_momentum",
+                "model_version": "local_momentum_v1",
+                "raw_source": "legacy_qlib",
+                "items": {
+                    "600519": {
+                        "signal_rank": 1,
+                        "signal_score": 0.91,
+                        "signal_provider": "local_momentum",
+                        "signal_model_version": "local_momentum_v1",
+                        "signal_confidence": "unverified",
+                        "qlib_rank": 1,
+                        "qlib_score": 0.91,
+                    },
+                },
+                "ordered_codes": ["600519"],
+            }
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr(datahub, "_load_qlib_context", slow_full_context)
+        monkeypatch.setattr(datahub, "_load_signal_context_light", light_context, raising=False)
+        monkeypatch.setattr("data.collector.quote_service.get_quote_service", lambda: None)
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=signal&limit=1&fast=true")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        data = res.json()
+        assert [item["code"] for item in data["items"]] == ["600519"]
+        assert data["summary"]["signal_coverage_pct"] == 100.0
+        assert full_context_calls == []
+
     def test_datahub_decision_matrix_refreshes_quotes_in_one_batch(self, monkeypatch):
         storage = DataStorage()
         calls = []
@@ -968,6 +1101,31 @@ class TestValuationDataHubAPI:
 
         assert res.status_code == 200
         assert calls == [(["000001", "600519"], 900, 2.0)]
+
+    def test_datahub_decision_matrix_passes_max_wait_budget_to_valuation_service(self, monkeypatch):
+        storage = DataStorage()
+        calls = []
+
+        class FakeValuationService:
+            def __init__(self, storage):
+                self.storage = storage
+
+            def build_center(self, codes, limit=50, max_wait_sec=None):
+                calls.append((list(codes), limit, max_wait_sec))
+                return {"items": []}
+
+        monkeypatch.setattr("dashboard.routers.datahub.DataStorage", lambda: storage)
+        monkeypatch.setattr("dashboard.routers.datahub._load_qlib_context", lambda top_limit=300: {"latest_date": None, "total": 0, "items": {}, "ordered_codes": []})
+        monkeypatch.setattr("data.services.valuation_service.ValuationService", FakeValuationService)
+        app.dependency_overrides[current_account] = lambda: {"workspace": {"id": "test-workspace"}}
+
+        try:
+            res = client.get("/api/datahub/decision-matrix?scope=codes&codes=000001,600519&limit=2&max_wait_sec=6")
+        finally:
+            app.dependency_overrides.pop(current_account, None)
+
+        assert res.status_code == 200
+        assert calls == [(["000001", "600519"], 2, 6.0)]
 
     def test_datahub_decision_matrix_adds_candidates_to_temporary_quote_pool(self, monkeypatch):
         storage = DataStorage()

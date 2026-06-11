@@ -174,7 +174,16 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
 
     class FakeBacktester:
         async def run(self, context=None, limit=4, min_days=60, max_codes=5, initial_cash=1_000_000):
-            assert context == {"universe": "signal_top", "risk_mode": "balanced", "max_holdings": 5}
+            assert context == {
+                "universe": "signal_top",
+                "risk_mode": "balanced",
+                "max_holdings": 5,
+                "signal_validation": {
+                    "confidence": "validated_positive",
+                    "sample_days": 42,
+                    "provider": "local_momentum",
+                },
+            }
             assert limit == 2
             assert min_days == 60
             assert max_codes == 3
@@ -203,6 +212,21 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
             return result
 
     monkeypatch.setattr(agentic_router, "candidate_backtester", FakeBacktester())
+    monkeypatch.setattr(
+        agentic_router,
+        "validate_signal_provider",
+        lambda **kwargs: type(
+            "Validation",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "confidence": "validated_positive",
+                    "sample_days": 42,
+                    "provider": "local_momentum",
+                }
+            },
+        )(),
+    )
 
     resp = client.post(
         "/api/agentic/strategy/run-candidates",
@@ -219,12 +243,30 @@ def test_agentic_run_strategy_candidates_endpoint_returns_ranked_results(client,
     body = resp.json()
     assert body["success"] is True
     assert body["sample"]["codes"] == ["000001"]
+    assert body["results"][0]["result_id"].startswith("candidate_result_")
     assert body["results"][0]["promotion"]["promoted"] is True
 
 
-def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, monkeypatch):
+def test_agentic_promoted_strategy_candidate_can_be_queued_by_server_result_id(client, monkeypatch):
     from dashboard.routers import agentic as agentic_router
     from agentic.models import PaperStrategyCandidate
+
+    def load_result(result_id):
+        assert result_id == "candidate_result_server_1"
+        return (
+            {
+                "candidate": {"id": "qlib_ranked_core", "name": "Qlib 核心轮动", "dsl": {"strategy_type": "ranked_rotation"}},
+                "metrics": {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
+                "promotion": {"promoted": True, "reason": "passed promotion gate"},
+                "gate_checks": [
+                    {"id": "data_quality", "passed": True},
+                    {"id": "backtest_quality", "passed": True},
+                    {"id": "risk_boundary", "passed": True},
+                    {"id": "signal_validation", "passed": True},
+                ],
+            },
+            {"codes": ["000001"]},
+        )
 
     class FakeService:
         def enqueue(self, result, sample):
@@ -243,18 +285,27 @@ def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, mon
                 created_at="2026-06-01T21:35:00+00:00",
             )
 
+    monkeypatch.setattr(agentic_router.agentic_repository, "get_candidate_backtest_result", load_result)
     monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+    monkeypatch.setattr(
+        agentic_router,
+        "validate_signal_provider",
+        lambda **kwargs: type(
+            "Validation",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "confidence": "validated_positive",
+                    "sample_days": 42,
+                    "provider": "local_momentum",
+                }
+            },
+        )(),
+    )
 
     resp = client.post(
         "/api/agentic/strategy/paper-candidates",
-        json={
-            "sample": {"codes": ["000001"]},
-            "result": {
-                "candidate": {"id": "qlib_ranked_core", "name": "Qlib 核心轮动", "dsl": {"strategy_type": "ranked_rotation"}},
-                "metrics": {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
-                "promotion": {"promoted": True, "reason": "passed promotion gate"},
-            },
-        },
+        json={"result_id": "candidate_result_server_1"},
     )
 
     assert resp.status_code == 200
@@ -268,6 +319,145 @@ def test_agentic_promoted_strategy_candidate_can_be_queued_for_paper(client, mon
     assert body["candidate"]["requires_confirmation"] is True
 
 
+def test_agentic_paper_candidate_enqueue_requires_server_result_id(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+
+    class FakeService:
+        def enqueue(self, result, sample):
+            raise AssertionError("enqueue must not accept browser-supplied candidate result payloads")
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-candidates",
+        json={},
+    )
+
+    assert resp.status_code == 400
+    assert "server result_id is required" in resp.json()["detail"]
+
+
+def test_agentic_paper_candidate_enqueue_rejects_extra_browser_payload(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+    from agentic.models import PaperStrategyCandidate
+
+    monkeypatch.setattr(
+        agentic_router.agentic_repository,
+        "get_candidate_backtest_result",
+        lambda result_id: (
+            {
+                "candidate": {"id": "signal_ranked_core", "name": "AI信号基线轮动", "dsl": {"strategy_type": "ranked_rotation"}},
+                "metrics": {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
+                "promotion": {"promoted": True, "reason": "passed promotion gate"},
+                "gate_checks": [
+                    {"id": "data_quality", "passed": True},
+                    {"id": "backtest_quality", "passed": True},
+                    {"id": "risk_boundary", "passed": True},
+                    {"id": "signal_validation", "passed": True, "detail": "服务端通过 · 样本 42 天"},
+                ],
+            },
+            {"codes": ["000001"]},
+        ),
+    )
+
+    class FakeService:
+        def enqueue(self, result, sample):
+            return PaperStrategyCandidate(
+                id="paper_strategy_1",
+                candidate_id=result["candidate"]["id"],
+                name=result["candidate"]["name"],
+                dsl=result["candidate"]["dsl"],
+                sample=sample,
+                metrics=result["metrics"],
+                promotion=result["promotion"],
+                status="paper_candidate",
+                requires_confirmation=True,
+                created_at="2026-06-01T21:35:00+00:00",
+            )
+
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+    monkeypatch.setattr(
+        agentic_router,
+        "validate_signal_provider",
+        lambda **kwargs: type(
+            "Validation",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "confidence": "validated_positive",
+                    "sample_days": 42,
+                    "provider": "local_momentum",
+                }
+            },
+        )(),
+    )
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-candidates",
+        json={
+            "result_id": "candidate_result_server_1",
+            "sample": {"codes": ["999999"]},
+            "result": {
+                "promotion": {"promoted": True},
+                "gate_checks": [{"id": "signal_validation", "passed": True}],
+            },
+        },
+    )
+
+    assert resp.status_code == 422
+
+
+def test_agentic_paper_candidate_enqueue_revalidates_server_result(client, monkeypatch):
+    from dashboard.routers import agentic as agentic_router
+
+    class FakeService:
+        def enqueue(self, result, sample):
+            raise AssertionError("enqueue must not run when server-side signal validation fails")
+
+    monkeypatch.setattr(
+        agentic_router.agentic_repository,
+        "get_candidate_backtest_result",
+        lambda result_id: (
+            {
+                "candidate": {"id": "signal_ranked_core", "name": "AI信号基线轮动", "dsl": {"strategy_type": "ranked_rotation"}},
+                "metrics": {"trades": 18, "max_drawdown": 0.08, "sharpe": 1.1},
+                "promotion": {"promoted": True, "reason": "passed promotion gate"},
+                "gate_checks": [
+                    {"id": "data_quality", "passed": True},
+                    {"id": "backtest_quality", "passed": True},
+                    {"id": "risk_boundary", "passed": True},
+                    {"id": "signal_validation", "passed": True, "detail": "此前通过 · 样本 42 天"},
+                ],
+            },
+            {"codes": ["000001"]},
+        ),
+    )
+    monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+    monkeypatch.setattr(
+        agentic_router,
+        "validate_signal_provider",
+        lambda **kwargs: type(
+            "Validation",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "confidence": "validated_neutral",
+                    "sample_days": 1,
+                    "provider": "local_momentum",
+                }
+            },
+        )(),
+    )
+
+    resp = client.post(
+        "/api/agentic/strategy/paper-candidates",
+        json={"result_id": "candidate_result_server_1"},
+    )
+
+    assert resp.status_code == 400
+    assert "AI验证样本不足" in resp.json()["detail"]
+
+
 def test_agentic_unpromoted_strategy_candidate_is_rejected_for_paper(client, monkeypatch):
     from dashboard.routers import agentic as agentic_router
 
@@ -276,10 +466,15 @@ def test_agentic_unpromoted_strategy_candidate_is_rejected_for_paper(client, mon
             raise ValueError("only promoted candidates can be queued for paper trading")
 
     monkeypatch.setattr(agentic_router, "paper_strategy_candidate_service", FakeService())
+    monkeypatch.setattr(
+        agentic_router.agentic_repository,
+        "get_candidate_backtest_result",
+        lambda result_id: ({"promotion": {"promoted": False}}, {"codes": ["000001"]}),
+    )
 
     resp = client.post(
         "/api/agentic/strategy/paper-candidates",
-        json={"sample": {"codes": ["000001"]}, "result": {"promotion": {"promoted": False}}},
+        json={"result_id": "candidate_result_unpromoted_1"},
     )
 
     assert resp.status_code == 400

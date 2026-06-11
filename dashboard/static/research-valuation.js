@@ -103,6 +103,9 @@
 
             this._searchBox = new SearchBox('valuation-code-input', 'valuation-code-dropdown', {
                 maxResults: 40,
+                minQueryLength: 1,
+                emptyScope: 'watchlist',
+                idleMessage: '自选股为空，输入代码或名称搜索全市场',
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
             this._searchBox.setDataSource(async (q) => {

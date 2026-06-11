@@ -10,7 +10,9 @@ from scripts.dashboard_data_health import (
     HARD_BAD_STRINGS,
     SAFE_GET_PATHS,
     AuditFinding,
+    find_stock_info_integrity_findings,
     find_json_anomalies,
+    find_metadata_findings,
     normalize_path_for_name,
     run_api_audit,
 )
@@ -39,11 +41,13 @@ PLAN_BASELINE_SAFE_GET_PATHS = [
     "/api/market/news",
     "/api/market/sectors",
     "/api/market/heatmap",
+    "/api/market/hotspot",
     "/api/market/northbound",
     "/api/valuation/health",
     "/api/datahub/health",
     "/api/datahub/decision-matrix?scope=codes&codes=600519&limit=3&fast=true",
     "/api/signals/health",
+    "/api/signals/validation?top_n=5",
     "/api/signals/top?limit=5",
     "/api/signals/consistency?top_n=5",
     "/api/alerts/rules",
@@ -98,6 +102,259 @@ def test_audit_finding_is_json_serializable():
         "value": "nan",
         "severity": "hard",
     }
+
+
+def test_stock_info_integrity_findings_report_soft_metadata_risks():
+    findings = find_stock_info_integrity_findings(
+        {
+            "duplicate_plain_count": 2,
+            "duplicate_extra_row_count": 2,
+            "wrong_prefix_count": 1,
+            "legacy_plain_count": 1,
+            "blank_industry_count": 40,
+            "merged_blank_industry_count": 0,
+        }
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert (
+        "$.stock_info.duplicate_plain_count",
+        "stock_info_integrity",
+        "duplicate_plain_count=2 extra_rows=2",
+        "soft",
+    ) in rendered
+    assert (
+        "$.stock_info.wrong_prefix_count",
+        "stock_info_integrity",
+        "wrong_prefix_count=1",
+        "soft",
+    ) in rendered
+    assert (
+        "$.stock_info.legacy_plain_count",
+        "stock_info_integrity",
+        "legacy_plain_count=1",
+        "soft",
+    ) in rendered
+    assert (
+        "$.stock_info.blank_industry_count",
+        "stock_info_integrity",
+        "raw_blank_industry_count=40 merged_blank_industry_count=0",
+        "soft",
+    ) in rendered
+
+
+def test_metadata_findings_warn_when_market_news_empty_lacks_trust_context():
+    findings = find_metadata_findings(
+        "/api/market/news",
+        {
+            "success": True,
+            "timestamp": "2026-06-08T15:30:00",
+            "news": [],
+            "sources": [],
+            "overall_sentiment": 0,
+            "errors": ["no_news_source"],
+        },
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert ("$.source", "missing_metadata", "source", "soft") in rendered
+    assert ("$.coverage_note", "missing_metadata", "coverage_note", "soft") in rendered
+    assert (
+        "$.source_unavailable",
+        "missing_degradation_metadata",
+        "empty_news_requires_degradation_context",
+        "soft",
+    ) in rendered
+
+
+def test_metadata_findings_warn_when_hotspot_empty_lacks_trust_context():
+    findings = find_metadata_findings(
+        "/api/market/hotspot",
+        {
+            "success": True,
+            "summary": "暂无热点数据",
+            "concepts": [],
+            "industries": [],
+            "fund_flow": [],
+        },
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert ("$.source", "missing_metadata", "source", "soft") in rendered
+    assert ("$.coverage_note", "missing_metadata", "coverage_note", "soft") in rendered
+    assert ("$.generated_at", "missing_metadata", "generated_at", "soft") in rendered
+    assert (
+        "$.source_unavailable",
+        "missing_degradation_metadata",
+        "empty_hotspot_requires_degradation_context",
+        "soft",
+    ) in rendered
+
+
+def test_run_api_audit_counts_soft_metadata_findings_without_failing_endpoint(monkeypatch):
+    app = FastAPI()
+
+    @app.get("/api/market/news")
+    async def market_news():
+        return {
+            "success": True,
+            "timestamp": "2026-06-08T15:30:00",
+            "news": [],
+            "sources": [],
+            "overall_sentiment": 0,
+            "errors": ["no_news_source"],
+        }
+
+    _install_fake_dashboard_app(monkeypatch, app)
+
+    report = run_api_audit(["/api/market/news"])
+    endpoint = report["endpoints"][0]
+
+    assert endpoint["ok"] is True
+    assert report["failed_endpoint_count"] == 0
+    assert report["hard_finding_count"] == 0
+    assert report["soft_finding_count"] >= 3
+    assert any(finding["kind"] == "missing_metadata" for finding in endpoint["findings"])
+
+
+def test_run_api_audit_includes_stock_info_integrity_soft_findings(monkeypatch):
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health():
+        return {"success": True}
+
+    class FakeStorage:
+        def audit_stock_info_integrity(self, sample_limit=20):
+            return {
+                "duplicate_plain_count": 1,
+                "duplicate_extra_row_count": 1,
+                "wrong_prefix_count": 1,
+                "legacy_plain_count": 0,
+                "blank_industry_count": 1,
+                "merged_blank_industry_count": 0,
+            }
+
+        def preview_stock_info_cleanup(self, sample_limit=20):
+            return {
+                "mode": "preview_only",
+                "scope": "wrong_prefix_duplicates",
+                "candidate_count": 1,
+                "cleanup_ready_count": 1,
+                "merge_required_count": 0,
+                "skipped_no_canonical_count": 0,
+                "candidates": [],
+            }
+
+    _install_fake_dashboard_app(monkeypatch, app)
+    monkeypatch.setattr(
+        "scripts.dashboard_data_health.DataStorage",
+        lambda: FakeStorage(),
+        raising=False,
+    )
+
+    report = run_api_audit(["/health"])
+
+    assert report["failed_endpoint_count"] == 0
+    assert report["stock_info_integrity"]["wrong_prefix_count"] == 1
+    assert report["stock_info_cleanup_preview"]["candidate_count"] == 1
+    assert any(
+        finding["path"] == "$.stock_info.wrong_prefix_count"
+        for finding in report["storage_findings"]
+    )
+    assert report["soft_finding_count"] >= 3
+
+
+def test_metadata_findings_warn_when_decision_matrix_items_lack_trust_context():
+    findings = find_metadata_findings(
+        "/api/datahub/decision-matrix?scope=codes&codes=600519&limit=3&fast=true",
+        {
+            "success": True,
+            "items": [
+                {
+                    "code": "600519",
+                    "matrix_rank": 1,
+                    "decision_score": 72,
+                    "name": "贵州茅台",
+                }
+            ],
+            "summary": {
+                "source_health": {},
+                "quality_summary": {},
+                "shadow": {},
+                "fast_mode": True,
+                "signal_status": "stale",
+                "signal_validation": {},
+                "signal_quality": {"confidence": "unverified"},
+                "generated_at": "2026-06-08T15:50:00",
+            },
+        },
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert ("$.items[0].quote_source", "missing_metadata", "items[0].quote_source", "soft") in rendered
+    assert (
+        "$.items[0].signal_provider",
+        "missing_metadata",
+        "items[0].signal_provider",
+        "soft",
+    ) in rendered
+    assert ("$.items[0].risk_level", "missing_metadata", "items[0].risk_level", "soft") in rendered
+    assert (
+        "$.items[0].primary_action",
+        "missing_metadata",
+        "items[0].primary_action",
+        "soft",
+    ) in rendered
+
+
+def test_metadata_findings_warn_when_signal_health_lacks_validation_evidence():
+    findings = find_metadata_findings(
+        "/api/signals/health?fast=true",
+        {
+            "success": True,
+            "status": "online",
+            "primary_collection": "signals",
+            "runtime_boundary": "signals",
+            "raw_source_role": "legacy_cache",
+            "legacy_aliases": {"predictions": "signals"},
+            "legacy_adapters": {"qlib": "/api/qlib/health"},
+            "provider": "local_momentum",
+            "model_version": "local_momentum_v1",
+            "raw_source": "legacy_qlib",
+            "fast_mode": True,
+            "total": 5197,
+        },
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert (
+        "$.validation.confidence",
+        "missing_metadata",
+        "validation.confidence",
+        "soft",
+    ) in rendered
+    assert (
+        "$.validation.sample_days",
+        "missing_metadata",
+        "validation.sample_days",
+        "soft",
+    ) in rendered
+
+
+def test_metadata_findings_warn_when_signal_validation_lacks_core_evidence():
+    findings = find_metadata_findings(
+        "/api/signals/validation?top_n=5",
+        {
+            "success": True,
+            "confidence": "validated_positive",
+        },
+    )
+    rendered = {(item.path, item.kind, item.value, item.severity) for item in findings}
+
+    assert ("$.provider", "missing_metadata", "provider", "soft") in rendered
+    assert ("$.sample_days", "missing_metadata", "sample_days", "soft") in rendered
+    assert ("$.metrics.1d", "missing_metadata", "metrics.1d", "soft") in rendered
 
 
 def test_safe_get_paths_cover_user_selected_data_areas():

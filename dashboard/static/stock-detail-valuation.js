@@ -116,6 +116,9 @@ Object.assign(globalThis.StockDetail, {
                 </div>
             ` : ''}
         `;
+        if (typeof this._updateHeaderValuationStatus === 'function') {
+            this._updateHeaderValuationStatus(data);
+        }
         this._renderPeerPanel(data, decision, isPreview);
     },
 

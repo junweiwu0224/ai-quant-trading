@@ -252,6 +252,69 @@ class TestStorage:
         assert breadth["previous_date"] == "2024-01-02"
         assert breadth["coverage_pct"] == 100.0
 
+    def test_market_breadth_ignores_latest_sparse_partial_day(self, db):
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["000001", "000002", "600519"],
+                    "name": ["平安银行", "万科A", "贵州茅台"],
+                    "industry": ["银行", "地产", "白酒"],
+                    "list_date": ["1991-04-03", "1991-01-29", "2001-08-27"],
+                }
+            )
+        )
+        daily_frames = {
+            "000001": pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+                    "open": [10.0, 10.0, 11.0],
+                    "high": [10.0, 11.0, 12.0],
+                    "low": [10.0, 10.0, 11.0],
+                    "close": [10.0, 11.0, 12.0],
+                    "volume": [100, 100, 100],
+                    "amount": [1000, 1100, 1200],
+                }
+            ),
+            "000002": pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "open": [20.0, 20.0],
+                    "high": [20.0, 20.0],
+                    "low": [20.0, 18.0],
+                    "close": [20.0, 18.0],
+                    "volume": [100, 100],
+                    "amount": [2000, 1800],
+                }
+            ),
+            "600519": pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "open": [5.0, 5.0],
+                    "high": [5.0, 5.0],
+                    "low": [5.0, 5.0],
+                    "close": [5.0, 5.0],
+                    "volume": [100, 100],
+                    "amount": [500, 500],
+                }
+            ),
+        }
+        for code, frame in daily_frames.items():
+            db.save_stock_daily(code, frame)
+
+        breadth = db.get_market_breadth()
+
+        assert breadth["latest_date"] == "2024-01-03"
+        assert breadth["previous_date"] == "2024-01-02"
+        assert breadth["effective_count"] == 3
+        assert breadth["latest_date_covered"] == 3
+        assert breadth["ignored_latest_date"] == "2024-01-04"
+        assert breadth["ignored_latest_date_covered"] == 1
+        assert breadth["ignored_latest_date_coverage_pct"] == 33.33
+        assert breadth["selected_date_coverage_pct"] == 100.0
+        assert breadth["up_count"] == 1
+        assert breadth["down_count"] == 1
+        assert breadth["flat_count"] == 1
+
     def test_save_info_update(self, db, sample_info_df):
         """重复保存股票信息应更新"""
         db.save_stock_info(sample_info_df)
@@ -266,6 +329,56 @@ class TestStorage:
         db.save_stock_info(updated)
         codes = db.get_all_stock_codes()
         assert len(codes) == 2
+
+    def test_save_stock_info_preserves_existing_industry_when_update_is_blank(self, db):
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["600519"],
+                    "name": ["贵州茅台"],
+                    "industry": ["白酒"],
+                    "list_date": ["2001-08-27"],
+                }
+            )
+        )
+
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["sh600519"],
+                    "name": ["贵州茅台"],
+                    "industry": [""],
+                    "list_date": ["2001-08-27"],
+                }
+            )
+        )
+
+        result = db.get_stock_list()
+        row = result[result["code"] == "600519"].iloc[0]
+        assert row["industry"] == "白酒"
+
+    def test_save_stock_info_corrects_wrong_prefixed_beijing_exchange_code(self, db):
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["sz920000"],
+                    "name": ["安徽凤凰"],
+                    "industry": ["制造业"],
+                    "list_date": ["2020-12-30"],
+                }
+            )
+        )
+
+        session = db._get_session()
+        try:
+            codes = [row.code for row in session.query(StockInfo).all()]
+        finally:
+            session.close()
+
+        assert codes == ["bj920000"]
+        result = db.get_stock_list()
+        row = result[result["code"] == "920000"].iloc[0]
+        assert row["industry"] == "制造业"
 
     def test_memory_db_url_uses_in_memory_database(self, sample_daily_df):
         db = DataStorage(db_url="sqlite:///:memory:")
@@ -305,6 +418,34 @@ class TestStorage:
         assert len(result) == 1
         row = result[result["code"] == "600519"].iloc[0]
         assert row["industry"] == "白酒"
+
+    def test_save_stock_info_merges_wrong_prefixed_code_variant(self, db):
+        session = db._get_session()
+        try:
+            session.add(StockInfo(code="sz920000", name="安徽凤凰", industry="", list_date="2020-12-30"))
+            session.commit()
+        finally:
+            session.close()
+
+        db.save_stock_info(
+            pd.DataFrame(
+                {
+                    "code": ["920000"],
+                    "name": ["安徽凤凰"],
+                    "industry": ["机械设备"],
+                    "list_date": ["2020-12-30"],
+                }
+            )
+        )
+
+        session = db._get_session()
+        try:
+            rows = session.query(StockInfo).order_by(StockInfo.code).all()
+            assert [(row.code, row.name, row.industry, row.list_date) for row in rows] == [
+                ("bj920000", "安徽凤凰", "机械设备", "2020-12-30")
+            ]
+        finally:
+            session.close()
 
     def test_query_with_date_range(self, db, sample_daily_df):
         """按日期范围查询"""
@@ -370,6 +511,233 @@ class TestStorage:
         assert row["name"] == "贵州茅台"
         assert row["industry"] == "白酒"
 
+    def test_audit_stock_info_integrity_reports_duplicate_and_wrong_prefix_rows(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="安徽凤凰", industry="机械设备", list_date="2020-12-30"),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="", list_date=""),
+                    StockInfo(code="sh600519", name="贵州茅台", industry="白酒", list_date="2001-08-27"),
+                    StockInfo(code="600519", name="", industry="", list_date=""),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        audit = db.audit_stock_info_integrity(sample_limit=5)
+
+        assert audit["total_rows"] == 4
+        assert audit["distinct_plain_count"] == 2
+        assert audit["duplicate_plain_count"] == 2
+        assert audit["duplicate_extra_row_count"] == 2
+        assert audit["wrong_prefix_count"] == 1
+        assert audit["legacy_plain_count"] == 1
+        assert audit["blank_industry_count"] == 2
+        assert audit["merged_blank_industry_count"] == 0
+        assert audit["wrong_prefix_examples"] == [
+            {"code": "sz920000", "plain_code": "920000", "expected_code": "bj920000"}
+        ]
+        duplicate_codes = {item["plain_code"]: item["codes"] for item in audit["duplicate_groups"]}
+        assert duplicate_codes["920000"] == ["bj920000", "sz920000"]
+        assert duplicate_codes["600519"] == ["sh600519", "600519"]
+
+    def test_preview_stock_info_cleanup_reports_wrong_prefix_candidates_without_mutating_rows(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="安徽凤凰", industry="机械设备", list_date="2020-12-30"),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="", list_date=""),
+                    StockInfo(code="sz920001", name="无对应正码", industry="", list_date=""),
+                    StockInfo(code="sh600519", name="贵州茅台", industry="白酒", list_date="2001-08-27"),
+                    StockInfo(code="600519", name="", industry="", list_date=""),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        preview = db.preview_stock_info_cleanup(sample_limit=5)
+
+        assert preview["mode"] == "preview_only"
+        assert preview["scope"] == "wrong_prefix_duplicates"
+        assert preview["candidate_count"] == 1
+        assert preview["cleanup_ready_count"] == 1
+        assert preview["merge_required_count"] == 0
+        assert preview["skipped_no_canonical_count"] == 1
+        assert preview["candidates"] == [
+            {
+                "plain_code": "920000",
+                "code": "sz920000",
+                "keep_code": "bj920000",
+                "action": "delete_duplicate_row",
+                "reason": "wrong_prefix_duplicate",
+                "cleanup_ready": True,
+                "unique_fields": [],
+                "name": "安徽凤凰",
+                "industry": "",
+                "list_date": "",
+            }
+        ]
+        session = db._get_session()
+        try:
+            assert session.query(StockInfo).count() == 5
+        finally:
+            session.close()
+
+    def test_preview_stock_info_cleanup_marks_unique_metadata_for_merge_before_delete(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="安徽凤凰", industry="", list_date=""),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="专用设备", list_date="2020-12-30"),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        preview = db.preview_stock_info_cleanup(sample_limit=5)
+
+        assert preview["candidate_count"] == 1
+        assert preview["cleanup_ready_count"] == 0
+        assert preview["merge_required_count"] == 1
+        assert preview["candidates"][0]["action"] == "merge_before_delete"
+        assert preview["candidates"][0]["reason"] == "wrong_prefix_duplicate_with_unique_metadata"
+        assert preview["candidates"][0]["cleanup_ready"] is False
+        assert preview["candidates"][0]["unique_fields"] == ["industry", "list_date"]
+
+    def test_cleanup_stock_info_wrong_prefix_duplicates_dry_run_does_not_mutate_rows(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="", industry="", list_date=""),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="专用设备", list_date="2020-12-30"),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        result = db.cleanup_stock_info_wrong_prefix_duplicates(apply=False, sample_limit=5)
+
+        assert result["mode"] == "dry_run"
+        assert result["applied"] is False
+        assert result["candidate_count"] == 1
+        assert result["merged_field_count"] == 0
+        assert result["deleted_row_count"] == 0
+        assert result["requires_confirmation"] == "MERGE_AND_DELETE_STOCK_INFO_DUPLICATES"
+        session = db._get_session()
+        try:
+            rows = session.query(StockInfo).order_by(StockInfo.code).all()
+            assert [(row.code, row.name, row.industry, row.list_date) for row in rows] == [
+                ("bj920000", "", "", ""),
+                ("sz920000", "安徽凤凰", "专用设备", "2020-12-30"),
+            ]
+        finally:
+            session.close()
+
+    def test_cleanup_stock_info_wrong_prefix_duplicates_requires_exact_confirmation(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="", industry="", list_date=""),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="", list_date=""),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        with pytest.raises(ValueError, match="confirmation"):
+            db.cleanup_stock_info_wrong_prefix_duplicates(apply=True, confirmation="WRONG")
+
+    def test_cleanup_stock_info_wrong_prefix_duplicates_merges_metadata_and_deletes_duplicate(self, db):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="", industry="", list_date=""),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="专用设备", list_date="2020-12-30"),
+                    StockInfo(code="bj920001", name="纬达光电", industry="电子", list_date=""),
+                    StockInfo(code="sz920001", name="纬达光电", industry="", list_date=""),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        result = db.cleanup_stock_info_wrong_prefix_duplicates(
+            apply=True,
+            confirmation="MERGE_AND_DELETE_STOCK_INFO_DUPLICATES",
+            sample_limit=5,
+        )
+
+        assert result["mode"] == "applied"
+        assert result["applied"] is True
+        assert result["candidate_count"] == 2
+        assert result["merged_field_count"] == 3
+        assert result["deleted_row_count"] == 2
+        assert result["post_audit"]["wrong_prefix_count"] == 0
+        assert result["post_audit"]["duplicate_extra_row_count"] == 0
+        session = db._get_session()
+        try:
+            rows = session.query(StockInfo).order_by(StockInfo.code).all()
+            assert [(row.code, row.name, row.industry, row.list_date) for row in rows] == [
+                ("bj920000", "安徽凤凰", "专用设备", "2020-12-30"),
+                ("bj920001", "纬达光电", "电子", ""),
+            ]
+        finally:
+            session.close()
+
+    def test_cleanup_stock_info_wrong_prefix_duplicates_rolls_back_when_commit_fails(self, db, monkeypatch):
+        session = db._get_session()
+        try:
+            session.add_all(
+                [
+                    StockInfo(code="bj920000", name="", industry="", list_date=""),
+                    StockInfo(code="sz920000", name="安徽凤凰", industry="专用设备", list_date="2020-12-30"),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        real_session = db._get_session()
+        real_commit = real_session.commit
+        commit_calls = {"count": 0}
+
+        def failing_commit():
+            commit_calls["count"] += 1
+            if commit_calls["count"] == 1:
+                raise RuntimeError("forced commit failure")
+            return real_commit()
+
+        monkeypatch.setattr(real_session, "commit", failing_commit)
+        monkeypatch.setattr(db, "_get_session", lambda: real_session)
+
+        with pytest.raises(RuntimeError, match="forced commit failure"):
+            db.cleanup_stock_info_wrong_prefix_duplicates(
+                apply=True,
+                confirmation="MERGE_AND_DELETE_STOCK_INFO_DUPLICATES",
+            )
+
+        monkeypatch.undo()
+        session = db._get_session()
+        try:
+            rows = session.query(StockInfo).order_by(StockInfo.code).all()
+            assert [(row.code, row.name, row.industry, row.list_date) for row in rows] == [
+                ("bj920000", "", "", ""),
+                ("sz920000", "安徽凤凰", "专用设备", "2020-12-30"),
+            ]
+        finally:
+            session.close()
+
     def test_update_stock_industry_updates_legacy_plain_code_row(self, db):
         session = db._get_session()
         try:
@@ -406,6 +774,26 @@ class TestStorage:
         assert len(result) == 1
         row = result[result["code"] == "600519"].iloc[0]
         assert row["industry"] == "白酒"
+
+    def test_update_stock_industry_merges_wrong_prefixed_code_variant(self, db):
+        session = db._get_session()
+        try:
+            session.add(StockInfo(code="sz920000", name="安徽凤凰", industry="", list_date="2020-12-30"))
+            session.commit()
+        finally:
+            session.close()
+
+        count = db.update_stock_industry({"bj920000": "机械设备"})
+
+        assert count == 1
+        session = db._get_session()
+        try:
+            rows = session.query(StockInfo).order_by(StockInfo.code).all()
+            assert [(row.code, row.name, row.industry, row.list_date) for row in rows] == [
+                ("bj920000", "安徽凤凰", "机械设备", "2020-12-30")
+            ]
+        finally:
+            session.close()
 
     def test_remove_from_watchlist_deletes_legacy_plain_code_row(self, db):
         session = db._get_session()

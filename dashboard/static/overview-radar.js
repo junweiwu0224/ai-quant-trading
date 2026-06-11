@@ -6,6 +6,7 @@
     'use strict';
 
     let _currentTab = 'gainers';
+    let _radarRequestSeq = 0;
 
     function createActionTraceId(prefix) {
         if (window.LocalMCP && typeof window.LocalMCP.createTraceId === 'function') {
@@ -61,6 +62,49 @@
         return '';
     }
 
+    function _sourceLabel(source) {
+        const value = String(source || '');
+        if (value.includes('local_stock_daily')) return '本地 stock_daily';
+        if (value.includes('eastmoney')) return '东方财富';
+        if (value.includes('northbound')) return '北向资金源';
+        return value || '--';
+    }
+
+    function _universeLabel(data) {
+        const universe = String(data?.universe || '');
+        if (data?.source_unavailable) return '北向资金源不可用';
+        if (universe.includes('local_stock_daily')) return '本地日线覆盖池';
+        if (data?.local_fallback) return '本地日线覆盖池';
+        if (universe.includes('full') || data?.source === 'eastmoney_full_market_rank') return '全A延迟快照';
+        if (universe.includes('northbound')) return '北向资金';
+        return universe || '当前数据源';
+    }
+
+    function _formatRadarUpdate(data) {
+        const raw = data?.latest_date || data?.timestamp || data?.generated_at || '';
+        return raw ? String(raw).slice(0, 10) : '--';
+    }
+
+    function _updateCoverageStrip(data, fallbackMode = '') {
+        const el = document.getElementById('overview-radar-coverage');
+        if (!el || !data) return;
+        const total = Number(data.total_stocks ?? data.total ?? data.stock_count);
+        const effective = Number.isFinite(total) && total > 0 ? `${total.toLocaleString('zh-CN')}只` : '--';
+        const sourceLabel = _sourceLabel(data.source);
+        const note = data.source_unavailable
+            ? (data.coverage_note || '当前源不可用，未返回实时数值')
+            : (data.coverage_note || (data.local_fallback ? '本地缓存降级展示' : '服务端延迟快照'));
+        const mode = fallbackMode || (data.source_unavailable ? '源不可用' : (data.local_fallback || data.stale ? '降级/缓存' : '在线'));
+        el.innerHTML = [
+            `范围 ${_universeLabel(data)}`,
+            `排序 ${sourceLabel}`,
+            `有效 ${effective}`,
+            `更新 ${_formatRadarUpdate(data)}`,
+            `状态 ${mode}`,
+            note,
+        ].map((text) => `<span class="coverage-pill">${App.escapeHTML(text)}</span>`).join('');
+    }
+
     function bindTabs() {
         document.querySelectorAll('.radar-tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -93,23 +137,25 @@
         // Tab守卫：仅在总览/监控Tab激活时加载，防止幽灵请求
         const overviewPanel = document.getElementById('tab-overview');
         if (overviewPanel && !overviewPanel.classList.contains('active')) return;
+        const request = { id: ++_radarRequestSeq, tab: _currentTab };
         container.innerHTML = '<div class="skeleton-block skeleton-pulse" style="height:200px;border-radius:8px"></div>';
 
         try {
             if (_currentTab === 'sectors') {
-                await loadSectors(container);
+                await loadSectors(container, request);
             } else if (_currentTab === 'heatmap') {
-                await loadHeatmap(container);
+                await loadHeatmap(container, request);
             } else if (_currentTab === 'northbound') {
-                await loadNorthbound(container);
+                await loadNorthbound(container, request);
             } else if (_currentTab === 'hotspot') {
-                await loadHotspot(container);
+                await loadHotspot(container, request);
             } else if (_currentTab === 'news') {
-                await loadNews(container);
+                await loadNews(container, request);
             } else {
-                await loadTopStocks(container);
+                await loadTopStocks(container, request);
             }
         } catch (e) {
+            if (!isCurrentRadarRequest(request)) return;
             if (isSoftRadarTimeout(e)) {
                 container.innerHTML = '<div class="text-muted text-center">市场雷达暂未返回，稍后刷新可重试</div>';
                 return;
@@ -123,16 +169,24 @@
         return /请求超时|timeout/i.test(message);
     }
 
+    function isCurrentRadarRequest(request) {
+        return Boolean(request)
+            && request.id === _radarRequestSeq
+            && request.tab === _currentTab;
+    }
+
     function fetchFastMarketJSON(url) {
         return App.fetchJSON(url, { silent: true, timeout: 30000 });
     }
 
-    async function loadTopStocks(container) {
+    async function loadTopStocks(container, request) {
         const data = await fetchFastMarketJSON('/api/market/radar?fast=true');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
+        _updateCoverageStrip(data);
 
         const fieldMap = {
             gainers: { list: data.top_gainers, label: '涨幅', suffix: '%' },
@@ -168,12 +222,14 @@
         `;
     }
 
-    async function loadSectors(container) {
+    async function loadSectors(container, request) {
         const data = await fetchFastMarketJSON('/api/market/sectors?type=industry&fast=true');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
+        _updateCoverageStrip(data);
 
         const sectors = data.sectors || [];
         container.innerHTML = _staleBanner(data) + `
@@ -250,12 +306,14 @@
         return '数量权重';
     }
 
-    async function loadHeatmap(container) {
+    async function loadHeatmap(container, request) {
         const data = await fetchFastMarketJSON('/api/market/heatmap?fast=true');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
+        _updateCoverageStrip(data);
 
         const sectors = (data.sectors || [])
             .map((s) => ({ ...s, _weight: _heatmapWeight(s) }))
@@ -279,7 +337,7 @@
         `;
 
         const grid = document.getElementById('heatmap-grid');
-        if (!grid) return;
+        if (!grid || !isCurrentRadarRequest(request)) return;
 
         // 使用 treemap 布局算法（简单版：按行排列）
         const containerWidth = grid.offsetWidth || 800;
@@ -327,10 +385,36 @@
         grid.innerHTML = html;
     }
 
-    async function loadNorthbound(container) {
+    async function loadNorthbound(container, request) {
         const data = await fetchFastMarketJSON('/api/market/northbound?fast=true');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
+            return;
+        }
+        _updateCoverageStrip(data, data.source_unavailable ? '源不可用' : '');
+
+        if (data.source_unavailable) {
+            const note = data.coverage_note || '北向资金源不可用，当前无可用缓存';
+            container.innerHTML = `
+                <div class="radar-stale-hint">北向资金源不可用 · ${App.escapeHTML(note)}</div>
+                <div class="radar-northbound">
+                    <div class="radar-nb-summary">
+                        <div class="radar-nb-item">
+                            <span class="radar-nb-label">今日净流入</span>
+                            <span class="radar-nb-value text-muted">--</span>
+                        </div>
+                        <div class="radar-nb-item">
+                            <span class="radar-nb-label">沪股通</span>
+                            <span class="radar-nb-value text-muted">--</span>
+                        </div>
+                        <div class="radar-nb-item">
+                            <span class="radar-nb-label">深股通</span>
+                            <span class="radar-nb-value text-muted">--</span>
+                        </div>
+                    </div>
+                </div>
+            `;
             return;
         }
 
@@ -372,12 +456,14 @@
 
     // ── 热点归因 ──
 
-    async function loadHotspot(container) {
+    async function loadHotspot(container, request) {
         const data = await App.fetchJSON('/api/market/hotspot');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
+        _updateCoverageStrip(data);
 
         const concepts = data.hot_concepts || [];
         const industries = data.hot_industries || [];
@@ -426,12 +512,14 @@
 
     // ── 市场新闻 ──
 
-    async function loadNews(container) {
+    async function loadNews(container, request) {
         const data = await App.fetchJSON('/api/market/news');
+        if (!isCurrentRadarRequest(request)) return;
         if (!data.success) {
             container.innerHTML = `<div class="text-muted text-center">${App.escapeHTML(data.error || '加载失败')}</div>`;
             return;
         }
+        _updateCoverageStrip(data);
 
         const news = data.news || [];
         const sentiment = data.overall_sentiment || 0;
@@ -473,7 +561,14 @@
         });
     }
 
-    App.OverviewRadar = { init, loadRadar, addToWatchlist };
+    App.OverviewRadar = {
+        init,
+        loadRadar,
+        addToWatchlist,
+        _setCurrentTabForTest(tab) {
+            _currentTab = tab;
+        },
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {

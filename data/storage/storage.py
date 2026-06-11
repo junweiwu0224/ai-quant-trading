@@ -21,12 +21,12 @@ Base = declarative_base()
 def _to_prefix_code(code: str) -> str:
     """统一代码格式为交易所前缀: 600519 → sh600519, 000001 → sz000001
 
-    已有前缀的原样返回。指数代码 (000xxx/399xxx) 不加前缀。
+    已有前缀会按裸码重算，避免 sz920xxx 这类历史错前缀继续扩散。
     """
     if not code:
         return code
     if code[:2] in ("sh", "sz", "bj", "SH", "SZ", "BJ"):
-        return code.lower()
+        code = code[2:]
     # 纯数字：根据规则加前缀
     if code.startswith(("43", "83", "87", "88", "92")):
         return f"bj{code}"
@@ -52,6 +52,21 @@ def _normalize_storage_code(code: str) -> tuple[str | None, str | None]:
     if len(plain_code) != 6 or not plain_code.isdigit():
         return None, None
     return _to_prefix_code(plain_code), plain_code
+
+
+def _stock_info_code_variants(plain_code: str) -> list[str]:
+    """返回同一裸码在 stock_info 中可能存在的历史代码变体。"""
+    if not plain_code:
+        return []
+    return [
+        plain_code,
+        f"sh{plain_code}",
+        f"sz{plain_code}",
+        f"bj{plain_code}",
+        f"SH{plain_code}",
+        f"SZ{plain_code}",
+        f"BJ{plain_code}",
+    ]
 
 
 def _now_iso() -> str:
@@ -154,6 +169,9 @@ def _normalize_ledger_code(code: str) -> str:
     if len(plain_code) == 6 and plain_code.isdigit():
         return plain_code
     return raw_code
+
+
+STOCK_INFO_CLEANUP_CONFIRMATION = "MERGE_AND_DELETE_STOCK_INFO_DUPLICATES"
 
 
 class StockDaily(Base):
@@ -623,6 +641,19 @@ class DataStorage:
         if df.empty:
             return 0
 
+        def _is_non_empty(value) -> bool:
+            if value is None:
+                return False
+            try:
+                if pd.isna(value):
+                    return False
+            except Exception:
+                pass
+            return str(value).strip() != ""
+
+        def _merge_non_empty(incoming, current):
+            return incoming if _is_non_empty(incoming) else current
+
         session = self._get_session()
         try:
             count = 0
@@ -631,7 +662,7 @@ class DataStorage:
                 plain_code = _to_plain_code(row["code"])
                 existing_rows = (
                     session.query(StockInfo)
-                    .filter(StockInfo.code.in_([prefixed_code, plain_code]))
+                    .filter(StockInfo.code.in_(_stock_info_code_variants(plain_code)))
                     .all()
                 )
                 existing = next((item for item in existing_rows if item.code == prefixed_code), None)
@@ -639,9 +670,9 @@ class DataStorage:
                     existing = existing_rows[0]
                     existing.code = prefixed_code
                 if existing:
-                    existing.name = row.get("name", existing.name)
-                    existing.industry = row.get("industry", existing.industry)
-                    existing.list_date = row.get("list_date", existing.list_date)
+                    existing.name = _merge_non_empty(row.get("name"), existing.name)
+                    existing.industry = _merge_non_empty(row.get("industry"), existing.industry)
+                    existing.list_date = _merge_non_empty(row.get("list_date"), existing.list_date)
                     for duplicate in existing_rows:
                         if duplicate is existing:
                             continue
@@ -684,7 +715,7 @@ class DataStorage:
                 plain_code = _to_plain_code(code)
                 existing_rows = (
                     session.query(StockInfo)
-                    .filter(StockInfo.code.in_([prefixed_code, plain_code]))
+                    .filter(StockInfo.code.in_(_stock_info_code_variants(plain_code)))
                     .all()
                 )
                 existing = next((row for row in existing_rows if row.code == prefixed_code), None)
@@ -803,6 +834,321 @@ class DataStorage:
             return pd.DataFrame(list(info_map.values()))
         finally:
             session.close()
+
+    def audit_stock_info_integrity(self, sample_limit: int = 20) -> dict[str, Any]:
+        """只读审计 stock_info 的代码规范化、重复行和行业覆盖风险。"""
+
+        def _is_blank(value: Any) -> bool:
+            if value is None:
+                return True
+            return str(value).strip() == ""
+
+        sample_limit = max(0, int(sample_limit or 0))
+        session = self._get_session()
+        try:
+            rows = session.query(StockInfo).all()
+        finally:
+            session.close()
+
+        groups: dict[str, list[dict[str, str]]] = {}
+        invalid_examples: list[dict[str, str]] = []
+        wrong_prefix_examples: list[dict[str, str]] = []
+        legacy_plain_examples: list[dict[str, str]] = []
+        raw_blank_examples: list[dict[str, str]] = []
+        blank_industry_count = 0
+        invalid_code_count = 0
+        wrong_prefix_count = 0
+        legacy_plain_count = 0
+
+        for row in rows:
+            code = str(row.code or "").strip()
+            industry = str(row.industry or "").strip()
+            name = str(row.name or "").strip()
+            prefixed_code, plain_code = _normalize_storage_code(code)
+            if not prefixed_code or not plain_code:
+                invalid_code_count += 1
+                if len(invalid_examples) < sample_limit:
+                    invalid_examples.append({"code": code})
+                continue
+
+            has_prefix = code[:2].lower() in ("sh", "sz", "bj")
+            if has_prefix and code != prefixed_code:
+                wrong_prefix_count += 1
+                if len(wrong_prefix_examples) < sample_limit:
+                    wrong_prefix_examples.append(
+                        {
+                            "code": code,
+                            "plain_code": plain_code,
+                            "expected_code": prefixed_code,
+                        }
+                    )
+            elif not has_prefix and code != prefixed_code:
+                legacy_plain_count += 1
+                if len(legacy_plain_examples) < sample_limit:
+                    legacy_plain_examples.append(
+                        {
+                            "code": code,
+                            "plain_code": plain_code,
+                            "expected_code": prefixed_code,
+                        }
+                    )
+
+            if _is_blank(industry):
+                blank_industry_count += 1
+                if len(raw_blank_examples) < sample_limit:
+                    raw_blank_examples.append({"code": code, "plain_code": plain_code, "name": name})
+
+            groups.setdefault(plain_code, []).append(
+                {
+                    "code": code,
+                    "expected_code": prefixed_code,
+                    "name": name,
+                    "industry": industry,
+                }
+            )
+
+        duplicate_groups: list[dict[str, Any]] = []
+        duplicate_extra_row_count = 0
+        merged_blank_industry_examples: list[dict[str, str]] = []
+        merged_blank_industry_count = 0
+        for plain_code, items in sorted(groups.items()):
+            if len(items) > 1:
+                duplicate_extra_row_count += len(items) - 1
+                if len(duplicate_groups) < sample_limit:
+                    duplicate_groups.append(
+                        {
+                            "plain_code": plain_code,
+                            "expected_code": _to_prefix_code(plain_code),
+                            "row_count": len(items),
+                            "codes": [item["code"] for item in items],
+                        }
+                    )
+            if not any(item["industry"] for item in items):
+                merged_blank_industry_count += 1
+                if len(merged_blank_industry_examples) < sample_limit:
+                    merged_blank_industry_examples.append(
+                        {
+                            "plain_code": plain_code,
+                            "expected_code": _to_prefix_code(plain_code),
+                            "name": next((item["name"] for item in items if item["name"]), ""),
+                        }
+                    )
+
+        return {
+            "total_rows": len(rows),
+            "distinct_plain_count": len(groups),
+            "invalid_code_count": invalid_code_count,
+            "duplicate_plain_count": sum(1 for items in groups.values() if len(items) > 1),
+            "duplicate_extra_row_count": duplicate_extra_row_count,
+            "wrong_prefix_count": wrong_prefix_count,
+            "legacy_plain_count": legacy_plain_count,
+            "blank_industry_count": blank_industry_count,
+            "merged_blank_industry_count": merged_blank_industry_count,
+            "duplicate_groups": duplicate_groups,
+            "wrong_prefix_examples": wrong_prefix_examples,
+            "legacy_plain_examples": legacy_plain_examples,
+            "raw_blank_industry_examples": raw_blank_examples,
+            "merged_blank_industry_examples": merged_blank_industry_examples,
+            "invalid_code_examples": invalid_examples,
+        }
+
+    def preview_stock_info_cleanup(self, sample_limit: int = 20) -> dict[str, Any]:
+        """只读预演 stock_info 历史错前缀重复行的清理候选。"""
+
+        def _clean(value: Any) -> str:
+            if value is None:
+                return ""
+            return str(value).strip()
+
+        sample_limit = max(0, int(sample_limit or 0))
+        session = self._get_session()
+        try:
+            rows = session.query(StockInfo).all()
+        finally:
+            session.close()
+
+        by_code: dict[str, dict[str, str]] = {}
+        groups: dict[str, list[dict[str, str]]] = {}
+        skipped_no_canonical: list[dict[str, str]] = []
+        for row in rows:
+            code = _clean(row.code)
+            expected_code, plain_code = _normalize_storage_code(code)
+            if not expected_code or not plain_code:
+                continue
+
+            item = {
+                "code": code,
+                "plain_code": plain_code,
+                "expected_code": expected_code,
+                "name": _clean(row.name),
+                "industry": _clean(row.industry),
+                "list_date": _clean(row.list_date),
+            }
+            by_code[code] = item
+            groups.setdefault(plain_code, []).append(item)
+
+        candidates: list[dict[str, Any]] = []
+        skipped_no_canonical_count = 0
+        cleanup_ready_count = 0
+        merge_required_count = 0
+        for plain_code, items in sorted(groups.items()):
+            canonical_code = _to_prefix_code(plain_code)
+            canonical = by_code.get(canonical_code)
+            for item in sorted(items, key=lambda value: value["code"]):
+                code = item["code"]
+                if code == canonical_code:
+                    continue
+                has_prefix = code[:2].lower() in ("sh", "sz", "bj")
+                if not has_prefix or item["expected_code"] != canonical_code:
+                    continue
+                if canonical is None:
+                    skipped_no_canonical_count += 1
+                    if len(skipped_no_canonical) < sample_limit:
+                        skipped_no_canonical.append(
+                            {
+                                "plain_code": plain_code,
+                                "code": code,
+                                "expected_code": canonical_code,
+                                "reason": "canonical_row_missing",
+                            }
+                        )
+                    continue
+
+                unique_fields = [
+                    field
+                    for field in ("name", "industry", "list_date")
+                    if item.get(field) and not canonical.get(field)
+                ]
+                cleanup_ready = not unique_fields
+                if cleanup_ready:
+                    cleanup_ready_count += 1
+                    action = "delete_duplicate_row"
+                    reason = "wrong_prefix_duplicate"
+                else:
+                    merge_required_count += 1
+                    action = "merge_before_delete"
+                    reason = "wrong_prefix_duplicate_with_unique_metadata"
+
+                if len(candidates) < sample_limit:
+                    candidates.append(
+                        {
+                            "plain_code": plain_code,
+                            "code": code,
+                            "keep_code": canonical_code,
+                            "action": action,
+                            "reason": reason,
+                            "cleanup_ready": cleanup_ready,
+                            "unique_fields": unique_fields,
+                            "name": item["name"],
+                            "industry": item["industry"],
+                            "list_date": item["list_date"],
+                        }
+                    )
+
+        return {
+            "mode": "preview_only",
+            "scope": "wrong_prefix_duplicates",
+            "candidate_count": cleanup_ready_count + merge_required_count,
+            "cleanup_ready_count": cleanup_ready_count,
+            "merge_required_count": merge_required_count,
+            "skipped_no_canonical_count": skipped_no_canonical_count,
+            "candidates": candidates,
+            "skipped_no_canonical_examples": skipped_no_canonical,
+        }
+
+    def cleanup_stock_info_wrong_prefix_duplicates(
+        self,
+        *,
+        apply: bool = False,
+        confirmation: str = "",
+        sample_limit: int = 20,
+    ) -> dict[str, Any]:
+        """事务化合并并删除 stock_info 历史错前缀重复行；默认只 dry-run。"""
+
+        sample_limit = max(0, int(sample_limit or 0))
+        preview = self.preview_stock_info_cleanup(sample_limit=0)
+        requires_confirmation = STOCK_INFO_CLEANUP_CONFIRMATION
+        if not apply:
+            return {
+                **preview,
+                "mode": "dry_run",
+                "applied": False,
+                "requires_confirmation": requires_confirmation,
+                "merged_field_count": 0,
+                "deleted_row_count": 0,
+                "skipped_count": preview.get("skipped_no_canonical_count", 0),
+                "changes": [],
+            }
+
+        if confirmation != requires_confirmation:
+            raise ValueError(f"confirmation must be {requires_confirmation}")
+
+        session = self._get_session()
+        changes: list[dict[str, Any]] = []
+        merged_field_count = 0
+        deleted_row_count = 0
+        skipped_count = 0
+        candidate_count = 0
+        try:
+            rows = session.query(StockInfo).all()
+            by_code = {str(row.code or "").strip(): row for row in rows}
+            for row in sorted(rows, key=lambda item: str(item.code or "")):
+                code = str(row.code or "").strip()
+                expected_code, plain_code = _normalize_storage_code(code)
+                if not expected_code or not plain_code:
+                    continue
+                has_prefix = code[:2].lower() in ("sh", "sz", "bj")
+                if not has_prefix or code == expected_code:
+                    continue
+
+                canonical = by_code.get(expected_code)
+                if canonical is None or canonical is row:
+                    skipped_count += 1
+                    continue
+
+                candidate_count += 1
+                merged_fields: list[str] = []
+                for field in ("name", "industry", "list_date"):
+                    current = str(getattr(canonical, field) or "").strip()
+                    incoming = str(getattr(row, field) or "").strip()
+                    if not current and incoming:
+                        setattr(canonical, field, incoming)
+                        merged_fields.append(field)
+                session.delete(row)
+                deleted_row_count += 1
+                merged_field_count += len(merged_fields)
+                if len(changes) < sample_limit:
+                    changes.append(
+                        {
+                            "plain_code": plain_code,
+                            "code": code,
+                            "keep_code": expected_code,
+                            "merged_fields": merged_fields,
+                            "deleted": True,
+                        }
+                    )
+
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+        post_audit = self.audit_stock_info_integrity(sample_limit=sample_limit)
+        return {
+            "mode": "applied",
+            "applied": True,
+            "scope": "wrong_prefix_duplicates",
+            "candidate_count": candidate_count,
+            "cleanup_ready_count": preview.get("cleanup_ready_count", 0),
+            "merge_required_count": preview.get("merge_required_count", 0),
+            "merged_field_count": merged_field_count,
+            "deleted_row_count": deleted_row_count,
+            "skipped_count": skipped_count,
+            "changes": changes,
+            "post_audit": post_audit,
+        }
 
     def get_latest_date(self, code: str) -> Optional[date]:
         """获取某只股票最新数据日期"""
@@ -1051,7 +1397,8 @@ class DataStorage:
         return [dict(row) for row in rows]
 
     def get_market_breadth(self) -> dict[str, Any]:
-        """返回本地 stock_daily 覆盖池的最新交易日涨跌广度。"""
+        """返回本地 stock_daily 覆盖池的最新高覆盖交易日涨跌广度。"""
+        min_coverage_ratio = 0.8
         plain_daily_expr = (
             "CASE WHEN lower(substr(sd.code, 1, 2)) IN ('sh', 'sz', 'bj') "
             "THEN substr(sd.code, 3) ELSE sd.code END"
@@ -1062,18 +1409,41 @@ class DataStorage:
         )
         sql = text(
             f"""
-            WITH latest_day AS (
-                SELECT MAX(date) AS date FROM stock_daily WHERE close IS NOT NULL
+            WITH info AS (
+                SELECT COUNT(DISTINCT {plain_info_expr}) AS stock_count
+                FROM stock_info
+                WHERE code IS NOT NULL AND code != ''
+            ),
+            daily_coverage AS (
+                SELECT
+                    sd.date,
+                    COUNT(DISTINCT {plain_daily_expr}) AS covered_count
+                FROM stock_daily sd
+                WHERE sd.close IS NOT NULL
+                GROUP BY sd.date
+            ),
+            max_day AS (
+                SELECT date, covered_count FROM daily_coverage ORDER BY date DESC LIMIT 1
+            ),
+            selected_day AS (
+                SELECT date, covered_count
+                FROM daily_coverage, info
+                WHERE info.stock_count = 0
+                    OR CAST(covered_count AS FLOAT) / info.stock_count >= :min_coverage_ratio
+                ORDER BY date DESC
+                LIMIT 1
+            ),
+            latest_day AS (
+                SELECT
+                    COALESCE((SELECT date FROM selected_day), (SELECT date FROM max_day)) AS date,
+                    COALESCE((SELECT covered_count FROM selected_day), (SELECT covered_count FROM max_day), 0) AS covered_count,
+                    (SELECT date FROM max_day) AS raw_latest_date,
+                    COALESCE((SELECT covered_count FROM max_day), 0) AS raw_latest_covered
             ),
             previous_day AS (
                 SELECT MAX(sd.date) AS date
                 FROM stock_daily sd, latest_day
                 WHERE sd.close IS NOT NULL AND sd.date < latest_day.date
-            ),
-            info AS (
-                SELECT COUNT(DISTINCT {plain_info_expr}) AS stock_count
-                FROM stock_info
-                WHERE code IS NOT NULL AND code != ''
             ),
             latest_raw AS (
                 SELECT
@@ -1123,6 +1493,9 @@ class DataStorage:
             )
             SELECT
                 (SELECT date FROM latest_day) AS latest_date,
+                (SELECT covered_count FROM latest_day) AS selected_date_covered,
+                (SELECT raw_latest_date FROM latest_day) AS raw_latest_date,
+                (SELECT raw_latest_covered FROM latest_day) AS raw_latest_covered,
                 (SELECT date FROM previous_day) AS previous_date,
                 (SELECT stock_count FROM info) AS stock_count,
                 COUNT(*) AS effective_count,
@@ -1137,15 +1510,20 @@ class DataStorage:
             """
         )
         with self._engine.connect() as conn:
-            row = conn.execute(sql).mappings().first() or {}
+            row = conn.execute(sql, {"min_coverage_ratio": min_coverage_ratio}).mappings().first() or {}
 
         effective_count = int(row.get("effective_count") or 0)
         stock_count = int(row.get("stock_count") or 0)
+        selected_date_covered = int(row.get("selected_date_covered") or effective_count)
+        raw_latest_covered = int(row.get("raw_latest_covered") or 0)
         up_count = int(row.get("up_count") or 0)
         down_count = int(row.get("down_count") or 0)
         flat_count = int(row.get("flat_count") or 0)
         no_prev_count = int(row.get("no_prev_count") or 0)
         directional_total = up_count + down_count + flat_count
+        latest_date = str(row.get("latest_date") or "") or None
+        raw_latest_date = str(row.get("raw_latest_date") or "") or None
+        ignored_latest_date = raw_latest_date if raw_latest_date and raw_latest_date != latest_date else None
         return {
             "total_stocks": stock_count,
             "effective_count": effective_count,
@@ -1153,11 +1531,21 @@ class DataStorage:
             "daily_covered": stock_count if stock_count else 0,
             "daily_missing": 0 if stock_count else 0,
             "coverage_pct": 100.0 if stock_count else None,
-            "latest_date": str(row.get("latest_date") or "") or None,
+            "latest_date": latest_date,
             "previous_date": str(row.get("previous_date") or "") or None,
             "latest_date_covered": effective_count,
             "latest_date_missing": max(stock_count - effective_count, 0),
             "latest_date_coverage_pct": round(effective_count / stock_count * 100, 2) if stock_count else None,
+            "selected_date_covered": selected_date_covered,
+            "selected_date_coverage_pct": round(selected_date_covered / stock_count * 100, 2) if stock_count else None,
+            "ignored_latest_date": ignored_latest_date,
+            "ignored_latest_date_covered": raw_latest_covered if ignored_latest_date else 0,
+            "ignored_latest_date_coverage_pct": (
+                round(raw_latest_covered / stock_count * 100, 2)
+                if ignored_latest_date and stock_count
+                else None
+            ),
+            "min_selected_date_coverage_pct": round(min_coverage_ratio * 100, 2),
             "up_count": up_count,
             "down_count": down_count,
             "flat_count": flat_count,

@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=48">
+    <link rel="stylesheet" href="/static/style.css?v=73">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -290,6 +290,10 @@
                 <div id="ov-opportunity-status" class="opportunity-status-strip">
                     <span class="opportunity-status-item">等待加载</span>
                 </div>
+                <div id="ov-opportunity-trust" class="opportunity-trust-panel trust-loading" role="status" aria-live="polite">
+                    <span class="opportunity-trust-badge">等待加载</span>
+                    <span class="opportunity-trust-text">机会池会标明真实合成、降级预览或本地应急状态。</span>
+                </div>
                 <div class="table-wrap">
                     <table id="ov-opportunity-table" class="datahub-matrix-table">
                         <thead><tr><th>#</th><th>股票</th><th>决策</th><th>PEG</th><th>风险</th><th>下一步</th><th>操作</th></tr></thead>
@@ -385,7 +389,11 @@
             </div>
 
             <!-- 股票信息区 -->
-            <div id="sd-content" style="display:none">
+            <div id="sd-content" class="stock-workbench" style="display:none">
+                <aside id="stock-context-list" class="stock-context-list" aria-label="股票上下文">
+                    <div class="stock-context-empty">暂无上下文股票；从自选、机会池、热点或问财打开股票后会出现在这里</div>
+                </aside>
+                <section class="stock-workbench-main" aria-label="股票详情主体">
                 <!-- 头部：名称/价格/概念 -->
                 <div class="card">
                     <div class="stock-detail-header" id="sd-header">
@@ -399,7 +407,9 @@
                             <span class="sd-price" id="sd-price">--</span>
                             <span class="sd-change" id="sd-change">--</span>
                         </div>
+                        <p class="sd-positioning" id="sd-positioning">公司定位数据暂缺</p>
                         <div class="sd-tags" id="sd-concepts"></div>
+                        <div class="sd-trust-strip" id="sd-trust-strip" aria-label="数据覆盖状态"></div>
                     </div>
 
                     <div class="sd-stats" id="sd-stats">
@@ -497,6 +507,10 @@
                             <div id="sd-bids" class="sd-ob-side"></div>
                         </div>
                     </div>
+                </div>
+
+                <div class="card stock-bottom-panel" id="stock-bottom-panel" aria-label="股票事件中心">
+                    <div class="stock-bottom-empty">事件中心会跟随新闻、公告、研报和信号更新。</div>
                 </div>
 
                 <!-- 筹码分布卡片 -->
@@ -750,6 +764,10 @@
                         <div class="sd-period-item"><label>占A股比</label><span id="sd-north-a-ratio">--</span></div>
                     </div>
                 </div>
+                </section>
+                <aside id="stock-evidence-rail" class="stock-evidence-rail" aria-label="证据栏">
+                    <div class="stock-evidence-empty">证据栏会跟随当前股票展示盘口、资料、资金、AI 与舆情。</div>
+                </aside>
             </div>
 
             <!-- 未选择股票提示 -->
@@ -767,7 +785,7 @@
 
             <!-- 信号强度聚合条 -->
             <div class="signal-bar" id="signal-bar">
-                <div class="signal-bar-label">市场信号</div>
+                <div class="signal-bar-label">市场广度</div>
                 <div class="signal-bar-track">
                     <div class="signal-bar-fill" id="signal-bar-fill"></div>
                     <div class="signal-bar-marker" id="signal-bar-marker"></div>
@@ -823,7 +841,7 @@
                         </div>
                     </div>
                     <div class="card intel-ml-pred-card">
-                        <h3>AI 信号池 <span class="text-muted text-sm">Signal Engine · local_momentum_v1</span></h3>
+                        <h3>AI 信号池 <span class="text-muted text-sm">本地动量信号 · 基线动量模型</span></h3>
                         <div id="intel-ml-pred" class="intel-ml-pred-wrap">
                             <div class="skeleton-block skeleton-pulse" style="height:120px;border-radius:6px"></div>
                         </div>
@@ -897,6 +915,10 @@
                                 <div class="coverage-strip" id="datahub-scope-note" aria-live="polite">
                                     <span class="coverage-pill">范围 自选股</span>
                                     <span class="coverage-pill">行情/估值/AI 合成矩阵</span>
+                                </div>
+                                <div id="datahub-trust" class="opportunity-trust-panel trust-loading" role="status" aria-live="polite">
+                                    <span class="opportunity-trust-badge">等待加载</span>
+                                    <span class="opportunity-trust-text">数据矩阵会标明真实合成、需复核或降级预览状态。</span>
                                 </div>
                             </div>
                             <div class="datahub-toolbar">
@@ -2701,7 +2723,7 @@
 
     <div class="cmd-palette-overlay hidden" id="cmd-palette" hidden aria-hidden="true">
         <div class="cmd-palette" role="dialog" aria-modal="true" aria-label="命令面板">
-            <input type="text" class="cmd-palette-input" id="cmd-palette-input" placeholder="输入命令或搜索股票..." autocomplete="off" aria-label="命令面板输入框" aria-expanded="false">
+            <input type="text" class="cmd-palette-input" id="cmd-palette-input" placeholder="搜索行情 / 功能 / 问句..." autocomplete="off" aria-label="命令面板输入框" aria-expanded="false" data-global-search-task-router="command-palette">
             <div class="cmd-palette-list" id="cmd-palette-list" role="listbox" aria-label="命令面板结果"></div>
             <div class="cmd-palette-footer">
                 <span><kbd>↑↓</kbd> 导航</span>

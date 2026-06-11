@@ -40,7 +40,7 @@ def test_agentic_signal_pool_container_and_script_are_registered():
     assert 'id="agentic-signal-pool"' in html
     assert 'data-agentic-signal-list' in html
     assert 'agentic-signals.js' not in scripts
-    assert '/static/agentic-signals.js?v=17' in app
+    assert '/static/agentic-signals.js?v=20' in app
 
 
 def test_agentic_signal_frontend_fetches_signal_api():
@@ -180,9 +180,12 @@ def test_agentic_candidate_rows_can_queue_promoted_strategy_for_paper():
     js = read_agentic_signals()
 
     assert 'data-agentic-action="queue-paper-strategy"' in js
+    assert 'data-result-id="${esc(item.result_id || \'\')}"' in js
     assert "/api/agentic/strategy/paper-candidates" in js
     assert "queuePaperStrategyCandidate" in js
     assert "promotion.promoted ?" in js
+    assert "JSON.stringify({ result_id: resultId })" in js
+    assert "JSON.stringify({ sample: state.candidateBatch.sample, result })" not in js
 
 
 def test_agentic_paper_candidate_review_ui_is_registered():
@@ -217,6 +220,17 @@ def test_agentic_candidate_summary_explains_rejection_causes():
     assert "策略条件在样本内没有触发" in js
     assert "Sharpe 没达标" in js
     assert "agentic-diagnosis-list" in js
+
+
+def test_agentic_candidate_summary_explains_signal_validation_gate():
+    js = read_agentic_signals()
+
+    assert "AI signal is not validated" in js
+    assert "AI 信号未验证，不能进入模拟盘候选" in js
+    assert "AI signal validation sample is insufficient" in js
+    assert "AI 验证样本不足，不能进入模拟盘候选" in js
+    assert "signalValidationFailed" in js
+    assert "signalValidationSampleInsufficient" in js
 
 
 def test_agentic_strategy_lab_explains_candidate_logic_and_stock_names():

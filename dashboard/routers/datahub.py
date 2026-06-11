@@ -381,6 +381,81 @@ def _load_signal_context(top_limit: int | None = None) -> dict[str, Any]:
     return ctx
 
 
+def _load_signal_context_light(top_limit: int | None = None, include_codes: list[str] | None = None) -> dict[str, Any]:
+    """Read only latest top signal rows for first-paint opportunity previews."""
+    included = tuple(_dedupe_codes(include_codes or []))
+    try:
+        from dashboard.routers.qlib import PRED_CACHE_FILE
+        from data.signals.engine import get_signal_records
+
+        if PRED_CACHE_FILE.exists():
+            stat = PRED_CACHE_FILE.stat()
+            cache_key = ("light", str(PRED_CACHE_FILE), stat.st_mtime_ns, stat.st_size, top_limit, included)
+            cached_ctx = _SIGNAL_CONTEXT_CACHE.get(cache_key)
+            if cached_ctx is not None:
+                return cached_ctx
+        else:
+            cache_key = ("light", None, None, None, top_limit, included)
+        records, meta = get_signal_records(
+            top_n=None if included else top_limit,
+            cache_path=PRED_CACHE_FILE,
+        )
+        include_set = set(included)
+        safe_top_limit = max(1, int(top_limit)) if top_limit else len(records)
+        items: dict[str, dict[str, Any]] = {}
+        ordered_codes: list[str] = []
+        for record in records:
+            code = _plain_code(record.code)
+            if not code:
+                continue
+            is_top = len(ordered_codes) < safe_top_limit
+            if not is_top and code not in include_set:
+                continue
+            items[code] = {
+                "signal_rank": record.rank,
+                "signal_score": round(float(record.score), 6),
+                "signal_provider": record.provider,
+                "signal_model_version": record.model_version,
+                "signal_confidence": record.confidence,
+                "signal_horizon": record.horizon,
+                "signal_raw_source": record.raw_source,
+                "signal_consistency": None,
+                "signal_appearances": 0,
+                "qlib_rank": record.rank,
+                "qlib_score": round(float(record.score), 6),
+                "qlib_ic_adj": None,
+                "qlib_diamond": False,
+                "qlib_appearances": 0,
+            }
+            if is_top:
+                ordered_codes.append(code)
+        ctx = {
+            "latest_date": meta.get("latest_date"),
+            "total": meta.get("total") or len(items),
+            "provider": meta.get("provider") or "local_momentum",
+            "model_version": meta.get("model_version") or "",
+            "items": items,
+            "ordered_codes": ordered_codes,
+            "raw_source": meta.get("raw_source") or "legacy_qlib",
+            "generated_at": meta.get("generated_at"),
+        }
+    except Exception:
+        cache_key = ("light", None, None, None, top_limit, included)
+        ctx = {
+            "latest_date": None,
+            "total": 0,
+            "provider": "local_momentum",
+            "model_version": "",
+            "items": {},
+            "ordered_codes": [],
+            "raw_source": "legacy_qlib",
+        }
+    if len(_SIGNAL_CONTEXT_CACHE) > 8:
+        _SIGNAL_CONTEXT_CACHE.clear()
+    _SIGNAL_CONTEXT_CACHE[cache_key] = ctx
+    return ctx
+
+
 def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[str, Any]:
     peg = _safe_float(item.get("peg_next_year"))
     growth = _safe_float(item.get("growth_next_year_pct"))
@@ -481,6 +556,12 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
         risks.append("行情缓存偏旧")
 
     score = max(0, min(100, round(score)))
+    evidence_gap = (not signal_validated and report_count == 0)
+    if evidence_gap:
+        score = min(score, 74)
+    elif not signal_validated and qlib_rank:
+        score = min(score, 74)
+
     if score >= 78:
         label = "重点研究"
     elif score >= 62:
@@ -499,6 +580,18 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
         risk_level = "低"
 
     actions = _build_next_actions(score, peg, growth, upside, qlib_rank, risks)
+    if evidence_gap:
+        evidence_actions = ["补齐缺失数据", "继续观察"]
+        if peg is not None or growth is not None:
+            evidence_actions.append("打开估值详情")
+        if qlib_rank:
+            evidence_actions.append("问龙虾生成交易计划")
+        actions = evidence_actions
+    elif not signal_validated and qlib_rank:
+        review_actions = ["继续观察", "补齐缺失数据"]
+        if peg is not None or growth is not None:
+            review_actions.append("打开估值详情")
+        actions = review_actions
 
     return {
         "decision_score": score,
@@ -654,6 +747,8 @@ async def datahub_health(
     shadow = _load_shadow_summary()
     quality_summary = storage.get_data_quality_summary()
     source_health = storage.get_data_source_health()
+    stock_info_integrity = storage.audit_stock_info_integrity(sample_limit=10)
+    stock_info_cleanup_preview = storage.preview_stock_info_cleanup(sample_limit=10)
 
     quote_health = {
         "running": False,
@@ -691,6 +786,8 @@ async def datahub_health(
         "success": True,
         "stock_count": stock_count,
         "stock_daily": stock_daily,
+        "stock_info_integrity": stock_info_integrity,
+        "stock_info_cleanup_preview": stock_info_cleanup_preview,
         "watchlist_count": len(watchlist),
         "source_health": source_health,
         "quality_summary": quality_summary,
@@ -720,6 +817,7 @@ async def decision_matrix(
     limit: int = Query(30, ge=1, le=80),
     fast: bool = Query(False, description="跳过外部估值源，快速返回行情/AI预览"),
     force_fallback: bool = Query(False, description="强制使用默认候选池"),
+    max_wait_sec: float | None = Query(None, ge=0, le=30, description="完整估值最长等待秒数"),
     account: dict = Depends(current_account),
 ):
     """Merge valuation, AI signal ranking and quote health into one research table."""
@@ -727,7 +825,28 @@ async def decision_matrix(
     requested_scope = scope
     signal_scope = "signal" if scope == "qlib" else scope
     storage = DataStorage()
-    signal_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
+
+    used_fallback = False
+    fallback_reason = ""
+    selected_codes: list[str] = []
+    if force_fallback:
+        selected_codes = _fallback_seed_codes(storage, limit)
+        used_fallback = bool(selected_codes)
+        fallback_reason = "forced_default"
+    elif signal_scope == "watchlist":
+        selected_codes = storage.get_watchlist(account["workspace"]["id"])
+    elif signal_scope == "codes":
+        selected_codes = [item.strip() for item in codes.split(",") if item.strip()]
+    selected_codes = _dedupe_codes(selected_codes)[:limit]
+
+    if fast:
+        signal_ctx = _load_signal_context_light(
+            top_limit=max(200, limit * 3),
+            include_codes=[] if signal_scope == "signal" else selected_codes,
+        )
+    else:
+        signal_ctx = _load_qlib_context(top_limit=max(200, limit * 3))
+
     signal_health = _load_signal_health_light() if fast else _load_signal_health()
     qlib_health = _load_qlib_health()
     shadow = _load_shadow_summary()
@@ -735,18 +854,8 @@ async def decision_matrix(
     quality_summary = storage.get_data_quality_summary()
     qlib_items: dict[str, dict[str, Any]] = signal_ctx["items"]
 
-    used_fallback = False
-    fallback_reason = ""
-    if force_fallback:
-        selected_codes = _fallback_seed_codes(storage, limit)
-        used_fallback = bool(selected_codes)
-        fallback_reason = "forced_default"
-    elif signal_scope == "watchlist":
-        selected_codes = storage.get_watchlist(account["workspace"]["id"])
-    elif signal_scope == "signal":
+    if not force_fallback and signal_scope == "signal":
         selected_codes = signal_ctx["ordered_codes"][:limit]
-    else:
-        selected_codes = [item.strip() for item in codes.split(",") if item.strip()]
     selected_codes = _dedupe_codes(selected_codes)[:limit]
     if not selected_codes and signal_scope in {"watchlist", "signal"}:
         selected_codes = _fallback_seed_codes(storage, limit)
@@ -761,7 +870,7 @@ async def decision_matrix(
         try:
             from data.services.valuation_service import ValuationService
 
-            center = ValuationService(storage=storage).build_center(selected_codes, limit=limit)
+            center = ValuationService(storage=storage).build_center(selected_codes, limit=limit, max_wait_sec=max_wait_sec)
             valuation_items = center.get("items", []) if isinstance(center, dict) else []
         except Exception as exc:
             valuation_error = str(exc)

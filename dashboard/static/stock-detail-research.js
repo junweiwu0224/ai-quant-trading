@@ -5,26 +5,86 @@ if (!globalThis.StockDetail) {
 }
 
 Object.assign(globalThis.StockDetail, {
+    _stockResearchDateKey(value) {
+        const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/);
+        return match ? match[0] : '';
+    },
+
     async _loadReports(code, stale) {
         try {
             const data = await App.fetchJSON(`/api/llm/reports/${code}?page_size=10`);
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('research_report', [], {
+                    type: 'research_report',
+                    title: '研报数据暂缺',
+                    source: 'llm_reports',
+                    source_label: '研报',
+                    status: 'missing',
+                    missing_reason: '研报接口未返回数据',
+                });
+                return;
+            }
             this._renderReports(data);
         } catch (e) {
             console.error('加载研报失败:', e);
+            if (stale()) return;
+            this._setWorkbenchEvents('research_report', [], {
+                type: 'research_report',
+                title: '研报加载失败',
+                source: 'llm_reports',
+                source_label: '研报',
+                status: 'missing',
+                missing_reason: '研报数据加载失败',
+            });
         }
     },
 
     _renderReports(data) {
+        const reports = Array.isArray(data?.reports) ? data.reports : [];
+        if (!data?.success || !reports.length) {
+            this._setWorkbenchEvents('research_report', [], {
+                type: 'research_report',
+                title: '研报暂缺',
+                source: 'llm_reports',
+                source_label: '研报',
+                status: 'missing',
+                missing_reason: data?.error || data?.message || '暂无研报数据',
+            });
+        } else {
+            this._setWorkbenchEvents('research_report', reports.map((r) => ({
+                type: 'research_report',
+                status: 'ready',
+                title: r.title || '研究报告',
+                detail: [
+                    r.org ? `机构：${r.org}` : '',
+                    r.rating ? `评级：${r.rating}` : '',
+                    r.summary || '',
+                ].filter(Boolean).join(' · '),
+                at: r.date || r.publish_date || '',
+                date_key: this._stockResearchDateKey(r.date || r.publish_date),
+                source: 'llm_reports',
+                source_label: r.org || '研报',
+                direction: r.rating || '',
+                value: r.rating || null,
+                link_url: r.url || r.link_url || '',
+                raw: r,
+            })), {
+                type: 'research_report',
+                source: 'llm_reports',
+                source_label: '研报',
+            });
+        }
+
         const container = document.getElementById('sd-reports');
         if (!container) return;
 
         const hint = document.getElementById('sd-reports-hint');
-        if (hint && data.total) {
+        if (hint && data?.total) {
             hint.textContent = `共 ${data.total} 篇`;
         }
 
-        if (!data.success || !data.reports?.length) {
+        if (!data?.success || !reports.length) {
             container.innerHTML = '<div class="text-muted text-center" style="padding:20px">暂无研报数据</div>';
             return;
         }
@@ -39,7 +99,7 @@ Object.assign(globalThis.StockDetail, {
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>日期</th><th>标题</th><th>机构</th><th>评级</th><th>操作</th></tr></thead>
-                    <tbody>${data.reports.map((r, i) => {
+                    <tbody>${reports.map((r, i) => {
                         const ratingCls = ratingMap[r.rating] || '';
                         return `<tr>
                             <td>${r.date}</td>
@@ -56,7 +116,7 @@ Object.assign(globalThis.StockDetail, {
             const btn = e.target.closest('.js-analyze-report');
             if (!btn) return;
             const idx = parseInt(btn.dataset.idx, 10);
-            const r = data.reports[idx];
+            const r = reports[idx];
             if (r) this._analyzeReport(r.title, r.summary);
         });
     },
@@ -107,19 +167,77 @@ Object.assign(globalThis.StockDetail, {
             const data = await App.fetchJSON(
                 `/api/alpha/kline-signals?code=${code}&start_date=${fmt(start)}&end_date=${fmt(end)}`
             );
-            if (!data || stale()) return;
+            if (stale()) return;
+            if (!data) {
+                this._setWorkbenchEvents('alpha_signal', [], {
+                    type: 'alpha_signal',
+                    title: 'Alpha 信号暂缺',
+                    source: 'alpha_signal',
+                    source_label: 'Alpha 信号',
+                    status: 'missing',
+                    missing_reason: 'Alpha 信号接口未返回数据',
+                });
+                return;
+            }
             this._renderAlphaSignals(data);
         } catch (e) {
             console.error('加载 Alpha 信号失败:', e);
+            if (stale()) return;
+            this._setWorkbenchEvents('alpha_signal', [], {
+                type: 'alpha_signal',
+                title: 'Alpha 信号加载失败',
+                source: 'alpha_signal',
+                source_label: 'Alpha 信号',
+                status: 'missing',
+                missing_reason: 'Alpha 信号数据加载失败',
+            });
         }
     },
 
     _renderAlphaSignals(data) {
+        const signals = Array.isArray(data?.signals) ? data.signals : [];
+        const recent = signals.slice(-20).reverse();
+        if (signals.length === 0) {
+            this._setWorkbenchEvents('alpha_signal', [], {
+                type: 'alpha_signal',
+                title: 'Alpha 信号暂缺',
+                source: 'alpha_signal',
+                source_label: 'Alpha 信号',
+                status: 'missing',
+                missing_reason: data?.error || data?.message || '暂无 Alpha 信号',
+            });
+        } else {
+            this._setWorkbenchEvents('alpha_signal', recent.map((s) => {
+                const price = Number(s.price);
+                const label = s.type === 'buy' ? '买入' : s.type === 'sell' ? '卖出' : (s.type || '信号');
+                return {
+                    type: 'alpha_signal',
+                    status: 'ready',
+                    title: `Alpha ${label}`,
+                    detail: [
+                        Number.isFinite(price) ? `${label} @ ¥${price}` : label,
+                        s.factor || s.strategy || '',
+                    ].filter(Boolean).join(' · '),
+                    at: s.date || s.time || '',
+                    date_key: this._stockResearchDateKey(s.date || s.time),
+                    source: 'alpha_signal',
+                    source_label: s.factor || s.strategy || 'Alpha 信号',
+                    direction: s.type || '',
+                    value: Number.isFinite(price) ? price : null,
+                    link_url: s.url || s.link_url || '',
+                    raw: s,
+                };
+            }), {
+                type: 'alpha_signal',
+                source: 'alpha_signal',
+                source_label: 'Alpha 信号',
+            });
+        }
+
         const container = document.getElementById('sd-alpha-signals');
         if (!container) return;
 
         const hint = document.getElementById('sd-alpha-hint');
-        const signals = data.signals || [];
 
         if (signals.length === 0) {
             if (hint) hint.textContent = '';
@@ -132,7 +250,6 @@ Object.assign(globalThis.StockDetail, {
         const lastSignal = signals[signals.length - 1];
         if (hint) hint.textContent = `${signals.length} 个信号 (买${buyCount}/卖${sellCount})`;
 
-        const recent = signals.slice(-20).reverse();
         container.innerHTML = `
             <div class="sd-alpha-summary">
                 <span class="sd-alpha-stat">最近信号:

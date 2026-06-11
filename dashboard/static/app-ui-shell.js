@@ -26,7 +26,7 @@ Object.assign(globalThis.App, {
     _initPWA() {
         // Service Worker 注册
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js?v=43', { scope: '/' }).then((reg) => {
+            navigator.serviceWorker.register('/sw.js?v=59', { scope: '/' }).then((reg) => {
                 // 强制检查 SW 更新
                 reg.update();
                 reg.addEventListener('updatefound', () => {
@@ -442,6 +442,83 @@ Object.assign(globalThis.App, {
         });
     },
 
+    renderCommandPaletteResults(list, state) {
+        if (!list || !state) {
+            return;
+        }
+
+        if (state.isLoading) {
+            list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">搜索中...</span></div>';
+            return;
+        }
+
+        if (state.error) {
+            const message = typeof state.error.message === 'string' && state.error.message.trim()
+                ? state.error.message.trim()
+                : '命令面板加载失败';
+            list.innerHTML = `<div class="cmd-palette-item"><span class="cmd-palette-label">${this.escapeHTML(message)}</span></div>`;
+            return;
+        }
+
+        if (!Array.isArray(state.mergedResults) || state.mergedResults.length === 0) {
+            list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">暂无可执行结果</span></div>';
+            return;
+        }
+
+        const readText = (...values) => {
+            for (const value of values) {
+                if (typeof value === 'string' && value.trim()) {
+                    return value.trim();
+                }
+            }
+            return '';
+        };
+
+        list.innerHTML = state.mergedResults.map((item, index) => {
+            const isActive = index === state.selectedIndex;
+            const isDisabled = item.kind === 'action' && item.enabled !== true;
+            const title = item.kind === 'stock'
+                ? `${item.code} ${item.name || ''}`.trim()
+                : item.kind === 'task'
+                    ? readText(item.title, item.label, item.name, item.query, item.raw_query, item.id) || '待处理任务'
+                    : (item.title || item.id || '未命名动作');
+            const description = item.kind === 'stock'
+                ? (item.market || item.exchange || '股票')
+                : item.kind === 'task'
+                    ? (readText(item.description, item.summary, item.category, item.type) || '任务')
+                    : (item.description || item.category || '动作');
+            const bucket = item.kind === 'task'
+                ? readText(item.bucket, item.bucket_id, item.bucketId, item.source_context?.bucket, item.metadata?.bucket)
+                : '';
+            const intent = item.kind === 'task'
+                ? readText(
+                    item.intent_type,
+                    item.intentType,
+                    item.intent,
+                    item.intent?.type,
+                    item.source_context?.intent_type,
+                    item.metadata?.intent_type,
+                )
+                : '';
+            const icon = item.kind === 'stock' ? '📈' : item.kind === 'task' ? (readText(item.icon) || '🧭') : '⚡';
+            const taskMeta = item.kind === 'task'
+                ? [
+                    description,
+                    bucket ? `分桶 ${bucket}` : '',
+                    intent ? `意图 ${intent}` : '',
+                ].filter(Boolean).join(' · ')
+                : description;
+            const metaLabel = isDisabled ? '不可执行' : taskMeta;
+            return `
+                <div class="cmd-palette-item ${isActive ? 'active' : ''} ${isDisabled ? 'is-disabled' : ''}" data-command-palette-index="${index}" data-command-palette-kind="${this.escapeHTML(item.kind || '')}" role="option" aria-selected="${isActive ? 'true' : 'false'}" aria-disabled="${isDisabled ? 'true' : 'false'}">
+                    <span class="cmd-palette-icon">${this.escapeHTML(icon)}</span>
+                    <span class="cmd-palette-label">${this.escapeHTML(title)}</span>
+                    <span class="cmd-palette-desc">${this.escapeHTML(metaLabel)}</span>
+                </div>
+            `;
+        }).join('');
+    },
+
     _initCommandPalette() {
         if (globalThis.ENABLE_WORKSPACE_V2 === false) {
             return;
@@ -464,43 +541,7 @@ Object.assign(globalThis.App, {
             root.setAttribute('aria-hidden', state.isOpen === true ? 'false' : 'true');
             input.setAttribute('aria-expanded', state.isOpen === true ? 'true' : 'false');
 
-            if (state.isLoading) {
-                list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">搜索中...</span></div>';
-                return;
-            }
-
-            if (state.error) {
-                const message = typeof state.error.message === 'string' && state.error.message.trim()
-                    ? state.error.message.trim()
-                    : '命令面板加载失败';
-                list.innerHTML = `<div class="cmd-palette-item"><span class="cmd-palette-label">${this.escapeHTML(message)}</span></div>`;
-                return;
-            }
-
-            if (!Array.isArray(state.mergedResults) || state.mergedResults.length === 0) {
-                list.innerHTML = '<div class="cmd-palette-item"><span class="cmd-palette-label">暂无可执行结果</span></div>';
-                return;
-            }
-
-            list.innerHTML = state.mergedResults.map((item, index) => {
-                const isActive = index === state.selectedIndex;
-                const isDisabled = item.kind === 'action' && item.enabled !== true;
-                const title = item.kind === 'stock'
-                    ? `${item.code} ${item.name || ''}`.trim()
-                    : (item.title || item.id || '未命名动作');
-                const description = item.kind === 'stock'
-                    ? (item.market || item.exchange || '股票')
-                    : (item.description || item.category || '动作');
-                const icon = item.kind === 'stock' ? '📈' : '⚡';
-                const metaLabel = isDisabled ? '不可执行' : description;
-                return `
-                    <div class="cmd-palette-item ${isActive ? 'active' : ''} ${isDisabled ? 'is-disabled' : ''}" data-command-palette-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}" aria-disabled="${isDisabled ? 'true' : 'false'}">
-                        <span class="cmd-palette-icon">${icon}</span>
-                        <span class="cmd-palette-label">${this.escapeHTML(title)}</span>
-                        <span class="cmd-palette-desc">${this.escapeHTML(metaLabel)}</span>
-                    </div>
-                `;
-            }).join('');
+            this.renderCommandPaletteResults(list, state);
         });
     },
 
@@ -554,7 +595,7 @@ Object.assign(globalThis.App, {
         el.className = 'cmd-palette-overlay';
         el.innerHTML = `
             <div class="cmd-palette">
-                <input type="text" class="cmd-palette-input" placeholder="输入命令或搜索..." autocomplete="off" aria-label="命令面板">
+                <input type="text" class="cmd-palette-input" placeholder="搜索行情 / 功能 / 问句..." autocomplete="off" aria-label="命令面板" data-global-search-task-router="command-palette">
                 <div class="cmd-palette-list" id="cmd-palette-list"></div>
                 <div class="cmd-palette-footer">
                     <span><kbd>↑↓</kbd> 导航</span>

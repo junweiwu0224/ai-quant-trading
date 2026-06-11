@@ -98,6 +98,12 @@ npm run e2e:docker
 ```bash
 .venv/bin/python scripts/init_db.py
 .venv/bin/python scripts/sync_data.py
+.venv/bin/python scripts/audit_stock_info.py
+.venv/bin/python scripts/audit_stock_info.py --cleanup-preview
+.venv/bin/python scripts/audit_stock_info.py --shadow-apply --confirm MERGE_AND_DELETE_STOCK_INFO_DUPLICATES
+.venv/bin/python scripts/audit_stock_info.py --cleanup-apply --confirm MERGE_AND_DELETE_STOCK_INFO_DUPLICATES
+.venv/bin/python scripts/sync_stock_industry.py --dry-run
+.venv/bin/python scripts/sync_stock_industry.py
 .venv/bin/python scripts/sync_signal_daily.py
 .venv/bin/python scripts/sync_full_stock_daily.py
 .venv/bin/python scripts/verify_datasource.py
@@ -106,7 +112,7 @@ npm run e2e:docker
 .venv/bin/python scripts/run_live.py
 ```
 
-这些命令可能写入本地数据库、同步外部数据、启动交易相关流程或依赖外部服务。`scripts/sync_signal_daily.py` 是 AI 信号覆盖池主入口，旧 `scripts/sync_qlib_daily.py` 仅保留兼容。除非任务明确需要，优先只读检查；运行前确认影响范围。
+这些命令可能写入本地数据库、同步外部数据、启动交易相关流程或依赖外部服务。`scripts/audit_stock_info.py --shadow-apply` 只写 `test-results` 里的数据库副本，用于验证清理效果；`scripts/audit_stock_info.py --cleanup-apply` 会合并并删除真实库历史错前缀重复行，必须先跑 `--cleanup-preview` 和 `--shadow-apply` 并确认影响范围。`scripts/sync_signal_daily.py` 是 AI 信号覆盖池主入口，旧 `scripts/sync_qlib_daily.py` 仅保留兼容。除非任务明确需要，优先只读检查；运行前确认影响范围。
 
 ## 待确认
 

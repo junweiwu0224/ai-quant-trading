@@ -33,7 +33,7 @@ class QlibSignalStrategy(BaseStrategy):
     1. absolute（默认）: score > buy_threshold → 买入, score < sell_threshold → 卖出
     2. ranking: 每日按分数排名，买入 top_n 只股票，卖出排名跌出的股票
 
-    predictions 格式:
+    signals 格式（参数名仍保留 predictions 以兼容旧回测配置）:
     - 单日: {"000001": 0.73, "600519": -0.21}
     - 多日: {"2026-03-01": {"000001": 0.73}, "2026-03-02": {...}}
     """
@@ -85,7 +85,7 @@ class QlibSignalStrategy(BaseStrategy):
         return code
 
     def _get_score(self, code: str, date) -> float | None:
-        """按日期获取预测分数（兼容带前缀和不带前缀的代码）"""
+        """按日期获取信号分数（兼容带前缀和不带前缀的代码）"""
         raw_code = self._strip_prefix(code)
         if "__single__" in self._daily_predictions:
             return self._daily_predictions["__single__"].get(raw_code)
@@ -138,7 +138,7 @@ class QlibSignalStrategy(BaseStrategy):
         self._pending_bars[bar.code] = bar
 
     def _process_ranking(self):
-        """对积累的 bar 按预测分数排名，执行买入/卖出"""
+        """对积累的 bar 按信号分数排名，执行买入/卖出"""
         if not self._pending_bars:
             return
 
@@ -236,10 +236,10 @@ class QlibSignalStrategy(BaseStrategy):
         date: str = "",
         **kwargs,
     ) -> "QlibSignalStrategy":
-        """从本地缓存文件加载预测分数
+        """从本地缓存文件加载信号分数
 
         Args:
-            cache_path: predictions_cache.json 路径
+            cache_path: legacy predictions_cache.json 路径
             date: 日期，空则取最新
             **kwargs: 传递给 QlibSignalStrategy 的其他参数
         """
@@ -257,5 +257,5 @@ class QlibSignalStrategy(BaseStrategy):
             latest = max(preds.keys()) if preds else ""
             predictions = preds.get(latest, {})
 
-        logger.info(f"从缓存加载 {len(predictions)} 只股票预测 (日期: {latest if not date else date})")
+        logger.info(f"从缓存加载 {len(predictions)} 只股票信号分数 (日期: {latest if not date else date})")
         return cls(predictions=predictions, **kwargs)

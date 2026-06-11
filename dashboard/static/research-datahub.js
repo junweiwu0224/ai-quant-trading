@@ -27,6 +27,9 @@
 
             this._searchBox = new SearchBox('datahub-code-input', 'datahub-code-dropdown', {
                 maxResults: 40,
+                minQueryLength: 1,
+                emptyScope: 'watchlist',
+                idleMessage: '自选股为空，输入代码或名称搜索全市场',
                 formatItem: (s) => `${s.code} ${s.name || ''}`,
             });
             this._searchBox.setDataSource(async (q) => {
@@ -61,6 +64,12 @@
                 this.load({ force: true });
             });
             document.getElementById('datahub-matrix-table')?.addEventListener('click', (event) => {
+                const emptyAction = event.target.closest('[data-datahub-empty-action]');
+                if (emptyAction) {
+                    event.preventDefault();
+                    this._applyEmptyAction(emptyAction.dataset.datahubEmptyAction);
+                    return;
+                }
                 const btn = event.target.closest('[data-datahub-action]');
                 if (!btn) return;
                 event.preventDefault();
@@ -79,6 +88,23 @@
                     this._askOpenClaw(code);
                 }
             });
+        },
+
+        _applyEmptyAction(action) {
+            const scope = document.getElementById('datahub-scope');
+            if (action === 'signal') {
+                if (scope) scope.value = 'signal';
+                this._syncCodeRow();
+                this._renderScopeNote();
+                this.load({ force: true });
+                return;
+            }
+            if (action === 'codes') {
+                if (scope) scope.value = 'codes';
+                this._syncCodeRow();
+                this._renderScopeNote();
+                requestAnimationFrame(() => document.getElementById('datahub-code-input')?.focus());
+            }
         },
 
         _addCode(item) {
@@ -127,12 +153,26 @@
                 && this._matrixResultKey === requestKey;
             if (hasPreviousItems) {
                 this._renderTransientNote('正在刷新，保留上次结果');
+                this._renderTrust({
+                    trust_state: 'refreshing',
+                    trust_text: '正在刷新数据矩阵，当前表格保留上次结果。',
+                });
             } else {
                 tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">加载中...</td></tr>';
+                this._renderTrust({
+                    trust_state: 'loading',
+                    trust_text: '正在拉取行情、估值和 AI 信号数据。',
+                });
             }
 
             if (scope === 'watchlist') {
                 await this._refreshWatchlistCache();
+                if (!this._hasWatchlistItems()) {
+                    this._items = [];
+                    this._matrixResultKey = requestKey;
+                    this._renderEmptyWatchlist();
+                    return;
+                }
             }
             const requestId = this._beginMatrixRequest(scope, requestKey);
             this._renderScopeNote();
@@ -244,6 +284,46 @@
             }
         },
 
+        _hasWatchlistItems() {
+            return Array.isArray(App.watchlistCache) && App.watchlistCache.length > 0;
+        },
+
+        _renderEmptyWatchlist() {
+            const summary = {
+                total: 0,
+                trust_state: 'empty',
+                trust_title: '等待自选',
+                trust_text: '自选股为空，当前没有使用默认候选；添加自选股，或切到 AI 信号 Top / 指定股票继续研究。',
+            };
+            this._renderStats(summary, []);
+            this._renderTrust(summary);
+            const note = document.getElementById('datahub-scope-note');
+            if (note) {
+                note.innerHTML = [
+                    '<span class="coverage-pill">自选股为空</span>',
+                    '<span class="coverage-pill">没有使用默认候选</span>',
+                    '<span class="coverage-pill">可切到 AI 信号 Top 或指定股票</span>',
+                ].join('');
+            }
+            const tbody = document.querySelector('#datahub-matrix-table tbody');
+            if (tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="10">
+                            <div class="datahub-empty-state">
+                                <strong>自选股为空</strong>
+                                <span>没有使用默认候选。先添加自选股，或切到 AI 信号 Top / 指定股票查看候选。</span>
+                                <div class="datahub-empty-actions">
+                                    <button class="btn btn-sm" data-datahub-empty-action="signal">看 AI 信号 Top</button>
+                                    <button class="btn btn-sm" data-datahub-empty-action="codes">指定股票</button>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+        },
+
         _renderTransientNote(message) {
             const note = document.getElementById('datahub-scope-note');
             if (!note) return;
@@ -259,6 +339,11 @@
                     const state = options.attemptedFallback ? '刷新超时' : '刷新失败';
                     note.innerHTML = `<span class="coverage-pill">${state}</span><span class="coverage-pill">保留上次结果</span><span class="coverage-pill">${message}</span>`;
                 }
+                this._renderTrust({
+                    trust_state: 'stale',
+                    trust_title: options.attemptedFallback ? '刷新超时' : '刷新失败',
+                    trust_text: '已保留上次数据矩阵；建议稍后刷新，或缩小范围后重试。',
+                });
                 return;
             }
             if (tbody) {
@@ -267,14 +352,28 @@
             if (note) {
                 note.innerHTML = `<span class="coverage-pill">加载失败</span><span class="coverage-pill">${message}</span>`;
             }
+            this._renderTrust({
+                trust_state: 'failed',
+                trust_title: '加载失败',
+                trust_text: `本次请求失败：${message}；可以重新刷新或切换范围。`,
+            });
         },
 
         _render(items, summary) {
             this._renderStats(summary, items);
+            this._renderTrust(summary);
+            const trustInfo = this._trustState(summary);
+            const lowTrust = this._isLowTrust(trustInfo);
             const tbody = document.querySelector('#datahub-matrix-table tbody');
             if (!tbody) return;
             if (!items.length) {
                 tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center">暂无数据，请加入自选股或切到 AI 信号 Top</td></tr>';
+                this._renderTrust({
+                    ...summary,
+                    trust_state: 'empty',
+                    trust_title: '等待数据',
+                    trust_text: '当前范围暂无矩阵数据；可以加入自选股、指定股票或切到 AI 信号 Top。',
+                });
                 return;
             }
 
@@ -283,10 +382,13 @@
                 const scoreCls = score >= 78 ? 'score-hot' : score >= 62 ? 'score-warm' : score >= 45 ? 'score-neutral' : 'score-cold';
                 const reasons = item.reason_tags || [];
                 const risks = item.risk_tags || [];
-                const displayRisks = this._displayRiskTags(risks);
+                const riskGroups = this._riskTagGroups(risks);
                 const riskCls = item.risk_level === '高' ? 'risk-high' : item.risk_level === '中' ? 'risk-mid' : 'risk-low';
-                const nextActions = item.next_actions || [];
+                const nextActions = this._safeNextActions(item.next_actions || [], lowTrust);
                 const stockMeta = this._stockMetaLine(item);
+                const paperButton = lowTrust
+                    ? ''
+                    : `<button class="btn btn-xs" data-datahub-action="paper" data-code="${App.escapeHTML(item.code)}">模拟</button>`;
                 return `<tr>
                     <td>${item.matrix_rank || '--'}</td>
                     <td>
@@ -301,13 +403,13 @@
                     <td>${this._fmtQlib(item)}</td>
                     <td>
                         <span class="datahub-risk-pill ${riskCls}">${App.escapeHTML(item.risk_level || '--')}</span>
-                        <div>${displayRisks.slice(0, 3).map((tag) => `<span class="datahub-risk-tag">${App.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted text-xs">暂无明显风险</span>'}</div>
+                        <div>${this._renderRiskTags(riskGroups)}</div>
                     </td>
-                    <td>${nextActions.slice(0, 3).map((tag) => `<span class="datahub-next-tag">${App.escapeHTML(tag)}</span>`).join('') || '<span class="text-muted">--</span>'}</td>
+                    <td>${this._renderNextActions(nextActions)}</td>
                     <td class="datahub-actions">
                         <button class="btn btn-xs" data-datahub-action="valuation" data-code="${App.escapeHTML(item.code)}">估值</button>
                         <button class="btn btn-xs" data-datahub-action="watchlist" data-code="${App.escapeHTML(item.code)}">自选</button>
-                        <button class="btn btn-xs" data-datahub-action="paper" data-code="${App.escapeHTML(item.code)}">模拟</button>
+                        ${paperButton}
                         <button class="btn btn-xs" data-datahub-action="ask" data-code="${App.escapeHTML(item.code)}">问龙虾</button>
                     </td>
                 </tr>`;
@@ -387,16 +489,122 @@
             const signalBits = [`AI信号覆盖 ${qlib}`];
             if (signalQuality.label) signalBits.push(String(signalQuality.label));
             if (signalQuality.penalty_applied) signalBits.push('已降权');
-            const fallbackPill = summary.used_fallback
-                ? `<span class="coverage-pill">${summary.fallback_reason === 'client_timeout_default' ? '刷新超时 · 默认候选降级预览' : '默认候选'}</span>`
+            const isFallback = Boolean(summary.used_fallback);
+            const fallbackLabel = this._fallbackLabel(summary.fallback_reason);
+            const scopeLabel = labels[scope] || scope;
+            const sampleLabel = isFallback ? `样本来源 ${fallbackLabel}` : `范围 ${scopeLabel}`;
+            const scopeContext = isFallback ? `请求范围 ${scopeLabel}` : (desc[scope] || '当前筛选范围');
+            const fallbackPill = isFallback
+                ? `<span class="coverage-pill">${summary.fallback_reason === 'client_timeout_default' ? '刷新超时 · 默认候选降级预览' : fallbackLabel}</span>`
                 : '';
             note.innerHTML = [
                 fallbackPill,
-                `<span class="coverage-pill">范围 ${App.escapeHTML(labels[scope] || scope)}</span>`,
-                `<span class="coverage-pill">${App.escapeHTML(desc[scope] || '当前筛选范围')}</span>`,
+                `<span class="coverage-pill">${App.escapeHTML(sampleLabel)}</span>`,
+                `<span class="coverage-pill">${App.escapeHTML(scopeContext)}</span>`,
                 `<span class="coverage-pill">${watchlistCount == null ? '' : `自选 ${App.escapeHTML(String(watchlistCount))} 只 · `}样本 ${App.escapeHTML(String(total))} 只</span>`,
                 `<span class="coverage-pill">估值 ${App.escapeHTML(valuation)} · ${App.escapeHTML(signalBits.join(' · '))}</span>`,
             ].filter(Boolean).join('');
+        },
+
+        _trustState(summary = {}) {
+            if (summary.trust_state) {
+                return {
+                    state: summary.trust_state,
+                    title: summary.trust_title,
+                    text: summary.trust_text,
+                };
+            }
+            if (summary.used_fallback) {
+                const reason = String(summary.fallback_reason || '');
+                const title = reason === 'client_timeout_default' ? '降级预览' : '默认候选';
+                const textByReason = {
+                    client_timeout_default: '请求超时后切到默认候选降级预览，先刷新或缩小范围确认真实矩阵。',
+                    watchlist_empty: '自选股为空，当前展示默认候选预览，不是自选结果；先添加自选股或切到 AI 信号 Top。',
+                    signal_empty: 'AI 信号池为空，当前展示默认候选预览，不是信号筛选结果；先刷新信号或指定股票。',
+                    forced_default: '当前强制使用默认候选预览，仅用于应急观察；先刷新真实矩阵再纳入研究。',
+                };
+                return {
+                    state: 'fallback',
+                    title,
+                    text: textByReason[reason] || '当前来自默认候选降级预览，先刷新或缩小范围确认真实矩阵。',
+                };
+            }
+            const signalStatus = summary.signal_status || summary.qlib_status || '';
+            const signalQuality = summary.signal_quality || {};
+            const valuationCoverage = Number(summary.valuation_coverage_pct);
+            const sampleDays = Number(signalQuality.sample_days);
+            const reviewReasons = [];
+            if (!Number.isFinite(valuationCoverage) || valuationCoverage < 50) reviewReasons.push('估值覆盖不足');
+            if (/未验证|unverified/i.test(String(signalQuality.label || ''))) reviewReasons.push('信号未验证');
+            if (signalQuality.penalty_applied) reviewReasons.push('已降权');
+            if (Number.isFinite(sampleDays) && sampleDays <= 0) reviewReasons.push('样本不足');
+            if (signalStatus === 'offline' || signalStatus === 'empty') reviewReasons.push('AI信号离线');
+            if (reviewReasons.length) {
+                return {
+                    state: 'review',
+                    title: '需复核',
+                    text: `矩阵已返回，但${reviewReasons.slice(0, 3).join('、')}；先补齐估值或验证信号后再纳入研究。`,
+                };
+            }
+            const quality = signalQuality.label ? ` · ${signalQuality.label}` : '';
+            return {
+                state: 'real',
+                title: '真实合成',
+                text: `行情、估值和 AI 信号已完成合成${quality}，可进入估值或模拟盘复核。`,
+            };
+        },
+
+        _renderTrust(summary = {}) {
+            const panel = document.getElementById('datahub-trust');
+            if (!panel) return;
+            const info = this._trustState(summary);
+            const state = info.state || 'loading';
+            const title = info.title || {
+                loading: '正在加载',
+                refreshing: '正在刷新',
+                empty: '等待数据',
+                stale: '保留旧结果',
+                failed: '加载失败',
+                real: '真实合成',
+                fallback: '降级预览',
+                review: '需复核',
+            }[state] || '状态未知';
+            const text = info.text || '数据矩阵会标明真实合成、需复核或降级预览状态。';
+            const trustClass = {
+                real: 'trust-real',
+                fallback: 'trust-fallback',
+                review: 'trust-review',
+                stale: 'trust-stale',
+                failed: 'trust-failed',
+                empty: 'trust-empty',
+                refreshing: 'trust-loading',
+                loading: 'trust-loading',
+            }[state] || 'trust-loading';
+            panel.className = `opportunity-trust-panel ${trustClass}`;
+            panel.innerHTML = `
+                <span class="opportunity-trust-badge">${App.escapeHTML(title)}</span>
+                <span class="opportunity-trust-text">${App.escapeHTML(text)}</span>
+            `;
+        },
+
+        _isLowTrust(info = {}) {
+            return ['fallback', 'review', 'stale', 'failed', 'empty', 'loading', 'refreshing'].includes(info.state || '');
+        },
+
+        _safeNextActions(actions, lowTrust = false) {
+            const list = Array.isArray(actions) ? actions : [];
+            if (!lowTrust) return list;
+            return list.filter((action) => !/模拟|交易|小仓|买入|卖出/.test(String(action || '')));
+        },
+
+        _fallbackLabel(reason) {
+            const labels = {
+                client_timeout_default: '默认候选',
+                forced_default: '默认候选',
+                watchlist_empty: '默认候选',
+                signal_empty: '默认候选',
+            };
+            return labels[String(reason || '')] || '默认候选';
         },
 
         async _openValuation(code) {
@@ -409,16 +617,35 @@
 
         async _askOpenClaw(code) {
             const item = this._items.find((stock) => stock.code === code) || { code };
+            const signalTrust = this._openClawSignalTrustLine(item);
+            const riskLine = Array.isArray(item.risk_tags) && item.risk_tags.length
+                ? `显式风险：${item.risk_tags.join('、')}。`
+                : '显式风险：暂无明显风险。';
             const prompt = [
                 `请基于数据中枢帮我分析 ${item.name || code}(${code})。`,
                 `决策评分：${item.decision_score ?? '--'}，标签：${item.decision_label || '--'}。`,
                 `PEG：${this._fmtNum(item.peg_next_year, 2)}，明年增速：${this._fmtPct(item.growth_next_year_pct)}，目标空间：${this._fmtPct(item.upside_pct)}。`,
                 `AI信号：${item.signal_rank || item.qlib_rank ? `排名 ${item.signal_rank || item.qlib_rank}，分数 ${this._fmtNum(item.signal_score ?? item.qlib_score, 3)}，来源 ${item.signal_provider || 'local_momentum'}` : '暂无覆盖'}。`,
-                '请给我一个适合模拟盘的观察结论、风险点和下一步动作。',
+                signalTrust,
+                riskLine,
+                '请给我一个适合模拟盘的观察结论、风险点和下一步动作；仅供观察，不要给实盘下单建议。',
             ].join('\n');
             await App.switchTab('openclaw');
             await globalThis.OpenClawWorkbench?.maybeInitForTab?.('openclaw');
             await globalThis.OpenClawWorkbench?.send?.(prompt);
+        },
+
+        _openClawSignalTrustLine(item = {}) {
+            const provider = this._sourceLabel(item.signal_provider || item.qlib_provider || 'local_momentum') || '未知来源';
+            const rank = item.signal_rank || item.qlib_rank;
+            const confidence = item.signal_confidence || item.qlib_confidence || item.signal_quality?.confidence || 'unverified';
+            const label = item.signal_quality?.label || this._signalConfidenceLabel(confidence) || '未验证';
+            const sampleDays = Number(item.signal_quality?.sample_days ?? item.signal_sample_days);
+            const sample = Number.isFinite(sampleDays) ? `样本 ${sampleDays} 天` : '样本未知';
+            const penalty = item.signal_quality?.penalty_applied || /AI未验证|AI未覆盖/.test((item.risk_tags || []).join('、'));
+            const status = rank ? `AI${label}` : 'AI未覆盖';
+            const action = penalty ? '已降权，仅供观察' : '按正常权重参与评分';
+            return `信号可信度：${status}，${sample}，来源 ${provider}，${action}。`;
         },
 
         _fmtNum(value, digits = 2) {
@@ -462,16 +689,114 @@
             };
             const label = labels[confidence] || '未验证';
             const diamond = confidence === 'validated_positive' ? '<span class="datahub-diamond">验证偏正</span>' : '';
-            return `${diamond}<span class="datahub-qlib-rank">#${App.escapeHTML(rank)} · ${App.escapeHTML(score)}</span><div class="text-muted text-xs">${App.escapeHTML(item.signal_provider || 'local_momentum')} · ${App.escapeHTML(label)}</div>`;
+            const provider = this._sourceLabel(item.signal_provider || 'local_momentum');
+            return `${diamond}<span class="datahub-qlib-rank">#${App.escapeHTML(rank)} · ${App.escapeHTML(score)}</span><div class="text-muted text-xs">${App.escapeHTML(provider)} · ${App.escapeHTML(label)}</div>`;
+        },
+
+        _sourceLabel(value) {
+            const key = String(value || '').trim();
+            const labels = {
+                local_stock_daily: '本地日线',
+                local_stock_daily_coverage_pool: '本地日线',
+                local_derived: '本地推导',
+                local_momentum: '本地动量信号',
+                astock: '研报估值',
+                research_report: '研报估值',
+                market_news_multi_source: '市场新闻聚合',
+                eastmoney: '东方财富',
+                ths: '同花顺',
+                tushare: 'Tushare',
+                signal_engine: 'Signal Engine',
+                legacy_qlib: 'Qlib兼容',
+                qlib: 'Qlib兼容',
+            };
+            return labels[key] || key;
+        },
+
+        _signalConfidenceLabel(value) {
+            const labels = {
+                validated_positive: '验证偏正',
+                validated_neutral: '验证中性',
+                validated_weak: '验证偏弱',
+                unverified: '未验证',
+            };
+            const key = String(value || '').trim();
+            return labels[key] || key;
+        },
+
+        _qualityStatusLabel(value) {
+            const labels = {
+                ok: '',
+                stale: '质量 滞后',
+                degraded: '质量 降级',
+                unavailable: '质量 不可用',
+                error: '质量 异常',
+            };
+            const key = String(value || '').trim();
+            return labels[key] ?? (key ? `质量 ${key}` : '');
+        },
+
+        _valuationSourceLabel(item = {}) {
+            const source = String(item.valuation_source || item.source || item.report_source || '').trim();
+            const reportCount = Number(item.report_count);
+            if (source === 'astock' || source === 'research_report') {
+                return Number.isFinite(reportCount) && reportCount <= 0 ? '研报缺失' : '研报估值';
+            }
+            if (source === 'local_derived' || source === 'stock_daily+signal+momentum') {
+                return '本地推导';
+            }
+            return this._sourceLabel(source);
         },
 
         _normalizeScope(scope) {
             return scope === 'qlib' ? 'signal' : scope;
         },
 
-        _displayRiskTags(risks) {
-            const technicalMissing = new Set(['PEG缺失', 'AI未覆盖']);
-            return (Array.isArray(risks) ? risks : []).filter((tag) => !technicalMissing.has(tag));
+        _riskTagGroups(risks) {
+            const hidden = new Set(['PEG缺失']);
+            const dataGaps = new Set(['AI未覆盖', 'AI未验证', '无研报预测', '增速缺失', '目标价缺失', '行情缓存偏旧', '数据源超时']);
+            return (Array.isArray(risks) ? risks : []).reduce((groups, tag) => {
+                if (hidden.has(tag)) return groups;
+                if (dataGaps.has(tag)) {
+                    groups.dataGaps.push(tag);
+                } else {
+                    groups.marketRisks.push(tag);
+                }
+                return groups;
+            }, { dataGaps: [], marketRisks: [] });
+        },
+
+        _renderRiskTags(groups = {}) {
+            const marketRisks = Array.isArray(groups.marketRisks) ? groups.marketRisks.slice(0, 3) : [];
+            const dataGaps = Array.isArray(groups.dataGaps) ? groups.dataGaps.slice(0, 2) : [];
+            const riskHtml = marketRisks
+                .map((tag) => `<span class="datahub-risk-tag">${App.escapeHTML(tag)}</span>`)
+                .join('');
+            const gapHtml = dataGaps
+                .map((tag) => `<span class="datahub-data-gap-tag">${App.escapeHTML(tag)}</span>`)
+                .join('');
+            return riskHtml || gapHtml
+                ? `${riskHtml}${gapHtml}`
+                : '<span class="text-muted text-xs">暂无明显风险</span>';
+        },
+
+        _actionIntentClass(action) {
+            const text = String(action || '');
+            if (/问龙虾|研究|重点池/.test(text)) return 'action-research';
+            if (/模拟|交易|小仓|买入|卖出/.test(text)) return 'action-trade';
+            if (/观察|跟踪|自选|监控|等待/.test(text)) return 'action-watch';
+            if (/补|核对|查|估值详情|同业估值|PEG|目标价|缺失数据/.test(text)) return 'action-data';
+            if (/暂缓|保留/.test(text)) return 'action-hold';
+            return 'action-watch';
+        },
+
+        _renderNextActions(actions) {
+            const list = Array.isArray(actions) ? actions.slice(0, 4) : [];
+            if (!list.length) return '<span class="text-muted">--</span>';
+            return list.map((action) => {
+                const cls = this._actionIntentClass(action);
+                return `<span class="datahub-action-tag ${cls}">${App.escapeHTML(action)}</span>`;
+            }).join('');
         },
 
         _stockMetaLine(item) {
@@ -481,7 +806,24 @@
                 .replace(/^制造业[-·\s]*/, '')
                 .replace(/制造业$/, '')
                 .trim();
-            return [code, industry].filter(Boolean).join(' · ');
+            const quoteSource = this._sourceLabel(item.quote_source || item.price_source || item.market_source);
+            const quoteDate = String(item.quote_date || item.trade_date || '').trim();
+            const valuationSource = this._valuationSourceLabel(item);
+            const confidence = this._signalConfidenceLabel(item.signal_confidence || item.qlib_confidence);
+            const quality = this._qualityStatusLabel(item.quality_status);
+            const quoteMeta = quoteSource || quoteDate
+                ? `行情 ${[quoteSource, quoteDate].filter(Boolean).join(' ')}`
+                : '';
+            const valuationMeta = valuationSource ? `估值 ${valuationSource}` : '';
+            const signalMeta = confidence ? `AI ${confidence}` : '';
+            return [
+                code,
+                industry,
+                quoteMeta,
+                valuationMeta,
+                signalMeta,
+                quality,
+            ].filter(Boolean).join(' · ');
         },
 
         _latestSourceVersion(sourceHealth) {

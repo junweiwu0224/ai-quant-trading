@@ -95,7 +95,7 @@
 git clone https://github.com/junweiwu0224/ai-quant-trading.git
 cd ai-quant-trading
 
-# 配置环境变量（可选，但公网部署时建议设置 QUANT_SYSTEM_API_KEY）
+# 配置环境变量（可选；公网部署必须设置 QUANT_SYSTEM_API_KEY，并先按 runbook 确认 OpenClaw/LLM 边界）
 cp .env.example .env
 
 # Docker 部署（会启动容器并挂载本地 data/logs；交付预检默认不执行）

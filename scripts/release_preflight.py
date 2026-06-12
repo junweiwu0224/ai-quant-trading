@@ -21,7 +21,12 @@ class PreflightStep:
     writes_reports: bool = False
 
 
-def build_preflight_plan(*, with_audits: bool = False, with_deployment_static: bool = False) -> list[PreflightStep]:
+def build_preflight_plan(
+    *,
+    with_audits: bool = False,
+    with_deployment_static: bool = False,
+    with_production_static: bool = False,
+) -> list[PreflightStep]:
     """Return the ordered local preflight plan.
 
     The default plan intentionally avoids Docker, dev servers, real providers,
@@ -52,7 +57,14 @@ def build_preflight_plan(*, with_audits: bool = False, with_deployment_static: b
                 ),
             ]
         )
-    if with_deployment_static:
+    if with_production_static:
+        plan.append(
+            PreflightStep(
+                "deployment-production-static",
+                (PYTHON, "scripts/deployment_static_preflight.py", "--production"),
+            )
+        )
+    elif with_deployment_static:
         plan.append(
             PreflightStep(
                 "deployment-static",
@@ -249,6 +261,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also run static deployment checks without starting Docker.",
     )
+    parser.add_argument(
+        "--with-production-static",
+        action="store_true",
+        help="Also run production static deployment checks and fail on production soft findings.",
+    )
     parser.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     args = parser.parse_args(argv)
 
@@ -258,7 +275,11 @@ def main(argv: list[str] | None = None) -> int:
         _print_evidence_issues(issues)
         return 1 if issues else 0
 
-    plan = build_preflight_plan(with_audits=args.with_audits, with_deployment_static=args.with_deployment_static)
+    plan = build_preflight_plan(
+        with_audits=args.with_audits,
+        with_deployment_static=args.with_deployment_static,
+        with_production_static=args.with_production_static,
+    )
     if args.dry_run:
         _print_plan(plan)
         return 0

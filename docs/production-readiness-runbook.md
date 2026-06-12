@@ -20,6 +20,7 @@ git status --short
 .venv/bin/python scripts/release_preflight.py --verify-evidence
 .venv/bin/python scripts/build_release_bundle.py --verify-only
 .venv/bin/python scripts/deployment_static_preflight.py
+.venv/bin/python scripts/release_preflight.py --with-production-static
 ```
 
 通过标准：
@@ -27,7 +28,7 @@ git status --short
 - Git 工作树没有未提交源码改动。
 - Release evidence 和 bundle verify 通过。
 - Deployment static preflight 没有 hard findings。
-- Soft findings 已记录到发布决策中，尤其是 OpenClaw auth/network 暴露边界。
+- 生产静态门禁没有 soft findings；如果仍存在 OpenClaw auth/network soft finding，必须在发布决策中作为显式 override 记录。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
 
 ## 1. 本地标准门禁
 
@@ -146,7 +147,7 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 
 建议顺序：
 
-1. 先跑 `scripts/deployment_static_preflight.py --fail-on-soft`，确认生产 soft finding 是否已经被配置或网络策略解决。
+1. 先跑 `scripts/deployment_static_preflight.py --production`，确认生产 soft finding 是否已经被配置、网络策略解决，或已经进入发布决策记录。
 2. 只读检查 `/api/openclaw/status`。
 3. 使用受控 prompt 做一次非交易、非写入的 chat smoke。
 4. 验证 audit/history 是否按用户 workspace 隔离。
@@ -196,7 +197,7 @@ docker compose --profile trading up
 
 ## 8. 发布决策记录
 
-上线前记录：
+上线前复制并填写 `docs/release-evidence/production-release-decision-template.md`，记录：
 
 - Commit SHA / branch。
 - Bundle path 和 checksum。
@@ -206,4 +207,4 @@ docker compose --profile trading up
 - 未解决 soft findings 和接受人。
 - 回滚命令和数据备份位置。
 
-如果接受 OpenClaw `auth none` 或公开端口等生产风险，必须单独写 ADR 或发布批准记录。
+如果接受 OpenClaw `auth none` 或公开端口等生产风险，必须在发布批准记录中写明 owner、到期时间、补偿控制、回滚路径和后续修复项；不得把本地 release preflight 当作生产暴露批准。长期门禁决策见 `docs/decisions/0004-production-release-risk-gates.md`。

@@ -15,6 +15,23 @@ SECRET_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 PLACEHOLDER_VALUES = {"", "your-api-key", "bridge-secret", "test", "local1"}
+REQUIRED_DECISION_DOCS = {
+    "docs/decisions/0004-production-release-risk-gates.md": [
+        "OpenClaw",
+        "--auth none",
+        "18789",
+        "iWencai",
+        "LLM",
+        "paper/live/broker/trading",
+    ],
+    "docs/release-evidence/production-release-decision-template.md": [
+        "OpenClaw Auth And Network Gate",
+        "Real Provider / iWencai Gate",
+        "OpenClaw / LLM Gate",
+        "Data Sync And Migration Gate",
+        "Paper / Live / Broker Gate",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -61,6 +78,32 @@ def _secret_findings(relative: str, text: str) -> list[Finding]:
     return findings
 
 
+def _decision_doc_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    for relative, required_terms in REQUIRED_DECISION_DOCS.items():
+        path = root / relative
+        if not path.is_file():
+            findings.append(
+                Finding(
+                    "hard",
+                    "release-risk-decision",
+                    f"Missing production release risk decision document: {relative}",
+                )
+            )
+            continue
+        text = path.read_text(encoding="utf-8")
+        missing_terms = [term for term in required_terms if term not in text]
+        if missing_terms:
+            findings.append(
+                Finding(
+                    "hard",
+                    "release-risk-decision",
+                    f"{relative} does not document required release gates: {', '.join(missing_terms)}",
+                )
+            )
+    return findings
+
+
 def run_checks(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     required = ["docker-compose.yml", "Dockerfile", ".dockerignore", ".env.example"]
@@ -74,6 +117,7 @@ def run_checks(root: Path) -> list[Finding]:
     dockerfile = _read(root, "Dockerfile")
     dockerignore = _read(root, ".dockerignore")
     env_example = _read(root, ".env.example")
+    findings.extend(_decision_doc_findings(root))
 
     for relative, text in {
         "docker-compose.yml": compose,
@@ -137,6 +181,10 @@ def run_checks(root: Path) -> list[Finding]:
         findings.append(Finding("hard", "env-example", ".env.example must document OPENAI_API_KEY."))
     if "APP_ENV=development" not in env_example:
         findings.append(Finding("hard", "env-example", ".env.example must default APP_ENV to development."))
+    if "OPENCLAW_MANAGED=false" not in env_example:
+        findings.append(Finding("hard", "env-example", ".env.example must default OPENCLAW_MANAGED to false."))
+    if "OPENCLAW_AUTO_START=false" not in env_example:
+        findings.append(Finding("hard", "env-example", ".env.example must default OPENCLAW_AUTO_START to false."))
     if "IWENCAI_COOKIE=" not in env_example:
         findings.append(Finding("soft", "provider-boundary", ".env.example does not document IWENCAI_COOKIE boundary."))
 
@@ -160,13 +208,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     parser.add_argument("--json", action="store_true", help="Print findings as JSON.")
     parser.add_argument("--fail-on-soft", action="store_true", help="Treat soft production-readiness findings as failures.")
+    parser.add_argument("--production", action="store_true", help="Production readiness alias for --fail-on-soft.")
     args = parser.parse_args(argv)
 
     findings = run_checks(Path(args.root).resolve())
     _print_findings(findings, as_json=args.json)
     has_hard = any(item.severity == "hard" for item in findings)
     has_soft = any(item.severity == "soft" for item in findings)
-    return 1 if has_hard or (args.fail_on_soft and has_soft) else 0
+    return 1 if has_hard or ((args.fail_on_soft or args.production) and has_soft) else 0
 
 
 if __name__ == "__main__":

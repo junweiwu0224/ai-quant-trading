@@ -55,6 +55,17 @@ def test_preflight_plan_can_include_static_deployment_gate_explicitly():
     assert "docker compose" not in rendered
 
 
+def test_preflight_plan_can_include_production_static_gate_explicitly():
+    plan = release_preflight.build_preflight_plan(with_production_static=True)
+    labels = [step.label for step in plan]
+    commands = [" ".join(step.command) for step in plan]
+    rendered = "\n".join(commands)
+
+    assert labels[-1] == "deployment-production-static"
+    assert ".venv/bin/python scripts/deployment_static_preflight.py --production" in rendered
+    assert "docker compose" not in rendered
+
+
 def test_preflight_dry_run_prints_commands_without_running(monkeypatch, capsys):
     calls = []
 
@@ -97,6 +108,8 @@ def test_local_delivery_evidence_lists_new_release_files():
 
     for required in [
         "docs/release-evidence/2026-06-12-local-delivery-readiness.md",
+        "docs/decisions/0004-production-release-risk-gates.md",
+        "docs/release-evidence/production-release-decision-template.md",
         "scripts/build_release_bundle.py",
         "scripts/release_preflight.py",
         "tests/test_build_release_bundle.py",

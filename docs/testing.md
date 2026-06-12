@@ -14,6 +14,7 @@
 - 前端渲染静态扫描：`.venv/bin/python scripts/frontend_data_render_audit.py`。
 - 部署静态预检：`.venv/bin/python scripts/deployment_static_preflight.py`。该脚本只读 Docker/环境示例文件，不启动 Docker、不连接外部服务。
 - 本地交付证据：`docs/release-evidence/2026-06-12-local-delivery-readiness.md` 记录本轮 release delta、验证结果、报告产物和未覆盖上线门禁。
+- 生产上线 runbook：`docs/production-readiness-runbook.md` 记录需要用户确认后才执行的 Docker、真实 provider、OpenClaw/LLM、数据同步和交易门禁。
 
 ## 改动类型矩阵
 

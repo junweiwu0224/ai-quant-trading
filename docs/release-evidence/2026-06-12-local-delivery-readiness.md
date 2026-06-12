@@ -10,6 +10,7 @@ Included in this local delivery slice:
 - Stock workbench event-flow, basket/backtest draft, and local event-study audit evidence.
 - Local release preflight gate and E2E runner portability.
 - Static deployment preflight for Docker/env safety boundaries without starting Docker.
+- Production readiness runbook for confirmed Docker/provider/OpenClaw/data/trading gates.
 - Documentation alignment for `.venv/bin/python`, local E2E, Python runtime split, and Docker safety boundaries.
 
 Explicitly not included:
@@ -61,6 +62,7 @@ New files that must be included in a staging/release bundle:
 
 ```text
 docs/release-evidence/2026-06-12-local-delivery-readiness.md
+docs/production-readiness-runbook.md
 scripts/build_release_bundle.py
 scripts/deployment_static_preflight.py
 scripts/release_preflight.py
@@ -113,6 +115,7 @@ Observed results:
 - Latest release preflight with deployment static gate: context pack OK, release evidence OK, pytest `807 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment static preflight passed with soft findings only.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - Deployment static preflight passed with no hard findings. It still reports soft production-readiness findings for OpenClaw `--auth none` and published port `18789`, which require explicit production network/auth review before external exposure.
+- Production readiness runbook documents the remaining confirmed-execution gates, expected evidence, rollback paths, and actions that must not run without approval.
 - API data health report: `37` endpoints, `0` failed, `0` hard findings, `3` soft findings.
 - Frontend static render audit report: `914` heuristic risks by severity (`354` high, `545` medium, `15` low). These are historical/static heuristic findings and were not treated as new hard blockers by the audit gate.
 - Full local Playwright E2E: data-display health `1 passed`; smoke/OpenClaw `13 passed`.

@@ -80,6 +80,8 @@
 
 `release_preflight.py` 适合作为标准交付收口入口；若需要最小门禁或无写入 hook，仍按上表选择更小的针对性命令。
 
+生产上线的人工门禁顺序、证据和回滚要求见 `docs/production-readiness-runbook.md`。该 runbook 是发布执行清单，不会自动批准 Docker、外部服务、数据同步、迁移或交易动作。
+
 ## 禁止放入 hooks
 
 - `docker compose up -d`、`docker compose down`。

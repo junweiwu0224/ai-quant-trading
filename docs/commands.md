@@ -62,6 +62,8 @@ docker compose down
 
 本地交付证据清单写在 `docs/release-evidence/`。当前同花顺式平台升级收口证据见 `docs/release-evidence/2026-06-12-local-delivery-readiness.md`。
 
+生产上线执行顺序和确认边界见 `docs/production-readiness-runbook.md`。该 runbook 包含 Docker compose、真实 provider、OpenClaw/LLM、数据同步和交易相关门禁；这些步骤默认不由本地预检执行。
+
 ## Context pack 验证
 
 ```bash

@@ -12,6 +12,7 @@ from pathlib import Path
 
 PYTHON = ".venv/bin/python"
 DEFAULT_EVIDENCE_PATH = "docs/release-evidence/2026-06-12-local-delivery-readiness.md"
+RELEASE_BASE_SEARCH_DEPTH = 12
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ def build_preflight_plan(
     with_audits: bool = False,
     with_deployment_static: bool = False,
     with_production_static: bool = False,
+    with_production_env: bool = False,
 ) -> list[PreflightStep]:
     """Return the ordered local preflight plan.
 
@@ -69,6 +71,13 @@ def build_preflight_plan(
             PreflightStep(
                 "deployment-static",
                 (PYTHON, "scripts/deployment_static_preflight.py"),
+            )
+        )
+    if with_production_env:
+        plan.append(
+            PreflightStep(
+                "production-env",
+                (PYTHON, "scripts/production_env_preflight.py", "--profile", "all"),
             )
         )
     return plan
@@ -131,7 +140,7 @@ def _candidate_delta_bases(*, root: Path, evidence_path: str, base_ref: str | No
         return [base_ref]
     bases = ["HEAD"]
     if _path_exists_in_ref("HEAD", evidence_path, root=root):
-        for depth in range(1, 6):
+        for depth in range(1, RELEASE_BASE_SEARCH_DEPTH + 1):
             ref = "HEAD" + "^" * depth
             if _git_ref_exists(ref, root=root):
                 bases.append(ref)
@@ -266,6 +275,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also run production static deployment checks and fail on production soft findings.",
     )
+    parser.add_argument(
+        "--with-production-env",
+        action="store_true",
+        help="Also check required production environment variables without printing secret values.",
+    )
     parser.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     args = parser.parse_args(argv)
 
@@ -279,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         with_audits=args.with_audits,
         with_deployment_static=args.with_deployment_static,
         with_production_static=args.with_production_static,
+        with_production_env=args.with_production_env,
     )
     if args.dry_run:
         _print_plan(plan)

@@ -33,6 +33,7 @@ def test_default_preflight_plan_is_local_and_non_deploying():
     assert "scripts/run_paper.py" not in rendered
     assert "scripts/sync_data.py" not in rendered
     assert "openclaw" not in rendered.lower()
+    assert "production_env_preflight.py" not in rendered
 
 
 def test_preflight_plan_can_include_report_audits_explicitly():
@@ -63,6 +64,17 @@ def test_preflight_plan_can_include_production_static_gate_explicitly():
 
     assert labels[-1] == "deployment-production-static"
     assert ".venv/bin/python scripts/deployment_static_preflight.py --production" in rendered
+    assert "docker compose" not in rendered
+
+
+def test_preflight_plan_can_include_production_env_gate_explicitly():
+    plan = release_preflight.build_preflight_plan(with_production_env=True)
+    labels = [step.label for step in plan]
+    commands = [" ".join(step.command) for step in plan]
+    rendered = "\n".join(commands)
+
+    assert labels[-1] == "production-env"
+    assert ".venv/bin/python scripts/production_env_preflight.py --profile all" in rendered
     assert "docker compose" not in rendered
 
 
@@ -112,10 +124,12 @@ def test_local_delivery_evidence_lists_new_release_files():
         "docs/release-evidence/production-release-decision-template.md",
         "scripts/build_release_bundle.py",
         "scripts/release_preflight.py",
+        "scripts/production_env_preflight.py",
         "tests/test_build_release_bundle.py",
         "tests/test_e2e_local_script.py",
         "tests/test_iwencai_client_status.py",
         "tests/test_iwencai_task_router_api.py",
+        "tests/test_production_env_preflight.py",
         "tests/test_release_preflight.py",
     ]:
         assert required in text
@@ -218,6 +232,27 @@ scripts/release_preflight.py
     )
 
     assert release_preflight.verify_release_evidence(root=tmp_path, evidence_path="evidence.md") == []
+
+
+def test_candidate_delta_bases_searches_deeper_release_history(monkeypatch, tmp_path):
+    def fake_ref_exists(ref, *, root):
+        return ref == "HEAD" or (ref.startswith("HEAD^") and len(ref) <= len("HEAD" + "^" * 8))
+
+    def fake_path_exists(ref, path, *, root):
+        assert ref == "HEAD"
+        assert path == "docs/release-evidence/evidence.md"
+        return True
+
+    monkeypatch.setattr(release_preflight, "_git_ref_exists", fake_ref_exists)
+    monkeypatch.setattr(release_preflight, "_path_exists_in_ref", fake_path_exists)
+
+    bases = release_preflight._candidate_delta_bases(
+        root=tmp_path,
+        evidence_path="docs/release-evidence/evidence.md",
+        base_ref=None,
+    )
+
+    assert "HEAD" + "^" * 8 in bases
 
 
 def test_release_evidence_accepts_committed_release_delta_with_base_ref(tmp_path, monkeypatch):

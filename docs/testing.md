@@ -13,6 +13,7 @@
 - API 数据健康：`.venv/bin/python scripts/dashboard_data_health.py`。该脚本不连接外部服务，但会通过 FastAPI TestClient lifespan 初始化本地数据库、短暂启动/停止调度器和行情服务，并写入 `test-results/data-display-audit/api-report.json`。
 - 前端渲染静态扫描：`.venv/bin/python scripts/frontend_data_render_audit.py`。
 - 部署静态预检：`.venv/bin/python scripts/deployment_static_preflight.py`。该脚本只读 Docker/环境示例文件和生产风险决策文档，不启动 Docker、不连接外部服务；生产上线前使用 `--production` 确认 OpenClaw token auth、compose-only expose 和签收材料仍然有效。
+- 生产环境变量预检：`.venv/bin/python scripts/production_env_preflight.py --profile all`。该脚本只读当前 shell 环境变量，不读取 `.env` 文件、不启动服务、不连接外部系统、不打印 secret 值；生产上线前用它确认 `APP_ENV`、Dashboard API key、OpenClaw token、LLM 和 provider 凭证边界。
 - 本地交付证据：`docs/release-evidence/2026-06-12-local-delivery-readiness.md` 记录本轮 release delta、验证结果、报告产物和未覆盖上线门禁。
 - 生产上线 runbook：`docs/production-readiness-runbook.md` 记录需要用户确认后才执行的 Docker、真实 provider、OpenClaw/LLM、数据同步和交易门禁。
 
@@ -26,9 +27,9 @@
 | Signal/Qlib/机会池 | `tests/test_signal_engine.py`、`tests/test_signal_api.py`、`tests/test_qlib_*` | 对应前端契约测试 |
 | Dashboard API | 对应 router 的 pytest | `.venv/bin/python scripts/dashboard_data_health.py`，执行前确认接受本地 DB 初始化、临时行情订阅和 `test-results/` 报告产物 |
 | 前端 JS/模板/CSS | 对应 `tests/test_*frontend*.py` 或契约测试 | 浏览器 smoke、`frontend_data_render_audit.py` |
-| OpenClaw/LLM | 相关 `tests/test_openclaw_*` | 手动确认外部服务和凭证范围 |
+| OpenClaw/LLM | 相关 `tests/test_openclaw_*` | `.venv/bin/python scripts/production_env_preflight.py --profile llm`，再手动确认外部服务和凭证范围 |
 | 模拟盘/交易/实盘 | 相关 engine/paper/live 测试 | 禁止未确认的真实下单或外部写操作 |
-| Docker/部署 | `.venv/bin/python scripts/deployment_static_preflight.py` | 用户确认后再 `docker compose up -d` |
+| Docker/部署 | `.venv/bin/python scripts/deployment_static_preflight.py` | `.venv/bin/python scripts/production_env_preflight.py --profile docker`，用户确认后再 `docker compose up -d` |
 
 ## E2E 注意事项
 
@@ -66,6 +67,8 @@ os.environ["APP_ENV"] = "test"
 - `.venv/bin/python scripts/frontend_data_render_audit.py` 会写 `test-results/data-display-audit/frontend-static-report.json`，适合报告型门禁，不适合严格无写入 hook。
 - `.venv/bin/python scripts/deployment_static_preflight.py` 是只读静态检查，不替代 Docker build/compose smoke；生产上线前跑 `.venv/bin/python scripts/deployment_static_preflight.py --production`。
 - `.venv/bin/python scripts/release_preflight.py --with-production-static` 是本地门禁加生产静态门禁的组合；它仍不启动 Docker、不调用 OpenClaw/LLM，只验证静态生产边界。
+- `.venv/bin/python scripts/production_env_preflight.py --profile all` 是只读环境门禁，只检查当前 shell 中变量是否存在、是否仍是占位值、secret 是否明显过短，输出不会回显密钥值；它不证明凭证有效，也不替代真实 provider/LLM/OpenClaw smoke。
+- `.venv/bin/python scripts/release_preflight.py --with-production-env` 会在标准本地门禁后显式运行生产环境变量预检；不要把它放入默认 hook，因为它要求当前环境具备上线变量。
 - `.venv/bin/python scripts/release_preflight.py` 不等于生产发布批准；Docker、部署、真实 provider、外部 LLM/OpenClaw、数据同步、交易和生产配置验证仍需用户确认。
 - 全量 pytest 可能受可选依赖、外部数据源、机器环境和当前大量未提交改动影响。
 - 真实数据同步、OpenClaw、LLM、Docker、实盘/券商相关验证不要放入默认自动门禁。

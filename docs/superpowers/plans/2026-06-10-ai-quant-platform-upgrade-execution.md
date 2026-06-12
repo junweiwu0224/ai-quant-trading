@@ -1901,6 +1901,52 @@ Remaining gaps:
 
 - Docker compose, production environment validation, real provider/live validation, OpenClaw/LLM integration, release staging, and production deployment remain separate manual/confirmed gates.
 
+## Task 9.24: Production Environment Variable Preflight Gate
+
+Status: delivered as a production-readiness hardening slice after the local delivery gates. This does not deploy, start Docker, validate real provider credentials, call LLM/OpenClaw, change production config, or approve production release; it turns the previously manual "are the production variables actually injected?" check into a reproducible read-only gate.
+
+Implemented:
+
+- Added `scripts/production_env_preflight.py`, a sanitized environment checker that reads only the current process environment and never reads `.env` files or prints secret values.
+- Profiles are explicit: `base` checks `APP_ENV=production` and `QUANT_SYSTEM_API_KEY`; `docker` also checks `OPENCLAW_API_KEY`; `llm` also checks `OPENAI_API_KEY` and `OPENAI_BASE_URL`; `provider` also checks `IWENCAI_COOKIE`; `all` checks every gate.
+- Findings classify missing, placeholder, invalid literal, invalid URL, and too-short secret states without exposing values.
+- `scripts/release_preflight.py --with-production-env` now appends the environment gate explicitly; the default local preflight remains free of production-secret requirements.
+- Updated `AGENTS.md`, `docs/commands.md`, `docs/testing.md`, `docs/quality-gates.md`, `docs/production-readiness-runbook.md`, ADR `0004`, the production release decision template, and the local delivery evidence document so production-env validation is documented as a confirmed/manual production gate.
+- Added `tests/test_production_env_preflight.py` and extended `tests/test_release_preflight.py` to lock the profile matrix, no-secret-output behavior, dry-run plan integration, and release evidence coverage.
+
+Safety boundary:
+
+- No secret values were written to tests, docs, logs, screenshots, or final evidence.
+- No Docker, deployment, production config mutation, real provider call, external LLM/OpenClaw call, data sync, broker API, paper/live order, migration, or auth/invite-code change was performed.
+- A local shell without production variables is expected to fail `scripts/production_env_preflight.py`; that failure proves the gate is active, not that local delivery is broken.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_production_env_preflight.py tests/test_release_preflight.py -q -p no:cacheprovider
+.venv/bin/python -m compileall -q scripts/production_env_preflight.py scripts/release_preflight.py
+.venv/bin/python scripts/production_env_preflight.py --profile base
+.venv/bin/python scripts/production_env_preflight.py --profile base --json
+.venv/bin/python scripts/release_preflight.py --dry-run --with-production-env
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Focused preflight tests passed: `19 passed, 1 warning`.
+- Targeted compileall and `git diff --check` passed.
+- Local production-env CLI correctly failed without `APP_ENV` and `QUANT_SYSTEM_API_KEY`, reporting only missing statuses and "Secret values were not printed."
+- Sanitized JSON output reported statuses without secret values.
+- Release preflight dry-run shows `production-env: .venv/bin/python scripts/production_env_preflight.py --profile all` only when `--with-production-env` is explicit.
+- Release evidence and context-pack verification passed.
+
+Remaining gaps:
+
+- The production-env gate still must be run in an approved staging/production shell after operator-managed variables are injected; do not copy secrets into repo files or release evidence.
+- Passing the env gate proves only presence/shape/placeholders. It does not prove Docker startup, provider validity, LLM/OpenClaw connectivity, data sync safety, or trading readiness.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

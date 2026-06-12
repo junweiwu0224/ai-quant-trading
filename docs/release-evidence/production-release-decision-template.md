@@ -23,6 +23,22 @@
 
 结论：
 
+## Production Environment Gate
+
+不得在本记录中填写 secret 原文；只记录命令、状态和 operator 确认。
+
+- `.venv/bin/python scripts/production_env_preflight.py --profile base`：
+- `.venv/bin/python scripts/production_env_preflight.py --profile docker`：
+- `.venv/bin/python scripts/production_env_preflight.py --profile llm`：
+- `.venv/bin/python scripts/production_env_preflight.py --profile provider`：
+- `.venv/bin/python scripts/production_env_preflight.py --profile all`：
+- `APP_ENV=production` 是否确认：
+- Dashboard API key 是否由受控环境注入且未写入仓库：
+- OpenClaw token 是否由受控环境注入且未写入仓库：
+- LLM/provider 凭证是否仅在批准范围内使用：
+
+结论：
+
 ## OpenClaw Auth And Network Gate
 
 - 当前配置是否使用 `openclaw gateway run --auth token --token "$${OPENCLAW_API_KEY}"`：

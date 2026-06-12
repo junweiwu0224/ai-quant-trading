@@ -21,6 +21,7 @@ git status --short
 .venv/bin/python scripts/build_release_bundle.py --verify-only
 .venv/bin/python scripts/deployment_static_preflight.py
 .venv/bin/python scripts/release_preflight.py --with-production-static
+.venv/bin/python scripts/production_env_preflight.py --profile base
 ```
 
 通过标准：
@@ -29,6 +30,7 @@ git status --short
 - Release evidence 和 bundle verify 通过。
 - Deployment static preflight 没有 hard findings。
 - 生产静态门禁通过；OpenClaw 必须保持 token auth、compose-only network expose，且不能默认发布宿主机 `18789` 端口。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
+- 生产环境变量基础门禁通过；脚本只报告变量状态，不打印 secret 值。
 
 ## 1. 本地标准门禁
 
@@ -54,6 +56,33 @@ git status --short
 - 修复后重跑同一命令。
 - 不要跳过失败门禁继续上线。
 
+## 1.5 生产环境变量门禁
+
+该门禁只读取当前 shell 环境变量，不读取 `.env` 文件、不启动服务、不连接外部系统、不打印 secret 值。它用于上线前确认配置是否已经由 operator 注入，而不是证明凭证真的有效。
+
+按上线范围执行：
+
+```bash
+.venv/bin/python scripts/production_env_preflight.py --profile base
+.venv/bin/python scripts/production_env_preflight.py --profile docker
+.venv/bin/python scripts/production_env_preflight.py --profile llm
+.venv/bin/python scripts/production_env_preflight.py --profile provider
+.venv/bin/python scripts/production_env_preflight.py --profile all
+```
+
+通过标准：
+
+- `base`：`APP_ENV=production`，`QUANT_SYSTEM_API_KEY` 已设置且不是占位值。
+- `docker`：除 base 外，`OPENCLAW_API_KEY` 已设置，用于 OpenClaw token auth。
+- `llm`：除 base 外，`OPENAI_API_KEY` 和 `OPENAI_BASE_URL` 已设置；后续仍需只读 LLM smoke。
+- `provider`：除 base 外，`IWENCAI_COOKIE` 已设置；后续仍需真实 provider rate-limit 和不泄密验证。
+
+如果失败：
+
+- 不要把真实 secret 写入文档、日志或最终回复。
+- 由 operator 在受控环境中注入变量后重跑同一命令。
+- 不要为了让门禁通过而把 secret 写入仓库或 `.env.example`。
+
 ## 2. Docker Compose 验证
 
 需要先确认：
@@ -61,6 +90,7 @@ git status --short
 - 允许 Docker 写入/挂载本地 `data/`、`logs/`、`dashboard/templates/`、`dashboard/static/`。
 - 已决定是否设置 `QUANT_SYSTEM_API_KEY`、`APP_ENV`、`OPENAI_*`、`OPENCLAW_*`、`IWENCAI_COOKIE`。
 - 已设置 `OPENCLAW_API_KEY`，并确认 OpenClaw gateway 仅通过 compose 网络 `expose: 18789` 供 Dashboard 容器访问；若需要原生 Web 面板，必须显式设置受控的 `OPENCLAW_WEB_URL`。
+- 已通过 `.venv/bin/python scripts/production_env_preflight.py --profile docker`。
 
 确认后执行：
 
@@ -124,6 +154,7 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 - 允许使用真实 provider 凭证/cookie。
 - 明确查询频率、rate-limit 边界和可记录的诊断信息。
 - 明确不保存、展示或提交 cookie、token、真实账号信息。
+- 已通过 `.venv/bin/python scripts/production_env_preflight.py --profile provider`。
 
 建议最小 smoke：
 
@@ -144,6 +175,7 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 - 外部服务地址、认证、模型、额度和日志边界。
 - 是否允许 OpenClaw gateway 暴露到容器网络；默认不发布宿主机端口。
 - 是否启用 `OPENCLAW_MANAGED`、`OPENCLAW_AUTO_START`。
+- 已通过 `.venv/bin/python scripts/production_env_preflight.py --profile llm`，如本次包含 Docker/OpenClaw gateway 也先通过 `--profile docker`。
 
 建议顺序：
 
@@ -202,6 +234,7 @@ docker compose --profile trading up
 - Commit SHA / branch。
 - Bundle path 和 checksum。
 - 本地 preflight 输出。
+- Production env preflight 输出状态；不得记录 secret 值。
 - Docker compose config / ps / smoke 结果。
 - Provider / OpenClaw / LLM 验证范围。
 - 未解决风险、接受人和到期时间。

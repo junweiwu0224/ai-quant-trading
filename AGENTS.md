@@ -22,6 +22,7 @@
 - 语法检查：`.venv/bin/python -m compileall -q .`。
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
 - 本地交付预检：`.venv/bin/python scripts/release_preflight.py`。
+- 生产环境变量只读预检：`.venv/bin/python scripts/production_env_preflight.py --profile all`。
 - E2E：先启动 Dashboard，再运行 `scripts/e2e-local.sh all` 或 `npm run e2e:docker`。
 - `npm test` 当前是占位脚本，会直接失败；不要把它当作项目验证命令。
 
@@ -59,12 +60,14 @@
 - 真实浏览器流程：先启动 Dashboard，再跑 `scripts/e2e-local.sh smoke`、`scripts/e2e-local.sh data-health` 或 `scripts/e2e-local.sh all`。
 - 本地 Dashboard/dev server、E2E server 或任何需要监听 `localhost`/`127.0.0.1` 端口的 QA 命令，默认使用外部/非沙箱执行启动；页面验证仍优先使用 Codex in-app Browser。启动前检查 `8001` 端口和旧进程健康状态，验证后停止临时服务，除非用户明确要求保留。
 - Docker/部署：`docker compose up -d` 会启动服务并写本地数据目录，执行前确认。
+- 生产上线前环境变量检查：`.venv/bin/python scripts/production_env_preflight.py --profile all` 只读当前 shell 环境，不读取 `.env`，不打印 secret 值；它需要真实上线变量，默认不放进普通本地门禁或 hook。
 
 ## Hooks 和质量门禁
 
 - 项目门禁文档：`docs/quality-gates.md`。
 - 当前不默认启用阻断型 hooks；先按文档手动选择验证。
 - 标准交付收口可用 `.venv/bin/python scripts/release_preflight.py`；先用 `--dry-run` 检查命令。默认不会启动 Dashboard、Docker、真实 provider、外部 LLM/OpenClaw、同步数据、交易脚本或生产配置。
+- 生产前可显式加 `.venv/bin/python scripts/release_preflight.py --with-production-env` 或单跑 `scripts/production_env_preflight.py`；不得把 secret 写入仓库或文档来通过门禁。
 - 适合前移的快速门禁：`.venv/bin/python scripts/verify_context_pack.py`、`.venv/bin/python -m compileall -q .`、针对性 pytest、前端静态渲染扫描。
 - 不适合自动 hook：`docker compose up`、真实数据同步、E2E、外部 LLM/OpenClaw 调用、交易/实盘脚本、数据库迁移或清理。
 

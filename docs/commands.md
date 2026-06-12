@@ -54,13 +54,17 @@ docker compose down
 .venv/bin/python scripts/release_preflight.py --with-audits
 .venv/bin/python scripts/release_preflight.py --with-deployment-static
 .venv/bin/python scripts/release_preflight.py --with-production-static
+.venv/bin/python scripts/release_preflight.py --with-production-env
 .venv/bin/python scripts/deployment_static_preflight.py
 .venv/bin/python scripts/deployment_static_preflight.py --production
+.venv/bin/python scripts/production_env_preflight.py --profile all
 ```
 
-默认预检只编排本地可复现门禁：context pack verifier、release evidence 覆盖检查、全量 pytest、compileall 和 `git diff --check`。它不会启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、运行交易脚本或修改生产配置。`--verify-evidence` 可单独检查当前 modified/untracked 文件是否都被交付证据清单覆盖；`--with-audits` 会额外运行数据展示健康和前端静态扫描，并写入 `test-results/data-display-audit/` 报告；`--with-deployment-static` 会额外运行不启动 Docker 的部署静态预检；`--with-production-static` 会使用生产静态门禁，检查 OpenClaw token auth、compose-only expose 和生产风险决策文档。
+默认预检只编排本地可复现门禁：context pack verifier、release evidence 覆盖检查、全量 pytest、compileall 和 `git diff --check`。它不会启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、运行交易脚本或修改生产配置。`--verify-evidence` 可单独检查当前 modified/untracked 文件是否都被交付证据清单覆盖；`--with-audits` 会额外运行数据展示健康和前端静态扫描，并写入 `test-results/data-display-audit/` 报告；`--with-deployment-static` 会额外运行不启动 Docker 的部署静态预检；`--with-production-static` 会使用生产静态门禁，检查 OpenClaw token auth、compose-only expose 和生产风险决策文档；`--with-production-env` 会显式运行生产环境变量预检，要求当前 shell 已提供上线所需变量。
 
 `scripts/deployment_static_preflight.py` 只读取 `docker-compose.yml`、`Dockerfile`、`.dockerignore`、`.env.example` 和生产风险决策文档，检查交易 profile、默认 APP_ENV、密钥注入、Docker 忽略项、OpenClaw token/network 边界和上线签收材料是否存在。默认只因 hard finding 失败；`--production` 或 `--fail-on-soft` 会把生产上线前需要确认的 soft finding 也作为失败。
+
+`scripts/production_env_preflight.py` 只读取当前进程环境变量，不读取 `.env` 文件、不启动服务、不连接外部系统、不打印 secret 值。可用 `--profile base|docker|llm|provider|all` 分层检查：`base` 要求 `APP_ENV=production` 和 `QUANT_SYSTEM_API_KEY`，`docker` 额外要求 `OPENCLAW_API_KEY`，`llm` 额外要求 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`，`provider` 额外要求 `IWENCAI_COOKIE`。
 
 本地交付证据清单写在 `docs/release-evidence/`。当前同花顺式平台升级收口证据见 `docs/release-evidence/2026-06-12-local-delivery-readiness.md`。
 

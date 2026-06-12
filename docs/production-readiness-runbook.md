@@ -23,6 +23,7 @@ git status --short
 .venv/bin/python scripts/release_preflight.py --with-production-static
 .venv/bin/python scripts/production_env_preflight.py --profile base
 .venv/bin/python scripts/production_auth_preflight.py
+.venv/bin/python scripts/production_release_decision_verify.py
 ```
 
 通过标准：
@@ -33,6 +34,7 @@ git status --short
 - 生产静态门禁通过；OpenClaw 必须保持 token auth、compose-only network expose，且不能默认发布宿主机 `18789` 端口。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
 - 生产环境变量基础门禁通过；脚本只报告变量状态，不打印 secret 值。
 - 生产认证静态门禁通过；测试环境绕过、生产 CORS、session cookie、API key、默认邀请码和审计红线没有退化。
+- 生产发布决策模板校验通过；填写后的发布记录必须再用 `--decision <record>` 校验。
 
 ## 1. 本地标准门禁
 
@@ -110,6 +112,32 @@ git status --short
 - 真退化时修复源码并补测试，再重跑同一门禁。
 - 不要通过放宽门禁来推进上线。
 
+## 1.7 生产发布决策记录门禁
+
+该门禁只读 `docs/release-evidence/production-release-decision-template.md` 或填写后的 Markdown 发布记录，不读取环境变量、不启动服务、不连接外部系统、不打印疑似 secret 值。默认命令验证模板结构；上线前必须复制模板填写实际证据后再验证填写记录。
+
+执行：
+
+```bash
+.venv/bin/python scripts/production_release_decision_verify.py
+.venv/bin/python scripts/production_release_decision_verify.py --decision <filled-record>
+```
+
+通过标准：
+
+- 模板包含 Release Identity、本地证据、生产环境、认证边界、OpenClaw 网络、Docker、真实 provider、OpenClaw/LLM、数据同步、交易和 Final Decision 等章节。
+- 填写后的记录必须有 branch、commit、bundle、checksum、release evidence、决策状态和 owner。
+- 每个生产门禁必须有明确结论。
+- Final Decision 必须在 `Approved`、`Rejected`、`Deferred` 中选择一个。
+- 如临时接受 OpenClaw 网络、真实 provider 或交易边界风险，必须记录 owner、到期时间、补偿控制、回滚命令和后续修复项。
+- 记录中不得出现 API key、token、cookie、password、Bearer token 或类似 secret 原文。
+
+如果失败：
+
+- 补齐发布证据或风险 owner 后重跑同一命令。
+- 若失败原因是记录了 secret 原文，删除该值、轮换受影响凭证，并只保留 present/missing/operator-confirmed 等状态。
+- 不要把模板校验通过当作生产发布批准；批准必须来自填写后的记录和本 runbook 的实际门禁证据。
+
 ## 2. Docker Compose 验证
 
 需要先确认：
@@ -119,6 +147,7 @@ git status --short
 - 已设置 `OPENCLAW_API_KEY`，并确认 OpenClaw gateway 仅通过 compose 网络 `expose: 18789` 供 Dashboard 容器访问；若需要原生 Web 面板，必须显式设置受控的 `OPENCLAW_WEB_URL`。
 - 已通过 `.venv/bin/python scripts/production_env_preflight.py --profile docker`。
 - 已通过 `.venv/bin/python scripts/production_auth_preflight.py`。
+- 已准备发布决策记录草案，并将在 Docker/provider/LLM/data/trading 门禁完成后运行 `.venv/bin/python scripts/production_release_decision_verify.py --decision <record>`。
 
 确认后执行：
 
@@ -269,4 +298,10 @@ docker compose --profile trading up
 - 未解决风险、接受人和到期时间。
 - 回滚命令和数据备份位置。
 
-如果接受公开 OpenClaw 原生面板、真实 provider 限制或交易边界等生产风险，必须在发布批准记录中写明 owner、到期时间、补偿控制、回滚路径和后续修复项；不得把本地 release preflight 当作生产发布批准。长期门禁决策见 `docs/decisions/0004-production-release-risk-gates.md`。
+填写后执行：
+
+```bash
+.venv/bin/python scripts/production_release_decision_verify.py --decision <filled-record>
+```
+
+如果接受公开 OpenClaw 原生面板、真实 provider 限制或交易边界等生产风险，必须在发布批准记录中写明 owner、到期时间、补偿控制、回滚路径和后续修复项；不得把本地 release preflight 或模板校验通过当作生产发布批准。长期门禁决策见 `docs/decisions/0004-production-release-risk-gates.md`。

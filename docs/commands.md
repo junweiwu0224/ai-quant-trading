@@ -56,19 +56,23 @@ docker compose down
 .venv/bin/python scripts/release_preflight.py --with-production-static
 .venv/bin/python scripts/release_preflight.py --with-production-env
 .venv/bin/python scripts/release_preflight.py --with-production-auth
+.venv/bin/python scripts/release_preflight.py --with-release-decision
 .venv/bin/python scripts/deployment_static_preflight.py
 .venv/bin/python scripts/deployment_static_preflight.py --production
 .venv/bin/python scripts/production_env_preflight.py --profile all
 .venv/bin/python scripts/production_auth_preflight.py
+.venv/bin/python scripts/production_release_decision_verify.py
 ```
 
-默认预检只编排本地可复现门禁：context pack verifier、release evidence 覆盖检查、全量 pytest、compileall 和 `git diff --check`。它不会启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、运行交易脚本或修改生产配置。`--verify-evidence` 可单独检查当前 modified/untracked 文件是否都被交付证据清单覆盖；`--with-audits` 会额外运行数据展示健康和前端静态扫描，并写入 `test-results/data-display-audit/` 报告；`--with-deployment-static` 会额外运行不启动 Docker 的部署静态预检；`--with-production-static` 会使用生产静态门禁，检查 OpenClaw token auth、compose-only expose 和生产风险决策文档；`--with-production-env` 会显式运行生产环境变量预检，要求当前 shell 已提供上线所需变量；`--with-production-auth` 会运行不导入 app 的生产认证静态预检。
+默认预检只编排本地可复现门禁：context pack verifier、release evidence 覆盖检查、全量 pytest、compileall 和 `git diff --check`。它不会启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、运行交易脚本或修改生产配置。`--verify-evidence` 可单独检查当前 modified/untracked 文件是否都被交付证据清单覆盖；`--with-audits` 会额外运行数据展示健康和前端静态扫描，并写入 `test-results/data-display-audit/` 报告；`--with-deployment-static` 会额外运行不启动 Docker 的部署静态预检；`--with-production-static` 会使用生产静态门禁，检查 OpenClaw token auth、compose-only expose 和生产风险决策文档；`--with-production-env` 会显式运行生产环境变量预检，要求当前 shell 已提供上线所需变量；`--with-production-auth` 会运行不导入 app 的生产认证静态预检；`--with-release-decision` 会验证生产发布决策模板结构。
 
 `scripts/deployment_static_preflight.py` 只读取 `docker-compose.yml`、`Dockerfile`、`.dockerignore`、`.env.example` 和生产风险决策文档，检查交易 profile、默认 APP_ENV、密钥注入、Docker 忽略项、OpenClaw token/network 边界和上线签收材料是否存在。默认只因 hard finding 失败；`--production` 或 `--fail-on-soft` 会把生产上线前需要确认的 soft finding 也作为失败。
 
 `scripts/production_env_preflight.py` 只读取当前进程环境变量，不读取 `.env` 文件、不启动服务、不连接外部系统、不打印 secret 值。可用 `--profile base|docker|llm|provider|all` 分层检查：`base` 要求 `APP_ENV=production` 和 `QUANT_SYSTEM_API_KEY`，`docker` 额外要求 `OPENCLAW_API_KEY`，`llm` 额外要求 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`，`provider` 额外要求 `IWENCAI_COOKIE`。
 
 `scripts/production_auth_preflight.py` 只读源码和测试文件，不导入 FastAPI app、不触发生命周期、不读取 `.env` 或数据库。它检查生产认证边界：测试环境绕过仅限 `APP_ENV=test`、生产 CORS 不包含 localhost、session cookie 在生产启用 `secure`、API key 用 constant-time compare、生产不自动创建 `LOCAL1` 邀请码、邀请码和 session token 不以明文审计/存储。
+
+`scripts/production_release_decision_verify.py` 默认只验证 `docs/release-evidence/production-release-decision-template.md` 的结构和 secret 禁止提示，不读取环境变量、不连接外部系统。上线前复制并填写签收记录后，用 `--decision <record>` 检查必填身份字段、各门禁结论、最终三选一决策、临时风险接受 owner/到期时间/补偿控制/回滚命令，以及记录中是否出现疑似 secret 原文；输出不会打印 secret 值。
 
 本地交付证据清单写在 `docs/release-evidence/`。当前同花顺式平台升级收口证据见 `docs/release-evidence/2026-06-12-local-delivery-readiness.md`。
 

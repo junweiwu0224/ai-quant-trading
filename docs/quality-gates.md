@@ -41,6 +41,8 @@
 
 `scripts/production_auth_preflight.py` 只读源码和测试文件，不导入 FastAPI app、不触发 lifespan、不读取 `.env` 或数据库；适合作为生产认证边界的快速静态门禁。
 
+`scripts/production_release_decision_verify.py` 只读生产发布签收模板或填写后的 Markdown 记录，不读取环境变量、不连接外部系统；适合作为生产 release review 的快速静态门禁。默认模板检查可以本地运行，`--decision <record>` 应在填写发布记录后运行。
+
 ### Level 2：标准交付门禁
 
 适合实现完成后主动运行：
@@ -51,9 +53,11 @@
 - `.venv/bin/python scripts/release_preflight.py --with-production-static`
 - `.venv/bin/python scripts/release_preflight.py --with-production-env`
 - `.venv/bin/python scripts/release_preflight.py --with-production-auth`
+- `.venv/bin/python scripts/release_preflight.py --with-release-decision`
 - `.venv/bin/python scripts/deployment_static_preflight.py --production`
 - `.venv/bin/python scripts/production_env_preflight.py --profile all`
 - `.venv/bin/python scripts/production_auth_preflight.py`
+- `.venv/bin/python scripts/production_release_decision_verify.py`
 - `.venv/bin/python -m pytest -q`
 - `.venv/bin/python -m compileall -q .`
 - `.venv/bin/python scripts/frontend_data_render_audit.py`
@@ -63,7 +67,7 @@
 
 本地 Dashboard/dev server 或 E2E server 启动属于人工触发的标准交付门禁：需要监听 `localhost`/`127.0.0.1` 时默认外部/非沙箱执行启动，但页面验证仍使用 Codex in-app Browser。启动前检查端口/PID，验证后清理临时服务。
 
-`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。`--with-deployment-static` 会额外运行 Docker/环境文件静态检查，但仍不执行 `docker compose`。`--with-production-static` 使用同一只读静态检查并采用生产失败策略。`--with-production-env` 会额外运行只读环境变量检查，要求当前 shell 已准备生产变量，且输出不回显 secret 值。`--with-production-auth` 会额外运行源码/测试级认证边界静态检查。
+`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。`--with-deployment-static` 会额外运行 Docker/环境文件静态检查，但仍不执行 `docker compose`。`--with-production-static` 使用同一只读静态检查并采用生产失败策略。`--with-production-env` 会额外运行只读环境变量检查，要求当前 shell 已准备生产变量，且输出不回显 secret 值。`--with-production-auth` 会额外运行源码/测试级认证边界静态检查。`--with-release-decision` 会额外运行生产发布签收模板静态检查。
 
 ### Level 3：高风险门禁
 
@@ -103,6 +107,7 @@
 - 实盘、券商、交易、下单、撤单、权限变更。
 - 需要凭证、生产配置或真实外部服务的命令。
 - `scripts/production_env_preflight.py` 和 `release_preflight.py --with-production-env` 不放入默认 hook；它们需要生产变量存在，适合作为人工上线门禁。
+- `scripts/production_release_decision_verify.py --decision <record>` 不放入默认 hook；它依赖具体发布记录，适合作为 release review 门禁。
 
 ## 失败处理
 

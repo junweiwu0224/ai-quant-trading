@@ -12,6 +12,7 @@ Included in this local delivery slice:
 - Static deployment preflight for Docker/env safety boundaries without starting Docker.
 - Production readiness runbook for confirmed Docker/provider/OpenClaw/data/trading gates.
 - Production release risk-gate ADR and decision template for OpenClaw auth/network, provider, LLM, data, and trading sign-off.
+- Production release decision verifier for template/filled-record structure, required gate conclusions, temporary risk acceptance metadata, and secret redaction.
 - Documentation alignment for `.venv/bin/python`, local E2E, Python runtime split, and Docker safety boundaries.
 
 Explicitly not included:
@@ -77,6 +78,7 @@ scripts/build_release_bundle.py
 scripts/deployment_static_preflight.py
 scripts/production_auth_preflight.py
 scripts/production_env_preflight.py
+scripts/production_release_decision_verify.py
 scripts/release_preflight.py
 tests/test_build_release_bundle.py
 tests/test_deployment_static_preflight.py
@@ -85,6 +87,7 @@ tests/test_iwencai_client_status.py
 tests/test_iwencai_task_router_api.py
 tests/test_production_auth_preflight.py
 tests/test_production_env_preflight.py
+tests/test_production_release_decision_verify.py
 tests/test_release_preflight.py
 ```
 
@@ -115,8 +118,10 @@ The following commands passed on the local workspace:
 .venv/bin/python scripts/release_preflight.py --with-deployment-static
 .venv/bin/python scripts/release_preflight.py --with-production-static
 .venv/bin/python scripts/release_preflight.py --with-audits
+.venv/bin/python scripts/release_preflight.py --with-release-decision
 .venv/bin/python scripts/deployment_static_preflight.py
 .venv/bin/python scripts/deployment_static_preflight.py --production
+.venv/bin/python scripts/production_release_decision_verify.py
 docker compose config
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 .venv/bin/python scripts/verify_context_pack.py
@@ -126,13 +131,14 @@ git diff --check
 Observed results:
 
 - Release evidence coverage check: current modified and untracked files matched the Release Delta section.
-- Local release bundle generated and verified: `55` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
+- Local release bundle generated and verified: `57` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
 - Bundle checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256` and verified by `scripts/build_release_bundle.py --verify-only`.
 - Bundle verify-only checks the archive checksum, archive member list, unpack drill, and manifest file hashes against the current workspace so stale bundles fail before handoff. The exact archive checksum is intentionally kept out of archived source/docs to avoid a self-referential checksum.
 - Latest release preflight with production static gate: context pack OK, release evidence OK, pytest `819 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment production static preflight passed with no findings.
 - Production static preflight now passes without starting Docker or external services; it verifies OpenClaw token auth, compose-only port exposure, and production risk decision docs.
 - Production env preflight is now available as an explicit read-only gate and is covered by tests. It checks current shell variables by profile and never prints secret values; it is not part of the default local preflight because production secrets must not be required in local development or CI.
 - Production auth preflight is now available as an explicit read-only static gate and is covered by tests. It checks Dashboard session/API-key/CORS/invite audit boundaries without importing the app or touching `.env`/database state.
+- Production release decision verification is now available as an explicit read-only gate and is covered by tests. It verifies the decision template by default, and can verify a filled record with `--decision <path>` for required identity fields, gate conclusions, final decision choice, risk-acceptance owner/expiry/control/rollback, and secret-like value redaction.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.
 - `docker compose config` parses successfully and shows OpenClaw `expose: 18789` without host `ports`, plus dashboard `OPENCLAW_GATEWAY_URL=http://openclaw:18789`.
@@ -162,7 +168,7 @@ These gates remain unresolved and require explicit confirmation, a dedicated env
 - Run Docker compose and deployment-environment validation after confirming local data/env impact.
 - Run `.venv/bin/python scripts/production_env_preflight.py --profile all` in the approved production/staging shell after operator-managed variables are injected; current local shell without those variables is expected to fail this gate. Do not record secret values.
 - Run `.venv/bin/python scripts/production_auth_preflight.py` before exposing the Dashboard outside localhost, and fix any hard findings instead of relaxing the gate.
-- Fill a production release decision record from `docs/release-evidence/production-release-decision-template.md`; any temporary acceptance of OpenClaw auth/network risk must include owner, expiry, compensating controls, rollback, and follow-up.
+- Fill a production release decision record from `docs/release-evidence/production-release-decision-template.md`, then verify it with `.venv/bin/python scripts/production_release_decision_verify.py --decision <record>`; any temporary acceptance of OpenClaw auth/network risk must include owner, expiry, compensating controls, rollback, and follow-up.
 - Validate real provider/live behavior only after approving provider credentials, rate-limit safety, and data boundaries.
 - Validate OpenClaw/LLM integration only after approving external-service scope and credentials.
 - Keep broker, paper/live trading, migrations, and production configuration behind explicit confirmation.

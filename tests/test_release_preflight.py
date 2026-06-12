@@ -35,6 +35,7 @@ def test_default_preflight_plan_is_local_and_non_deploying():
     assert "openclaw" not in rendered.lower()
     assert "production_env_preflight.py" not in rendered
     assert "production_auth_preflight.py" not in rendered
+    assert "production_release_decision_verify.py" not in rendered
 
 
 def test_preflight_plan_can_include_report_audits_explicitly():
@@ -90,6 +91,17 @@ def test_preflight_plan_can_include_production_auth_gate_explicitly():
     assert "docker compose" not in rendered
 
 
+def test_preflight_plan_can_include_release_decision_gate_explicitly():
+    plan = release_preflight.build_preflight_plan(with_release_decision=True)
+    labels = [step.label for step in plan]
+    commands = [" ".join(step.command) for step in plan]
+    rendered = "\n".join(commands)
+
+    assert labels[-1] == "production-release-decision"
+    assert ".venv/bin/python scripts/production_release_decision_verify.py" in rendered
+    assert "docker compose" not in rendered
+
+
 def test_preflight_dry_run_prints_commands_without_running(monkeypatch, capsys):
     calls = []
 
@@ -138,12 +150,14 @@ def test_local_delivery_evidence_lists_new_release_files():
         "scripts/release_preflight.py",
         "scripts/production_auth_preflight.py",
         "scripts/production_env_preflight.py",
+        "scripts/production_release_decision_verify.py",
         "tests/test_build_release_bundle.py",
         "tests/test_e2e_local_script.py",
         "tests/test_iwencai_client_status.py",
         "tests/test_iwencai_task_router_api.py",
         "tests/test_production_auth_preflight.py",
         "tests/test_production_env_preflight.py",
+        "tests/test_production_release_decision_verify.py",
         "tests/test_release_preflight.py",
     ]:
         assert required in text

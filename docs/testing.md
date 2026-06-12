@@ -15,6 +15,7 @@
 - 部署静态预检：`.venv/bin/python scripts/deployment_static_preflight.py`。该脚本只读 Docker/环境示例文件和生产风险决策文档，不启动 Docker、不连接外部服务；生产上线前使用 `--production` 确认 OpenClaw token auth、compose-only expose 和签收材料仍然有效。
 - 生产环境变量预检：`.venv/bin/python scripts/production_env_preflight.py --profile all`。该脚本只读当前 shell 环境变量，不读取 `.env` 文件、不启动服务、不连接外部系统、不打印 secret 值；生产上线前用它确认 `APP_ENV`、Dashboard API key、OpenClaw token、LLM 和 provider 凭证边界。
 - 生产认证静态预检：`.venv/bin/python scripts/production_auth_preflight.py`。该脚本只读源码和测试文件，不导入 FastAPI app、不触发 lifespan、不读取 `.env` 或数据库；生产上线前用它确认 session/API-key/CORS/邀请码审计边界仍然有效。
+- 生产发布决策记录校验：`.venv/bin/python scripts/production_release_decision_verify.py` 默认验证签收模板；填写记录后用 `--decision <record>` 验证必填字段、门禁结论、风险接受字段和 secret redaction。
 - 本地交付证据：`docs/release-evidence/2026-06-12-local-delivery-readiness.md` 记录本轮 release delta、验证结果、报告产物和未覆盖上线门禁。
 - 生产上线 runbook：`docs/production-readiness-runbook.md` 记录需要用户确认后才执行的 Docker、真实 provider、OpenClaw/LLM、数据同步和交易门禁。
 
@@ -73,6 +74,8 @@ os.environ["APP_ENV"] = "test"
 - `.venv/bin/python scripts/release_preflight.py --with-production-env` 会在标准本地门禁后显式运行生产环境变量预检；不要把它放入默认 hook，因为它要求当前环境具备上线变量。
 - `.venv/bin/python scripts/production_auth_preflight.py` 是只读源码/测试门禁，不导入 `dashboard.app`，用于确认生产认证边界没有被后续改动弱化；它不替代真实 HTTPS、反向代理、浏览器登录和 API key smoke。
 - `.venv/bin/python scripts/release_preflight.py --with-production-auth` 会在标准本地门禁后显式运行生产认证静态预检。
+- `.venv/bin/python scripts/production_release_decision_verify.py` 是只读 Markdown 签收记录门禁；默认只验证模板，`--decision <record>` 验证填写后的发布记录是否选择最终决策、填写每个门禁结论、记录临时风险 owner/到期时间/补偿控制/回滚，并拒绝疑似 secret 原文。
+- `.venv/bin/python scripts/release_preflight.py --with-release-decision` 会在标准本地门禁后显式运行生产发布决策模板校验。
 - `.venv/bin/python scripts/release_preflight.py` 不等于生产发布批准；Docker、部署、真实 provider、外部 LLM/OpenClaw、数据同步、交易和生产配置验证仍需用户确认。
 - 全量 pytest 可能受可选依赖、外部数据源、机器环境和当前大量未提交改动影响。
 - 真实数据同步、OpenClaw、LLM、Docker、实盘/券商相关验证不要放入默认自动门禁。

@@ -1980,6 +1980,41 @@ Remaining gaps:
 - The auth static gate must still be followed by real staging browser/API smoke after Docker/env confirmation.
 - It does not prove reverse proxy TLS, external domain cookies, live account creation, or operator-managed API key distribution.
 
+## Task 9.26: Production Release Decision Verification Gate
+
+Status: delivered as a production-readiness hardening slice after the production auth static gate. This does not deploy, start Docker, read production environment variables, validate credentials, call providers/LLM/OpenClaw, write data, or approve production release; it turns the release decision template and filled decision record into a reproducible read-only gate.
+
+Implemented:
+
+- Added `scripts/production_release_decision_verify.py`, a Markdown verifier for the production release decision template and filled records.
+- The default mode verifies `docs/release-evidence/production-release-decision-template.md` for required sections, release fields, gate fields, and explicit "do not record secrets" guidance.
+- `--decision <record>` verifies a filled record has release identity values, every production gate conclusion, one exact final decision (`Approved`, `Rejected`, or `Deferred`), risk-acceptance owner/expiry/compensating-control/rollback fields, and no literal secret-like values in output.
+- Added `tests/test_production_release_decision_verify.py` for current template coverage, missing section/field failures, filled-record success, unfilled values, final decision placeholders, temporary OpenClaw risk acceptance, final accepted risk metadata, and secret redaction in text/JSON output.
+- `scripts/release_preflight.py --with-release-decision` now appends the template verification explicitly; the default local preflight remains unchanged.
+- Updated `AGENTS.md`, `docs/commands.md`, `docs/testing.md`, `docs/quality-gates.md`, `docs/production-readiness-runbook.md`, ADR `0004`, and local delivery evidence so the decision verifier is part of production release review.
+
+Safety boundary:
+
+- The verifier reads Markdown files only.
+- It does not inspect `.env`, current shell variables, Docker, external services, databases, accounts, broker state, or production config.
+- Findings identify the file/line and issue type but never echo the detected secret-like value.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_production_release_decision_verify.py tests/test_release_preflight.py -q -p no:cacheprovider
+.venv/bin/python -m compileall -q scripts/production_release_decision_verify.py scripts/release_preflight.py
+.venv/bin/python scripts/production_release_decision_verify.py
+.venv/bin/python scripts/release_preflight.py --dry-run --with-release-decision
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+git diff --check
+```
+
+Remaining gaps:
+
+- A real production release still needs a filled decision record generated from the template and verified with `--decision <record>` after Docker/provider/OpenClaw/LLM/data/trading gates have actual evidence.
+- This gate proves record structure and secret-redaction discipline; it does not prove production services are healthy or approved.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

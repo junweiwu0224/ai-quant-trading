@@ -27,8 +27,9 @@
 2. `scripts/deployment_static_preflight.py` 必须把缺失的生产风险决策文档、OpenClaw `--auth none`、未使用 token auth、缺少 `OPENCLAW_API_KEY` 注入、宿主机端口 `18789` 发布等视为 hard finding。
 3. `scripts/production_env_preflight.py` 必须作为生产前显式门禁检查当前 shell 中的 `APP_ENV`、Dashboard API key、OpenClaw token、LLM 和 provider 变量状态；它只能输出 present/missing/placeholder/too_short 等状态，不得打印 secret 值。
 4. `scripts/production_auth_preflight.py` 必须作为生产前显式静态门禁检查 Dashboard 认证/session/CORS/invite 审计边界；它不得导入 FastAPI app、触发 lifespan、读取 `.env` 或访问数据库。
-5. OpenClaw auth/network、真实 provider、外部 LLM/OpenClaw、数据同步/迁移、paper/live/broker/trading 不允许通过本地预检自动放行。
-6. 若上线时选择临时接受外部 OpenClaw 面板公开入口、真实 provider 限制或交易边界风险，必须记录 owner、到期时间、补偿控制、回滚方式和后续修复项；不得无限期默认接受。
+5. `scripts/production_release_decision_verify.py` 必须作为生产前显式签收记录门禁检查发布决策模板或填写后的 decision record；它不得读取环境变量、连接外部系统或打印 secret 值。
+6. OpenClaw auth/network、真实 provider、外部 LLM/OpenClaw、数据同步/迁移、paper/live/broker/trading 不允许通过本地预检自动放行。
+7. 若上线时选择临时接受外部 OpenClaw 面板公开入口、真实 provider 限制或交易边界风险，必须记录 owner、到期时间、补偿控制、回滚方式和后续修复项；不得无限期默认接受。
 
 ## 主要取舍
 
@@ -52,12 +53,14 @@
   - `scripts/deployment_static_preflight.py`
   - `scripts/production_auth_preflight.py`
   - `scripts/production_env_preflight.py`
+  - `scripts/production_release_decision_verify.py`
   - `tests/test_deployment_static_preflight.py`
   - `tests/test_production_auth_preflight.py`
   - `tests/test_production_env_preflight.py`
+  - `tests/test_production_release_decision_verify.py`
 
 ## 后续
 
-- 生产前复制 `docs/release-evidence/production-release-decision-template.md`，填入实际 commit、bundle、checksum、Docker/provider/LLM/data/trading 证据和签收结论。
+- 生产前复制 `docs/release-evidence/production-release-decision-template.md`，填入实际 commit、bundle、checksum、Docker/provider/LLM/data/trading 证据和签收结论，再运行 `.venv/bin/python scripts/production_release_decision_verify.py --decision <record>`。
 - 若 OpenClaw auth/network 策略未来变化，更新本 ADR 或新增 superseding ADR，并同步静态预检。
 - 若上线范围包含真实交易或 broker，必须另行定义交易批准标准，不能复用本地 release preflight 作为交易批准。

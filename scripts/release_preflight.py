@@ -21,7 +21,7 @@ class PreflightStep:
     writes_reports: bool = False
 
 
-def build_preflight_plan(*, with_audits: bool = False) -> list[PreflightStep]:
+def build_preflight_plan(*, with_audits: bool = False, with_deployment_static: bool = False) -> list[PreflightStep]:
     """Return the ordered local preflight plan.
 
     The default plan intentionally avoids Docker, dev servers, real providers,
@@ -51,6 +51,13 @@ def build_preflight_plan(*, with_audits: bool = False) -> list[PreflightStep]:
                     writes_reports=True,
                 ),
             ]
+        )
+    if with_deployment_static:
+        plan.append(
+            PreflightStep(
+                "deployment-static",
+                (PYTHON, "scripts/deployment_static_preflight.py"),
+            )
         )
     return plan
 
@@ -111,8 +118,11 @@ def _candidate_delta_bases(*, root: Path, evidence_path: str, base_ref: str | No
     if base_ref:
         return [base_ref]
     bases = ["HEAD"]
-    if _git_ref_exists("HEAD^", root=root) and _path_exists_in_ref("HEAD", evidence_path, root=root):
-        bases.append("HEAD^")
+    if _path_exists_in_ref("HEAD", evidence_path, root=root):
+        for depth in range(1, 6):
+            ref = "HEAD" + "^" * depth
+            if _git_ref_exists(ref, root=root):
+                bases.append(ref)
     return bases
 
 
@@ -234,6 +244,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also run report-writing dashboard/frontend audit scripts.",
     )
+    parser.add_argument(
+        "--with-deployment-static",
+        action="store_true",
+        help="Also run static deployment checks without starting Docker.",
+    )
     parser.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     args = parser.parse_args(argv)
 
@@ -243,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_evidence_issues(issues)
         return 1 if issues else 0
 
-    plan = build_preflight_plan(with_audits=args.with_audits)
+    plan = build_preflight_plan(with_audits=args.with_audits, with_deployment_static=args.with_deployment_static)
     if args.dry_run:
         _print_plan(plan)
         return 0

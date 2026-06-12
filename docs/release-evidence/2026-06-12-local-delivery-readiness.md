@@ -9,6 +9,7 @@ Included in this local delivery slice:
 - iWencai/task-router backend-owned status and degraded-state hardening.
 - Stock workbench event-flow, basket/backtest draft, and local event-study audit evidence.
 - Local release preflight gate and E2E runner portability.
+- Static deployment preflight for Docker/env safety boundaries without starting Docker.
 - Documentation alignment for `.venv/bin/python`, local E2E, Python runtime split, and Docker safety boundaries.
 
 Explicitly not included:
@@ -61,8 +62,10 @@ New files that must be included in a staging/release bundle:
 ```text
 docs/release-evidence/2026-06-12-local-delivery-readiness.md
 scripts/build_release_bundle.py
+scripts/deployment_static_preflight.py
 scripts/release_preflight.py
 tests/test_build_release_bundle.py
+tests/test_deployment_static_preflight.py
 tests/test_e2e_local_script.py
 tests/test_iwencai_client_status.py
 tests/test_iwencai_task_router_api.py
@@ -93,7 +96,9 @@ The following commands passed on the local workspace:
 .venv/bin/python scripts/build_release_bundle.py --verify-only
 .venv/bin/python scripts/release_preflight.py --verify-evidence
 .venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/release_preflight.py --with-deployment-static
 .venv/bin/python scripts/release_preflight.py --with-audits
+.venv/bin/python scripts/deployment_static_preflight.py
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 .venv/bin/python scripts/verify_context_pack.py
 git diff --check
@@ -105,8 +110,9 @@ Observed results:
 - Local release bundle generated and verified: `39` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
 - Bundle checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256` and verified by `scripts/build_release_bundle.py --verify-only`.
 - Bundle verify-only checks the archive checksum, archive member list, unpack drill, and manifest file hashes against the current workspace so stale bundles fail before handoff. The exact archive checksum is intentionally kept out of archived source/docs to avoid a self-referential checksum.
-- Latest standard release preflight: context pack OK, release evidence OK, pytest `801 passed, 1 warning`, compileall passed, `git diff --check` passed.
+- Latest release preflight with deployment static gate: context pack OK, release evidence OK, pytest `807 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment static preflight passed with soft findings only.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
+- Deployment static preflight passed with no hard findings. It still reports soft production-readiness findings for OpenClaw `--auth none` and published port `18789`, which require explicit production network/auth review before external exposure.
 - API data health report: `37` endpoints, `0` failed, `0` hard findings, `3` soft findings.
 - Frontend static render audit report: `914` heuristic risks by severity (`354` high, `545` medium, `15` low). These are historical/static heuristic findings and were not treated as new hard blockers by the audit gate.
 - Full local Playwright E2E: data-display health `1 passed`; smoke/OpenClaw `13 passed`.
@@ -130,6 +136,7 @@ These gates remain unresolved and require explicit confirmation, a dedicated env
 - Stage or commit the release delta deliberately so untracked tests/scripts are not omitted.
 - Decide whether the frontend static heuristic risks need triage beyond the current report-passing gate.
 - Run Docker compose and deployment-environment validation after confirming local data/env impact.
+- Resolve deployment static soft findings for production exposure, especially OpenClaw auth and network binding.
 - Validate real provider/live behavior only after approving provider credentials, rate-limit safety, and data boundaries.
 - Validate OpenClaw/LLM integration only after approving external-service scope and credentials.
 - Keep broker, paper/live trading, migrations, and production configuration behind explicit confirmation.

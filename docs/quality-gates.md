@@ -33,6 +33,7 @@
 
 - `.venv/bin/python -m compileall -q .`：会写 `__pycache__/`，适合标准交付门禁，不适合严格无写入 hook。
 - `.venv/bin/python scripts/frontend_data_render_audit.py`：会写 `test-results/data-display-audit/frontend-static-report.json`，适合报告型门禁。
+- `.venv/bin/python scripts/deployment_static_preflight.py`：只读检查 Docker/部署配置，不启动 Docker、不连接外部服务；soft finding 表示生产上线前需要确认的部署风险。
 
 `scripts/dashboard_data_health.py` 不连接外部服务，但会通过 TestClient lifespan 初始化本地数据库、短暂启动/停止调度器和行情服务，并写 `test-results/data-display-audit/api-report.json`。不要把它放入无副作用 hooks；适合人工触发或较高层级门禁。
 
@@ -42,6 +43,7 @@
 
 - `.venv/bin/python scripts/release_preflight.py --dry-run`
 - `.venv/bin/python scripts/release_preflight.py`
+- `.venv/bin/python scripts/release_preflight.py --with-deployment-static`
 - `.venv/bin/python -m pytest -q`
 - `.venv/bin/python -m compileall -q .`
 - `.venv/bin/python scripts/frontend_data_render_audit.py`
@@ -51,7 +53,7 @@
 
 本地 Dashboard/dev server 或 E2E server 启动属于人工触发的标准交付门禁：需要监听 `localhost`/`127.0.0.1` 时默认外部/非沙箱执行启动，但页面验证仍使用 Codex in-app Browser。启动前检查端口/PID，验证后清理临时服务。
 
-`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。
+`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。`--with-deployment-static` 会额外运行 Docker/环境文件静态检查，但仍不执行 `docker compose`。
 
 ### Level 3：高风险门禁
 
@@ -74,7 +76,7 @@
 | 数据模型/存储 | 针对性 pytest | 全量 pytest | 迁移/清库/真实数据写入 |
 | OpenClaw/LLM | 单元测试 | 用户确认后联调 | 凭证、外部调用默认禁用 |
 | 模拟盘/实盘 | 单元测试 | 人工确认的 dry-run | 下单、撤单、真实账户 |
-| Docker/配置 | 静态检查 | 用户确认后 compose | 部署、生产配置变更 |
+| Docker/配置 | `.venv/bin/python scripts/deployment_static_preflight.py` | 用户确认后 compose | 部署、生产配置变更 |
 
 `release_preflight.py` 适合作为标准交付收口入口；若需要最小门禁或无写入 hook，仍按上表选择更小的针对性命令。
 

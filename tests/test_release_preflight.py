@@ -44,6 +44,17 @@ def test_preflight_plan_can_include_report_audits_explicitly():
     assert any(step.writes_reports for step in plan if step.label == "frontend-render-audit")
 
 
+def test_preflight_plan_can_include_static_deployment_gate_explicitly():
+    plan = release_preflight.build_preflight_plan(with_deployment_static=True)
+    labels = [step.label for step in plan]
+    commands = [" ".join(step.command) for step in plan]
+    rendered = "\n".join(commands)
+
+    assert labels[-1] == "deployment-static"
+    assert ".venv/bin/python scripts/deployment_static_preflight.py" in rendered
+    assert "docker compose" not in rendered
+
+
 def test_preflight_dry_run_prints_commands_without_running(monkeypatch, capsys):
     calls = []
 
@@ -220,6 +231,7 @@ scripts/release_preflight.py
         encoding="utf-8",
     )
 
+
     def fake_capture(command, *, cwd):
         if command == ("git", "diff", "--name-only", "HEAD^", "--"):
             return ["README.md", "dashboard/app.py", "evidence.md", "scripts/release_preflight.py"]
@@ -244,3 +256,61 @@ scripts/release_preflight.py
         )
         == []
     )
+
+
+def test_release_evidence_accepts_multi_commit_release_delta(tmp_path, monkeypatch):
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text(
+        """# Evidence
+
+This is not a production deployment approval.
+
+Modified files currently in the delivery delta:
+
+```text
+README.md
+dashboard/app.py
+```
+
+New files that must be included in a staging/release bundle:
+
+```text
+evidence.md
+scripts/release_preflight.py
+tests/test_release_preflight.py
+```
+""",
+        encoding="utf-8",
+    )
+
+    def fake_capture(command, *, cwd):
+        if command == ("git", "diff", "--name-only", "HEAD", "--"):
+            return []
+        if command == ("git", "diff", "--name-only", "--diff-filter=A", "HEAD", "--"):
+            return []
+        if command == ("git", "diff", "--name-only", "HEAD^", "--"):
+            return ["evidence.md", "scripts/release_preflight.py", "tests/test_release_preflight.py"]
+        if command == ("git", "diff", "--name-only", "--diff-filter=A", "HEAD^", "--"):
+            return ["tests/test_release_preflight.py"]
+        if command == ("git", "diff", "--name-only", "HEAD^^", "--"):
+            return [
+                "README.md",
+                "dashboard/app.py",
+                "evidence.md",
+                "scripts/release_preflight.py",
+                "tests/test_release_preflight.py",
+            ]
+        if command == ("git", "diff", "--name-only", "--diff-filter=A", "HEAD^^", "--"):
+            return ["evidence.md", "scripts/release_preflight.py", "tests/test_release_preflight.py"]
+        if command == ("git", "ls-files", "--others", "--exclude-standard"):
+            return []
+        raise AssertionError(command)
+
+    monkeypatch.setattr(release_preflight, "_run_capture", fake_capture)
+    monkeypatch.setattr(
+        release_preflight,
+        "_candidate_delta_bases",
+        lambda *, root, evidence_path, base_ref: ["HEAD", "HEAD^", "HEAD^^"],
+    )
+
+    assert release_preflight.verify_release_evidence(root=tmp_path, evidence_path="evidence.md") == []

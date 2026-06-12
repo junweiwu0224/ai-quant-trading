@@ -1892,7 +1892,7 @@ Results:
 - Full local Playwright gate passed: data-display health `1 passed`; smoke/OpenClaw `13 passed`.
 - Release evidence coverage check passed: current modified and untracked files match the local delivery evidence document.
 - Local release bundle created: `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz` with `39` files plus `manifest.json`; the archive checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256`; verify-only checks current workspace hashes and passed.
-- Latest standard release preflight passed: context pack OK, release evidence OK, pytest `801 passed, 1 warning`, compileall passed, `git diff --check` passed.
+- Latest release preflight with deployment static gate passed: context pack OK, release evidence OK, pytest `807 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment static preflight passed with soft findings only.
 - Release preflight with audits previously passed: context pack OK, pytest `797 passed, 1 warning`, compileall passed, `git diff --check` passed, data health report `37` endpoints with `0` failed and `0` hard findings, frontend static render audit wrote `914` historical heuristic risks.
 - Follow-up documentation/context checks passed after aligning local E2E, Python runtime, and Docker/preflight wording.
 - Local delivery evidence document created and linked from `docs/commands.md` and `docs/testing.md`.

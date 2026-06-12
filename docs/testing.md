@@ -12,6 +12,7 @@
 - E2E：启动 Dashboard 后运行 `scripts/e2e-local.sh smoke|data-health|all`，或 `npm run e2e:docker`。
 - API 数据健康：`.venv/bin/python scripts/dashboard_data_health.py`。该脚本不连接外部服务，但会通过 FastAPI TestClient lifespan 初始化本地数据库、短暂启动/停止调度器和行情服务，并写入 `test-results/data-display-audit/api-report.json`。
 - 前端渲染静态扫描：`.venv/bin/python scripts/frontend_data_render_audit.py`。
+- 部署静态预检：`.venv/bin/python scripts/deployment_static_preflight.py`。该脚本只读 Docker/环境示例文件，不启动 Docker、不连接外部服务。
 - 本地交付证据：`docs/release-evidence/2026-06-12-local-delivery-readiness.md` 记录本轮 release delta、验证结果、报告产物和未覆盖上线门禁。
 
 ## 改动类型矩阵
@@ -26,7 +27,7 @@
 | 前端 JS/模板/CSS | 对应 `tests/test_*frontend*.py` 或契约测试 | 浏览器 smoke、`frontend_data_render_audit.py` |
 | OpenClaw/LLM | 相关 `tests/test_openclaw_*` | 手动确认外部服务和凭证范围 |
 | 模拟盘/交易/实盘 | 相关 engine/paper/live 测试 | 禁止未确认的真实下单或外部写操作 |
-| Docker/部署 | 配置静态检查 | 用户确认后再 `docker compose up -d` |
+| Docker/部署 | `.venv/bin/python scripts/deployment_static_preflight.py` | 用户确认后再 `docker compose up -d` |
 
 ## E2E 注意事项
 
@@ -62,6 +63,7 @@ os.environ["APP_ENV"] = "test"
 - `.venv/bin/python -m compileall -q .` 会遍历整个仓库，可能触发本地 `__pycache__/` 更新。
 - `.venv/bin/python scripts/dashboard_data_health.py` 会经 TestClient lifespan 启动应用生命周期；它应避免外部服务写入，但会触发本地数据库初始化、调度器/行情服务启动停止和报告写入。
 - `.venv/bin/python scripts/frontend_data_render_audit.py` 会写 `test-results/data-display-audit/frontend-static-report.json`，适合报告型门禁，不适合严格无写入 hook。
+- `.venv/bin/python scripts/deployment_static_preflight.py` 是只读静态检查，不替代 Docker build/compose smoke；OpenClaw auth/port 等 soft finding 需要生产上线前确认。
 - `.venv/bin/python scripts/release_preflight.py` 不等于生产发布批准；Docker、部署、真实 provider、外部 LLM/OpenClaw、数据同步、交易和生产配置验证仍需用户确认。
 - 全量 pytest 可能受可选依赖、外部数据源、机器环境和当前大量未提交改动影响。
 - 真实数据同步、OpenClaw、LLM、Docker、实盘/券商相关验证不要放入默认自动门禁。

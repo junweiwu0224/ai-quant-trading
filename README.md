@@ -67,6 +67,7 @@
 | 检查项 | 命令 | 结果 |
 |-------|------|------|
 | 本地交付预检 | `.venv/bin/python scripts/release_preflight.py` | 不部署、不启动 Docker，顺序运行本地门禁 |
+| 部署静态预检 | `.venv/bin/python scripts/deployment_static_preflight.py` | 只读检查 Docker/环境配置，不启动容器 |
 | 后端/API/核心测试 | `.venv/bin/python -m pytest -q` | 需先安装 `requirements.txt` |
 | 真实浏览器 E2E | `scripts/e2e-local.sh smoke` | 需先启动 Dashboard；可用 `PLAYWRIGHT_BASE_URL` 覆盖目标地址 |
 | 语法检查 | `.venv/bin/python -m compileall -q .` | 快速发现 Python 语法错误 |

@@ -1,6 +1,7 @@
 """System tools exposed to OpenClaw under platform permissions."""
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -117,6 +118,14 @@ SYSTEM_TOOLS = [
         "confirm": False,
     },
     {
+        "name": "quant.iwencai.evidence.review",
+        "label": "问财证据审查",
+        "permission": "read_market",
+        "description": "只读审查后端生成的 iWencai provider_evidence，用于判断证据、降级和写入门禁状态。",
+        "schema": {"provider_evidence": "后端 /api/llm/iwencai 返回的 provider_evidence，可选 source_context.provider_evidence"},
+        "confirm": False,
+    },
+    {
         "name": "quant.report.generate_daily",
         "label": "生成模拟盘收益日报",
         "permission": "read_portfolio",
@@ -198,6 +207,8 @@ async def invoke_system_tool(account: dict, tool_name: str, arguments: dict[str,
             result = _data_snapshot(arguments)
         elif tool_name in {"quant.signals.top", "quant.qlib.top"}:
             result = _signals_top(arguments)
+        elif tool_name == "quant.iwencai.evidence.review":
+            result = _iwencai_evidence_review(arguments)
         elif tool_name == "quant.report.generate_daily":
             result = _generate_daily_report(account, arguments)
         elif tool_name == "quant.report.open":
@@ -453,6 +464,235 @@ def _qlib_top(arguments: dict[str, Any]) -> dict[str, Any]:
     return _signals_top(arguments)
 
 
+IWENCAI_EVIDENCE_SCHEMA_VERSION = "iwencai_provider_evidence_v1"
+IWENCAI_REVIEW_SCHEMA_VERSION = "iwencai_evidence_review_v1"
+SECRET_KEY_RE = re.compile(
+    r"(password|passwd|token|secret|cookie|authorization|api[_-]?key|apikey|headers?|session|invite|credential)",
+    re.IGNORECASE,
+)
+SECRET_TEXT_RE = re.compile(
+    r"(?i)(bearer\s+[A-Za-z0-9._~+/=-]{8,}|"
+    r"(?:api[_-]?key|token|secret|password|cookie|authorization|invite[_-]?code)\s*[:=]\s*(?:bearer\s+)?[^,;\s}]+)"
+)
+
+
+def _iwencai_evidence_review(arguments: dict[str, Any]) -> dict[str, Any]:
+    evidence = _extract_iwencai_provider_evidence(arguments)
+    if not evidence:
+        return {
+            "schema_version": IWENCAI_REVIEW_SCHEMA_VERSION,
+            "input_trust": "caller_supplied_not_live_provider",
+            "review_status": "missing_evidence",
+            "evidence_status": {"present": False, "schema_version": ""},
+            "write_action_gate": _iwencai_review_write_gate({}, reason="missing_provider_evidence"),
+            "recommended_safe_next_actions": [
+                "先通过后端 /api/llm/iwencai 获取 provider_evidence。",
+                "在证据缺失时仅保留只读解释，不生成篮子、回测草案或写入自选。",
+            ],
+            "notes": ["该工具不调用真实 provider，不替代生产凭证或实时 schema 验证。"],
+        }
+
+    safe_evidence = _redact_value(evidence)
+    schema_version = str(safe_evidence.get("schema_version") or "")
+    if schema_version and schema_version != IWENCAI_EVIDENCE_SCHEMA_VERSION:
+        return {
+            "schema_version": IWENCAI_REVIEW_SCHEMA_VERSION,
+            "input_trust": "caller_supplied_not_live_provider",
+            "review_status": "unsupported_schema",
+            "evidence_status": {
+                "present": True,
+                "schema_version": schema_version,
+                "expected_schema_version": IWENCAI_EVIDENCE_SCHEMA_VERSION,
+            },
+            "write_action_gate": _iwencai_review_write_gate(safe_evidence, reason="unsupported_schema"),
+            "recommended_safe_next_actions": [
+                "要求上游重新提供后端生成的 iwencai_provider_evidence_v1。",
+                "保持只读，不把未知证据结构继续传递给写入或回测链路。",
+            ],
+            "notes": ["该工具只审查紧凑 evidence 摘要，不信任原始 provider payload。"],
+        }
+
+    summary_status = str(safe_evidence.get("summary_status") or "unknown")
+    field_coverage = str(safe_evidence.get("field_coverage_status") or "unknown")
+    candidate_validation = _coerce_dict(safe_evidence.get("candidate_validation"))
+    condition_counts = _coerce_dict(safe_evidence.get("condition_status_counts"))
+    degradation = _coerce_dict(safe_evidence.get("degradation"))
+    review_status = _iwencai_review_status(summary_status, field_coverage, candidate_validation, degradation)
+
+    return {
+        "schema_version": IWENCAI_REVIEW_SCHEMA_VERSION,
+        "input_trust": "caller_supplied_not_live_provider",
+        "review_status": review_status,
+        "evidence_status": {
+            "present": True,
+            "schema_version": schema_version or IWENCAI_EVIDENCE_SCHEMA_VERSION,
+            "summary_status": summary_status,
+            "provider": safe_evidence.get("provider") or "iwencai",
+            "provider_status": safe_evidence.get("provider_status") or "",
+            "data_status": safe_evidence.get("data_status") or "",
+            "data_as_of": safe_evidence.get("data_as_of") or "",
+            "cache_status": safe_evidence.get("cache_status") or "",
+            "result_pool_id": safe_evidence.get("result_pool_id") or "",
+            "reported_total": _safe_int(safe_evidence.get("reported_total")),
+            "candidate_count": _safe_int(safe_evidence.get("candidate_count")),
+            "field_coverage_status": field_coverage,
+        },
+        "condition_validation": {
+            "status_counts": condition_counts,
+            "samples": _iwencai_condition_samples(safe_evidence),
+        },
+        "candidate_validation": {
+            "verified": _safe_int(candidate_validation.get("verified")),
+            "partial": _safe_int(candidate_validation.get("partial")),
+            "unverified": _safe_int(candidate_validation.get("unverified")),
+            "missing": _safe_int(candidate_validation.get("missing")),
+            "actionable": _safe_int(candidate_validation.get("actionable")),
+        },
+        "degradation": {
+            "type": degradation.get("type") or "",
+            "reason": degradation.get("reason") or "",
+            "next_action": degradation.get("next_action") or "",
+            "cache_status": degradation.get("cache_status") or safe_evidence.get("cache_status") or "",
+            "retry_after_seconds": degradation.get("retry_after_seconds") or "",
+            "local_wait_seconds": degradation.get("local_wait_seconds") or "",
+            "response_type": degradation.get("response_type") or "",
+            "schema_signature": degradation.get("schema_signature") or "",
+        },
+        "write_action_gate": _iwencai_review_write_gate(safe_evidence, reason="read_only_review_tool"),
+        "recommended_safe_next_actions": _iwencai_recommended_actions(
+            review_status,
+            summary_status,
+            safe_evidence,
+            candidate_validation,
+            degradation,
+        ),
+        "notes": [
+            "该工具只消费调用方传入的 provider_evidence 摘要，不发起真实 iWencai、OpenClaw、LLM、回测或交易调用。",
+            "任何自选、篮子、回测或交易动作仍必须走独立工具、权限和确认链。",
+        ],
+    }
+
+
+def _extract_iwencai_provider_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
+    for key in ("provider_evidence", "evidence"):
+        value = arguments.get(key)
+        if isinstance(value, dict):
+            return value
+    for key in ("source_context", "context", "iwencai"):
+        value = arguments.get(key)
+        if isinstance(value, dict) and isinstance(value.get("provider_evidence"), dict):
+            return value["provider_evidence"]
+    return {}
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _iwencai_review_status(
+    summary_status: str,
+    field_coverage: str,
+    candidate_validation: dict[str, Any],
+    degradation: dict[str, Any],
+) -> str:
+    if summary_status in {"failed", "error"}:
+        return "failed_review"
+    if summary_status in {"empty", "no_match"}:
+        return "empty_review"
+    if summary_status == "degraded" or degradation.get("type"):
+        return "degraded_review"
+    if summary_status == "partial" or field_coverage == "partial" or _safe_int(candidate_validation.get("partial")):
+        return "partial_review"
+    if summary_status == "verified" and field_coverage in {"verified", "no_conditions"}:
+        return "verified_read_only"
+    return "needs_review"
+
+
+def _iwencai_condition_samples(evidence: dict[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    conditions = evidence.get("condition_evidence")
+    if not isinstance(conditions, list):
+        return samples
+    for item in conditions[:limit]:
+        if not isinstance(item, dict):
+            continue
+        samples.append(
+            {
+                "raw_text": item.get("raw_text") or "",
+                "field": item.get("field") or "",
+                "hit_count": item.get("hit_count"),
+                "hit_count_status": item.get("hit_count_status") or item.get("status") or "",
+                "evidence_level": item.get("evidence_level") or "",
+                "source_field": item.get("source_field") or "",
+                "missing_reason": item.get("missing_reason") or "",
+            }
+        )
+    return samples
+
+
+def _iwencai_review_write_gate(evidence: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    enabled = evidence.get("enabled_write_actions")
+    blocked = evidence.get("blocked_write_actions")
+    return {
+        "allowed_by_review_tool": False,
+        "reason": reason,
+        "evidence_allows_write_actions": bool(evidence.get("write_actions_allowed")),
+        "enabled_write_actions": enabled if isinstance(enabled, list) else [],
+        "blocked_write_actions": blocked if isinstance(blocked, list) else [],
+        "requires_separate_tool_and_confirmation": bool(evidence.get("write_actions_allowed")),
+    }
+
+
+def _iwencai_recommended_actions(
+    review_status: str,
+    summary_status: str,
+    evidence: dict[str, Any],
+    candidate_validation: dict[str, Any],
+    degradation: dict[str, Any],
+) -> list[str]:
+    if review_status == "failed_review":
+        return [
+            "保持只读解释，展示 provider 失败原因。",
+            "等待限流/网络/凭证问题恢复后重新获取 provider_evidence。",
+        ]
+    if review_status == "empty_review":
+        return [
+            "提示用户调整自然语言条件或缩小歧义。",
+            "不要生成篮子、回测草案或写入自选。",
+        ]
+    if review_status == "degraded_review":
+        action = str(degradation.get("next_action") or "").strip()
+        base = ["保持只读解释，并把降级原因展示给用户。"]
+        if action:
+            base.append(f"建议下一步：{action}")
+        base.append("刷新到 verified/partial 证据前，不继续写入或执行回测。")
+        return base
+    if review_status == "partial_review":
+        return [
+            "可以继续只读解释、打开个股或人工复核候选池。",
+            "字段覆盖或候选验证不完整时，不自动生成篮子或回测草案。",
+        ]
+    if review_status == "verified_read_only":
+        actionable = _safe_int(candidate_validation.get("actionable"))
+        if actionable > 0 or _safe_int(evidence.get("candidate_count")) > 0:
+            return [
+                "可以继续只读解释、打开个股详情或把证据交给人工复核。",
+                "若要生成篮子或回测草案，必须通过独立写入/草案入口和确认链执行。",
+            ]
+        return ["证据结构已验证，但候选池为空；继续只读解释或调整问句。"]
+    return [
+        f"当前 evidence summary_status={summary_status or 'unknown'}，需要人工复核。",
+        "在复核完成前保持只读，不触发写入、回测或交易链路。",
+    ]
+
+
 def _generate_daily_report(account: dict, arguments: dict[str, Any]) -> dict[str, Any]:
     from config.datetime_utils import today_beijing
 
@@ -623,12 +863,25 @@ def _auto_record_research_memory(
         logger.exception(f"自动记录 OpenClaw 研究记忆失败: {tool_name}")
 
 
+def _redact_value(value: Any, key: str = "", depth: int = 0) -> Any:
+    if key and SECRET_KEY_RE.search(key):
+        return "***"
+    if depth > 8:
+        return "[truncated]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact_value(item_value, str(item_key), depth + 1) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item, "", depth + 1) for item in value[:100]]
+    if isinstance(value, tuple):
+        return [_redact_value(item, "", depth + 1) for item in value[:100]]
+    if isinstance(value, str):
+        return SECRET_TEXT_RE.sub("***", value)
+    return value
+
+
 def _redact_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    redacted = dict(arguments or {})
-    for key in list(redacted):
-        if "password" in key.lower() or "token" in key.lower() or "secret" in key.lower():
-            redacted[key] = "***"
-    return redacted
+    redacted = _redact_value(arguments or {})
+    return redacted if isinstance(redacted, dict) else {}
 
 
 def _preview(result: dict[str, Any]) -> dict[str, Any]:

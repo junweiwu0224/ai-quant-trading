@@ -2081,6 +2081,41 @@ Remaining gaps:
 - This closes local AI-assistant evidence handoff only. It still does not prove real external LLM behavior, OpenClaw deep orchestration, real provider credentials/schema/rate limits, or production deployment readiness.
 - A future OpenClaw slice should consume the same `provider_evidence` through a read-only research task contract before any write-capable orchestration is considered.
 
+## Task 9.29: Read-Only OpenClaw iWencai Evidence Review Tool
+
+Status: delivered as the next P2 evidence-consumption slice after Task 9.28. This does not call real OpenClaw, external LLM, iWencai/pywencai, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it lets OpenClaw Bridge callers review backend-owned `provider_evidence` through a read-only system tool before any write-capable orchestration is considered.
+
+Implemented:
+
+- Added `quant.iwencai.evidence.review` to `dashboard/openclaw_tools.py` with `read_market` permission and `confirm: false`.
+- The tool accepts caller-provided `provider_evidence` or `source_context.provider_evidence`, validates `iwencai_provider_evidence_v1`, and returns `iwencai_evidence_review_v1`.
+- The review summarizes evidence status, provider/data/cache status, condition status counts, condition samples, candidate validation counts, degradation metadata, and safe next actions.
+- The review tool never authorizes writes: `write_action_gate.allowed_by_review_tool` is always `false`, and any evidence-level write capability is explicitly marked as requiring separate tools and confirmation.
+- OpenClaw audit argument redaction is now recursive and covers cookies, authorization headers, API keys, invite/session/credential fields, tokens, passwords, and secret-like inline text.
+- `tests/test_openclaw_bridge.py` allowlists the new tool and verifies Bridge permission behavior with `read_market`.
+
+Safety boundary:
+
+- The tool only reviews caller-provided, compact provider evidence. It does not fetch provider data, call OpenClaw/LLM, inspect credentials, start services, mutate watchlists/baskets, run backtests, create memories, submit orders, or approve production release.
+- Audit metadata redacts sensitive argument fields before persistence.
+- Write-capable follow-up still must use existing explicit system tools, permission checks, confirmation cards, and production runbook gates.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_openclaw_tools.py tests/test_openclaw_bridge.py -q -p no:cacheprovider
+.venv/bin/python -m compileall -q dashboard/openclaw_tools.py dashboard/routers/openclaw.py
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/build_release_bundle.py
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+git diff --check
+```
+
+Remaining gaps:
+
+- This proves only local deterministic OpenClaw system-tool behavior. It still does not prove real OpenClaw Gateway, external LLM behavior, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
+- A future slice can wire this review output into an OpenClaw read-only research workflow, but write-capable orchestration remains out of scope until the provider, LLM, data, and confirmation gates are signed off.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

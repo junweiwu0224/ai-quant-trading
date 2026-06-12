@@ -151,6 +151,163 @@ def test_signals_top_tool_and_qlib_alias_share_signal_engine(monkeypatch):
     assert legacy_result["result"] == new_result["result"]
 
 
+def test_iwencai_evidence_review_is_read_only_and_records_sanitized_audit(monkeypatch):
+    account = {
+        "user": {"id": "user-1"},
+        "workspace": {"id": "workspace-1", "openclaw_workspace_id": "ocw_workspace_1"},
+        "permissions": {"read_market": True},
+    }
+    audits = []
+    created = []
+    provider_evidence = {
+        "schema_version": "iwencai_provider_evidence_v1",
+        "query": "高股息 低估值",
+        "result_pool_id": "iwencai:test",
+        "summary_status": "verified",
+        "provider": "iwencai",
+        "provider_status": "ok",
+        "data_status": "ok",
+        "cache_status": "live_request",
+        "reported_total": 2,
+        "candidate_count": 2,
+        "field_coverage_status": "verified",
+        "condition_status_counts": {"verified": 2},
+        "condition_evidence": [
+            {
+                "raw_text": "高股息",
+                "field": "dividend_yield",
+                "hit_count": 12,
+                "hit_count_status": "verified",
+                "source_field": "股息率",
+            }
+        ],
+        "candidate_validation": {"verified": 2, "partial": 0, "unverified": 0, "missing": 0, "actionable": 2},
+        "write_actions_allowed": True,
+        "enabled_write_actions": ["create_basket", "draft_backtest"],
+        "blocked_write_actions": ["add_watchlist"],
+        "degradation": {},
+    }
+
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "record_audit",
+        lambda *args, **kwargs: audits.append((args, kwargs)) or {"id": "audit-1"},
+    )
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "create_memory",
+        lambda **kwargs: created.append(kwargs) or {"id": "memory-1", **kwargs},
+    )
+
+    response = asyncio.run(
+        openclaw_tools.invoke_system_tool(
+            account,
+            "quant.iwencai.evidence.review",
+            {
+                "provider_evidence": provider_evidence,
+                "cookie": "iwencai_cookie=secret-cookie-value",
+                "headers": {"Authorization": "Bearer secret-token-value"},
+                "note": "api_key=plain-secret should not be logged",
+            },
+        )
+    )
+
+    result = response["result"]
+    assert response["permission"] == "read_market"
+    assert result["review_status"] == "verified_read_only"
+    assert result["evidence_status"]["candidate_count"] == 2
+    assert result["candidate_validation"]["verified"] == 2
+    assert result["write_action_gate"]["allowed_by_review_tool"] is False
+    assert result["write_action_gate"]["evidence_allows_write_actions"] is True
+    assert result["write_action_gate"]["requires_separate_tool_and_confirmation"] is True
+    assert created == []
+    assert audits
+    audit_text = str(audits)
+    assert "secret-cookie-value" not in audit_text
+    assert "secret-token-value" not in audit_text
+    assert "plain-secret" not in audit_text
+    assert "'cookie': '***'" in audit_text
+    assert "'headers': '***'" in audit_text
+
+
+def test_iwencai_evidence_review_missing_evidence_keeps_write_gate_closed(monkeypatch):
+    account = {
+        "user": {"id": "user-1"},
+        "workspace": {"id": "workspace-1", "openclaw_workspace_id": "ocw_workspace_1"},
+        "permissions": {"read_market": True},
+    }
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "record_audit",
+        lambda *args, **kwargs: {"id": "audit-1"},
+    )
+
+    response = asyncio.run(
+        openclaw_tools.invoke_system_tool(
+            account,
+            "quant.iwencai.evidence.review",
+            {},
+        )
+    )
+
+    result = response["result"]
+    assert result["review_status"] == "missing_evidence"
+    assert result["evidence_status"]["present"] is False
+    assert result["write_action_gate"]["allowed_by_review_tool"] is False
+    assert result["write_action_gate"]["evidence_allows_write_actions"] is False
+
+
+def test_iwencai_evidence_review_rejects_unknown_evidence_schema(monkeypatch):
+    account = {
+        "user": {"id": "user-1"},
+        "workspace": {"id": "workspace-1", "openclaw_workspace_id": "ocw_workspace_1"},
+        "permissions": {"read_market": True},
+    }
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "record_audit",
+        lambda *args, **kwargs: {"id": "audit-1"},
+    )
+
+    response = asyncio.run(
+        openclaw_tools.invoke_system_tool(
+            account,
+            "quant.iwencai.evidence.review",
+            {"source_context": {"provider_evidence": {"schema_version": "unknown_v2", "write_actions_allowed": True}}},
+        )
+    )
+
+    result = response["result"]
+    assert result["review_status"] == "unsupported_schema"
+    assert result["write_action_gate"]["allowed_by_review_tool"] is False
+    assert result["write_action_gate"]["evidence_allows_write_actions"] is True
+
+
+def test_openclaw_audit_argument_redaction_is_recursive():
+    redacted = openclaw_tools._redact_arguments(
+        {
+            "token": "top-level-token",
+            "source_context": {
+                "provider_evidence": {
+                    "query": "高股息",
+                    "headers": {"cookie": "nested-cookie", "X-Trace": "ok"},
+                    "note": "Authorization: Bearer abcdefghijklmnop should vanish",
+                }
+            },
+            "items": [{"api_key": "nested-key"}, "token=inline-secret"],
+        }
+    )
+
+    text = str(redacted)
+    assert "top-level-token" not in text
+    assert "nested-cookie" not in text
+    assert "abcdefghijklmnop" not in text
+    assert "nested-key" not in text
+    assert "inline-secret" not in text
+    assert redacted["source_context"]["provider_evidence"]["query"] == "高股息"
+    assert redacted["source_context"]["provider_evidence"]["headers"] == "***"
+
+
 def test_watchlist_chat_action_preserves_user_reason(monkeypatch):
     account = {
         "user": {"id": "user-1"},

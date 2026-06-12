@@ -18,6 +18,7 @@ APPROVED_BRIDGE_TOOLS = {
     "quant.data.snapshot",
     "quant.signals.top",
     "quant.qlib.top",
+    "quant.iwencai.evidence.review",
     "quant.report.generate_daily",
     "quant.report.open",
     "quant.skill.record",
@@ -71,7 +72,52 @@ def test_bridge_tools_lists_approved_tools_with_allowed_flags(client, monkeypatc
     allowed_map = {tool["name"]: tool["allowed"] for tool in body["tools"]}
     assert allowed_map["quant.watchlist.add"] is True
     assert allowed_map["quant.stock.open"] is False
+    assert allowed_map["quant.iwencai.evidence.review"] is False
     assert allowed_map["quant.skill.record"] is True
+
+
+def test_bridge_iwencai_evidence_review_is_allowed_by_read_market(client, monkeypatch):
+    monkeypatch.setenv("QUANT_SYSTEM_API_KEY", "bridge-secret")
+    monkeypatch.setattr(
+        openclaw_router.account_store,
+        "get_user_bundle_by_openclaw_workspace_id",
+        lambda workspace_id: {
+            "user": {"id": "user-1"},
+            "workspace": {"id": "workspace-1", "openclaw_workspace_id": workspace_id},
+            "permissions": {
+                "read_market": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        openclaw_tools.account_store,
+        "record_audit",
+        lambda *args, **kwargs: {"id": "audit-1"},
+    )
+
+    resp = client.post(
+        "/api/openclaw/bridge/tools/invoke",
+        headers=_bridge_headers(),
+        json={
+            "tool": "quant.iwencai.evidence.review",
+            "arguments": {
+                "provider_evidence": {
+                    "schema_version": "iwencai_provider_evidence_v1",
+                    "summary_status": "partial",
+                    "field_coverage_status": "partial",
+                    "candidate_validation": {"verified": 1, "partial": 1, "unverified": 0, "missing": 0, "actionable": 0},
+                    "write_actions_allowed": False,
+                }
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["permission"] == "read_market"
+    assert body["result"]["review_status"] == "partial_review"
+    assert body["result"]["write_action_gate"]["allowed_by_review_tool"] is False
 
 
 def test_bridge_tools_rejects_invalid_api_key(client, monkeypatch):

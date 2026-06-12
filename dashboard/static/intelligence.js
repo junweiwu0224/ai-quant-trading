@@ -74,7 +74,17 @@
             return aliases[raw] || raw;
         },
 
-        _canRunIwencaiAction(action, { requiresPool = false } = {}) {
+        _matchesIwencaiRequestGeneration(element = null) {
+            if (!element?.dataset?.requestGeneration) return true;
+            const expected = Number(element.dataset.requestGeneration);
+            if (!Number.isFinite(expected) || expected <= 0) return true;
+            const actionState = this.state.iwencaiActionState || {};
+            const current = Number(actionState.requestGeneration || actionState.source_context?.request_generation || 0);
+            return current > 0 && current === expected;
+        },
+
+        _canRunIwencaiAction(action, { requiresPool = false, element = null } = {}) {
+            if (!this._matchesIwencaiRequestGeneration(element)) return false;
             const actionState = this.state.iwencaiActionState || {};
             const viewModel = actionState.viewModel || {};
             const normalized = this._normalizeIwencaiActionName(action);
@@ -84,12 +94,95 @@
                 item && typeof item === 'object' ? (item.id || item.action || item.type || item.name) : item
             )));
             if (!allowed.has(normalized)) return false;
-            if (['failed', 'no_match', 'needs_disambiguation', 'requires_confirmation'].includes(viewModel.status)) {
+            const blockedTaskStatuses = new Set([
+                'failed',
+                'no_match',
+                'partial_result',
+                'degraded_data',
+                'needs_disambiguation',
+                'requires_confirmation',
+            ]);
+            if (blockedTaskStatuses.has(viewModel.status)) {
                 return !requiresPool;
             }
-            if (requiresPool) {
-                return Array.isArray(actionState.candidates) && actionState.candidates.length > 0;
+            const blockedSourceStatuses = new Set([
+                'failed',
+                'unavailable',
+                'provider_unavailable',
+                'rate_limited',
+                'invalid_response',
+                'invalid_provider_response',
+                'permission_denied',
+                'request_failed',
+                'partial_source_failure',
+                'stale_cache',
+                'offline_fallback',
+            ]);
+            const sourceContext = actionState.source_context || viewModel.source_context || {};
+            const rawResponse = viewModel.raw_response || {};
+            const sourceStatus = rawResponse.source_status && typeof rawResponse.source_status === 'object'
+                ? rawResponse.source_status
+                : {};
+            const providerValues = [
+                rawResponse.provider_status,
+                rawResponse.failure_type,
+                rawResponse.error_type,
+                sourceStatus.status,
+                sourceStatus.type,
+                sourceStatus.provider_status,
+                sourceStatus.cache_status,
+                sourceContext.data_status,
+                sourceContext.failure_type,
+                sourceContext.provider_status,
+                sourceContext.cache_status,
+            ].map((value) => String(value || '').trim()).filter(Boolean);
+            if (['add_watchlist', 'send_screener', 'create_basket', 'draft_backtest'].includes(normalized)
+                && providerValues.some((value) => blockedSourceStatuses.has(value))) {
+                return false;
             }
+            if (requiresPool) {
+                return Array.isArray(actionState.pool) && actionState.pool.length > 0;
+            }
+            return true;
+        },
+
+        _iwencaiCandidateByCode(code) {
+            const cleanCode = String(code || '').trim();
+            if (!cleanCode) return null;
+            const actionState = this.state.iwencaiActionState || {};
+            return (actionState.candidates || []).find((item) => item.code === cleanCode) || null;
+        },
+
+        _iwencaiRowSourceContext(candidate) {
+            const actionState = this.state.iwencaiActionState || {};
+            const sourceContext = actionState.source_context || {};
+            const rowEvidence = candidate?.rowEvidence?.raw || candidate?.row?.candidate_provenance || candidate?.candidate_provenance || null;
+            return {
+                ...sourceContext,
+                row_evidence: rowEvidence,
+                candidate_provenance: rowEvidence,
+                row_evidence_id: candidate?.rowEvidence?.row_evidence_id || rowEvidence?.row_id || '',
+                row_evidence_status: candidate?.rowEvidence?.status || rowEvidence?.validation_status || 'legacy_unverified',
+                rank_reason: candidate?.rank_reason || sourceContext.rank_reason || `问财条件: ${actionState.query || candidate?.code || ''}`,
+            };
+        },
+
+        _canRunIwencaiRowAction(action, code, element = null, { requiresVerified = false } = {}) {
+            const candidate = this._iwencaiCandidateByCode(code);
+            if (!candidate) return false;
+            const actionState = this.state.iwencaiActionState || {};
+            const rowEvidence = candidate.rowEvidence || {};
+            const rowEvidenceId = rowEvidence.row_evidence_id || candidate.row?.candidate_provenance?.row_id || '';
+            const resultPoolId = rowEvidence.result_pool_id || actionState.source_context?.result_pool_id || '';
+            if (element?.dataset) {
+                if (!this._matchesIwencaiRequestGeneration(element)) return false;
+                const elementPoolId = String(element.dataset.resultPoolId || '').trim();
+                const elementEvidenceId = String(element.dataset.rowEvidenceId || '').trim();
+                if (elementPoolId && resultPoolId && elementPoolId !== resultPoolId) return false;
+                if (elementEvidenceId && rowEvidenceId && elementEvidenceId !== rowEvidenceId) return false;
+            }
+            if (!this._canRunIwencaiAction(action, { requiresPool: requiresVerified })) return false;
+            if (requiresVerified && !rowEvidence.actionable) return false;
             return true;
         },
 
@@ -195,7 +288,7 @@
                 const sendToScreenerButton = e.target.closest('[data-intel-action="iwencai-send-screener"]');
                 if (sendToScreenerButton) {
                     e.preventDefault();
-                    if (this._canRunIwencaiAction('send_screener', { requiresPool: true }) && this.state.iwencaiActionState.pool.length > 0 && typeof App.emit === 'function') {
+                    if (this._canRunIwencaiAction('send_screener', { requiresPool: true, element: sendToScreenerButton }) && this.state.iwencaiActionState.pool.length > 0 && typeof App.emit === 'function') {
                         App.emit('iwencai:send-to-screener', {
                             pool: [...this.state.iwencaiActionState.pool],
                             query: this.state.iwencaiActionState.query,
@@ -219,10 +312,10 @@
                 if (openStockButton) {
                     e.preventDefault();
                     const code = typeof openStockButton.dataset.code === 'string' ? openStockButton.dataset.code.trim() : '';
-                    if (code && this._canRunIwencaiAction('open_stock') && typeof App.openStockDetail === 'function') {
+                    if (code && this._canRunIwencaiRowAction('open_stock', code, openStockButton) && typeof App.openStockDetail === 'function') {
                         const actionState = this.state.iwencaiActionState || {};
                         const candidate = (actionState.candidates || []).find((item) => item.code === code) || { code };
-                        const sourceContext = actionState.source_context || {};
+                        const sourceContext = this._iwencaiRowSourceContext(candidate);
                         App.openStockDetail(code, {
                             stock: candidate,
                             name: candidate.name,
@@ -244,7 +337,7 @@
                 const analyzeButton = e.target.closest('[data-intel-action="iwencai-analyze"]');
                 if (analyzeButton) {
                     e.preventDefault();
-                    if (this._canRunIwencaiAction('analyze') && typeof App.emit === 'function') {
+                    if (this._canRunIwencaiAction('analyze', { element: analyzeButton }) && typeof App.emit === 'function') {
                         App.emit('iwencai:analyze', {
                             query: this.state.iwencaiActionState.query,
                             data: this.getLastResult(),
@@ -260,12 +353,12 @@
                     const code = typeof askAiButton.dataset.code === 'string' ? askAiButton.dataset.code.trim() : '';
                     const actionState = this.state.iwencaiActionState || {};
                     const candidate = (actionState.candidates || []).find((item) => item.code === code) || null;
-                    if ((this._canRunIwencaiAction('ask_ai') || this._canRunIwencaiAction('analyze')) && typeof App.emit === 'function') {
+                    if (candidate && (this._canRunIwencaiRowAction('ask_ai', code, askAiButton) || this._canRunIwencaiRowAction('analyze', code, askAiButton)) && typeof App.emit === 'function') {
                         const stockText = candidate ? `${candidate.name}(${candidate.code})` : code;
                         App.emit('iwencai:analyze', {
                             query: `请解释 ${stockText} 为什么出现在问财条件“${actionState.query || ''}”里，并列出支持证据、反证和缺失数据。`,
                             data: this.getLastResult(),
-                            source_context: actionState.source_context || null,
+                            source_context: this._iwencaiRowSourceContext(candidate),
                         });
                     }
                     return;
@@ -274,7 +367,7 @@
                 const addWatchlistButton = e.target.closest('[data-intel-action="iwencai-add-watchlist"]');
                 if (addWatchlistButton) {
                     e.preventDefault();
-                    if (this._canRunIwencaiAction('add_watchlist', { requiresPool: true }) && this.state.iwencaiActionState.watchlistCodes.length > 0 && typeof App.addAllToWatchlist === 'function') {
+                    if (this._canRunIwencaiAction('add_watchlist', { requiresPool: true, element: addWatchlistButton }) && this.state.iwencaiActionState.watchlistCodes.length > 0 && typeof App.addAllToWatchlist === 'function') {
                         App.addAllToWatchlist([...this.state.iwencaiActionState.watchlistCodes]);
                     }
                     return;
@@ -284,10 +377,11 @@
                 if (addOneWatchlistButton) {
                     e.preventDefault();
                     const code = typeof addOneWatchlistButton.dataset.code === 'string' ? addOneWatchlistButton.dataset.code.trim() : '';
-                    if (code && this._canRunIwencaiAction('add_watchlist') && typeof App.addToWatchlist === 'function') {
+                    if (code && this._canRunIwencaiRowAction('add_watchlist', code, addOneWatchlistButton, { requiresVerified: true }) && typeof App.addToWatchlist === 'function') {
+                        const candidate = this._iwencaiCandidateByCode(code);
                         App.addToWatchlist(code, {
                             source: 'iwencai:add-watchlist',
-                            metadata: this.state.iwencaiActionState.source_context || null,
+                            metadata: this._iwencaiRowSourceContext(candidate),
                         });
                     }
                     return;
@@ -297,10 +391,10 @@
                 if (basketButton) {
                     e.preventDefault();
                     const actionState = this.state.iwencaiActionState || {};
-                    if (this._canRunIwencaiAction('create_basket', { requiresPool: true }) && typeof App.emit === 'function') {
+                    if (this._canRunIwencaiAction('create_basket', { requiresPool: true, element: basketButton }) && typeof App.emit === 'function') {
                         App.emit('iwencai:create-basket', {
                             query: actionState.query,
-                            candidates: actionState.candidates || [],
+                            candidates: actionState.actionableCandidates || [],
                             source_context: actionState.source_context || null,
                         });
                     }
@@ -311,10 +405,10 @@
                 if (backtestDraftButton) {
                     e.preventDefault();
                     const actionState = this.state.iwencaiActionState || {};
-                    if (this._canRunIwencaiAction('draft_backtest', { requiresPool: true }) && typeof App.emit === 'function') {
+                    if (this._canRunIwencaiAction('draft_backtest', { requiresPool: true, element: backtestDraftButton }) && typeof App.emit === 'function') {
                         App.emit('iwencai:draft-backtest', {
                             query: actionState.query,
-                            candidates: actionState.candidates || [],
+                            candidates: actionState.actionableCandidates || [],
                             source_context: actionState.source_context || null,
                         });
                     }

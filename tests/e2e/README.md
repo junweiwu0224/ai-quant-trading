@@ -7,15 +7,12 @@ This directory contains Playwright smoke tests for the dashboard V2.1 browser fl
 The dashboard must be running before executing these tests:
 
 ```bash
-cd /home/ubuntu/quant-trading-system
+cd /path/to/ai-quant-trading
 .venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service
 ```
 
-Install the Node test dependency once:
-
-```bash
-npm install
-```
+The local runner resolves the workspace Node/Playwright toolchain from `.tools/`
+or `node_modules`; no Docker or production service is started by the script.
 
 ## Run
 
@@ -51,13 +48,11 @@ docker run --rm --network host \
 Local runner:
 
 ```bash
-PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 \
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/non-snap/chrome-or-chromium \
-npm run e2e
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh smoke
 ```
 
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE` can point to any non-Snap Chrome/Chromium binary. When it is not set, Playwright uses its default browser resolution.
+Pass extra Playwright arguments after the mode, for example:
 
-## Current host note
-
-On the current Ubuntu 26.04 host, Playwright's browser download reports unsupported platform and the Snap Chromium crashes under headless automation. If these tests fail with `Target page, context or browser has been closed`, use a non-Snap Chrome/Chromium binary or run the tests in an official Playwright Docker image.
+```bash
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh smoke --grep "stock hash restores"
+```

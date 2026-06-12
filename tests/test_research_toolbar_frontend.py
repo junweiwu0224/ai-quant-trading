@@ -52,6 +52,13 @@ def test_formula_basket_and_backtest_tabs_use_same_compact_research_form_surface
     assert 'id="backtest-form" class="form-row research-tool-form research-form-grid research-backtest-form"' in template
     assert 'class="form-group min-w-md research-tool-primary"' in template
     assert 'class="compact-action-row research-tool-actions research-param-actions"' in template
+    assert 'id="basket-backtest-draft"' in template
+    assert 'data-execution-policy="manual_only"' in template
+    assert 'data-execution-status="not_executed"' in template
+    assert 'id="basket-backtest-draft-conditions"' in template
+    assert 'id="basket-draft-audit-study"' in template
+    assert 'data-alpha-action="basket-update-backtest-draft"' in template
+    assert '计划回测' in template
 
 
 def test_research_toolbar_styles_define_dense_terminal_controls():
@@ -90,10 +97,10 @@ def test_research_toolbar_asset_versions_are_bumped_for_browser_cache():
     template = read_template()
     scripts = read_scripts_partial()
 
-    assert "/static/style.css?v=73" in template
-    assert "/static/core/app-shell.js?v=28" in scripts
+    assert "/static/style.css?v=82" in template
+    assert "/static/core/app-shell.js?v=36" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=39" in scripts
+    assert "/static/app-ui-shell.js?v=45" in scripts
 
 
 def test_mobile_research_subtabs_avoid_fixed_user_shell_bar():
@@ -103,3 +110,11 @@ def test_mobile_research_subtabs_avoid_fixed_user_shell_bar():
     assert ".research-sub-tabs {" in styles
     assert "top: 56px;" in styles
     assert "z-index: 190;" in styles
+    assert ".basket-backtest-draft {" in styles
+    assert ".basket-draft-audit-study {" in styles
+    assert ".basket-draft-study-metrics" in styles
+    assert ".basket-draft-study-table table" in styles
+    assert "scroll-margin-bottom: var(--mobile-bottom-nav-offset);" in styles
+    assert "--mobile-bottom-nav-offset: calc(72px + env(safe-area-inset-bottom, 0px));" in styles
+    assert "padding-bottom: var(--mobile-bottom-nav-offset);" in styles
+    assert "bottom: calc(var(--mobile-bottom-nav-offset) + 12px);" in styles

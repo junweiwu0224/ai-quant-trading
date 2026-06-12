@@ -202,7 +202,7 @@ Object.assign(globalThis.StockDetail, {
             quoteSnapshot: {},
             sourceContext: {},
             contextList: [],
-            chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 },
+            chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 },
             indicatorState: { main: ['MA'], sub: ['VOL'], active: '' },
             layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile' },
             relatedContext: { sectors: [], indices: [], peers: [] },
@@ -317,6 +317,7 @@ Object.assign(globalThis.StockDetail, {
         state.chartState = {
             ...(state.chartState || {}),
             eventFocus: null,
+            eventGroupFocus: null,
             eventOverlayEvents: [],
             eventOverlayCount: 0,
         };
@@ -423,6 +424,248 @@ Object.assign(globalThis.StockDetail, {
         return 'events';
     },
 
+    _eventGroupDateCounts(events = []) {
+        const counts = new Map();
+        (Array.isArray(events) ? events : []).forEach((event) => {
+            if (!event || event.status !== 'ready' || !this._chartEventTypes().has(event.type)) return;
+            const dateKey = this._eventDateKey(event, event.chartTime || event.at || '');
+            if (!dateKey) return;
+            counts.set(dateKey, (counts.get(dateKey) || 0) + Number(event.duplicate_count || 1));
+        });
+        return counts;
+    },
+
+    _eventsForDateKey(dateKey = '', events = null) {
+        const key = String(dateKey || '').trim();
+        if (!key) return [];
+        const list = Array.isArray(events) ? events : (this._ensureStockWorkbenchState().eventFeed || []);
+        return list.filter((event) => {
+            if (!event || event.status !== 'ready' || !this._chartEventTypes().has(event.type)) return false;
+            return this._eventDateKey(event, event.chartTime || event.at || '') === key;
+        });
+    },
+
+    _buildEventGroupSourceContext(dateKey = '', events = []) {
+        const state = this._ensureStockWorkbenchState();
+        const base = this._sourceContext && typeof this._sourceContext === 'object' && Object.keys(this._sourceContext).length
+            ? this._sourceContext
+            : (state.sourceContext && typeof state.sourceContext === 'object' ? state.sourceContext : {});
+        const symbol = state.selectedSymbol || {};
+        const safeEvents = Array.isArray(events) ? events : [];
+        const primaryEvent = [...safeEvents].sort((a, b) => this._eventClusterRank(a) - this._eventClusterRank(b))[0] || null;
+        const eventGroup = {
+            source: 'stock:event-group',
+            sourceLabel: 'K线事件组',
+            context_type: 'stock_event_group',
+            evidence_scope: 'stock_event_group',
+            row_evidence_status: 'not_applicable',
+            parent_event_group: base.event_group || null,
+            stock_code: symbol.code || this._currentCode || this._headerData?.code || '',
+            stock_name: symbol.name || this._headerData?.name || '',
+            event_date: dateKey,
+            event_count: safeEvents.length,
+            raw_count: safeEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0),
+            duplicate_count: Math.max(0, safeEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0) - safeEvents.length),
+            event_ids: safeEvents.map((event) => event.id).filter(Boolean),
+            event_types: this._uniqueEvidenceItems(safeEvents.map((event) => event.type)),
+            primary_event_id: primaryEvent?.id || '',
+            primary_event_type: primaryEvent?.type || '',
+            primary_event_title: primaryEvent?.title || '',
+            event_titles: safeEvents.map((event) => event.title).filter(Boolean).slice(0, 5),
+            dedupe_policy: '同语义重复转载只计一次独立证据，duplicate_count 只作为传播热度',
+            rank_reason: `${dateKey} 同日事件组`,
+        };
+        return {
+            ...base,
+            evidence_scope: 'stock_event_group',
+            row_evidence_status: 'not_applicable',
+            event_group: eventGroup,
+        };
+    },
+
+    _buildEventGroupDiagnosisFocus(eventGroupFocus = null, eventFeed = []) {
+        const dateKey = String(eventGroupFocus?.date_key || '').trim();
+        const groupIds = new Set(eventGroupFocus?.event_ids || []);
+        if (!dateKey || !groupIds.size) {
+            return { active: false };
+        }
+        const groupEvents = (Array.isArray(eventFeed) ? eventFeed : [])
+            .filter((event) => event?.status === 'ready' && groupIds.has(event.id));
+        if (!groupEvents.length) {
+            return { active: false };
+        }
+        const members = [...groupEvents].sort((a, b) => this._eventClusterRank(a) - this._eventClusterRank(b));
+        const primary = groupEvents.find((event) => event.id === eventGroupFocus.representative_event_id) || members[0];
+        const rawCount = Number(eventGroupFocus.raw_count || 0) || groupEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const independentCount = groupEvents.length;
+        const duplicateCount = Math.max(0, rawCount - independentCount);
+        const typeLabels = this._uniqueEvidenceItems(groupEvents.map((event) => this._eventTypeLabel(event.type)));
+        const typeCounts = groupEvents.reduce((acc, event) => {
+            const key = event.type || 'event';
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        }, {});
+        const capitalTypes = new Set(['capital_flow', 'northbound', 'dragon_tiger']);
+        const companyTypes = new Set(['announcement', 'dividend']);
+        const newsTypes = new Set(['news', 'report', 'research_report', 'alpha_signal']);
+        const capitalEvents = groupEvents.filter((event) => capitalTypes.has(event.type));
+        const companyEvents = groupEvents.filter((event) => companyTypes.has(event.type));
+        const newsEvents = groupEvents.filter((event) => newsTypes.has(event.type));
+        const counterEvidence = [
+            duplicateCount > 0 ? `重复转载 ${duplicateCount} 条只作为传播热度，不按独立利好加权` : '',
+            capitalEvents.length ? '' : '缺少资金流/北向/龙虎榜确认',
+            companyEvents.length ? '' : '缺少公告或分红等公司事实核验',
+        ].filter(Boolean);
+        const missingEvidence = [
+            '缺少事件后 N 日回测验证',
+            '缺少行业/指数相对强弱确认',
+            '缺少分钟级异动定位',
+        ];
+        const confidence = capitalEvents.length && companyEvents.length ? 'medium' : 'low';
+        const signalDirection = capitalEvents.length || companyEvents.length || typeCounts.alpha_signal
+            ? 'event_catalyst_needs_backtest'
+            : 'insufficient';
+        const summary = [
+            `${dateKey} ${independentCount} 个独立事件 / ${rawCount} 条原始证据`,
+            primary ? `主事件 ${this._eventTypeLabel(primary.type)} · ${primary.title || '事件'}` : '',
+            typeLabels.length ? `类型 ${typeLabels.join(' / ')}` : '',
+        ].filter(Boolean).join('；');
+        return {
+            active: true,
+            date_key: dateKey,
+            event_ids: groupEvents.map((event) => event.id).filter(Boolean),
+            event_types: this._uniqueEvidenceItems(groupEvents.map((event) => event.type)),
+            type_counts: typeCounts,
+            raw_count: rawCount,
+            independent_count: independentCount,
+            duplicate_count: duplicateCount,
+            primary_event_id: primary?.id || '',
+            primary_event_title: primary?.title || '',
+            primary_event_type: primary?.type || '',
+            event_titles: groupEvents.map((event) => event.title).filter(Boolean).slice(0, 5),
+            summary,
+            evidence: summary,
+            counter_evidence: counterEvidence.join('；'),
+            missing_evidence: missingEvidence.join('；'),
+            confidence,
+            status: groupEvents.length > 1 ? 'ready' : 'degraded',
+            signal_direction: signalDirection,
+            dedupe_policy: '重复转载不作为独立证据加权，只保留 duplicate_count 作为传播热度',
+        };
+    },
+
+    _buildEventGroupBacktestDraft(focus = null, events = [], sourceContext = {}) {
+        const diagnosis = this._buildEventGroupDiagnosisFocus(focus, events);
+        if (!diagnosis.active) return null;
+        const eventGroup = sourceContext.event_group || {};
+        const code = eventGroup.stock_code || this._ensureStockWorkbenchState().selectedSymbol?.code || this._currentCode || this._headerData?.code || '';
+        const name = eventGroup.stock_name || this._ensureStockWorkbenchState().selectedSymbol?.name || this._headerData?.name || code;
+        const conditions = {
+            hypothesis: `${name || code} ${diagnosis.date_key} 同日事件组形成事件驱动假设，需验证事件后 N 日是否有超额收益`,
+            event_date: diagnosis.date_key,
+            event_ids: diagnosis.event_ids,
+            event_types: diagnosis.event_types,
+            primary_event_id: diagnosis.primary_event_id,
+            primary_event_title: diagnosis.primary_event_title,
+            signal_direction: diagnosis.signal_direction,
+            dedupe_policy: diagnosis.dedupe_policy,
+            entry_rule: '事件日后次一交易日开盘，或突破事件日高点后手动确认',
+            exit_rule: '持有 1/3/5/10/20 个交易日；跌破事件日低点或出现强反证时退出',
+            holding_periods: [1, 3, 5, 10, 20],
+            rebalance_frequency: 'event_triggered',
+            universe: {
+                type: 'current_stock',
+                codes: code ? [code] : [],
+                expansion: '同板块/同概念扩展需人工确认',
+            },
+            benchmark: '行业指数或沪深300，待回测前确认',
+            sample_range: { lookback_years: 3, min_samples: 30 },
+            cost_model: { commission_bps: 3, slippage_bps: 5, stamp_tax_bps: 10 },
+            risk_constraints: ['单票权重 <= 10%', '排除 ST/停牌/流动性不足样本', '最大回撤阈值需手动确认'],
+            evidence_filters: ['保留公告/资金/研报/新闻/Signal 类型分布', '重复转载只计一次独立证据'],
+            counter_evidence_filters: [
+                diagnosis.counter_evidence || '反证待补充',
+                diagnosis.missing_evidence || '缺失证据待补充',
+            ],
+        };
+        return {
+            source: 'stock:event-group',
+            draft_type: 'event_group_backtest_draft',
+            evidence_scope: 'stock_event_group',
+            row_evidence_status: 'not_applicable',
+            status: 'draft',
+            requires_confirmation: true,
+            execution_policy: 'manual_only',
+            execution_status: 'not_executed',
+            allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation'],
+            conditions,
+            source_context: {
+                evidence_scope: 'stock_event_group',
+                row_evidence_status: 'not_applicable',
+                event_group: eventGroup,
+            },
+        };
+    },
+
+    _syncWorkbenchEventGroupFocus(dateKey = '', events = null, representative = null) {
+        const state = this._ensureStockWorkbenchState();
+        const key = String(dateKey || '').trim();
+        if (!key) {
+            state.chartState = {
+                ...state.chartState,
+                eventGroupFocus: null,
+            };
+            return state;
+        }
+        const groupEvents = this._eventsForDateKey(key, events || state.eventFeed || []);
+        const rawCount = groupEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const groupFocus = {
+            date_key: key,
+            event_ids: groupEvents.map((event) => event.id).filter(Boolean),
+            event_types: this._uniqueEvidenceItems(groupEvents.map((event) => event.type)),
+            event_count: groupEvents.length,
+            raw_count: rawCount,
+            representative_event_id: representative?.id || groupEvents[0]?.id || '',
+            source_context: this._buildEventGroupSourceContext(key, groupEvents),
+        };
+        state.chartState = {
+            ...state.chartState,
+            eventGroupFocus: groupFocus,
+        };
+        return state;
+    },
+
+    _eventGroupAction(action = '') {
+        const state = this._ensureStockWorkbenchState();
+        const focus = state.chartState?.eventGroupFocus || null;
+        if (!focus?.date_key) return null;
+        const events = this._eventsForDateKey(focus.date_key, state.eventFeed || []);
+        const sourceContext = focus.source_context || this._buildEventGroupSourceContext(focus.date_key, events);
+        const code = state.selectedSymbol?.code || this._currentCode || this._headerData?.code || '';
+        const name = state.selectedSymbol?.name || this._headerData?.name || code;
+        const candidates = code ? [{ code, name, rank_reason: `${focus.date_key} 同日事件组`, source_context: sourceContext }] : [];
+        const query = `${name || code} ${focus.date_key} 同日事件组`;
+        const eventGroup = sourceContext.event_group || {};
+        const eventGroupDiagnosis = this._buildEventGroupDiagnosisFocus(focus, state.eventFeed || []);
+        const backtestDraft = this._buildEventGroupBacktestDraft(focus, state.eventFeed || [], sourceContext);
+        const payload = {
+            query,
+            candidates,
+            events: events.map((event) => ({ ...event })),
+            event_group: eventGroup,
+            event_group_diagnosis: eventGroupDiagnosis.active ? eventGroupDiagnosis : null,
+            backtest_draft: backtestDraft,
+            source_context: sourceContext,
+        };
+        const emitter = globalThis.App;
+        if (typeof emitter?.emit === 'function') {
+            if (action === 'draft-backtest') emitter.emit('iwencai:draft-backtest', payload);
+            if (action === 'create-basket') emitter.emit('iwencai:create-basket', payload);
+            if (action === 'analyze') emitter.emit('iwencai:analyze', { ...payload, data: { event_group: eventGroup, event_group_diagnosis: payload.event_group_diagnosis, backtest_draft: backtestDraft, events: payload.events } });
+        }
+        return payload;
+    },
+
     _chartEventColor(type = '') {
         return {
             news: '#4fc3f7',
@@ -491,6 +734,70 @@ Object.assign(globalThis.StockDetail, {
         return normalized;
     },
 
+    _eventSemanticType(type = '') {
+        if (['report', 'research_report'].includes(type)) return 'research_report';
+        return type || 'event';
+    },
+
+    _eventSemanticText(event = {}) {
+        return String(event.title || event.detail || '')
+            .toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[^\w\u4e00-\u9fa5]+/g, '')
+            .slice(0, 64);
+    },
+
+    _isGenericSemanticText(text = '', type = '') {
+        if (!text) return true;
+        const genericTitles = new Set([
+            '公司点评报告',
+            '点评报告',
+            '事件点评',
+            '研究报告',
+            '深度报告',
+            '首次覆盖报告',
+            '季报点评',
+            '年报点评',
+        ]);
+        if (['report', 'research_report'].includes(type) && genericTitles.has(text)) return true;
+        return false;
+    },
+
+    _canMergeSemanticStockEvent(existing = {}, duplicate = {}) {
+        const existingLink = existing.link_url || existing.url || '';
+        const duplicateLink = duplicate.link_url || duplicate.url || '';
+        if (existingLink && duplicateLink && existingLink !== duplicateLink) return false;
+        return true;
+    },
+
+    _eventSemanticKey(event = {}) {
+        if (!event || event.status !== 'ready' || !this._chartEventTypes().has(event.type)) return '';
+        if (!['news', 'report', 'research_report'].includes(event.type)) return '';
+        const dateKey = this._eventDateKey(event, event.chartTime || event.at || '');
+        const text = this._eventSemanticText(event);
+        if (!dateKey || text.length < 8 || this._isGenericSemanticText(text, event.type)) return '';
+        return [dateKey, this._eventSemanticType(event.type), text].join('|');
+    },
+
+    _mergeDuplicateStockEvent(existing, duplicate) {
+        if (!existing || !duplicate) return existing;
+        const sourceLabels = this._uniqueEvidenceItems([
+            ...(Array.isArray(existing.duplicate_source_labels) ? existing.duplicate_source_labels : []),
+            existing.source_label || existing.source,
+            duplicate.source_label || duplicate.source,
+        ]);
+        const duplicateIds = this._uniqueEvidenceItems([
+            ...(Array.isArray(existing.duplicate_ids) ? existing.duplicate_ids : []),
+            existing.id,
+            duplicate.id,
+        ]);
+        existing.duplicate_count = Math.max(2, Number(existing.duplicate_count || 1) + 1);
+        existing.duplicate_source_labels = sourceLabels;
+        existing.duplicate_ids = duplicateIds;
+        if (!existing.detail && duplicate.detail) existing.detail = duplicate.detail;
+        return existing;
+    },
+
     _mergeWorkbenchEventFeed(baseEvents = []) {
         const dynamicEvents = Object.values(this._workbenchEventSources || {}).flat();
         const chartEventTypes = this._chartEventTypes();
@@ -501,9 +808,33 @@ Object.assign(globalThis.StockDetail, {
         const filteredBase = (Array.isArray(baseEvents) ? baseEvents : [])
             .filter((event) => !(hasConcreteNews && event.type === 'news_research' && event.status === 'missing'));
         const seen = new Set();
-        return [...filteredBase, ...dynamicEvents]
+        const semanticSeen = new Map();
+        const merged = [];
+        [...filteredBase, ...dynamicEvents].forEach((event) => {
+            if (!event?.id || seen.has(event.id)) return;
+            seen.add(event.id);
+            const semanticKey = this._eventSemanticKey(event);
+            if (
+                semanticKey
+                && semanticSeen.has(semanticKey)
+                && this._canMergeSemanticStockEvent(semanticSeen.get(semanticKey), event)
+            ) {
+                this._mergeDuplicateStockEvent(semanticSeen.get(semanticKey), event);
+                return;
+            }
+            const next = { ...event };
+            if (semanticKey) {
+                let uniqueSemanticKey = semanticKey;
+                while (semanticSeen.has(uniqueSemanticKey)) {
+                    uniqueSemanticKey = `${semanticKey}|${event.id}`;
+                }
+                semanticSeen.set(uniqueSemanticKey, next);
+            }
+            merged.push(next);
+        });
+        return merged
             .filter((event) => {
-                if (!event?.id || seen.has(event.id)) return false;
+                if (!event?.id) return false;
                 seen.add(event.id);
                 return true;
             })
@@ -617,7 +948,7 @@ Object.assign(globalThis.StockDetail, {
             const key = this._eventDateKey(item, item?.date_key || item?.time || item?.timestamp || '');
             if (key && !dateIndex.has(key)) dateIndex.set(key, index);
         });
-        return (Array.isArray(events) ? events : [])
+        const overlayEvents = (Array.isArray(events) ? events : [])
             .filter((event) => (
                 event
                 && event.status === 'ready'
@@ -650,8 +981,57 @@ Object.assign(globalThis.StockDetail, {
                     color: this._chartEventColor(event.type),
                 };
             })
-            .filter((event) => event.date_key)
-            .slice(0, 60);
+            .filter((event) => event.date_key);
+        return this._clusterStockOverlayEvents(overlayEvents).slice(0, 60);
+    },
+
+    _eventClusterRank(event = {}) {
+        const priority = {
+            capital_flow: 10,
+            dragon_tiger: 20,
+            northbound: 30,
+            alpha_signal: 40,
+            announcement: 50,
+            dividend: 60,
+            news: 70,
+            research_report: 80,
+            report: 80,
+        };
+        return priority[event.type] || 99;
+    },
+
+    _clusterStockOverlayEvents(events = []) {
+        const groups = new Map();
+        (Array.isArray(events) ? events : []).forEach((event) => {
+            const key = event.date_key || event.chartTime || event.at || '';
+            if (!key) return;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(event);
+        });
+        return Array.from(groups.values()).map((items) => {
+            const members = [...items].sort((a, b) => this._eventClusterRank(a) - this._eventClusterRank(b));
+            const representative = members[0];
+            const eventIds = members.map((event) => event.id).filter(Boolean);
+            if (members.length <= 1) {
+                return {
+                    ...representative,
+                    cluster_count: 1,
+                    event_ids: eventIds,
+                };
+            }
+            const titles = members.slice(0, 4).map((event) => `${this._eventTypeLabel(event.type)}:${event.title}`).join('；');
+            const types = this._uniqueEvidenceItems(members.map((event) => event.type));
+            return {
+                ...representative,
+                title: `${representative.date_key} 事件 ${members.length} 条`,
+                detail: titles,
+                source_label: '事件聚合',
+                cluster_count: members.length,
+                event_ids: eventIds,
+                event_types: types,
+                color: representative.color || this._chartEventColor(representative.type),
+            };
+        });
     },
 
     _syncWorkbenchEventOverlayState(events = null, chartData = null) {
@@ -705,7 +1085,12 @@ Object.assign(globalThis.StockDetail, {
                     ],
                     styles: { line: { style: 'dashed', color: event.color || this._chartEventColor(event.type), size: 1 } },
                     lock: true,
-                    extendData: { stockEventId: event.id, stockEventType: event.type },
+                    extendData: {
+                        stockEventId: event.id,
+                        stockEventType: event.type,
+                        stockEventClusterCount: event.cluster_count || 1,
+                        stockEventIds: event.event_ids || [event.id],
+                    },
                     onClick: () => this._onStockChartEventClick(event.id),
                 });
                 if (id) ids.push(id);
@@ -737,8 +1122,10 @@ Object.assign(globalThis.StockDetail, {
         layer.innerHTML = overlayEvents.map((event, index) => {
             const left = Number.isFinite(event.xPct) ? event.xPct : 50;
             const top = 30 + ((index % 4) * 24);
-            const selected = event.id === selectedId;
-            const label = this._eventTypeLabel(event.type).slice(0, 2);
+            const selected = event.id === selectedId
+                || (Array.isArray(event.event_ids) && event.event_ids.includes(selectedId));
+            const clusterCount = Number(event.cluster_count || 1);
+            const label = clusterCount > 1 ? String(clusterCount) : this._eventTypeLabel(event.type).slice(0, 2);
             const title = [
                 event.source_label || this._eventTypeLabel(event.type),
                 event.title,
@@ -747,9 +1134,10 @@ Object.assign(globalThis.StockDetail, {
             ].filter(Boolean).join(' · ');
             return `
                 <button type="button"
-                    class="stock-chart-event-dot${selected ? ' is-selected' : ''}"
+                    class="stock-chart-event-dot${clusterCount > 1 ? ' is-cluster' : ''}${selected ? ' is-selected' : ''}"
                     data-chart-event-id="${App.escapeHTML(event.id)}"
                     data-chart-event-date="${App.escapeHTML(event.date_key)}"
+                    data-chart-event-count="${App.escapeHTML(clusterCount)}"
                     aria-pressed="${selected ? 'true' : 'false'}"
                     aria-label="${App.escapeHTML(title)}"
                     title="${App.escapeHTML(title)}"
@@ -784,7 +1172,18 @@ Object.assign(globalThis.StockDetail, {
     },
 
     _onStockChartEventClick(eventId) {
-        return this._selectStockEvent(eventId, { focusChart: true, syncBottomTab: true, scrollBottom: true });
+        const state = this._ensureStockWorkbenchState();
+        const overlayEvent = (state.chartState?.eventOverlayEvents || []).find((event) => event.id === eventId) || null;
+        const selected = this._selectStockEvent(eventId, {
+            focusChart: true,
+            syncBottomTab: true,
+            scrollBottom: true,
+            eventGroupDate: overlayEvent?.cluster_count > 1 ? overlayEvent.date_key : '',
+        });
+        if (overlayEvent?.cluster_count > 1) {
+            this._scrollEventGroupIntoView(overlayEvent.date_key);
+        }
+        return selected;
     },
 
     _renderSelectedEventMarker(event = null) {
@@ -804,10 +1203,20 @@ Object.assign(globalThis.StockDetail, {
         marker.title = event.detail || event.at || '';
     },
 
-    _selectStockEvent(eventId, { focusChart = true, syncBottomTab = false, scrollBottom = false } = {}) {
+    _selectStockEvent(eventId, { focusChart = true, syncBottomTab = false, scrollBottom = false, eventGroupDate = '' } = {}) {
         const state = this._ensureStockWorkbenchState();
         const event = (state.eventFeed || []).find((item) => item.id === eventId) || null;
         this._syncWorkbenchSelectedEvent(event);
+        const currentGroupDate = state.chartState?.eventGroupFocus?.date_key || '';
+        const currentGroupIds = new Set(state.chartState?.eventGroupFocus?.event_ids || []);
+        const eventDate = event ? this._eventDateKey(event, event.chartTime || event.at || '') : '';
+        const eventIsCurrentGroupMember = event?.id && currentGroupIds.has(event.id);
+        const groupDate = eventGroupDate || (eventDate && eventDate === currentGroupDate && eventIsCurrentGroupMember ? currentGroupDate : '');
+        if (groupDate) {
+            this._syncWorkbenchEventGroupFocus(groupDate, state.eventFeed || [], event);
+        } else if (currentGroupDate) {
+            this._syncWorkbenchEventGroupFocus('');
+        }
         if (event && syncBottomTab) {
             this._syncWorkbenchLayoutState({ bottomTab: this._eventBottomTab(event.type) });
         }
@@ -818,6 +1227,72 @@ Object.assign(globalThis.StockDetail, {
         if (event && scrollBottom) this._scrollSelectedStockEventIntoView(event.id);
         this._renderStockEvidenceRail(this._headerData || {}, this._buildStockIdentitySummary(this._headerData || {}));
         return event;
+    },
+
+    _scrollEventGroupIntoView(dateKey = '') {
+        const safeDate = String(dateKey || '').trim();
+        if (!safeDate) return;
+        const panel = document.getElementById('stock-bottom-panel');
+        const escaped = globalThis.CSS?.escape ? globalThis.CSS.escape(safeDate) : safeDate.replace(/"/g, '\\"');
+        const item = panel?.querySelector?.(`[data-stock-event-group-date="${escaped}"]`);
+        if (item && typeof item.scrollIntoView === 'function') {
+            try {
+                item.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            } catch {
+                item.scrollIntoView();
+            }
+        }
+    },
+
+    _renderStockEventGroupFocus() {
+        const state = this._ensureStockWorkbenchState();
+        const focus = state.chartState?.eventGroupFocus || null;
+        if (!focus?.date_key) return '';
+        const events = this._eventsForDateKey(focus.date_key, state.eventFeed || []);
+        if (!events.length) return '';
+        const selectedId = state.selectedEvent?.id || '';
+        const rawCount = events.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const typeSummary = this._uniqueEvidenceItems(events.map((event) => this._eventTypeLabel(event.type))).join(' / ');
+        const sourceContext = focus.source_context || this._buildEventGroupSourceContext(focus.date_key, events);
+        const eventGroup = sourceContext.event_group || {};
+        const groupDiagnosis = this._buildEventGroupDiagnosisFocus(focus, state.eventFeed || []);
+        const sourceSummary = [
+            eventGroup.stock_name || this._headerData?.name || '',
+            eventGroup.stock_code || this._currentCode || '',
+            eventGroup.rank_reason || '',
+        ].filter(Boolean).join(' · ');
+        return `
+            <section class="stock-event-group" data-stock-event-group-date="${App.escapeHTML(focus.date_key)}" aria-expanded="true">
+                <div class="stock-event-group-head">
+                    <div>
+                        <strong>${App.escapeHTML(focus.date_key)} 同日事件组</strong>
+                        <span>${App.escapeHTML(typeSummary || '事件')} · ${App.escapeHTML(rawCount)} 条原始证据</span>
+                    </div>
+                    <div class="stock-event-group-actions" aria-label="事件组后续动作">
+                        <button type="button" class="btn btn-xs" data-stock-event-group-action="analyze">解释</button>
+                        <button type="button" class="btn btn-xs" data-stock-event-group-action="create-basket">篮子草案</button>
+                        <button type="button" class="btn btn-xs" data-stock-event-group-action="draft-backtest">回测草案</button>
+                    </div>
+                </div>
+                <div class="stock-event-group-source">${App.escapeHTML(sourceSummary || '来源上下文待补充')}</div>
+                ${groupDiagnosis.active ? `
+                    <div class="stock-event-group-diagnosis">
+                        <span>主事件: ${App.escapeHTML(groupDiagnosis.primary_event_title || '待确认')}</span>
+                        <span>置信 ${App.escapeHTML(groupDiagnosis.confidence)} · ${App.escapeHTML(groupDiagnosis.dedupe_policy)}</span>
+                        <em>${App.escapeHTML([groupDiagnosis.counter_evidence, groupDiagnosis.missing_evidence].filter(Boolean).join('；'))}</em>
+                    </div>
+                ` : ''}
+                <div class="stock-event-group-items">
+                    ${events.map((event) => `
+                        <button type="button" class="stock-event-group-item${event.id === selectedId ? ' is-selected' : ''}" data-stock-event-id="${App.escapeHTML(event.id)}" aria-pressed="${event.id === selectedId ? 'true' : 'false'}">
+                            <span class="stock-event-type" data-type="${App.escapeHTML(event.type || '')}">${App.escapeHTML(this._eventTypeLabel(event.type))}</span>
+                            <span>${App.escapeHTML(event.title || '事件')}</span>
+                            ${Number(event.duplicate_count || 1) > 1 ? `<em>合并 ${App.escapeHTML(event.duplicate_count)} 条</em>` : ''}
+                        </button>
+                    `).join('')}
+                </div>
+            </section>
+        `;
     },
 
     _renderStockEventList(events = []) {
@@ -833,16 +1308,31 @@ Object.assign(globalThis.StockDetail, {
                 detail: '新闻、公告、研报或信号事件尚未返回',
                 at: '',
             }];
+        const dateCounts = new Map();
+        (state.eventFeed || []).forEach((event) => {
+            if (!event || event.status !== 'ready' || !this._chartEventTypes().has(event.type)) return;
+            const dateKey = this._eventDateKey(event, event.chartTime || event.at || '');
+            if (!dateKey) return;
+            dateCounts.set(dateKey, (dateCounts.get(dateKey) || 0) + Number(event.duplicate_count || 1));
+        });
         return safeEvents.map((event) => {
             const selected = event.id === selectedId;
+            const dateKey = event.date_key || this._eventDateKey(event, event.chartTime || event.at || '');
+            const sameDayCount = dateKey ? dateCounts.get(dateKey) || 0 : 0;
+            const duplicateCount = Number(event.duplicate_count || 1);
+            const countBadges = [
+                sameDayCount > 1 ? `<span class="stock-event-count">同日 ${App.escapeHTML(sameDayCount)} 条</span>` : '',
+                duplicateCount > 1 ? `<span class="stock-event-count">合并 ${App.escapeHTML(duplicateCount)} 条</span>` : '',
+            ].filter(Boolean).join('');
             return `
                 <button type="button" class="stock-event-item${selected ? ' is-selected' : ''}" data-stock-event-id="${App.escapeHTML(event.id)}" aria-pressed="${selected ? 'true' : 'false'}">
                     <span class="stock-event-type" data-type="${App.escapeHTML(event.type || '')}">${App.escapeHTML(this._eventTypeLabel(event.type))}</span>
                     <span class="stock-event-main">
                         <strong>${App.escapeHTML(event.title || '事件')}</strong>
                         <em>${App.escapeHTML(event.detail || event.missing_reason || event.source_label || event.source || '暂无详情')}</em>
+                        ${countBadges}
                     </span>
-                    <span class="stock-event-time">${App.escapeHTML(event.date_key || event.at || event.chartTime || '')}</span>
+                    <span class="stock-event-time">${App.escapeHTML(dateKey || event.at || event.chartTime || '')}</span>
                 </button>
             `;
         }).join('');
@@ -857,6 +1347,12 @@ Object.assign(globalThis.StockDetail, {
             if (tab) {
                 event.preventDefault();
                 this._setStockBottomTab(tab.dataset.stockBottomTab || 'events');
+                return;
+            }
+            const groupAction = event.target.closest('[data-stock-event-group-action]');
+            if (groupAction) {
+                event.preventDefault();
+                this._eventGroupAction(groupAction.dataset.stockEventGroupAction || '');
                 return;
             }
             const item = event.target.closest('[data-stock-event-id]');
@@ -888,6 +1384,7 @@ Object.assign(globalThis.StockDetail, {
                 <span>事件 ${state.eventFeed?.length || 0}</span>
                 ${state.selectedEvent ? `<strong>已选: ${App.escapeHTML(state.selectedEvent.title || '')}</strong>` : '<span class="text-muted">点击事件可同步图表焦点</span>'}
             </div>
+            ${this._renderStockEventGroupFocus()}
             <div class="stock-event-list" id="stock-bottom-events" role="list">
                 ${this._renderStockEventList(filtered)}
             </div>
@@ -1350,40 +1847,62 @@ Object.assign(globalThis.StockDetail, {
             .filter(([, item]) => item && ['missing', 'degraded', 'unverified'].includes(item.status))
             .map(([key, item]) => `${key}:${item.missing_reason || item.status}`)
             .slice(0, 3);
+        const eventGroupFocus = this._buildEventGroupDiagnosisFocus(chartState?.eventGroupFocus || null, eventFeed);
+        const eventGroupRow = eventGroupFocus.active
+            ? [this._diagnosisRow({
+                key: 'event_group',
+                label: '事件组',
+                status: eventGroupFocus.status,
+                evidence: eventGroupFocus.evidence,
+                counterEvidence: [eventGroupFocus.counter_evidence, eventGroupFocus.missing_evidence].filter(Boolean).join('；'),
+                missingReason: eventGroupFocus.missing_evidence,
+                updatedAt: eventGroupFocus.date_key,
+                source: 'K线事件组',
+                confidence: eventGroupFocus.confidence,
+                focus: true,
+            })]
+            : [];
 
         return [
+            ...eventGroupRow,
             this._diagnosisRow({
                 key: 'technical',
                 label: '技术面',
                 status: focusEvidence || quoteEvidence ? 'ready' : quoteStatus,
-                evidence: [focusEvidence, quoteEvidence, `周期 ${chartState?.period || this._currentPeriod || 'timeline'}`].filter(Boolean).join(' · '),
+                evidence: [eventGroupFocus.active ? `事件组日期 ${eventGroupFocus.date_key}` : '', focusEvidence, quoteEvidence, `周期 ${chartState?.period || this._currentPeriod || 'timeline'}`].filter(Boolean).join(' · '),
                 missingReason: quoteEvidence ? '' : dataQuality.quote?.missing_reason || 'K线/行情证据暂缺',
                 updatedAt,
                 source: 'K线/行情',
-                confidence: focusEvidence ? 'medium' : 'low',
-                focus: Boolean(focusEvidence),
+                confidence: focusEvidence || eventGroupFocus.active ? 'medium' : 'low',
+                focus: Boolean(focusEvidence || eventGroupFocus.active),
             }),
             this._diagnosisRow({
                 key: 'capital',
                 label: '资金面',
-                status: capitalEvents.length ? 'ready' : 'missing',
-                evidence: capitalEvents.slice(0, 2).map((event) => `${event.title}: ${event.detail || event.value || event.at || ''}`).join('；'),
+                status: capitalEvents.length ? 'ready' : (eventGroupFocus.active ? 'degraded' : 'missing'),
+                evidence: [
+                    eventGroupFocus.active && eventGroupFocus.type_counts?.capital_flow ? `事件组含资金事件 ${eventGroupFocus.type_counts.capital_flow} 条` : '',
+                    capitalEvents.slice(0, 2).map((event) => `${event.title}: ${event.detail || event.value || event.at || ''}`).join('；'),
+                ].filter(Boolean).join('；'),
                 missingReason: capitalEvents.length ? '' : '资金流、北向或龙虎榜事件暂缺',
                 updatedAt: capitalEvents[0]?.at || updatedAt,
                 source: capitalEvents[0]?.source_label || capitalEvents[0]?.source || '事件聚合',
                 confidence: capitalEvents.length ? 'medium' : 'low',
-                focus: Boolean(focusEvent && ['capital_flow', 'northbound', 'dragon_tiger'].includes(focusEvent.type)),
+                focus: Boolean(eventGroupFocus.active || (focusEvent && ['capital_flow', 'northbound', 'dragon_tiger'].includes(focusEvent.type))),
             }),
             this._diagnosisRow({
                 key: 'news',
                 label: '消息面',
                 status: newsEvents.length ? 'ready' : newsStatus,
-                evidence: newsEvents.slice(0, 2).map((event) => `${event.title}: ${event.detail || event.at || ''}`).join('；'),
+                evidence: [
+                    eventGroupFocus.active ? eventGroupFocus.summary : '',
+                    newsEvents.slice(0, 2).map((event) => `${event.title}: ${event.detail || event.at || ''}`).join('；'),
+                ].filter(Boolean).join('；'),
                 missingReason: newsEvents.length ? '' : dataQuality.news_research?.missing_reason || '新闻、公告、研报或信号事件暂缺',
                 updatedAt: newsEvents[0]?.at || updatedAt,
                 source: newsEvents[0]?.source_label || newsEvents[0]?.source || '事件聚合',
                 confidence: newsEvents.length ? 'medium' : 'low',
-                focus: Boolean(focusEvent && ['news', 'report', 'research_report', 'announcement', 'dividend', 'alpha_signal'].includes(focusEvent.type)),
+                focus: Boolean(eventGroupFocus.active || (focusEvent && ['news', 'report', 'research_report', 'announcement', 'dividend', 'alpha_signal'].includes(focusEvent.type))),
             }),
             this._diagnosisRow({
                 key: 'industry',
@@ -1433,8 +1952,14 @@ Object.assign(globalThis.StockDetail, {
                 key: 'risk',
                 label: '风险',
                 status: qualityGaps.length ? 'degraded' : 'unverified',
-                evidence: focusEvent ? `当前聚焦事件: ${this._eventTypeLabel(focusEvent.type)} · ${focusEvent.title || ''}` : '未形成交易建议',
-                counterEvidence: qualityGaps.join('；') || '仍需回测、仓位和风险约束确认',
+                evidence: eventGroupFocus.active
+                    ? `事件组草案需人工确认: ${eventGroupFocus.date_key}`
+                    : (focusEvent ? `当前聚焦事件: ${this._eventTypeLabel(focusEvent.type)} · ${focusEvent.title || ''}` : '未形成交易建议'),
+                counterEvidence: [
+                    eventGroupFocus.counter_evidence,
+                    eventGroupFocus.missing_evidence,
+                    qualityGaps.join('；') || '仍需回测、仓位和风险约束确认',
+                ].filter(Boolean).join('；'),
                 missingReason: qualityGaps.length ? '' : '风险只展示证据缺口，不输出买卖结论',
                 updatedAt,
                 source: 'AI 证据层',
@@ -1450,6 +1975,7 @@ Object.assign(globalThis.StockDetail, {
             diagnosis,
             diagnosis_updated_at: payload.data?.updated_at || payload.data?.timestamp || payload.summary?.generatedAt || '',
             diagnosis_focus_event_id: payload.selectedEvent?.id || payload.chartState?.eventFocus?.event_id || '',
+            event_group_diagnosis: this._buildEventGroupDiagnosisFocus(payload.chartState?.eventGroupFocus || null, payload.eventFeed || []),
             disclaimer: baseContext?.disclaimer || 'AI/Signal 仅展示证据覆盖和状态，不构成交易建议。',
         };
     },

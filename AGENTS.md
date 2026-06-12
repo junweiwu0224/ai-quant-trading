@@ -5,7 +5,7 @@
 ## 项目快照
 
 - 项目目标：A 股量化交易系统，覆盖数据采集、因子研究、策略回测、模拟交易、AI/Agent 策略研发和 Web Dashboard。
-- 主要技术栈：Python 3.11、FastAPI、Jinja2、Vanilla JS、Chart.js、KlineCharts、SQLite/SQLAlchemy、APScheduler、pytest、Playwright、Docker Compose。
+- 主要技术栈：本地验证 `.venv` 使用 Python 3.12，Docker 镜像当前基线为 Python 3.11；FastAPI、Jinja2、Vanilla JS、Chart.js、KlineCharts、SQLite/SQLAlchemy、APScheduler、pytest、Playwright、Docker Compose。
 - 主要入口：`dashboard/app.py`、`scripts/run_dashboard.py`、`docker-compose.yml`、`README.md`。
 - 架构文档：`docs/ARCHITECTURE.md`。
 - Superpowers 计划：`docs/superpowers/plans/`。
@@ -21,6 +21,7 @@
 - 后端/API/核心测试：`.venv/bin/python -m pytest -q`。
 - 语法检查：`.venv/bin/python -m compileall -q .`。
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
+- 本地交付预检：`.venv/bin/python scripts/release_preflight.py`。
 - E2E：先启动 Dashboard，再运行 `scripts/e2e-local.sh all` 或 `npm run e2e:docker`。
 - `npm test` 当前是占位脚本，会直接失败；不要把它当作项目验证命令。
 
@@ -63,6 +64,7 @@
 
 - 项目门禁文档：`docs/quality-gates.md`。
 - 当前不默认启用阻断型 hooks；先按文档手动选择验证。
+- 标准交付收口可用 `.venv/bin/python scripts/release_preflight.py`；先用 `--dry-run` 检查命令。默认不会启动 Dashboard、Docker、真实 provider、外部 LLM/OpenClaw、同步数据、交易脚本或生产配置。
 - 适合前移的快速门禁：`.venv/bin/python scripts/verify_context_pack.py`、`.venv/bin/python -m compileall -q .`、针对性 pytest、前端静态渲染扫描。
 - 不适合自动 hook：`docker compose up`、真实数据同步、E2E、外部 LLM/OpenClaw 调用、交易/实盘脚本、数据库迁移或清理。
 

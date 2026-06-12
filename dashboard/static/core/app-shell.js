@@ -471,6 +471,30 @@
                             .filter(Boolean)
                             .slice(0, 6)
                         : [];
+                    const eventGroup = source_context?.event_group || data?.event_group || null;
+                    const eventGroupContext = eventGroup && typeof eventGroup === 'object'
+                        ? {
+                            stock_code: eventGroup.stock_code || '',
+                            stock_name: eventGroup.stock_name || '',
+                            event_date: eventGroup.event_date || '',
+                            event_count: eventGroup.event_count || 0,
+                            raw_count: eventGroup.raw_count || eventGroup.event_count || 0,
+                            event_types: Array.isArray(eventGroup.event_types) ? eventGroup.event_types.slice(0, 8) : [],
+                            primary_event_id: eventGroup.primary_event_id || '',
+                            event_titles: Array.isArray(eventGroup.event_titles) ? eventGroup.event_titles.slice(0, 5) : [],
+                            dedupe_policy: eventGroup.dedupe_policy || '',
+                            rank_reason: eventGroup.rank_reason || '',
+                        }
+                        : null;
+                    const eventGroupDiagnosis = data?.event_group_diagnosis && typeof data.event_group_diagnosis === 'object'
+                        ? {
+                            summary: data.event_group_diagnosis.summary || '',
+                            counter_evidence: data.event_group_diagnosis.counter_evidence || '',
+                            missing_evidence: data.event_group_diagnosis.missing_evidence || '',
+                            confidence: data.event_group_diagnosis.confidence || '',
+                            signal_direction: data.event_group_diagnosis.signal_direction || '',
+                        }
+                        : null;
                     const contextLine = source_context && typeof source_context === 'object'
                         ? `\n来源上下文：${JSON.stringify({
                             source: source_context.source || 'iwencai',
@@ -479,6 +503,8 @@
                             intent_type: source_context.intent_type || '',
                             parsed_conditions: conditions,
                             condition_hit_count: source_context.condition_hit_count || {},
+                            event_group: eventGroupContext,
+                            event_group_diagnosis: eventGroupDiagnosis,
                         })}`
                         : '';
                     let msg;
@@ -494,6 +520,28 @@
 
             const buildBasketCandidates = (items) => {
                 const seen = new Set();
+                const sanitizeRowEvidence = (evidence) => {
+                    if (!evidence || typeof evidence !== 'object') return null;
+                    const sourceFields = Array.isArray(evidence.source_fields) ? evidence.source_fields : [];
+                    const matchedConditions = Array.isArray(evidence.matched_conditions) ? evidence.matched_conditions : [];
+                    const missingConditions = Array.isArray(evidence.missing_conditions) ? evidence.missing_conditions : [];
+                    return {
+                        result_pool_id: String(evidence.result_pool_id || ''),
+                        row_id: String(evidence.row_id || evidence.row_evidence_id || ''),
+                        code: String(evidence.code || ''),
+                        name: String(evidence.name || ''),
+                        rank: Number.isFinite(Number(evidence.rank)) ? Number(evidence.rank) : null,
+                        provider: String(evidence.provider || ''),
+                        data_as_of: String(evidence.data_as_of || ''),
+                        cache_status: String(evidence.cache_status || ''),
+                        validation_status: String(evidence.validation_status || evidence.status || ''),
+                        evidence_level: String(evidence.evidence_level || ''),
+                        matched_conditions: matchedConditions.slice(0, 8),
+                        missing_conditions: missingConditions.slice(0, 8),
+                        source_fields: sourceFields.slice(0, 12),
+                        missing_reason: String(evidence.missing_reason || ''),
+                    };
+                };
                 return (Array.isArray(items) ? items : [])
                     .map((item, index) => {
                         const code = String(item?.code || '').trim();
@@ -512,54 +560,122 @@
                         } else {
                             candidate.rank = index + 1;
                         }
+                        const rowEvidence = sanitizeRowEvidence(item?.candidate_provenance || item?.row_evidence || item?.rowEvidence?.raw || item?.source_context?.candidate_provenance);
+                        if (rowEvidence) {
+                            candidate.candidate_provenance = rowEvidence;
+                            candidate.row_evidence_id = rowEvidence.row_id;
+                            candidate.row_evidence_status = rowEvidence.validation_status;
+                        }
                         return candidate;
                     })
                     .filter(Boolean)
                     .slice(0, 50);
             };
 
-            const openResearchBasketDraft = async ({ query, candidates, source_context, draftMode }) => {
+            const ensureBasketDraftBundle = async () => {
+                await this.loadScript?.('/static/alpha.js?v=6');
+                await this.loadScript?.('/static/alpha-tools.js?v=13');
+            };
+
+            const buildBacktestDraft = ({ query, candidates, source_context, backtest_draft }) => {
+                const eventGroup = source_context?.event_group || {};
+                const sourceContext = {
+                    ...(source_context || {}),
+                };
+                if (query && !sourceContext.query && !sourceContext.raw_query) {
+                    sourceContext.query = query;
+                }
+                const baseConditions = backtest_draft?.conditions && typeof backtest_draft.conditions === 'object'
+                    ? backtest_draft.conditions
+                    : {
+                        hypothesis: eventGroup.stock_name || eventGroup.stock_code
+                            ? `${eventGroup.stock_name || eventGroup.stock_code} 事件组需要验证`
+                            : `${query || '问财候选池'} 候选池需要验证`,
+                        event_date: eventGroup.event_date || '',
+                        primary_event_title: eventGroup.primary_event_title || eventGroup.primary_event_id || '',
+                        rank_reason: eventGroup.rank_reason || '',
+                        candidate_count: candidates.length,
+                        entry_rule: '待确认',
+                        exit_rule: '待确认',
+                        holding_periods: [1, 3, 5],
+                        benchmark: '沪深300',
+                    };
+                return {
+                    ...(backtest_draft || {}),
+                    draft_type: String(backtest_draft?.draft_type || (eventGroup.stock_code ? 'event_group_backtest_draft' : 'iwencai_basket_backtest_draft')),
+                    status: 'draft',
+                    requires_confirmation: true,
+                    execution_policy: 'manual_only',
+                    execution_status: 'not_executed',
+                    allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation'],
+                    conditions: baseConditions,
+                    source_context: {
+                        ...sourceContext,
+                        ...(backtest_draft?.source_context || {}),
+                    },
+                };
+            };
+
+            const openResearchBasketDraft = async ({ query, candidates, source_context, draftMode, backtest_draft }) => {
                 const normalized = buildBasketCandidates(candidates);
+                const sourceLabel = source_context?.event_group ? '事件组' : '问财候选';
                 if (!normalized.length) {
-                    this.toast('问财候选池为空，未生成篮子草案', 'warning');
+                    this.toast(`${sourceLabel}候选池为空，未生成篮子草案`, 'warning');
                     return;
                 }
-                await this.ensureBundle?.('research');
-                await this.switchTab('research', { subtab: 'basket' });
+                await ensureBasketDraftBundle();
+                await this.switchTab('research', { subtab: 'basket', skipBundle: true, applySession: false });
+                const normalizedDraft = draftMode === 'backtest'
+                    ? buildBacktestDraft({ query, candidates: normalized, source_context, backtest_draft })
+                    : (backtest_draft ? buildBacktestDraft({ query, candidates: normalized, source_context, backtest_draft }) : null);
+                const applyBasketDraft = () => {
+                    if (typeof App.initAlpha === 'function') {
+                        App.initAlpha();
+                    }
+                    if (typeof App._setBasketCandidates === 'function') {
+                        App._setBasketCandidates(normalized);
+                    }
+                    const textarea = document.getElementById('basket-candidates');
+                    if (textarea) {
+                        textarea.dataset.sourceContext = JSON.stringify(source_context || {});
+                        textarea.dataset.sourceQuery = query || '';
+                        if (normalizedDraft) {
+                            textarea.dataset.backtestDraft = JSON.stringify(normalizedDraft);
+                        } else {
+                            delete textarea.dataset.backtestDraft;
+                        }
+                    }
+                    this._iwencaiBasketDraft = {
+                        query: query || '',
+                        candidates: normalized,
+                        source_context: source_context || null,
+                        backtest_draft: normalizedDraft,
+                        draftMode: draftMode || 'basket',
+                        created_at: new Date().toISOString(),
+                    };
+                    if (typeof App.renderBasketBacktestDraft === 'function') {
+                        App.renderBasketBacktestDraft(normalizedDraft);
+                    }
+                    return Boolean(document.getElementById('basket-backtest-draft'));
+                };
+                const applied = applyBasketDraft();
                 requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        if (typeof App.initAlpha === 'function') {
-                            App.initAlpha();
-                        }
-                        if (typeof App._setBasketCandidates === 'function') {
-                            App._setBasketCandidates(normalized);
-                        }
-                        const textarea = document.getElementById('basket-candidates');
-                        if (textarea) {
-                            textarea.dataset.sourceContext = JSON.stringify(source_context || {});
-                            textarea.dataset.sourceQuery = query || '';
-                        }
-                        this._iwencaiBasketDraft = {
-                            query: query || '',
-                            candidates: normalized,
-                            source_context: source_context || null,
-                            draftMode: draftMode || 'basket',
-                            created_at: new Date().toISOString(),
-                        };
-                        const message = draftMode === 'backtest'
-                            ? `已生成 ${normalized.length} 只问财候选的回测草案，请在篮子页确认参数后手动执行计划回测`
-                            : `已生成 ${normalized.length} 只问财候选的篮子草案`;
-                        this.toast(message, normalized.length ? 'success' : 'warning');
-                    });
+                    if (!applied || !document.getElementById('basket-candidates')?.dataset?.backtestDraft) {
+                        applyBasketDraft();
+                    }
+                    const message = draftMode === 'backtest'
+                        ? `已生成 ${normalized.length} 只${sourceLabel}的回测草案，请在篮子页确认参数后手动执行计划回测`
+                        : `已生成 ${normalized.length} 只${sourceLabel}的篮子草案`;
+                    this.toast(message, normalized.length ? 'success' : 'warning');
                 });
             };
 
-            this.on('iwencai:create-basket', async ({ query, candidates, source_context }) => {
-                await openResearchBasketDraft({ query, candidates, source_context, draftMode: 'basket' });
+            this.on('iwencai:create-basket', async ({ query, candidates, source_context, backtest_draft }) => {
+                await openResearchBasketDraft({ query, candidates, source_context, backtest_draft, draftMode: 'basket' });
             });
 
-            this.on('iwencai:draft-backtest', async ({ query, candidates, source_context }) => {
-                await openResearchBasketDraft({ query, candidates, source_context, draftMode: 'backtest' });
+            this.on('iwencai:draft-backtest', async ({ query, candidates, source_context, backtest_draft }) => {
+                await openResearchBasketDraft({ query, candidates, source_context, backtest_draft, draftMode: 'backtest' });
             });
 
             this.on('data:portfolio-updated', ({ source } = {}) => {
@@ -717,7 +833,7 @@
             const panel = document.getElementById('research-panel-' + activeSubtab);
             if (panel) panel.classList.add('active');
 
-            await this._onResearchSubTabActivate(activeSubtab);
+            await this._onResearchSubTabActivate(activeSubtab, options);
             if (options.applySession !== false) {
                 requestAnimationFrame(() => this._applyResearchSession());
             }
@@ -771,7 +887,7 @@
             }
         },
 
-        async _onResearchSubTabActivate(subtab) {
+        async _onResearchSubTabActivate(subtab, options = {}) {
             const alphaHeader = document.querySelector('#tab-research > .page-header');
             const alphaStats = document.getElementById('alpha-perf-stats');
             const modelSel = document.getElementById('alpha-model');
@@ -794,6 +910,8 @@
                 const codeInput = document.getElementById('alpha-code');
                 if (codeInput) codeInput.value = '';
             }
+
+            const skipBundle = options.skipBundle === true;
 
             if (subtab === 'backtest') {
                 await this.ensureBundle?.('research');
@@ -836,7 +954,9 @@
                     this._tabCache['compare'] = Date.now();
                 }
             } else if (subtab === 'model' || subtab === 'formula' || subtab === 'basket') {
-                await this.ensureBundle?.('research');
+                if (!skipBundle) {
+                    await this.ensureBundle?.('research');
+                }
                 if (typeof App.initAlpha === 'function') {
                     App.initAlpha();
                     this._tabCache[subtab] = Date.now();
@@ -924,16 +1044,21 @@
                 globalThis.Strategy?.load?.();
             }
             else if (activeTab === 'research') {
-                await this.ensureBundle?.('research');
-                this.bindBacktest?.();
-                this.bindOptimize?.();
-                this.bindSensitivity?.();
-                this.bindStrategyChips?.();
+                if (options.skipBundle !== true) {
+                    await this.ensureBundle?.('research');
+                    this.bindBacktest?.();
+                    this.bindOptimize?.();
+                    this.bindSensitivity?.();
+                    this.bindStrategyChips?.();
+                }
                 this._initResearchSubTabs();
                 const requestedSubtab = typeof options.subtab === 'string' ? options.subtab.trim() : '';
                 const domActiveSubtab = document.querySelector('.research-sub-tab.active')?.dataset?.subtab || '';
                 const activeResearchSubtab = requestedSubtab || this._researchActiveSubtab || domActiveSubtab || 'valuation';
-                await this._activateResearchSubTab(activeResearchSubtab);
+                await this._activateResearchSubTab(activeResearchSubtab, {
+                    skipBundle: options.skipBundle === true,
+                    applySession: options.applySession,
+                });
             }
             else if (activeTab === 'paper') {
                 await this.ensureBundle?.('paper');

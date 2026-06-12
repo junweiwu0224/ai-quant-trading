@@ -296,7 +296,7 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 
 | 层 | 技术 |
 |----|------|
-| 语言 | Python 3.11 |
+| 语言 | 本地验证 `.venv`：Python 3.12；Docker 镜像基线：Python 3.11 |
 | 引擎 | vnpy 4.3 |
 | 数据采集 | AKShare |
 | 实时行情 | Xueqiu + push2delay + 腾讯 fqkline |
@@ -404,9 +404,10 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 
 | 检查项 | 命令 | 结果 |
 |-------|------|------|
-| 后端/API/核心测试 | `python -m pytest -q` | 需先安装 `requirements.txt` |
-| 真实浏览器 E2E | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 npm run e2e` | 需先启动 Dashboard |
-| 语法检查 | `python -m compileall -q .` | 快速发现 Python 语法错误 |
+| 本地交付预检 | `.venv/bin/python scripts/release_preflight.py` | 不部署、不启动 Docker，顺序运行本地门禁 |
+| 后端/API/核心测试 | `.venv/bin/python -m pytest -q` | 需先安装 `requirements.txt` |
+| 真实浏览器 E2E | `scripts/e2e-local.sh smoke` | 需先启动 Dashboard；可用 `PLAYWRIGHT_BASE_URL` 覆盖目标地址 |
+| 语法检查 | `.venv/bin/python -m compileall -q .` | 快速发现 Python 语法错误 |
 
 ---
 

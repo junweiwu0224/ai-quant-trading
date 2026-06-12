@@ -158,6 +158,8 @@ Expected: PASS. If unrelated context-pack failures appear, document and continue
 
 ## Task 1: P0 Hotspot Trust Envelope
 
+Status: delivered. The code now returns a soft trust envelope for hotspot failures, and the data-health audit includes `/api/market/hotspot`. The remaining competitor re-check note is deferred; do not treat that as an unimplemented API/UI trust envelope.
+
 **Files:**
 - Modify: `tests/test_dashboard_data_health.py`
 - Modify: `tests/test_api_v2_full.py`
@@ -174,7 +176,7 @@ Expected: PASS. If unrelated context-pack failures appear, document and continue
 
 **Proof of effect:** API tests prove no bare failure; data health audit includes hotspot; frontend contract already expects degraded hotspot to avoid "加载失败"; browser QA later confirms visible state.
 
-- [ ] **Step 1: Write failing metadata audit test**
+- [x] **Step 1: Write failing metadata audit test**
 
 Add this test to `tests/test_dashboard_data_health.py`:
 
@@ -203,7 +205,7 @@ def test_metadata_findings_warn_when_hotspot_empty_lacks_trust_context():
     ) in rendered
 ```
 
-- [ ] **Step 2: Add hotspot to safe path baseline**
+- [x] **Step 2: Add hotspot to safe path baseline**
 
 Add `"/api/market/hotspot"` after `"/api/market/heatmap"` in `PLAN_BASELINE_SAFE_GET_PATHS`.
 
@@ -215,7 +217,7 @@ Run:
 
 Expected: FAIL because `find_metadata_findings()` does not inspect hotspot and `SAFE_GET_PATHS` does not include it.
 
-- [ ] **Step 3: Write failing API no-break test**
+- [x] **Step 3: Write failing API no-break test**
 
 Add this test to `tests/test_api_v2_full.py` inside `TestMarketAPI`:
 
@@ -267,7 +269,7 @@ Run:
 
 Expected: FAIL because current API returns `success: False` with only `error`.
 
-- [ ] **Step 4: Implement hotspot metadata audit**
+- [x] **Step 4: Implement hotspot metadata audit**
 
 In `scripts/dashboard_data_health.py`, add `"/api/market/hotspot"` to `SAFE_GET_PATHS` and add a hotspot branch to `find_metadata_findings()`:
 
@@ -288,7 +290,7 @@ if parsed_path == "/api/market/hotspot":
     return findings
 ```
 
-- [ ] **Step 5: Implement hotspot API trust envelope**
+- [x] **Step 5: Implement hotspot API trust envelope**
 
 In `dashboard/routers/market.py`, add a helper near `_last_hotspot`:
 
@@ -352,7 +354,7 @@ if _last_hotspot:
 return _empty_hotspot_result(str(e))
 ```
 
-- [ ] **Step 6: Run targeted tests**
+- [x] **Step 6: Run targeted tests**
 
 Run:
 
@@ -362,7 +364,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Run P0 regression group**
+- [x] **Step 7: Run P0 regression group**
 
 Run:
 
@@ -373,6 +375,8 @@ Run:
 Expected: PASS.
 
 - [ ] **Step 8: Browser and competitor re-check**
+
+Browser verification is covered by later Task 8 and Task 9.19 in-app Browser smoke records. A fresh TongHuaShun competitor re-check for this exact hotspot degraded-state slice remains deferred.
 
 Start dashboard:
 
@@ -1003,11 +1007,11 @@ Results:
 本轮是否学到精髓:
 
 - 部分学到。AI Quant now supports chart-date event points and chart -> bottom reverse selection, which is the core interaction missing after Task 9.
-- It is not yet a full 同花顺-level professional event tape because same-day event clustering, semantic dedupe, richer related-index/peer mapping, and event-to-backtest/diagnosis continuation remain follow-ups.
+- Task 9.7 later closes the basic same-day clustering and conservative semantic dedupe gap. Task 9.8 closes the first expandable date-group entry and draft-continuation loop. It is still not a full 同花顺-level professional event tape because hover previews, drawer-level event detail, richer related-index/peer mapping, event-group diagnosis weighting, and richer event-to-backtest condition generation remain follow-ups.
 
 Remaining gaps:
 
-- Same-day events can still become dense when many sources land on one date; add clustering/count badges before treating this as a professional event tape.
+- Basic same-day clustering/count badges are closed by Task 9.7; the first expandable date-group entry and draft continuation are closed by Task 9.8.
 - `relatedContext.indices` and richer peer/index mappings still need reliable local data.
 - AI diagnosis consumption of `eventFocus` is closed by Task 9.6; deeper LLM-backed stock diagnosis remains deferred until evidence contracts are stable.
 
@@ -1071,8 +1075,831 @@ Results:
 Remaining gaps:
 
 - Diagnosis is deterministic and evidence-based; a future LLM-backed explanation should be added only after backend evidence contracts and citation rules are stable.
-- Same-day event clustering and semantic dedupe are still needed before the event tape feels professional with dense live data.
+- Basic same-day event clustering and conservative semantic dedupe are closed by Task 9.7. The first expandable same-day event group entry is closed by Task 9.8; stronger cited dedupe, hover previews, drawer-level detail, and event-group diagnosis weighting remain future enhancements.
 - `relatedContext.indices` and richer peer/index mappings still need reliable local data, so industry/peer diagnosis can still fall back to missing reasons.
+
+## Task 9.7: P1 Same-day Event Clustering + Conservative Semantic Dedupe
+
+Status: delivered as the next Stock Workbench event-tape slice. This does not complete the whole platform upgrade; it closes the dense-event readability gap left after chart overlays and evidence-based AI diagnosis.
+
+TongHuaShun mechanism learned:
+
+- K-line dates act as event anchors. When news,公告,资金,龙虎榜,研报, and signal events land on the same trading day, the chart should show that this date is event-dense instead of stacking indistinguishable markers.
+- The bottom event center should still preserve the underlying individual events. 聚合 helps scanning; it must not erase the raw evidence a user needs to inspect.
+- A professional workbench keeps the loop continuous: chart date -> event group -> selected evidence -> right-rail diagnosis, without losing symbol, period, indicator, source pool, or bottom tab context.
+
+Why learn it:
+
+- Task 9, 9.5, and 9.6 connected event feed, K-line markers, bottom selection, and AI diagnosis. With real multi-source data, the next failure mode is visual noise: many same-day dots overlap and repeated reports make the bottom list feel noisy.
+- 同花顺 solves the user problem "that day what happened" by keeping date, event, and evidence together. AI Quant should learn that workflow while keeping data source, missing reason, and duplicate counts auditable.
+
+AI Quant implementation:
+
+- `stock-detail-core.js` keeps `state.eventFeed` as a per-event list. It does not replace raw events with a group model.
+- `_stockEventOverlayEvents()` now derives chart overlay events from `eventFeed` and then `_clusterStockOverlayEvents()` groups ready chart events by `date_key`. A same-day cluster renders one `.stock-chart-event-dot.is-cluster` with `data-chart-event-count`.
+- Cluster representatives are chosen conservatively by event priority: capital flow, 龙虎榜, northbound, Alpha,公告/分红, news, and then reports. The representative drives chart-click selection, while `event_ids` keeps the same-day member ids for highlighting and state inspection.
+- `_renderStockEventList()` still shows individual bottom events, but adds `同日 n 条` and `合并 n 条` badges so dense or duplicate evidence is visible without hiding the raw rows.
+- `_eventSemanticKey()` and `_mergeDuplicateStockEvent()` add conservative semantic dedupe for ready news/report events only. Generic report titles, announcements, dividends, cross-link mismatches, and short titles are not merged.
+- Selecting a bottom event that belongs to a same-day cluster keeps the K-line cluster dot highlighted, so bottom -> chart -> AI diagnosis remains visually coherent.
+- Cache versions bumped: `style.css?v=74`, `app.js?v=118`, `app-ui-shell.js?v=40`, `sw.js?v=60`, `ai-quant-v162`, `stock-detail-core.js?v=18`.
+
+Parallel agents used:
+
+- `019eb6f3-6cfb-73b0-8ec5-be470b670e33`: read-only implementation reviewer; confirmed `eventFeed` stays per-event, found the non-representative cluster highlight gap, and recommended stricter semantic dedupe.
+- `019eb6f3-6d50-7551-b144-e54541adfd1f`: read-only plan/spec reviewer; confirmed Task 9.7 must update the execution plan and stale "same-day clustering missing" gaps.
+- `019eb6f3-6da3-7b01-9905-d4177bb68dd4`: read-only verification reviewer; confirmed the new frontend contract should cover same-day clustering, duplicate badges, chart-click selection, and AI diagnosis focus.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_stock_workbench_chart_event_overlay_click_reverse_selects_bottom_event tests/test_frontend_workflow_contracts.py::test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_frontend_workflow_contracts.py::test_service_worker_precache_keeps_large_page_bundles_out_of_install_path tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python scripts/verify_context_pack.py
+```
+
+本轮是否学到精髓:
+
+- 学到了基础机制：图表现在表达"这一天有多源事件"，底部继续保留逐条证据，AI 诊断仍消费当前选择的事件焦点。
+- 没有照抄同花顺的视觉皮肤、付费内容、短线精灵包装或买卖建议。AI Quant 的差异仍是证据、来源、缺失原因、duplicate count 和免责声明。
+
+Remaining gaps:
+
+- 聚合点点击后展开同日事件组由 Task 9.8 关闭；更完整的事件抽屉和 hover 预览仍是后续增强。
+- 语义去重是保守版，不是完整跨源 semantic dedupe 引擎；后续若做更强去重，需要引用、链接、机构、主体和方向证据。
+- 分时图仍按日期级聚合，而不是分钟级事件定位。
+- Richer `relatedContext.indices`/peer mappings, backend-owned cited LLM diagnosis, and event-to-backtest continuation remain follow-ups.
+
+## Task 9.8: P1 Same-day Event Group Entry + Draft Continuation
+
+Status: delivered as the next Stock Workbench event workflow slice. This does not complete the whole platform upgrade; it turns the Task 9.7 cluster dot from a representative-event selector into a same-day event group entry with follow-up draft actions.
+
+TongHuaShun mechanism learned:
+
+- K-line event markers are date anchors. The user question is "that day what happened", so clicking a dense date should open the same-day evidence context, not hide every non-representative event behind one dot.
+- Event review is a workflow, not a static list: chart date -> same-day event group -> individual evidence -> diagnosis -> basket/backtest/research draft. The current stock, period, source pool, and event provenance must remain stable.
+
+Why learn it:
+
+- Task 9.7 made dense dates readable, but the cluster dot still behaved like a single representative event. That was better than overlap, but not yet the 同花顺-style "date as event doorway" workflow.
+- AI Quant can improve on traditional terminals by keeping the raw events and `source_context.event_group` explicit, so later AI diagnosis or backtest drafts know exactly which stock/date/events produced the idea.
+
+AI Quant implementation:
+
+- `chartState.eventGroupFocus` now records the focused event date, representative event id, member event ids/types/counts, raw duplicate-aware count, and source context.
+- Clicking a `.stock-chart-event-dot.is-cluster` selects the representative event and opens a bottom `stock-event-group` section for that date. The group lists the same-day raw events without replacing `eventFeed`.
+- Selecting a group member keeps the group expanded and keeps the chart cluster dot highlighted when the selected event belongs to that event group. Selecting another date or a same-day non-chart event clears the old group focus.
+- The event group source context preserves the original source (`AI信号`, `问财`, `板块`, etc.) and nests the group metadata under `source_context.event_group`.
+- The group exposes safe continuation actions: `解释`, `篮子草案`, and `回测草案`. These reuse the existing `iwencai:analyze`, `iwencai:create-basket`, and `iwencai:draft-backtest` event bus paths, so they generate drafts or AI prompts instead of executing trades.
+- `core/app-shell.js` now labels these draft toasts as `事件组` when `source_context.event_group` exists, rather than calling every draft a 问财候选.
+- Follow-up multi-agent review tightened the group boundary: event membership is checked by event id rather than date alone, nested parent `event_group` context is preserved, and event bus emission uses `globalThis.App` for safer standalone contract tests.
+- Cache versions bumped: `style.css?v=75`, `app.js?v=119`, `app-ui-shell.js?v=41`, `core/app-shell.js?v=29`, `sw.js?v=61`, `ai-quant-v163`, `stock-detail-core.js?v=19`.
+
+Parallel agents used:
+
+- `019eb70f-e96e-7610-be97-73d5e971abb2`: read-only mechanism reviewer; confirmed local 同花顺 App could not be operated due to macOS accessibility permission, then grounded the recommendation in existing observer reports and public product mechanism.
+- `019eb70f-ea29-7e30-a3c3-abbe3ce21dc7`: read-only implementation reviewer; caught stale group focus, CSS escape risk, tab filtering hiding same-day events, and source-context overwrite risk.
+- `019eb70f-ea7a-72e1-982d-e34231e8f979`: read-only verification reviewer; recommended extending the same-day cluster contract with group DOM, member selection, group context, and draft-action assertions.
+- `019eb720-e2e9-7f40-b7c9-bbf170b78779`: follow-up read-only implementation reviewer; confirmed the core behavior and flagged the same-day non-group selection boundary and standalone `App?.emit` compatibility risk.
+- `019eb721-4994-7d73-a695-822b96506d1c`: follow-up plan/spec reviewer; confirmed Task 9.8 learns the date-entry workflow and asked to update stale summary gaps.
+- `019eb721-c454-7110-a99e-b67cbb11b41e`: follow-up browser-smoke reviewer; verified the injected DOM/interaction path on desktop/mobile and recorded the auth-gated visual limitation.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_default_state_keeps_event_selection_and_bottom_tab tests/test_frontend_workflow_contracts.py::test_stock_workbench_bottom_event_core_contracts_are_wired tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_stock_workbench_chart_event_overlay_click_reverse_selects_bottom_event tests/test_frontend_workflow_contracts.py::test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "stock_workbench or stock_ai_diagnosis or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check -- dashboard/static/stock-detail-core.js dashboard/static/style.css dashboard/static/core/app-shell.js dashboard/templates/partials/scripts.html dashboard/static/sw.js tests/test_frontend_workflow_contracts.py docs/specs/2026-06-10-ai-quant-platform-upgrade.md docs/superpowers/plans/2026-06-10-ai-quant-platform-upgrade-execution.md
+```
+
+本轮是否学到精髓:
+
+- 学到了更完整的事件工作流：聚合点是日期入口，底部显示同日事件组，组内事件仍可逐条选择，后续动作继承同一股票、日期、事件 ids 和来源上下文。
+- 仍不照抄同花顺交易导流、付费内容、黑盒评分或买卖建议；所有后续动作都是草案/分析入口。
+
+Remaining gaps:
+
+- 事件组 hover/popover 预览、真正抽屉式详情、分钟级分时定位、引用级 semantic dedupe、事件组级 AI 诊断权重、以及从事件组直接生成更丰富回测条件仍是后续增强。
+
+## Task 9.9: P1 Event Group Diagnosis Weight + Backtest Draft Conditions
+
+Status: delivered as the next Stock Workbench event workflow slice. This does not complete the whole platform upgrade; it turns the Task 9.8 event group entry into an auditable diagnosis and strategy-draft handoff.
+
+TongHuaShun mechanism learned:
+
+- Mature terminals do not treat a dense event date as a flat list. They help the user identify the primary event, separate repeated reposting from independent evidence, notice missing/contradictory evidence, and continue into a hypothesis or strategy draft.
+- The useful workflow is still chart-centered: K-line date -> event group -> evidence weighting -> AI diagnosis -> backtest draft. AI Quant should keep this as a draft and evidence chain, not a buy/sell recommendation.
+
+Why learn it:
+
+- Task 9.8 made the event group clickable, but the group was still mostly a container. The next user question is "which of these events matters, what is weak, and how would I test the hypothesis".
+- AI Quant's advantage is auditability: it can explicitly store independent event count, raw duplicate-aware count, dedupe policy, counter-evidence, missing evidence, and draft conditions instead of making a black-box call.
+
+AI Quant implementation:
+
+- `stock-detail-core.js` now distinguishes `event_group.event_count` as independent events from `raw_count` and `duplicate_count`, preventing repeated reposts from being counted as multiple independent signals.
+- `_buildEventGroupDiagnosisFocus()` produces event-group state with primary event, type distribution, raw/independent/duplicate counts, dedupe policy, counter-evidence, missing evidence, confidence, and signal direction.
+- The AI right rail adds an `事件组` diagnosis row when `chartState.eventGroupFocus` is active. Technical, capital, news, and risk rows also consume the event-group context without replacing the normal eight-dimension diagnosis when no group is selected.
+- The bottom event group panel now surfaces primary event, confidence, duplicate/repost down-weighting, and missing/counter evidence next to the group members.
+- `_buildEventGroupBacktestDraft()` creates a readonly `backtest_draft.conditions` object with hypothesis, event date, event ids/types, primary event, entry/exit rules, holding windows, benchmark placeholder, sample range, cost model, risk controls, evidence filters, and counter-evidence filters.
+- `core/app-shell.js` passes only an allowlisted event-group summary into the AI prompt and stores `backtest_draft` in the basket textarea dataset and `App._iwencaiBasketDraft`. It still does not call `loadBasketBacktest()`, trading APIs, paper-order APIs, or live-order paths.
+- Cache versions bumped: `style.css?v=76`, `app.js?v=120`, `app-ui-shell.js?v=42`, `core/app-shell.js?v=30`, `sw.js?v=62`, `ai-quant-v164`, `stock-detail-core.js?v=20`.
+
+Parallel agents used:
+
+- `019eb72e-2d09-7d61-95a8-45ebe4f4a200`: read-only mechanism reviewer; recommended primary-event selection, duplicate repost down-weighting, counter/missing evidence, confidence state, and rich draft condition fields.
+- `019eb72e-a6f0-7660-aa8f-bcd5be6add2d`: read-only implementation reviewer; identified `_buildWorkbenchAiDiagnosis()` as the safest local diagnosis insertion point and AppShell as a readonly routing/prompt allowlist layer.
+- `019eb72f-0091-7443-a933-1e797cd48c2e`: read-only verification reviewer; recommended extending same-day event tests, asserting duplicate down-weighting and draft readonly behavior, and documenting auth-gated browser smoke limits.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest -q -p no:cacheprovider
+```
+
+本轮是否学到精髓:
+
+- 学到了更深一层：事件组不是一个漂亮容器，而是一个可审计的证据权重和策略假设入口。重复转载被降权，缺失/反证被显式展示，回测条件是草案并要求人工确认。
+- 仍不照抄同花顺黑盒评分、交易导流、付费内容或买卖建议；没有自动执行回测、模拟盘或交易动作。
+
+Remaining gaps:
+
+- 事件组诊断还是前端 deterministic view model，不是后端引用级 LLM 诊断；后续需要后端证据版本、引用、样本统计和真实 provider coverage。
+- 回测草案条件可见可编辑由 Task 9.10 关闭；用户仍需手动点击计划回测，草案不会自动执行。
+- Hover/popover、抽屉式详情、分钟级定位、行业/指数相对强弱和更强 semantic dedupe 仍是后续增强。
+
+## Task 9.10: P1 Event Group Backtest Draft Panel in Basket Workflow
+
+Status: delivered as the next event-to-research workflow slice. This does not complete the whole platform upgrade; it promotes the Task 9.9 `backtest_draft.conditions` from hidden state into a visible, editable, manual-only basket workflow panel.
+
+TongHuaShun mechanism learned:
+
+- Mature terminals let users continue from an event cluster into a research task without losing the originating date, symbol, and evidence context.
+- The useful pattern is not "auto-run a strategy"; it is "turn evidence into a hypothesis, show the editable assumptions, and make the next execution step explicit".
+
+Why learn it:
+
+- Task 9.9 produced richer backtest conditions, but the user could only trust that they were stored in state/dataset. That is still too invisible.
+- The next useful action is to inspect and edit entry/exit/holding/benchmark/dedupe/反证条件 before manually running a plan backtest.
+
+AI Quant implementation:
+
+- `research/basket` now has a compact `事件回测草案` panel next to the candidate pool. It shows source/query context, event count/raw count, event types, event date, primary event, entry/exit rules, holding windows, benchmark, dedupe policy, and counter-evidence fields.
+- The panel has a visible empty state so the workflow does not disappear when no draft exists, plus inline JSON validation feedback for edited conditions.
+- The panel includes editable conditions JSON. Updating it synchronizes `#basket-candidates.dataset.backtestDraft` and `App._iwencaiBasketDraft.backtest_draft` without touching the candidate JSON.
+- Drafts are normalized with `status: draft`, `requires_confirmation: true`, `execution_policy: manual_only`, `execution_status: not_executed`, and `allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation']`; unsafe incoming states such as `executed` or live-trade actions are not preserved.
+- Plain iWencai candidate pools without an explicit `backtest_draft` now receive a minimal manual-only backtest draft instead of showing a success toast with an empty draft panel.
+- `core/app-shell.js` still routes `iwencai:draft-backtest` only to `research/basket`; it renders the draft panel but does not call `loadBasketBacktest()`, `/api/alpha/basket/backtest`, paper trading, live trading, or broker APIs.
+- Mobile bottom spacing now uses the shared safe-area-aware bottom-nav offset, instead of draft-only padding; mobile toasts also sit above the bottom nav so they do not cover the draft panel header.
+- Cache versions bumped: `style.css?v=80`, `app.js?v=120`, `app-ui-shell.js?v=43`, `core/app-shell.js?v=35`, `alpha.js?v=6`, `alpha-tools.js?v=9`, `stock-detail-core.js?v=21`, `sw.js?v=64`, `ai-quant-v166`.
+
+Task 9.10 follow-up record:
+
+- Manual plan-backtest now treats the visible `backtest_draft.conditions` editor as the source of truth: when the user manually submits the plan backtest, the frontend sends the latest edited `backtest_draft`/`conditions` payload instead of only the original hidden draft.
+- The backend accepts the submitted draft for `draft_audit` only, producing an audit/sample-coverage envelope for the hypothesis and conditions. This remains a research audit path, not an automatic strategy execution path.
+- Acceptance boundary: edited conditions must reach the backend audit payload, malformed conditions must stay visible as validation/audit feedback, and the returned audit must make sample coverage explicit before any user interprets the draft as testable.
+- Safety boundary remains `manual_only`: no automatic backtest on route/render, no simulated-trading order, no live/broker call, and no `paper`/`live` continuation from the draft audit response.
+
+Parallel agents used:
+
+- `019eb74d-90c4-7c02-a8c6-019bd8071809`: read-only research/basket explorer; confirmed the safest UI insertion point is next to `#basket-candidates` and warned not to touch the generic backtest form yet.
+- `019eb74d-9120-7b80-9d36-198614a442fe`: read-only verification explorer; identified the AppShell route test, stock event-group test, and research toolbar test as the highest-value coverage points.
+- `019eb74d-9179-7583-a448-f2983ca903f9`: read-only safety explorer; confirmed current draft route has no automatic backtest/trading side effects and recommended explicit `manual_only/not_executed` state.
+- `019eb7c7-d0da-7ff1-95df-ac38a41284db`: read-only contract explorer; confirmed the `skipBundle + applySession:false` route should be the product contract and test expectation.
+- `019eb7c8-0454-7411-85d7-6fee437ccbc6`: read-only safety explorer; found unsafe incoming draft states/actions were preserved and that plain iWencai draft-backtest could lack a draft payload.
+- `019eb7c8-3425-7b32-a98b-748e67cd42ab`: read-only UI/product explorer; recommended explicit source summary, visible empty state, inline JSON errors, and safer mobile bottom spacing.
+
+Verification:
+
+```bash
+node --check dashboard/static/alpha-tools.js
+node --check dashboard/static/alpha.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/stock-detail-core.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_intelligence_market_frontend.py::test_iwencai_send_to_screener_opens_research_screener_directly tests/test_research_toolbar_frontend.py::test_formula_basket_and_backtest_tabs_use_same_compact_research_form_surface tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_research_toolbar_frontend.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "basket_backtest_draft or stock_workbench_same_day_events or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_send_to_screener_opens_research_screener_directly tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool -q -p no:cacheprovider
+```
+
+Remaining gaps:
+
+- Task 9.12 closes the first structured event-study statistics layer under `draft_audit`; this remains audit/statistics rather than a provider-backed production backtest or executable strategy.
+- Residual risk: audit coverage is only as good as the available event/sample data and condition parser; users must still review insufficient samples, malformed conditions, stale evidence, and benchmark assumptions before manually running any real backtest.
+- Backend-cited LLM diagnosis, richer sector/index/peer evidence, hover/popover preview, drawer-level detail, and minute-level positioning remain follow-ups.
+
+## Task 9.12: P1 Draft Audit Event-Study Statistics
+
+Status: delivered as the next event-to-research safety slice. This does not complete the whole platform upgrade; it upgrades basket `draft_audit` from simple sample coverage into structured event-study statistics, while keeping the whole flow manual-only.
+
+TongHuaShun mechanism learned:
+
+- A mature terminal does not stop at "here is a candidate pool". It lets the user inspect whether the event hypothesis has enough samples and whether short holding windows show any signal before deciding to run a formal backtest.
+- The useful pattern is "evidence -> hypothesis -> sample statistics -> explicit manual action", not silent execution or black-box promotion.
+
+Why learn it:
+
+- Task 9.10 made event-group backtest conditions visible and editable, but the audit still read like coverage/warnings. That is too weak for a serious research workflow.
+- The user needs a separate, scannable section that answers: how many candidates have usable event samples, which holding periods have returns, what the best/worst windows look like, and what the limitations are.
+
+AI Quant implementation:
+
+- `alpha/basket.py` now returns `draft_audit.event_statistics` plus a compatible `event_study` alias. The contract includes `status`, `method`, `unit`, `holding_periods`, `by_holding_period`, `period_stats`, `best_period`, `sample_window`, `methodology`, and `limitations`.
+- Event statistics use `next_bar_open_to_holding_close`: locate the draft `event_date`, enter at the next trading day's open, and compute simple close-to-holding-window returns. Missing/invalid `event_date` no longer falls back to the first price bar, so the audit cannot fabricate samples.
+- The audit tracks `missing_samples`, `ready_sample_count`, `missing_sample_count`, `coverage_ratio`, `ready/partial/no_sample`, and per-period mean, median, win rate, best, worst, positive count, and negative count.
+- `dashboard/static/alpha-tools.js` renders a separate `事件样本统计` panel (`#basket-draft-audit-study`) with coverage, event date, status, holding-period table, best period, methodology, and limitations. These details are no longer buried in warning text.
+- The no-audit path now clears the event-study panel, warning list, and draft status so a normal basket backtest cannot show stale "后端已审计草案" state from the previous run.
+- Basket backtest draft normalization now forces `status: draft`, `requires_confirmation: true`, `execution_policy: manual_only`, `execution_status: not_executed`, and `allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation']`.
+- Cache versions bumped: `style.css?v=81`, `app.js?v=123`, `app-ui-shell.js?v=44`, `core/app-shell.js?v=35`, `alpha.js?v=6`, `alpha-tools.js?v=12`, `stock-detail-core.js?v=21`, `sw.js?v=67`, `ai-quant-v169`.
+
+Parallel agents used:
+
+- `019eb816-bf54-7be3-83e1-efc2746c1dde`: read-only backend contract reviewer; confirmed the event-study schema, no fake missing-event samples, and manual-only audit fields.
+- `019eb816-ea54-7c71-9317-acd1bf5016c1`: read-only frontend display reviewer; confirmed the separate `事件样本统计` UI and caught the stale warning/status bug when a later response had no `draft_audit`.
+- `019eb817-71cc-7f83-ba5c-eafd8effbcd9`: read-only safety/documentation reviewer; confirmed no paper/live/broker/order/backtest websocket auto path and flagged the cache-version and `status` consistency cleanup.
+
+Verification:
+
+```bash
+node --check dashboard/static/alpha-tools.js
+node --check dashboard/static/app.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "basket_backtest_draft or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py tests/test_research_toolbar_frontend.py -k "iwencai_basket_draft or changed_frontend_assets or research_toolbar_asset_versions" -q -p no:cacheprovider
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Browser smoke:
+
+- Temporary Dashboard on port `8013` passed a Playwright desktop and mobile smoke before final stale-state cleanup. It verified the manual plan-backtest request carried the edited draft, the response contained `draft_audit.event_statistics`, the UI showed `事件样本统计`, coverage, mean/win stats, and limitations, and no forbidden `/api/paper`, `/api/broker`, `/api/backtest/ws/run`, or `/api/backtest/run` calls occurred.
+- Artifacts: `/tmp/task-9.12-event-study-desktop.png`, `/tmp/task-9.12-event-study-mobile.png`, `/tmp/task-9.12-event-study-smoke.json`.
+
+本轮是否学到精髓:
+
+- 学到了更接近专业终端的研究闭环：事件组不只是生成草案，草案进入篮子后能看到样本统计和方法限制，再由用户决定是否手动回测。
+- 没有照抄黑盒评分、荐股语气、交易入口或自动执行。事件统计明确是 audit/statistics，不是策略验证、不是实盘信号、不是模拟盘下单。
+
+Remaining gaps:
+
+- Event-study stats are still local-price-data based and do not execute full entry/exit rules, provider-backed samples, or formal significance validation.
+- Provider-backed event samples, backend-cited LLM diagnosis, richer sector/index/peer evidence, hover/popover preview, drawer-level detail, and minute-level positioning remain follow-ups.
+
+## Task 9.13: P1 Draft Audit Net/Benchmark/Statistics Evidence
+
+Status: delivered as the next event-study hardening slice. This still does not complete the whole platform upgrade; it upgrades `draft_audit.event_statistics` from naked local returns into clearer audit evidence with estimated costs, optional local benchmark/excess returns, and descriptive t-stat fields while preserving manual-only execution.
+
+TongHuaShun mechanism learned:
+
+- A serious terminal keeps validation evidence close to the hypothesis: the user should see cost drag, benchmark comparison, sample size, and limits before deciding whether to run a formal backtest.
+- The useful pattern is "audit evidence with status", not "a higher-looking number". Every computed/uncomputed piece must tell the user whether it is available, missing, or only descriptive.
+
+AI Quant implementation:
+
+- `alpha/basket.py` now enriches each ready event sample with `holding_costs`, `holding_net_returns`, `holding_benchmark_returns`, `holding_excess_returns`, and exit dates. Existing `holding_returns` remains the gross/simple-return field for compatibility.
+- `event_statistics.cost_model` records the estimated A-share round-trip cost model, its source (`default`, `draft_conditions`, or invalid fallback), and `estimated_round_trip_cost_pct`.
+- `event_statistics.benchmark` records `calculation_status`, `available`, code/name, data source, and missing reason. It computes benchmark/excess only when inline `price_data`, normal storage lookup, or a read-only local `stock_daily` variant lookup provides usable benchmark prices. Missing benchmark data returns `missing_benchmark_price_data`; it does not fabricate excess returns.
+- Per holding period now adds `mean_cost_pct`, `mean_net_return_pct`, `median_net_return_pct`, `net_win_rate`, `mean_benchmark_return_pct`, `mean_excess_return_pct`, `median_excess_return_pct`, `excess_win_rate`, sample std fields, `t_stat_return`, `t_stat_net_return`, `t_stat_excess_return`, and `significance_status/significance_note`.
+- `calculation_status` is now present at the event-statistics root. Existing fields (`mean_return_pct`, `median_return_pct`, `win_rate`, `best/worst`, `period_stats`, and `event_study` alias) remain additive-compatible.
+- `dashboard/static/alpha-tools.js` now renders the audit table as 毛收益/成本/净收益/基准/超额/胜率/t值 and keeps `事件样本统计` framed as audit/statistics, not strategy proof.
+- Clearing a basket backtest draft now also clears the audit panel, preventing stale net/excess values from staying visible after the user removes the draft.
+- Cache versions bumped: `style.css?v=82`, `alpha-tools.js?v=13`, `sw.js?v=68`, `ai-quant-v170`.
+
+Safety boundary:
+
+- No paper, live, broker, order, OpenClaw execution, external data sync, production config, or invite-code logic was changed.
+- Draft fields still force `manual_only`, `requires_confirmation`, `not_executed`, and `allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation']`.
+- `entry_rule`, `exit_rule`, `benchmark`, `cost_model`, and risk fields remain audit inputs/unsupported execution keys. They do not alter the actual basket backtest execution path.
+- t-stat is explicitly descriptive and limited; it is not a strategy-validity claim.
+
+Parallel agents used:
+
+- `019eb82d-c3b7-7943-8efb-e49bdb1ca3e1`: backend contract reviewer; confirmed additive schema, `event_study` alias, manual-only invariants, benchmark-missing handling, and safety tests.
+- `019eb82d-c432-7720-9084-ae79f65af19f`: frontend display reviewer; recommended net/excess/cost table columns and found the `clearBasketBacktestDraft()` stale-audit risk.
+- `019eb82d-c488-7362-ad93-1f11e43a79cd`: safety/documentation reviewer; confirmed benchmark/cost/significance must remain audit evidence, not execution or order routing.
+- All three were closed after reporting.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions -q -p no:cacheprovider
+node --check dashboard/static/alpha-tools.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/basket.py dashboard/routers/alpha.py
+```
+
+Results:
+
+- Backend basket tests: `14 passed, 1 warning`.
+- Focused frontend draft audit contract: `1 passed, 1 warning`.
+- Version/no-auto-backtest focused tests: `4 passed, 1 warning`.
+- Combined related suite: `19 passed, 1 warning`.
+- JS/Python syntax checks: passed.
+
+Remaining gaps:
+
+- Benchmark/excess remains local-data dependent; no provider-backed benchmark sample service exists yet.
+- Cost model is an estimate and does not account for per-trade minimum commission, market impact, partial fills, or real execution constraints.
+- t-stat is descriptive only; no p-value, multiple-testing control, out-of-sample validation, or provider-grade event normalization is implemented.
+- Full entry/exit rule execution, richer sector/index/peer mappings, backend-cited LLM diagnosis, hover/popover preview, drawer-level detail, and minute-level positioning remain follow-ups.
+
+## Task 9.14: P2 Backend-Owned iWencai Routed Schema + Legacy Compatibility Gate
+
+Status: delivered as the next P2 task-router hardening slice. This closes the main "frontend shim owns the routed schema" gap for iWencai while preserving legacy `data` / `total` compatibility. It does not claim real provider field-level evidence, rate-limit coverage, OpenClaw deep orchestration, or investment advice quality is complete.
+
+TongHuaShun mechanism learned:
+
+- The useful 问财 pattern is not the visual skin. It turns one sentence into visible task state: intent, parsed condition chips, result buckets, source status, and next actions.
+- Users need to see how the system interpreted the question and what can safely happen next. A table alone is too weak because it hides route intent, condition hit counts, and provider state.
+- AI Quant should learn the mechanism and evidence flow, not copy 同花顺 brand wording, paid/restricted content, screenshots, proprietary rankings, community content, or internal implementation guesses.
+
+AI Quant implementation:
+
+- `/api/llm/iwencai` now returns backend-owned `schema_version = "iwencai_task_router_v1"` plus `status`, `intent`, `parsed_conditions`, `buckets`, `actions`, `selected_bucket`, `source_context`, `source_status`, `issue`, and legacy `data` / `total`.
+- Empty successful provider results now still use the routed schema with `status = "no_match"` instead of returning a legacy-only payload.
+- Backend condition parsing covers common A-share screening phrases such as 高股息、低估值、近N日放量、主力净流入、ROE、新高、剔除ST, with hit counts or explicit degraded reasons.
+- Backend buckets include candidate stock pool, theme aggregation, and condition evidence. Legacy `data` stays available for older consumers.
+- `result_pool_id` fallback is deterministic with SHA-1 instead of Python process-randomized `hash()`.
+- `source_context` is sanitized through an allowlist and cannot echo cookie, headers, session, token, API key, invite-code, broker credential, or account-sensitive keys.
+- `dashboard/static/intelligence-iwencai.js` now treats backend-owned fields as authoritative: if `parsed_conditions`, `buckets`, or `actions` exists, the frontend does not infer fake replacements or append fake buckets. It only falls back for legacy responses where those fields are absent.
+- Request context from global search/news/hotspot is preserved as `origin_context` and cannot override backend `result_pool_id`, `provider`, `data_as_of`, or `cache_status`.
+- Standard backend candidate fields such as `code`, `name`, `industry`, `concept`, `price`, and `change_pct` render in the same focused table as legacy Chinese-column data.
+- Cache versions bumped: `intelligence-iwencai.js?v=7`, `app.js?v=124`, `/sw.js?v=69`, `ai-quant-v171`.
+
+Safety boundary:
+
+- No real iWencai provider call was used in tests or browser smoke; API tests monkeypatch a fake provider and browser smoke mocks `/api/llm/iwencai`.
+- No paper, live, broker, order, OpenClaw execution, external LLM call, external data sync, production config, auth-gate, or invite-code logic was changed. 邀请码 remains required.
+- Basket/backtest follow-up actions remain drafts or UI actions only; this slice does not execute formal backtests, simulated trades, live orders, broker actions, or OpenClaw tasks.
+- Failure and degraded states must be visible. The UI must not use empty tables to hide source failure, and it must not fabricate provider evidence or hit counts.
+
+Parallel agents used:
+
+- `019eb84f-bc5c-7c60-a107-b7810653c26f`: frontend schema ownership reviewer; identified field-presence vs empty-array ownership, backend source-context precedence, and legacy fallback boundaries.
+- `019eb84f-e7b0-72e0-b9e3-52ab87990f94`: documentation/plan reviewer; mapped Task 9.14 into the existing spec and safety boundaries, including no invite-code/auth-gate changes.
+- `019eb850-0ccf-74f2-b6a4-5b4c574b3769`: QA coverage reviewer; proposed fake-provider backend tests, frontend contract scope, JS syntax checks, context-pack verification, diff hygiene, and dangerous API interception for smoke.
+- All three were closed after reporting.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -k iwencai -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js
+.venv/bin/python -m pytest tests/test_iwencai_task_router_api.py tests/test_intelligence_market_frontend.py tests/test_frontend_workflow_contracts.py -k "iwencai or global_search or basket_backtest_draft or assets_are_versioned or changed_frontend_assets_are_cache_busted" -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js && node --check dashboard/static/core/command-palette.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/alpha-tools.js && node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/alpha.js
+.venv/bin/python -m compileall -q dashboard/routers/llm.py
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Backend iWencai API contract: `2 passed, 1 warning`.
+- Focused iWencai frontend contracts: `12 passed, 49 deselected, 1 warning`.
+- Focused global-search / iWencai / basket-backtest-draft / cache-busting contracts: `26 passed, 121 deselected, 1 warning`.
+- JS syntax checks, compileall, context-pack verification, and `git diff --check`: passed.
+- Mocked Playwright smoke passed on desktop `1280x900` and mobile `390x844` after normal invite-code registration/login. It mocked `/api/llm/iwencai`, blocked dangerous run/order/broker/live/OpenClaw write APIs, verified three condition chips, backend `result_pool_id`, provider context, bucket switch, no fake `news` bucket, and no horizontal overflow. Evidence: `/tmp/task914-iwencai-smoke.json`, `/tmp/task914-iwencai-desktop.png`, `/tmp/task914-iwencai-mobile.png`.
+
+Remaining gaps:
+
+- Real provider hit counts, rate-limit/cache states, field-level evidence, and provider drift handling still need deterministic provider fixtures or a dedicated provider adapter test layer.
+- OpenClaw deep orchestration and backend-cited LLM explanations are still future slices.
+- Browser smoke with mocked iWencai proves UI routing and safety gates, not live provider coverage.
+
+## Task 9.15: Provider-Grade iWencai Source Status Contract
+
+Status: delivered as a provider-status hardening slice after Task 9.14. This closes the specific gap where provider dependency failure, request failure, rate limit, or response-shape drift could be collapsed into `no_match`.
+
+TongHuaShun mechanism learned:
+
+- The valuable 问财 behavior is not that it always returns a table. It tells the user whether the query was interpreted, whether the source answered, whether evidence is partial, and what next action is safe.
+- AI Quant must treat "source unavailable" differently from "normal source returned no stocks." Otherwise users will loosen conditions or create follow-up artifacts from a broken provider state.
+
+AI Quant implementation:
+
+- `alpha/iwencai_client.py` now exposes `IwencaiProviderResult` and `query_iwencai_with_status()`, while preserving legacy `query_iwencai() -> DataFrame`.
+- Provider states now include `provider_status`, `failure_type`, `failure_reason`, `response_type`, `local_wait_seconds`, `retry_after_seconds`, `data_as_of`, and `cache_status`.
+- `/api/llm/iwencai` uses the status-aware provider API when available and falls back to the legacy DataFrame API for compatibility.
+- Only a provider-normal empty DataFrame becomes `status = no_match`. `provider_unavailable`, `request_failed`, `rate_limited`, and `invalid_provider_response` become top-level `status = failed` with typed `failure_type` and `source_status`.
+- `source_context` now carries provider diagnostics such as `data_status`, `failure_type`, `status_reason`, and normalized provider status through the same task-router envelope.
+- `dashboard/static/intelligence-iwencai.js` blocks pool/write actions when `source_status` or provider status indicates unavailable, rate-limited, invalid response, stale cache, offline fallback, permission denied, or request failure, even if cached candidates exist.
+- `dashboard/static/intelligence.js` adds the same execution-layer guard so stale DOM or indirect event paths cannot fire send-to-screener, add-watchlist, create-basket, or draft-backtest when provider/cache status is blocked.
+- Cache versions bumped: `intelligence.js?v=12`, `intelligence-iwencai.js?v=8`, `app.js?v=126`, `/sw.js?v=70`, `ai-quant-v173`.
+
+Safety boundary:
+
+- No real iWencai, pywencai network request, TongHuaShun login/session, OpenClaw write, external LLM call, formal backtest execution, paper/live order, broker API, production config, or auth/invite-code logic was changed. 邀请码 remains required.
+- This slice proves deterministic provider-status fixtures and UI safety gates. It does not claim live provider coverage, field-level real hit counts, or provider drift handling against the real upstream site is complete.
+
+Parallel agents used:
+
+- `019eb862-a364-7433-8fa0-b8cf33a72c1a`: provider/client status semantic reviewer; confirmed empty DataFrame was hiding missing provider, request failure, rate limit, and invalid response.
+- `019eb862-e8e0-7482-b266-fe37b69d5380`: frontend/global-search failure-state reviewer; confirmed action gating depends on top-level status and needs source-status fallback for cached candidates.
+- `019eb863-2e0e-7800-b2e9-08a4e0b456e3`: docs/TongHuaShun gap reviewer; recommended explicit provider evidence contract, deterministic fixtures, and no fabricated evidence.
+- All three were closed after reporting.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_client_status.py tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_iwencai_provider_failure_blocks_write_actions_even_with_cached_candidates tests/test_frontend_workflow_contracts.py::test_iwencai_run_preserves_source_context_and_renders_failure_degraded_states tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/intelligence.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m compileall -q alpha/iwencai_client.py dashboard/routers/llm.py
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Provider/client/API contracts: `7 passed, 1 warning`.
+- Focused frontend failure-state and version contracts: `4 passed, 1 warning`.
+- Wider iWencai/global-search/cache-busting regression: `32 passed, 122 deselected, 1 warning`.
+- JS syntax checks, `compileall`, context-pack verification, and `git diff --check`: passed.
+- Playwright smoke against existing `127.0.0.1:8001` service passed desktop `1280x900` and mobile `390x844` after normal invite-code auth/login. It mocked `/api/llm/iwencai`, blocked dangerous backtest/trading/broker/OpenClaw write APIs, verified source-rate-limit reason, candidate table visibility, write/pool action suppression, no console/page errors, and no horizontal overflow. Evidence: `/tmp/task915-iwencai-provider-smoke.json`, `/tmp/task915-iwencai-provider-1280x900.png`, `/tmp/task915-iwencai-provider-390x844.png`.
+
+Remaining gaps:
+
+- Field-level provider evidence still needs an explicit deterministic fixture contract for `parsed_conditions[].evidence`, unsupported fields, stale cache, partial evidence, and schema drift.
+- Browser smoke should continue to mock `/api/llm/iwencai` unless the user explicitly approves a real provider call.
+
+## Task 9.16: Provider-Grade iWencai Field Evidence Fixture Contract
+
+Status: delivered as the next iWencai hardening slice. This closes the most misleading field-level gap: backend condition chips no longer use visible candidate count or frontend inference as fake provider evidence.
+
+TongHuaShun mechanism learned:
+
+- The useful 问财 pattern is that each natural-language condition becomes an inspectable condition chip with hit range and next-step state.
+- AI Quant should learn the audit mechanism, not copy data, wording, screenshots, paid features, rankings, or internal implementation. The goal is stronger than "looks like 问财": every condition must say which provider/result field supports it or why that evidence is missing.
+
+AI Quant implementation:
+
+- `parsed_conditions[]` now includes field-level evidence fields: `hit_count_status`, `missing_reason`, `evidence_level`, `source_field`, `source_fields`, and nested `evidence`.
+- Backend condition hit counts are only `verified` when a matching provider/result field is present. Missing fields return `hit_count = null`, `hit_count_status = missing_source_field`, and a visible missing reason instead of falling back to `len(records)`.
+- Provider unavailable or failed states keep parsed conditions for transparency but mark evidence as `source_unavailable` and condition status as `failed`.
+- Provider-normal empty results can show `hit_count = 0` with `hit_count_status = provider_empty_result`.
+- If a result has candidates but one or more parsed conditions lack verified field evidence, `/api/llm/iwencai` downgrades the task to `partial_result`, marks `source_status.status = partial_source_failure`, and omits send-to-screener, add-watchlist, create-basket, and draft-backtest actions.
+- Frontend `normalizeCondition()` preserves nested `evidence`, `hit_count_status`, `source_field(s)`, `missing_reason`, and `evidence_level`. Condition chips show source field when available or missing reason when unavailable.
+- `source_context` now carries `condition_evidence` in addition to legacy `condition_hit_count`, so downstream stock detail, AI explain, basket draft, and future OpenClaw flows can audit condition evidence without trusting user-supplied context.
+- Post-review hardening closed the stale-DOM/indirect-event gap: `_canRunIwencaiAction()` now blocks pool/write actions for `partial_result` and `degraded_data` even when provider/source/cache status values look ok, while keeping read-only `open_stock/analyze/ask_ai` paths available.
+- Cache versions bumped: `intelligence.js?v=14`, `intelligence-iwencai.js?v=10`, `app.js?v=129`, `/sw.js?v=71`, `ai-quant-v175`.
+
+Safety boundary:
+
+- No real iWencai/pywencai network call, TongHuaShun App operation, login/session/cookie use, paid/restricted data, OpenClaw write, external LLM call, backtest execution, paper/live order, broker API, production config, or invite-code/auth-gate logic was changed.
+- This slice proves local deterministic evidence contracts and UI/action gates. It does not claim real provider coverage, upstream schema stability, investment advice quality, strategy profitability, or OpenClaw deep orchestration.
+
+Parallel agents used:
+
+- `019eb87f-e00e-7d12-b8a7-45408fb8fbc7`: backend evidence reviewer; identified fake hit-count fallback, client-supplied context risk, and missing provider evidence statuses.
+- `019eb880-08b6-7513-8938-546810f13bfb`: frontend evidence reviewer; identified nested `evidence` loss and recommended preserving source field/status into chips and source context.
+- `019eb880-2ff7-7fb2-a0de-874ae31e6355`: docs/spec reviewer; framed Task 9.16 as a provider-grade fixture contract, not a real provider completion claim.
+- `019eb88f-0382-79a0-bd1a-cc1cdb741363`: final auth-gate reviewer; confirmed invite-code registration remains required and no auth gate was weakened.
+- `019eb88f-03eb-7030-88db-ed3a55d3257e`: final evidence-gate reviewer; caught the execution-layer `partial_result/degraded_data` write-action bypass and recommended the status-only guard test.
+- All five were closed after reporting.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_client_status.py tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py tests/test_frontend_workflow_contracts.py -k "iwencai or global_search or assets_are_versioned or changed_frontend_assets_are_cache_busted" -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js
+node --check dashboard/static/intelligence.js
+node --check dashboard/static/app.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m compileall -q alpha/iwencai_client.py dashboard/routers/llm.py
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Backend/provider evidence tests passed: `8 passed, 1 warning`.
+- Frontend iWencai/global-search/cache-bust contract tests passed: `25 passed, 122 deselected, 1 warning`, including the execution-layer guard for `partial_result` and `degraded_data` when provider/source/cache are otherwise ok.
+- JS syntax checks, targeted `compileall`, context-pack verification, and `git diff --check`: passed.
+- Playwright smoke against existing `127.0.0.1:8001` service passed desktop `1280x900` and mobile `390x844` after normal invite-code auth/login. It mocked `/api/llm/iwencai`, blocked dangerous backtest/trading/broker/OpenClaw write APIs, verified verified-field evidence text, missing-field reason, write/pool action suppression, no console/page errors, and no horizontal overflow. Evidence: `/tmp/task916-iwencai-evidence-smoke.json`, `/tmp/task916-iwencai-evidence-1280x900.png`, `/tmp/task916-iwencai-evidence-390x844.png`.
+
+Remaining gaps:
+
+- Real provider condition metadata, unsupported-field taxonomy, stale-cache fixture matrix, and provider schema drift fixtures remain future work.
+- Candidate-level provenance is closed by Task 9.17 for deterministic backend-owned row evidence; real provider schema drift fixtures remain future work.
+- Browser smoke should keep mocking `/api/llm/iwencai` unless the user explicitly approves real provider calls.
+
+## Task 9.17: iWencai Candidate Row Provenance Contract
+
+Status: delivered as the next iWencai auditability slice. This does not complete the full platform upgrade; it closes the gap between condition-level evidence and per-stock candidate evidence.
+
+TongHuaShun mechanism learned:
+
+- 问财式结果 is useful because a user can inspect why each candidate belongs in the result, not just see a flat table.
+- AI Quant should learn the auditable workflow: query -> parsed conditions -> candidate row evidence -> open stock / AI explanation / draft actions, while being stricter than a traditional terminal about missing fields and stale source state.
+
+AI Quant implementation:
+
+- `/api/llm/iwencai` now attaches backend-owned `candidate_provenance` to each normalized candidate and legacy `data` row.
+- Row provenance includes `result_pool_id`, deterministic `row_id`, `code/name/rank`, provider/source metadata, query, matched conditions, missing conditions, source fields, a safe raw field map, `evidence_level`, `validation_status`, warnings, and missing reason.
+- Row provenance is computed only from provider result rows, backend parsed conditions, and provider metadata. Client-supplied `source_context` can preserve origin workflow context but cannot create verified row evidence.
+- Candidates with partial/unverified row evidence remain visible for read-only inspection and AI explanation, but are excluded from actionable `pool/watchlistCodes` and basket/backtest draft payloads.
+- The iWencai table now shows a compact evidence column with verified/partial/unverified badges, source fields, missing reasons, provider, and data timestamp.
+- `contextList`, `open_stock`, `ask_ai`, row-level watchlist metadata, and research basket/backtest drafts now carry row-level `candidate_provenance` in `source_context` or sanitized candidate metadata.
+- Execution-layer row guards check current candidate, `result_pool_id`, row evidence id, task state, source state, and row `actionable` before allowing row write actions; pool actions require a non-empty verified/actionable pool, closing stale-DOM and indirect-event bypasses.
+- Cache versions bumped: `intelligence.js?v=16`, `intelligence-iwencai.js?v=12`, `app.js?v=131`, `core/app-shell.js?v=36`, `app-ui-shell.js?v=45`, `/sw.js?v=72`, `ai-quant-v177`.
+
+Parallel agents used:
+
+- `019eb898-035f-7803-8e0a-2085660ac4d4`: backend reviewer; identified the missing row evidence contract, advised provider-row-only provenance and tests for missing row values.
+- `019eb898-03c2-7363-9fad-90f11b4b76e1`: frontend reviewer; identified missing evidence UI, row context propagation, row write gating, stale-DOM, and slow-response risks.
+- `019eb898-0421-7303-87ea-031abb35290f`: docs/spec reviewer; defined FR-WENCAI-3g/3h/3i, acceptance criteria, validation commands, and safety boundary.
+- All three were closed after reporting.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_client_status.py tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py tests/test_frontend_workflow_contracts.py -k "iwencai or global_search or assets_are_versioned or changed_frontend_assets_are_cache_busted" -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js
+node --check dashboard/static/intelligence.js
+node --check dashboard/static/app.js
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/app-ui-shell.js
+node --check dashboard/static/sw.js
+.venv/bin/python -m compileall -q alpha/iwencai_client.py dashboard/routers/llm.py
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Backend/provider/client contracts passed: `9 passed, 1 warning`, including candidate row provenance and missing row evidence coverage.
+- Frontend iWencai/global-search/cache-bust contract tests passed: `27 passed, 122 deselected, 1 warning`, plus focused post-review provenance/pool/draft tests passed: `3 passed, 1 warning` and cache-version tests passed: `4 passed, 1 warning`.
+- JS syntax checks, targeted `compileall`, context-pack verification, and `git diff --check`: passed.
+- Playwright smoke against existing `127.0.0.1:8001` service passed desktop `1280x900` and mobile `390x844` after normal invite-code auth/login. It mocked `/api/llm/iwencai`, blocked dangerous backtest/trading/broker/OpenClaw write APIs, verified the row evidence column, verified/partial badges, verified-only `pool/watchlistCodes/actionableCandidates`, excluded partial row, no console/page errors, and no horizontal overflow. Evidence: `/tmp/task917-iwencai-row-provenance-smoke.json`, `/tmp/task917-iwencai-row-provenance-1280x900.png`, `/tmp/task917-iwencai-row-provenance-390x844.png`.
+
+Safety boundary:
+
+- No real iWencai/pywencai network call, TongHuaShun App operation, login/session/cookie use, paid/restricted data, OpenClaw write, external LLM call, backtest execution, paper/live order, broker API, production config, or invite-code/auth-gate logic was changed.
+- Row provenance is audit evidence, not investment advice, profitability proof, or a buy/sell signal.
+
+Remaining gaps:
+
+- Real provider row schema drift, stale-cache fixture matrix, unsupported-field taxonomy, and payload-size tuning remain future work.
+- Browser smoke should continue to mock `/api/llm/iwencai` unless the user explicitly approves a real provider call.
+
+## Task 9.18: iWencai Request Generation + Stale Response Guard
+
+Status: delivered as the next iWencai workbench stability slice. This does not complete the full platform upgrade; it closes the slow-response race where an older query could overwrite the latest query, candidate pool, evidence state, or write actions.
+
+TongHuaShun mechanism learned:
+
+- 问财 is a continuous task workbench. When a user quickly rewrites a question, the screen should always represent the current question, not whichever network response returns last.
+- AI Quant should learn that workflow stability, not just the natural-language table. A stale response must not steal the current candidate pool, source context, or follow-up actions.
+
+AI Quant implementation:
+
+- `runIwencai()` now creates a monotonic `request_generation` token for each query and stores pending state with empty `pool/watchlistCodes/actionableCandidates`.
+- New queries abort the previous request through `AbortController` when available, while generation checks still discard old responses when cancellation is not enough.
+- Success, failure, timeout, and `AbortError` paths check the active generation before touching DOM or `state.iwencaiResult/state.iwencaiActionState`.
+- Old responses silently return the current view model and cannot render a stale failed card or clear the latest candidate pool.
+- Rendered global and row action buttons carry `data-request-generation`; execution-layer guards reject old DOM or indirect events when generation, result pool, or row evidence id no longer matches.
+- Cache versions bumped: `intelligence.js?v=17`, `intelligence-iwencai.js?v=13`, `app.js?v=132`, `/sw.js?v=73`, `ai-quant-v178`.
+
+Parallel agents used:
+
+- `019eb9ec-e5ab-7ae0-b265-fc8a4a4d5f68`: frontend race-risk reviewer; reviewed request/state paths and stale action risks.
+- `019eb9ed-bcb7-7c20-b633-a4bd396a6ec3`: spec/plan reviewer; defined FR-WENCAI-3j/3k/3l, Task 9.18 acceptance, validation, and safety boundary.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_iwencai_stale_slow_response_cannot_overwrite_latest_query_state tests/test_intelligence_market_frontend.py::test_iwencai_candidate_row_provenance_renders_and_flows_to_actions -q -p no:cacheprovider
+node --check dashboard/static/intelligence-iwencai.js
+node --check dashboard/static/intelligence.js
+```
+
+Results:
+
+- Focused request-generation and stale DOM contract tests passed: `2 passed, 1 warning`.
+- Wider iWencai/global-search/cache-bust contract tests passed: `28 passed, 122 deselected, 1 warning`.
+- JS syntax checks for `intelligence-iwencai.js`, `intelligence.js`, `app.js`, `app-ui-shell.js`, and `sw.js`: passed.
+- Playwright smoke against existing `127.0.0.1:8001` service passed desktop `1280x900` and mobile `390x844` after normal invite-code auth/login. It mocked `/api/llm/iwencai`, simulated query A slow, query B fast, then query A late, and verified final query/pool/source context stayed on B, `data-request-generation="2"` was present, no console/page errors occurred, and no horizontal overflow appeared. Evidence: `/tmp/task918-iwencai-request-generation-smoke.json`, `/tmp/task918-iwencai-request-generation-1280x900.png`, `/tmp/task918-iwencai-request-generation-390x844.png`.
+
+Safety boundary:
+
+- No real iWencai/pywencai network call, TongHuaShun App operation, login/session/cookie use, paid/restricted data, OpenClaw write, external LLM call, backtest execution, paper/live order, broker API, production config, or invite-code/auth-gate logic was changed.
+- Request generation is UI/task-state integrity, not provider reliability, investment advice quality, profitability proof, or a buy/sell signal.
+
+Remaining gaps:
+
+- A late-failure browser smoke is still future work; current browser smoke covers A-slow/B-fast/A-late-success on desktop and mobile.
+- Real provider latency and broader unsupported-field taxonomy remain future work. Deterministic stale-cache/schema-drift fixtures are closed by Task 9.20.
+
+## Task 9.19: Release Readiness Security Gate
+
+Status: delivered as a pre-release hardening gate. This does not complete the full platform upgrade or approve production deployment; it closes the immediate trust-boundary issue found during release/security review.
+
+Security/readiness findings addressed:
+
+- Backend iWencai row provenance no longer trusts frontend `source_context.result_pool_id` for `candidate_provenance.result_pool_id` or `row_id`.
+- `/api/llm/iwencai` now generates server-owned `iwencai:<digest>` result pool ids from query, total, provider, data timestamp, and cache state.
+- Frontend/origin result pool ids remain available only as source tracing via `source_context.origin_result_pool_id` and `source_context.origin_context.result_pool_id`.
+- Stock event-group continuation payloads now declare `evidence_scope = "stock_event_group"` and `row_evidence_status = "not_applicable"` at source-context and draft levels, so they cannot be confused with iWencai provider row evidence.
+- Release review also flagged the two new iWencai pytest files as untracked; they must be included in any commit/release bundle.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_iwencai_client_status.py tests/test_iwencai_task_router_api.py tests/test_alpha_formula_basket.py tests/test_frontend_workflow_contracts.py tests/test_intelligence_market_frontend.py tests/test_research_toolbar_frontend.py -q -p no:cacheprovider
+node --check dashboard/static/alpha-tools.js dashboard/static/alpha.js dashboard/static/intelligence.js dashboard/static/intelligence-iwencai.js dashboard/static/app.js dashboard/static/app-ui-shell.js dashboard/static/core/app-shell.js dashboard/static/stock-detail-core.js dashboard/static/sw.js
+.venv/bin/python -m compileall -q alpha/basket.py alpha/iwencai_client.py dashboard/routers/alpha.py dashboard/routers/llm.py
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- Focused backend provenance and event-group contract tests passed.
+- Broader related suite passed: `179 passed, 1 warning`.
+- JS syntax checks, targeted `compileall`, context-pack verification, and `git diff --check`: passed.
+- In-app Browser smoke reused the existing `127.0.0.1:8001` service. Desktop `1280x720` and mobile `390x844` loaded Dashboard/Intelligence without console errors or horizontal overflow; mobile iWencai widget DOM existed with input, button, result container, aria label, and sane responsive widths. No real iWencai/provider query was submitted.
+
+Safety boundary:
+
+- No production config, deployment, Docker, database migration, data cleanup, real provider call, external LLM call, OpenClaw write, broker API, paper/live order, or auth/invite-code gate change was performed.
+- Provenance remains audit/display evidence only. It must not be used as an authorization or execution boundary.
+
+Remaining gaps:
+
+- New tests are still untracked until a commit/release step explicitly includes them.
+- Real provider/live schema drift, rate-limit fixture expansion, backend-cited LLM diagnosis, OpenClaw deep orchestration, and production deploy readiness remain future gates. Deterministic stale-cache and schema-drift router fixtures are closed by Task 9.20.
+
+## Task 9.20: Provider-Grade iWencai Fixture Matrix
+
+Status: delivered as a provider-fixture hardening slice after the release readiness gate. This does not complete the full platform upgrade or approve production deployment; it closes the deterministic stale-cache, unsupported-field, and schema-drift fixture gap without making a real iWencai/pywencai network call.
+
+Implemented:
+
+- `alpha/iwencai_client.py` now classifies unsupported-field and schema-drift provider exceptions into explicit diagnostic states while preserving legacy `query_iwencai() -> DataFrame` compatibility.
+- `/api/llm/iwencai` now treats `stale_cache`, `unsupported_field`, `schema_drift`, and `offline_fallback` as degraded source states instead of collapsing them into `result_ready`, `no_match`, or hard provider failure.
+- Stale-cache responses may still expose candidates for read-only review and AI explanation, but pool/write actions remain blocked.
+- Unsupported-field empty responses return `degraded_data` with typed missing evidence instead of fake `no_match` hit counts.
+- Schema-drift responses preserve `response_type` and `schema_signature`, do not fabricate condition evidence, and keep row provenance unverified.
+
+Safety boundary:
+
+- No real iWencai/pywencai provider call, external LLM call, OpenClaw write, backtest execution, paper/live order, broker API, Docker, deployment, database migration, production config, or auth/invite-code change was performed.
+- Degraded candidates are read/explain only; `send_screener`, watchlist, basket, and backtest-draft actions remain blocked until evidence is verified.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_client_status.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py tests/test_frontend_workflow_contracts.py -k "iwencai or global_search or changed_frontend_assets" -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/iwencai_client.py dashboard/routers/llm.py
+```
+
+Results:
+
+- iWencai client provider-status fixtures passed: `5 passed, 1 warning`.
+- iWencai backend task-router fixtures passed: `9 passed, 1 warning`.
+- Frontend iWencai/global-search/cache-bust contract tests passed: `27 passed, 123 deselected, 1 warning`.
+- Targeted Python syntax check for the changed provider/router modules passed.
+
+Remaining gaps:
+
+- Real provider/live behavior is still unverified; browser smoke should continue to mock `/api/llm/iwencai` unless the user explicitly approves a real provider call.
+- Unsupported-field taxonomy is intentionally conservative and should be expanded only from observed provider fixtures or documented upstream behavior.
+
+## Task 9.21: Local Release Preflight Gate
+
+Status: delivered as a local delivery-readiness gate. This does not deploy, build Docker, approve production release, or validate real provider/live trading behavior; it turns the repeated manual local gate sequence into one reproducible preflight command.
+
+Implemented:
+
+- Added `scripts/release_preflight.py` with an auditable `--dry-run` plan and ordered local gates: context pack verifier, full pytest, compileall, and `git diff --check`.
+- Added optional `--with-audits` for report-writing `dashboard_data_health.py` and `frontend_data_render_audit.py`; these remain explicit because they write `test-results/data-display-audit/` reports and trigger app lifespan/static scans.
+- Added `tests/test_release_preflight.py` to lock the default non-deploying command list, explicit audit inclusion, dry-run behavior, and fail-fast behavior.
+- Updated `AGENTS.md`, `docs/commands.md`, `docs/testing.md`, and `docs/quality-gates.md` so future delivery work can use the preflight gate without guessing the command sequence.
+
+Safety boundary:
+
+- Default preflight does not start Dashboard/dev server, Docker, E2E server, real provider calls, external LLM/OpenClaw calls, data sync, broker/paper/live trading scripts, migrations, deployments, or production config changes.
+- This is local release evidence only; production deployment still requires explicit user confirmation and separate environment validation.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_release_preflight.py -q -p no:cacheprovider
+.venv/bin/python scripts/release_preflight.py --dry-run
+.venv/bin/python -m pytest tests/test_release_preflight.py tests/test_verify_context_pack.py -q -p no:cacheprovider
+.venv/bin/python -m compileall -q scripts/release_preflight.py
+.venv/bin/python scripts/verify_context_pack.py
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/dashboard_data_health.py
+.venv/bin/python scripts/frontend_data_render_audit.py
+node --check dashboard/static/alpha-tools.js && node --check dashboard/static/alpha.js && node --check dashboard/static/intelligence.js && node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/sw.js
+```
+
+Results:
+
+- Release preflight contract tests passed: `4 passed, 1 warning`.
+- Release preflight plus context-pack tests passed: `16 passed, 1 warning`.
+- Dry-run printed only the four default local gates and no Docker/dev-server/trading/external-service commands.
+- Full preflight passed: context pack OK, pytest `789 passed, 1 warning`, compileall passed, `git diff --check` passed.
+- Dashboard data health audit passed and wrote `test-results/data-display-audit/api-report.json`: `37` endpoints, `0` failed, `0` hard findings, `3` soft findings.
+- Frontend static render audit completed and wrote `test-results/data-display-audit/frontend-static-report.json`: `914` risks by heuristic severity (`354` high, `545` medium, `15` low); these are historical/static heuristic findings, not new preflight blockers.
+- JS syntax checks for the changed dashboard bundles passed.
+
+Remaining gaps:
+
+- `--with-audits`, browser smoke, E2E, Docker compose, real provider/live validation, OpenClaw/LLM integration, and production deployment remain manual/confirmed gates.
+- Large dirty worktree and untracked new tests still need a deliberate staging/release bundle step before handoff.
+
+## Task 9.22: Local E2E Runner Portability + Stock Workbench Gate
+
+Status: delivered as a local browser-gate hardening slice after Task 9.21. This does not deploy, build Docker, approve production release, validate real provider behavior, or run trading/live flows; it closes the immediate local E2E runner breakage that blocked repeatable stock-workbench browser evidence.
+
+Implemented:
+
+- `scripts/e2e-local.sh` now resolves Node from `NODE_BIN`, shell `node`, Codex runtime Node, or repo-local Node instead of a hardcoded app bundle path.
+- The local runner now resolves Playwright from either normal `@playwright/test`, repo `node_modules`, or the hidden `.tools/playwright/node_modules/@playwright/.test-*` package layout present on this workspace.
+- Hidden Playwright packages are exposed through a temporary `NODE_PATH` shim and cleaned up with a script-scope variable so `set -u` does not fail at exit.
+- The script now invokes Playwright directly with `playwright.config.cjs` and forwards extra arguments after `all|smoke|data-health`, so targeted runs such as `--grep` work without relying on `npm run e2e`.
+- `tests/test_e2e_local_script.py` locks bash syntax, flexible Node/Playwright resolution, hidden `.test-*` support, direct config usage, and the cleanup regression.
+- Current delivery docs now point local browser E2E to `scripts/e2e-local.sh` instead of the less portable direct `npm run e2e` path.
+- Delivery docs now state the runtime split explicitly: local verification `.venv` uses Python 3.12, while the Docker image baseline remains Python 3.11; README/commands also note that Docker is outside the default local preflight.
+- Added `docs/release-evidence/2026-06-12-local-delivery-readiness.md` as the local delivery evidence index for release delta, verification results, ignored reports, safety boundary, remaining gates, and rollback notes.
+- `scripts/release_preflight.py --verify-evidence` now checks the current modified/untracked Git files against that evidence document, and the default preflight runs this check before pytest.
+- `scripts/build_release_bundle.py` now builds a local delta archive from the evidence document, writes a manifest and SHA256 checksum, and performs an unpack/checksum verification drill.
+
+Safety boundary:
+
+- The gate reuses an already-running local Dashboard at `127.0.0.1:8001`.
+- No Docker, deployment, production config, database migration, data sync, real iWencai/provider call, external LLM/OpenClaw write, broker API, paper/live order, or auth/invite-code change was performed.
+
+Verification:
+
+```bash
+bash -n scripts/e2e-local.sh
+.venv/bin/python -m pytest tests/test_e2e_local_script.py -q -p no:cacheprovider
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh smoke --grep "stock hash restores|stock detail fallback"
+.venv/bin/python -m pytest tests/test_e2e_local_script.py tests/test_frontend_workflow_contracts.py -k "open_stock_detail or stock_workbench or stock_detail" -q -p no:cacheprovider
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
+.venv/bin/python scripts/build_release_bundle.py
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/release_preflight.py --with-audits
+.venv/bin/python scripts/verify_context_pack.py
+git diff --check
+```
+
+Results:
+
+- E2E runner script syntax passed.
+- E2E runner contract tests passed: `3 passed, 1 warning`.
+- Targeted stock-workbench Playwright gate passed: `2 passed`.
+- Focused stock/frontend contract suite passed: `21 passed, 67 deselected, 1 warning`.
+- Full local Playwright gate passed: data-display health `1 passed`; smoke/OpenClaw `13 passed`.
+- Release evidence coverage check passed: current modified and untracked files match the local delivery evidence document.
+- Local release bundle created: `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz` with `39` files plus `manifest.json`; the archive checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256`; verify-only checks current workspace hashes and passed.
+- Latest standard release preflight passed: context pack OK, release evidence OK, pytest `801 passed, 1 warning`, compileall passed, `git diff --check` passed.
+- Release preflight with audits previously passed: context pack OK, pytest `797 passed, 1 warning`, compileall passed, `git diff --check` passed, data health report `37` endpoints with `0` failed and `0` hard findings, frontend static render audit wrote `914` historical heuristic risks.
+- Follow-up documentation/context checks passed after aligning local E2E, Python runtime, and Docker/preflight wording.
+- Local delivery evidence document created and linked from `docs/commands.md` and `docs/testing.md`.
+
+Remaining gaps:
+
+- Docker compose, production environment validation, real provider/live validation, OpenClaw/LLM integration, release staging, and production deployment remain separate manual/confirmed gates.
 
 ## Task 7: P2 iWencai Task Router MVP
 
@@ -1291,10 +2118,10 @@ Recorded from the three read-only TongHuaShun observer agents and one follow-up 
 | Slice | TongHuaShun mechanism | AI Quant learned | Evidence | Remaining gap | Next iteration |
 | --- | --- | --- | --- | --- | --- |
 | Market map / sector linkage | Universe-first sidebar and market entry map; sector is a first-class research object with constituent table, right evidence rail, related index, short-line events, news/research. | Keep market entries as `universe + explanation variable + source/time/coverage`; preserve sector -> constituent -> stock context. | Task 3 and Task 8 smoke verify market entry metadata and sector member -> stock context. | Sector panel is still mostly constituent table; right evidence model is not deep enough. | Add Task 3.5 `Sector Evidence Context MVP`: funds/volume proxy, news/research or missing reason, related index, Signal overlap, follow-up actions. |
-| iWencai / task router | Unified search accepts market symbols, functions, and natural-language questions, then routes into buckets with visible parsed-condition chips and follow-up actions. | Use `intent -> parsed_conditions -> buckets -> actions -> source_context`; never treat natural language as a table-only query. | Task 7 tests and Task 8 smoke verify chips, buckets, stock open, basket draft, source context. Topic/hotspot provenance was fixed in this gate. Task 7.5 adds top global search intent routing, result buckets, task result rendering, and source-context handoff into iWencai. | Backend still returns mostly legacy iWencai payloads; richer field-level evidence, backend-owned hit counts, rate-limit/cache states, and golden-question coverage remain follow-up. | Add P2 golden-question and failure-state iteration for global search + iWencai, then promote backend routed schema when stable. |
-| Stock/K-line workbench | One screen keeps left context pool, central K-line, right evidence, bottom events, period/indicator muscle memory. | Treat `StockWorkbenchState` as the state container: selected symbol, source pool, chart state, indicators, related context, event feed, data quality, AI context. | Task 6 tests and Task 8 smoke verify context pool, period, MACD, nonblank chart, source context preservation. Task 6.5 verifies right-rail state completion, missing reasons, rail tab state, and left context pool sync. Task 9 verifies dynamic event aggregation, bottom tab state, selected event, chart focus marker, and desktop/mobile smoke. Task 9.5 verifies chart event overlays, chart-click -> bottom-event reverse selection, capital-flow and 龙虎榜 event aggregation. Task 9.6 verifies evidence-based AI diagnosis consumes `eventFocus`, `eventFeed`, `dataQuality`, and `sourceContext`. | Same-day event clustering, semantic event dedupe, richer index/peer mappings, and backend-cited LLM explanation remain follow-up. | Add next P1 event-tape iteration for same-day clustering, or harden backend-owned iWencai router semantics depending on product priority. |
+| iWencai / task router | Unified search accepts market symbols, functions, and natural-language questions, then routes into buckets with visible parsed-condition chips and follow-up actions. | Use `intent -> parsed_conditions -> buckets -> actions -> source_context`; never treat natural language as a table-only query. | Task 7 tests and Task 8 smoke verify chips, buckets, stock open, basket draft, source context. Topic/hotspot provenance was fixed in this gate. Task 7.5 adds top global search intent routing, result buckets, task result rendering, and source-context handoff into iWencai. Task 7.6 adds golden-question and failure-state contracts. Task 9.14 promotes the base iWencai routed schema to the backend while preserving legacy `data/total`. | Backend now owns the base routed schema; richer real-provider field-level evidence, rate-limit/cache states, provider drift handling, and OpenClaw deep orchestration remain follow-up. | Connect backend task outputs to deeper OpenClaw workflows and provider-grade evidence fixtures. |
+| Stock/K-line workbench | One screen keeps left context pool, central K-line, right evidence, bottom events, period/indicator muscle memory. | Treat `StockWorkbenchState` as the state container: selected symbol, source pool, chart state, indicators, related context, event feed, data quality, AI context. | Task 6 tests and Task 8 smoke verify context pool, period, MACD, nonblank chart, source context preservation. Task 6.5 verifies right-rail state completion, missing reasons, rail tab state, and left context pool sync. Task 9 verifies dynamic event aggregation, bottom tab state, selected event, chart focus marker, and desktop/mobile smoke. Task 9.5 verifies chart event overlays, chart-click -> bottom-event reverse selection, capital-flow and 龙虎榜 event aggregation. Task 9.6 verifies evidence-based AI diagnosis consumes `eventFocus`, `eventFeed`, `dataQuality`, and `sourceContext`. Task 9.7 verifies same-day clustering, conservative dedupe, raw-event preservation, and cluster focus into diagnosis. Task 9.8 verifies the same-day event group entry, group-member selection, source-context preservation, and safe draft continuation. Task 9.9 verifies event-group diagnosis weighting, duplicate down-weighting, and richer readonly backtest draft conditions. Task 9.10, Task 9.12, and Task 9.13 verify visible/manual-only basket draft conditions plus structured draft-audit event-study statistics with estimated cost, optional local benchmark/excess, and descriptive t-stat fields. | Frontend event-group diagnosis, draft conditions, and local event-study audit evidence are done; stronger backend-cited LLM diagnosis, provider-grade event samples, formal significance validation, hover/popover preview, drawer-level detail, richer index/peer mappings, and minute-level positioning remain follow-up. | Harden event-study audit into provider-grade sample/benchmark/statistical validation, or harden backend-owned iWencai router semantics depending on product priority. |
 
-Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 7.5, and Task 7.6 are delivered; the next blocking product-quality gates are same-day event clustering, backend-owned iWencai router semantics, richer sector/index/peer evidence, and backend-cited LLM explanations.
+Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 9.7, Task 9.8, Task 9.9, Task 9.10, Task 9.12, Task 9.13, Task 9.14, Task 7.5, and Task 7.6 are delivered; the next blocking product-quality gates are provider-grade event-study samples/formal validation, provider-grade iWencai evidence and OpenClaw orchestration, richer sector/index/peer evidence, and backend-cited LLM explanations.
 
 ## Task 7.5 Execution: Global Search Task Router
 
@@ -1415,7 +2242,7 @@ Results:
 - Warning: existing `StarletteDeprecationWarning` from FastAPI/TestClient.
 
 **Remaining risks:**
-- Backend iWencai remains mostly legacy-compatible; frontend wrappers can hide schema drift until the backend owns routed task semantics.
+- Task 9.14 later promotes the base iWencai routed schema to the backend; remaining risk is now real-provider field drift, rate-limit/cache evidence, and OpenClaw orchestration rather than frontend-only schema ownership.
 - Golden questions can overfit to test fixtures if they do not include realistic A-share wording, typos, broad prompts, and partial-provider states.
 - Provider/rate-limit/cache states may be hard to verify without deterministic mocks; keep those tests local and explicit.
 - Browser smoke used deterministic mocked iWencai responses, so it proves UI routing and state handling, not real provider coverage.

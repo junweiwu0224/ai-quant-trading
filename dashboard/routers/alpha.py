@@ -973,6 +973,9 @@ class BasketBacktestRequest(BaseModel):
     allocation: str = "equal"
     rebalance_days: int = 5
     price_data: dict[str, list[dict]] | None = None
+    backtest_draft: dict | None = None
+    draft_conditions: dict | None = None
+    backtest_draft_conditions: dict | None = None
 
 
 @router.post("/formula/evaluate")
@@ -1037,6 +1040,19 @@ async def basket_backtest(req: BasketBacktestRequest):
                 return {"success": False, "error": "无可用价格数据"}
 
         result = _basket_builder.backtest_plan(req.candidates, req.initial_cash, req.allocation, req.rebalance_days, price_data)
+        top_level_conditions = (
+            req.draft_conditions
+            if req.draft_conditions is not None
+            else req.backtest_draft_conditions
+        )
+        draft_payload = req.backtest_draft
+        if top_level_conditions is not None:
+            draft_payload = {
+                **(draft_payload or {"draft_type": "basket_backtest_draft"}),
+                "conditions": top_level_conditions,
+            }
+        if draft_payload:
+            result["draft_audit"] = _basket_builder.audit_backtest_draft(req.candidates, price_data, draft_payload)
         return result
     except Exception as e:
         logger.error(f"篮子回测失败: {e}")

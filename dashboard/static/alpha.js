@@ -63,12 +63,14 @@ Object.assign(App, {
                     'basket-clear-candidates': () => this.clearBasketCandidates(),
                     'basket-plan': () => this.loadBasketPlan(),
                     'basket-backtest': () => this.loadBasketBacktest(),
+                    'basket-update-backtest-draft': () => this.updateBasketBacktestDraftFromEditor?.(),
                 };
                 actions[actionButton.dataset.alphaAction]?.();
             });
         }
 
         this.initFormulaBasketPickers?.();
+        this.renderBasketBacktestDraft?.();
     },
 
     // ── 主分析入口 ──

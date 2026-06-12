@@ -4124,16 +4124,16 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     app_ui_shell = Path("dashboard/static/app-ui-shell.js").read_text(encoding="utf-8")
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
-    assert "/static/intelligence.js?v=11" in app_js
+    assert "/static/intelligence.js?v=17" in app_js
     assert "/static/intelligence-market.js?v=27" in app_js
-    assert "/static/intelligence-iwencai.js?v=6" in app_js
+    assert "/static/intelligence-iwencai.js?v=13" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=117" in scripts
+    assert "/static/app.js?v=132" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=39" in scripts
-    assert "/sw.js?v=59" in app_ui_shell
-    assert "ai-quant-v161" in service_worker
+    assert "/static/app-ui-shell.js?v=45" in scripts
+    assert "/sw.js?v=73" in app_ui_shell
+    assert "ai-quant-v178" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
@@ -4262,7 +4262,10 @@ def test_iwencai_normalizes_exchange_suffix_codes_and_renders_focused_result_tab
             assert.match(result.innerHTML, /1\.16亿/);
             assert.match(result.innerHTML, /智能电网/);
             assert.doesNotMatch(result.innerHTML, /MARKET_CODE/);
-            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, ['605066']);
+            assert.match(result.innerHTML, /未验证/);
+            assert.match(result.innerHTML, /legacy 响应未提供候选行级证据/);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, []);
+            assert.equal(Intelligence.state.iwencaiActionState.candidates[0].code, '605066');
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -4318,18 +4321,54 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
                 .replace(/'/g, '&#x27;'),
             fetchJSON: async () => ({
                 success: true,
+                schema_version: 'iwencai_task_router_v1',
                 query: '高股息 低估值 近5日放量',
+                selected_bucket: 'candidates',
                 status: 'partial_result',
                 total: 137,
                 intent: { type: 'natural_language_screener', confidence: 0.86, reason: '多条件自然语言选股' },
                 parsed_conditions: [
-                    { raw_text: '高股息', field: '股息率', op: 'rank', value: '高', window: 'latest', hit_count: 473, status: 'ready' },
-                    { raw_text: '低估值', field: '估值', op: 'low', value: '低', window: 'latest', hit_count: 583, status: 'ready' },
-                    { raw_text: '近5日放量', field: '成交量', op: 'volume_up', value: '放量', window: '5d', status: 'degraded_data', unavailable_reason: '命中数待回填' },
+                    {
+                        raw_text: '高股息',
+                        field: '股息率',
+                        op: 'rank',
+                        value: '高',
+                        window: 'latest',
+                        status: 'ready',
+                        evidence: { hit_count: 473, hit_count_status: 'verified', evidence_level: 'provider_field', source_field: '股息率' },
+                    },
+                    { raw_text: '低估值', field: '估值', op: 'low', value: '低', window: 'latest', hit_count: 583, hit_count_status: 'verified', source_field: '市盈率', status: 'ready' },
+                    {
+                        raw_text: '近5日放量',
+                        field: '成交量',
+                        op: 'volume_up',
+                        value: '放量',
+                        window: '5d',
+                        status: 'degraded_data',
+                        evidence: { hit_count: null, hit_count_status: 'missing_source_field', missing_reason: '结果字段中缺少可验证该条件的来源字段', evidence_level: 'none' },
+                    },
                 ],
                 buckets: [
-                    { id: 'candidates', name: '候选股票', count: 137, items: [] },
+                    {
+                        id: 'candidates',
+                        name: '候选股票',
+                        count: 137,
+                        items: [
+                            {
+                                code: '600000',
+                                name: '浦发银行',
+                                price: 8.5,
+                                change_pct: 1.2,
+                                industry: '银行-股份制银行',
+                                concept: '高股息;低估值',
+                            },
+                        ],
+                    },
                     { id: 'themes', name: '板块主题', count: 2, items: [{ name: '银行', description: '高股息集中' }] },
+                ],
+                actions: [
+                    { id: 'open_stock', enabled: true },
+                    { id: 'analyze', enabled: true },
                 ],
                 data: [
                     {
@@ -4342,7 +4381,19 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
                         '市盈率': 5.2,
                     },
                 ],
-                source_context: { result_pool_id: 'iwencai:test-pool' },
+                source_status: {
+                    provider: 'backend-iwencai',
+                    status: 'partial',
+                    data_as_of: '2026-06-12T09:30:00+08:00',
+                    cache_status: 'fresh',
+                },
+                source_context: {
+                    result_pool_id: 'iwencai:test-pool',
+                    provider: 'backend-iwencai',
+                    data_as_of: '2026-06-12T09:30:00+08:00',
+                    cache_status: 'fresh',
+                    data_status: 'partial',
+                },
             }),
             on: () => {},
         };
@@ -4350,31 +4401,101 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
         vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
 
         (async () => {
-            await Intelligence.runIwencai();
+            await Intelligence.runIwencai({
+                source_context: {
+                    source: 'global_search',
+                    result_pool_id: 'origin-pool',
+                    provider: 'origin-provider',
+                    data_as_of: 'old',
+                    cache_status: 'cached',
+                },
+            });
             assert.match(result.innerHTML, /问财任务路由/);
             assert.match(result.innerHTML, /natural_language_screener/);
             assert.match(result.innerHTML, /置信度 86%/);
             assert.match(result.innerHTML, /高股息/);
             assert.match(result.innerHTML, /473 只/);
-            assert.match(result.innerHTML, /命中数待回填/);
+            assert.match(result.innerHTML, /源字段 股息率/);
+            assert.match(result.innerHTML, /结果字段中缺少可验证该条件的来源字段/);
             assert.match(result.innerHTML, /data-bucket-id="themes"/);
-            assert.match(result.innerHTML, /data-intel-action="iwencai-create-basket"/);
-            assert.match(result.innerHTML, /data-intel-action="iwencai-draft-backtest"/);
+            assert.doesNotMatch(result.innerHTML, /data-bucket-id="news"/);
+            assert.doesNotMatch(result.innerHTML, /等待新闻\/公告证据接入/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-create-basket"/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-draft-backtest"/);
             assert.match(result.innerHTML, /浦发银行/);
             assert.match(result.innerHTML, /data-code="600000"/);
             assert.equal(Intelligence.state.iwencaiActionState.source_context.intent_type, 'natural_language_screener');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.selected_bucket, 'candidates');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.result_pool_id, 'iwencai:test-pool');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.provider, 'backend-iwencai');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.data_as_of, '2026-06-12T09:30:00+08:00');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.cache_status, 'fresh');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.origin_context.result_pool_id, 'origin-pool');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.condition_evidence['高股息'].source_field, '股息率');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.condition_evidence['近5日放量'].hit_count_status, 'missing_source_field');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.parsed_conditions[0].evidence_level, 'provider_field');
             assert.equal(Intelligence.state.iwencaiActionState.contextList[0].sourceLabel, '问财');
 
             Intelligence.selectIwencaiBucket('themes');
             assert.match(result.innerHTML, /银行/);
             assert.equal(Intelligence.state.iwencaiActionState.source_context.selected_bucket, 'themes');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.result_pool_id, 'iwencai:test-pool');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.provider, 'backend-iwencai');
         })().catch((error) => {
             console.error(error);
             process.exit(1);
         });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_backend_empty_schema_does_not_fallback_to_frontend_inference():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = global;
+        global.document = {
+            getElementById: () => null,
+            querySelector: () => null,
+            addEventListener: () => {},
+            readyState: 'loading',
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+
+        const viewModel = Intelligence._buildIwencaiTaskViewModel({
+            success: true,
+            schema_version: 'iwencai_task_router_v1',
+            status: 'no_match',
+            total: 0,
+            data: [],
+            parsed_conditions: [],
+            buckets: [
+                { id: 'candidates', name: '候选股票', status: 'no_match', count: 0, items: [] },
+            ],
+            actions: [{ id: 'open_stock', enabled: false }],
+            source_context: { result_pool_id: 'backend-empty-pool' },
+        }, '高股息低估值近5日放量');
+
+        assert.deepEqual(viewModel.parsed_conditions, []);
+        assert.deepEqual(viewModel.buckets.map((bucket) => bucket.id), ['candidates']);
+        assert.equal(viewModel.actions.length, 0);
+        assert.equal(viewModel.source_context.result_pool_id, 'backend-empty-pool');
         """
     )
 
@@ -4607,6 +4728,520 @@ def test_iwencai_open_stock_action_preserves_task_router_source_context():
     assert result.returncode == 0, result.stderr
 
 
+def test_iwencai_candidate_row_provenance_renders_and_flows_to_actions():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: '高股息 低估值 放量',
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        let clickHandler = null;
+        let opened = null;
+        let watchlistPayload = null;
+        const emitted = [];
+        const input = makeElement('intel-iwencai-input');
+        const result = makeElement('intel-iwencai-result');
+        const elements = {
+            'intel-iwencai-input': input,
+            'intel-iwencai-btn': makeElement('intel-iwencai-btn'),
+            'intel-iwencai-result': result,
+        };
+
+        const verifiedProvenance = {
+            result_pool_id: 'iwencai:row-test',
+            row_id: 'iwencai:row-test:row:verified',
+            code: '600000',
+            name: '浦发银行',
+            rank: 1,
+            provider: 'iwencai',
+            data_as_of: '2026-06-12T09:30:00+08:00',
+            cache_status: 'live_request',
+            validation_status: 'verified',
+            evidence_level: 'provider_field',
+            matched_conditions: [
+                { raw_text: '高股息', field: '股息率', source_field: '股息率', value: '5.1', evidence_level: 'provider_field' },
+                { raw_text: '低估值', field: '估值', source_field: '市盈率', value: '5.2', evidence_level: 'provider_field' },
+            ],
+            missing_conditions: [],
+            source_fields: [
+                { field: '股息率', value: '5.1', condition: '高股息' },
+                { field: '市盈率', value: '5.2', condition: '低估值' },
+            ],
+        };
+        const partialProvenance = {
+            result_pool_id: 'iwencai:row-test',
+            row_id: 'iwencai:row-test:row:partial',
+            code: '000001',
+            name: '平安银行',
+            rank: 2,
+            provider: 'iwencai',
+            data_as_of: '2026-06-12T09:30:00+08:00',
+            cache_status: 'live_request',
+            validation_status: 'partial',
+            evidence_level: 'partial_provider_field',
+            matched_conditions: [
+                { raw_text: '低估值', field: '估值', source_field: '市盈率', value: '6.3', evidence_level: 'provider_field' },
+            ],
+            missing_conditions: [
+                { raw_text: '高股息', field: '股息率', hit_count_status: 'missing_row_value', missing_reason: '该候选行缺少可验证的条件字段取值' },
+            ],
+            source_fields: [
+                { field: '市盈率', value: '6.3', condition: '低估值' },
+            ],
+            missing_reason: '该候选行缺少可验证的条件字段取值',
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: (event, handler) => {
+                if (event === 'click') clickHandler = handler;
+            },
+            readyState: 'complete',
+        };
+        global.App = {
+            registerContext: () => {},
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async () => ({
+                success: true,
+                status: 'result_ready',
+                total: 2,
+                actions: ['open_stock', 'add_watchlist', 'send_screener', 'analyze', 'ask_ai', 'create_basket', 'draft_backtest'],
+                data: [
+                    { '股票代码': '600000.SH', '股票简称': '浦发银行', '股息率': 5.1, '市盈率': 5.2, candidate_provenance: verifiedProvenance },
+                    { '股票代码': '000001.SZ', '股票简称': '平安银行', '股息率': '', '市盈率': 6.3, candidate_provenance: partialProvenance },
+                ],
+                buckets: [
+                    {
+                        id: 'candidates',
+                        name: '候选股票',
+                        count: 2,
+                        items: [
+                            { code: '600000', name: '浦发银行', candidate_provenance: verifiedProvenance },
+                            { code: '000001', name: '平安银行', candidate_provenance: partialProvenance },
+                        ],
+                    },
+                ],
+                parsed_conditions: [
+                    { raw_text: '高股息', field: '股息率', hit_count: 1, hit_count_status: 'verified', source_field: '股息率', source_fields: ['股息率'], status: 'ready' },
+                    { raw_text: '低估值', field: '估值', hit_count: 2, hit_count_status: 'verified', source_field: '市盈率', source_fields: ['市盈率'], status: 'ready' },
+                ],
+                source_context: {
+                    source: 'global_search',
+                    sourceLabel: '全局搜索',
+                    context_type: 'iwencai',
+                    result_pool_id: 'iwencai:row-test',
+                    provider: 'iwencai',
+                    data_as_of: '2026-06-12T09:30:00+08:00',
+                    cache_status: 'live_request',
+                    data_status: 'ok',
+                },
+            }),
+            emit: (event, payload) => emitted.push({ event, payload }),
+            openStockDetail: (code, options) => { opened = { code, options }; },
+            addToWatchlist: (code, options) => { watchlistPayload = { code, options }; },
+            on: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+
+        (async () => {
+            const viewModel = await Intelligence.runIwencai();
+            assert.match(result.innerHTML, /已验证/);
+            assert.match(result.innerHTML, /部分验证/);
+            assert.match(result.innerHTML, /源字段 股息率 \/ 市盈率/);
+            assert.match(result.innerHTML, /该候选行缺少可验证的条件字段取值/);
+            assert.doesNotMatch(result.innerHTML, />undefined</);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, ['600000']);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.watchlistCodes, ['600000']);
+            assert.equal(Intelligence.state.iwencaiActionState.excludedCandidates[0].code, '000001');
+            assert.equal(viewModel.contextList[0].source_context.row_evidence.validation_status, 'verified');
+            assert.equal(viewModel.contextList[1].source_context.row_evidence.validation_status, 'partial');
+            assert.equal(Intelligence.state.iwencaiActionState.requestGeneration, 1);
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.request_generation, 1);
+            assert.match(result.innerHTML, /data-request-generation="1"/);
+
+            const openButton = {
+                dataset: { code: '600000', resultPoolId: 'iwencai:row-test', rowEvidenceId: 'iwencai:row-test:row:verified', requestGeneration: '1' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-open-stock"]' ? openButton : null,
+            };
+            clickHandler({ target: openButton, preventDefault: () => {} });
+            assert.equal(opened.code, '600000');
+            assert.equal(opened.options.source_context.row_evidence.validation_status, 'verified');
+            assert.equal(opened.options.source_context.row_evidence_id, 'iwencai:row-test:row:verified');
+
+            const staleButton = {
+                dataset: { code: '600000', resultPoolId: 'iwencai:old-pool', rowEvidenceId: 'iwencai:old-pool:row:old' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-add-one-watchlist"]' ? staleButton : null,
+            };
+            clickHandler({ target: staleButton, preventDefault: () => {} });
+            assert.equal(watchlistPayload, null);
+
+            const addVerified = {
+                dataset: { code: '600000', resultPoolId: 'iwencai:row-test', rowEvidenceId: 'iwencai:row-test:row:verified', requestGeneration: '1' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-add-one-watchlist"]' ? addVerified : null,
+            };
+            clickHandler({ target: addVerified, preventDefault: () => {} });
+            assert.equal(watchlistPayload.code, '600000');
+            assert.equal(watchlistPayload.options.metadata.row_evidence.validation_status, 'verified');
+
+            const oldGenerationWatchlist = {
+                dataset: { code: '600000', resultPoolId: 'iwencai:row-test', rowEvidenceId: 'iwencai:row-test:row:verified', requestGeneration: '999' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-add-one-watchlist"]' ? oldGenerationWatchlist : null,
+            };
+            watchlistPayload = null;
+            clickHandler({ target: oldGenerationWatchlist, preventDefault: () => {} });
+            assert.equal(watchlistPayload, null);
+
+            const addPartial = {
+                dataset: { code: '000001', resultPoolId: 'iwencai:row-test', rowEvidenceId: 'iwencai:row-test:row:partial' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-add-one-watchlist"]' ? addPartial : null,
+            };
+            watchlistPayload = null;
+            clickHandler({ target: addPartial, preventDefault: () => {} });
+            assert.equal(watchlistPayload, null);
+
+            const askPartial = {
+                dataset: { code: '000001', resultPoolId: 'iwencai:row-test', rowEvidenceId: 'iwencai:row-test:row:partial' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-ask-ai"]' ? askPartial : null,
+            };
+            clickHandler({ target: askPartial, preventDefault: () => {} });
+            assert.equal(emitted.at(-1).event, 'iwencai:analyze');
+            assert.equal(emitted.at(-1).payload.source_context.row_evidence.validation_status, 'partial');
+
+            const basketButton = {
+                dataset: { requestGeneration: '1' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-create-basket"]' ? basketButton : null,
+            };
+            clickHandler({ target: basketButton, preventDefault: () => {} });
+            const basketEvent = emitted.at(-1);
+            assert.equal(basketEvent.event, 'iwencai:create-basket');
+            assert.deepEqual(basketEvent.payload.candidates.map((row) => row.code), ['600000']);
+            assert.equal(basketEvent.payload.candidates[0].rowEvidence.raw.validation_status, 'verified');
+
+            const oldGenerationBasket = {
+                dataset: { requestGeneration: '999' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-create-basket"]' ? oldGenerationBasket : null,
+            };
+            clickHandler({ target: oldGenerationBasket, preventDefault: () => {} });
+            assert.equal(emitted.at(-1), basketEvent);
+
+            const draftButton = {
+                dataset: { requestGeneration: '1' },
+                closest: (selector) => selector === '[data-intel-action="iwencai-draft-backtest"]' ? draftButton : null,
+            };
+            clickHandler({ target: draftButton, preventDefault: () => {} });
+            const draftEvent = emitted.at(-1);
+            assert.equal(draftEvent.event, 'iwencai:draft-backtest');
+            assert.deepEqual(draftEvent.payload.candidates.map((row) => row.code), ['600000']);
+            assert.equal(draftEvent.payload.candidates[0].rowEvidence.raw.validation_status, 'verified');
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_partial_only_rows_do_not_render_or_trigger_pool_actions():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: '高股息 低估值',
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        let clickHandler = null;
+        const input = makeElement('intel-iwencai-input');
+        const result = makeElement('intel-iwencai-result');
+        const elements = {
+            'intel-iwencai-input': input,
+            'intel-iwencai-btn': makeElement('intel-iwencai-btn'),
+            'intel-iwencai-result': result,
+        };
+        const partialProvenance = {
+            result_pool_id: 'iwencai:partial-only',
+            row_id: 'iwencai:partial-only:row:1',
+            code: '000001',
+            name: '平安银行',
+            rank: 1,
+            provider: 'iwencai',
+            data_as_of: '2026-06-12T09:30:00+08:00',
+            cache_status: 'live_request',
+            validation_status: 'partial',
+            evidence_level: 'partial_provider_field',
+            matched_conditions: [
+                { raw_text: '低估值', field: '估值', source_field: '市盈率', value: '6.3' },
+            ],
+            missing_conditions: [
+                { raw_text: '高股息', field: '股息率', missing_reason: '该候选行缺少可验证的条件字段取值' },
+            ],
+            source_fields: [{ field: '市盈率', value: '6.3', condition: '低估值' }],
+            missing_reason: '该候选行缺少可验证的条件字段取值',
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: (event, handler) => {
+                if (event === 'click') clickHandler = handler;
+            },
+            readyState: 'complete',
+        };
+        const emitted = [];
+        global.App = {
+            registerContext: () => {},
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async () => ({
+                success: true,
+                status: 'result_ready',
+                total: 1,
+                actions: ['open_stock', 'add_watchlist', 'send_screener', 'analyze', 'ask_ai', 'create_basket', 'draft_backtest'],
+                data: [
+                    { '股票代码': '000001.SZ', '股票简称': '平安银行', '市盈率': 6.3, candidate_provenance: partialProvenance },
+                ],
+                buckets: [
+                    { id: 'candidates', name: '候选股票', count: 1, items: [{ code: '000001', name: '平安银行', candidate_provenance: partialProvenance }] },
+                ],
+                parsed_conditions: [
+                    { raw_text: '高股息', field: '股息率', hit_count: 1, hit_count_status: 'verified', source_field: '股息率', source_fields: ['股息率'], status: 'ready' },
+                    { raw_text: '低估值', field: '估值', hit_count: 1, hit_count_status: 'verified', source_field: '市盈率', source_fields: ['市盈率'], status: 'ready' },
+                ],
+                source_context: {
+                    source: 'global_search',
+                    context_type: 'iwencai',
+                    result_pool_id: 'iwencai:partial-only',
+                    provider: 'iwencai',
+                    data_as_of: '2026-06-12T09:30:00+08:00',
+                    cache_status: 'live_request',
+                    data_status: 'ok',
+                },
+            }),
+            emit: (event, payload) => emitted.push({ event, payload }),
+            on: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+
+        (async () => {
+            await Intelligence.runIwencai();
+            assert.match(result.innerHTML, /部分验证/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-send-screener"/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-add-watchlist"/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-create-basket"/);
+            assert.doesNotMatch(result.innerHTML, /data-intel-action="iwencai-draft-backtest"/);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, []);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.watchlistCodes, []);
+            assert.equal(Intelligence.state.iwencaiActionState.actionableCandidates.length, 0);
+            assert.equal(Intelligence.state.iwencaiActionState.excludedCandidates[0].code, '000001');
+
+            const staleBasket = {
+                closest: (selector) => selector === '[data-intel-action="iwencai-create-basket"]' ? staleBasket : null,
+            };
+            clickHandler({ target: staleBasket, preventDefault: () => {} });
+            assert.equal(emitted.length, 0);
+
+            const staleDraft = {
+                closest: (selector) => selector === '[data-intel-action="iwencai-draft-backtest"]' ? staleDraft : null,
+            };
+            clickHandler({ target: staleDraft, preventDefault: () => {} });
+            assert.equal(emitted.length, 0);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_stale_slow_response_cannot_overwrite_latest_query_state():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: '',
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        function provenance(poolId, code, name) {
+            return {
+                result_pool_id: poolId,
+                row_id: `${poolId}:row:${code}`,
+                code,
+                name,
+                rank: 1,
+                provider: 'iwencai',
+                data_as_of: '2026-06-12T09:30:00+08:00',
+                cache_status: 'live_request',
+                validation_status: 'verified',
+                evidence_level: 'provider_field',
+                matched_conditions: [{ raw_text: '高股息', field: '股息率', source_field: '股息率', value: '5.1' }],
+                missing_conditions: [],
+                source_fields: [{ field: '股息率', value: '5.1', condition: '高股息' }],
+            };
+        }
+
+        function responseFor(query, poolId, code, name) {
+            const rowEvidence = provenance(poolId, code, name);
+            return {
+                success: true,
+                status: 'result_ready',
+                total: 1,
+                query,
+                selected_bucket: 'candidates',
+                actions: ['open_stock', 'add_watchlist', 'send_screener', 'analyze', 'ask_ai', 'create_basket', 'draft_backtest'],
+                parsed_conditions: [
+                    { raw_text: '高股息', field: '股息率', hit_count: 1, hit_count_status: 'verified', source_field: '股息率', source_fields: ['股息率'], status: 'ready' },
+                ],
+                data: [
+                    { '股票代码': `${code}.SH`, '股票简称': name, '股息率': 5.1, candidate_provenance: rowEvidence },
+                ],
+                buckets: [
+                    { id: 'candidates', name: '候选股票', count: 1, items: [{ code, name, candidate_provenance: rowEvidence }] },
+                ],
+                source_status: { provider: 'iwencai', status: 'ok', provider_status: 'ok', data_as_of: '2026-06-12T09:30:00+08:00', cache_status: 'live_request' },
+                source_context: {
+                    source: 'qa_race',
+                    context_type: 'iwencai',
+                    result_pool_id: poolId,
+                    provider: 'iwencai',
+                    data_as_of: '2026-06-12T09:30:00+08:00',
+                    cache_status: 'live_request',
+                    data_status: 'ok',
+                },
+            };
+        }
+
+        const input = makeElement('intel-iwencai-input');
+        const result = makeElement('intel-iwencai-result');
+        const elements = {
+            'intel-iwencai-input': input,
+            'intel-iwencai-btn': makeElement('intel-iwencai-btn'),
+            'intel-iwencai-result': result,
+        };
+        const requests = [];
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+            readyState: 'complete',
+        };
+        global.App = {
+            registerContext: () => {},
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url, opts) => {
+                assert.equal(url, '/api/llm/iwencai');
+                let resolve;
+                const promise = new Promise((done) => { resolve = done; });
+                requests.push({ body: JSON.parse(opts.body), signal: opts.signal, resolve });
+                return promise;
+            },
+            on: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+
+        (async () => {
+            input.value = '第一条慢查询';
+            const first = Intelligence.runIwencai();
+            assert.match(result.innerHTML, /解析中/);
+            assert.equal(Intelligence.state.iwencaiActionState.request_status, 'pending');
+            assert.equal(requests.length, 1);
+
+            input.value = '第二条新查询';
+            const second = Intelligence.runIwencai();
+            assert.equal(requests.length, 2);
+            assert.equal(requests[0].signal.aborted, true);
+            assert.equal(requests[1].signal.aborted, false);
+
+            requests[1].resolve(responseFor('第二条新查询', 'iwencai:new-pool', '600001', '新结果'));
+            const secondVm = await second;
+            assert.equal(secondVm.query, '第二条新查询');
+            assert.match(result.innerHTML, /新结果/);
+            assert.doesNotMatch(result.innerHTML, /旧结果/);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, ['600001']);
+            assert.equal(Intelligence.state.iwencaiActionState.query, '第二条新查询');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.result_pool_id, 'iwencai:new-pool');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.request_generation, 2);
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.request_status, 'completed');
+
+            requests[0].resolve(responseFor('第一条慢查询', 'iwencai:old-pool', '600000', '旧结果'));
+            const firstVm = await first;
+            assert.equal(firstVm.query, '第二条新查询');
+            assert.match(result.innerHTML, /新结果/);
+            assert.doesNotMatch(result.innerHTML, /旧结果/);
+            assert.deepEqual(Intelligence.state.iwencaiActionState.pool, ['600001']);
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.result_pool_id, 'iwencai:new-pool');
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_iwencai_task_router_status_states_render_distinct_badges():
     script = textwrap.dedent(
         r"""
@@ -4708,7 +5343,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=28" in scripts
+    assert "/static/core/app-shell.js?v=36" in scripts
 
 
 def test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest():
@@ -4716,10 +5351,31 @@ def test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest():
 
     assert "this.on('iwencai:create-basket'" in app_shell
     assert "this.on('iwencai:draft-backtest'" in app_shell
-    assert "await this.switchTab('research', { subtab: 'basket' })" in app_shell
+    assert "await this.loadScript?.('/static/alpha.js?v=6')" in app_shell
+    assert "await this.loadScript?.('/static/alpha-tools.js?v=13')" in app_shell
+    assert "await this.switchTab('research', { subtab: 'basket', skipBundle: true, applySession: false })" in app_shell
+    assert "if (options.skipBundle !== true)" in app_shell
+    assert "if (!skipBundle)" in app_shell
     assert "App._setBasketCandidates(normalized)" in app_shell
+    assert "App.renderBasketBacktestDraft(normalizedDraft)" in app_shell
     assert "textarea.dataset.sourceContext" in app_shell
+    assert "textarea.dataset.backtestDraft" in app_shell
+    assert "execution_policy: 'manual_only'" in app_shell
+    assert "execution_status: 'not_executed'" in app_shell
+    assert "allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation']" in app_shell
+    assert "backtest_draft: normalizedDraft" in app_shell
     assert "loadBasketBacktest()" not in app_shell
+    draft_handler = app_shell.split("this.on('iwencai:draft-backtest'", 1)[1].split("this.on('data:portfolio-updated'", 1)[0]
+    forbidden = [
+        "/api/alpha/basket/backtest",
+        "/api/backtest/ws/run",
+        "/api/paper/",
+        "/api/broker",
+        "paper-orders",
+        "loadBasketBacktest(",
+    ]
+    for marker in forbidden:
+        assert marker not in draft_handler
 
 
 def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool():
@@ -4735,6 +5391,10 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
         let screenerPayload = null;
         let llmPrompt = '';
         let setBasketCalled = false;
+        let renderedDraft = null;
+        let loadBasketBacktestCalled = false;
+        const postJSONCalls = [];
+        const loadedScripts = [];
         const basketTextarea = { value: '[{"code":"600519"}]', dataset: { sourceContext: 'old' } };
 
         global.window = global;
@@ -4752,6 +5412,7 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
             currentTab: 'intelligence',
             on: (event, handler) => { handlers[event] = handler; },
             ensureBundle: async () => {},
+            loadScript: async (src) => { loadedScripts.push(src); },
             switchTab: async (tab, opts) => { switched.push({ tab, opts }); },
             toast: (message, type) => { toasts.push({ message, type }); },
             Screener: {
@@ -4765,20 +5426,39 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
                 sendQuick: (prompt) => { llmPrompt = prompt; },
             },
             _setBasketCandidates: () => { setBasketCalled = true; },
+            renderBasketBacktestDraft: (draft) => { renderedDraft = draft; },
+            loadBasketBacktest: () => { loadBasketBacktestCalled = true; },
+            postJSON: (url, body) => { postJSONCalls.push({ url, body }); },
         };
 
         vm.runInThisContext(fs.readFileSync('dashboard/static/core/app-shell.js', 'utf8'));
         App._initV2Events();
         App.switchTab = async (tab, opts) => { switched.push({ tab, opts }); };
 
-        const sourceContext = {
-            source: 'iwencai',
-            result_pool_id: 'iwencai:test-pool',
-            selected_bucket: 'candidates',
-            intent_type: 'natural_language_screener',
+            const sourceContext = {
+                source: 'iwencai',
+                result_pool_id: 'iwencai:test-pool',
+                selected_bucket: 'candidates',
+                intent_type: 'natural_language_screener',
             parsed_conditions: [{ raw_text: '高股息', hit_count: 473 }, { raw_text: '低估值', hit_count: 583 }],
-            condition_hit_count: { '高股息': 473, '低估值': 583 },
-        };
+                condition_hit_count: { '高股息': 473, '低估值': 583 },
+            };
+            const verifiedProvenance = {
+                result_pool_id: 'iwencai:test-pool',
+                row_id: 'iwencai:test-pool:row:600000',
+                code: '600000',
+                name: '浦发银行',
+                rank: 1,
+                provider: 'iwencai',
+                data_as_of: '2026-06-12T09:30:00+08:00',
+                cache_status: 'live_request',
+                validation_status: 'verified',
+                evidence_level: 'provider_field',
+                matched_conditions: [{ raw_text: '高股息', field: '股息率', source_field: '股息率', value: '5.1' }],
+                missing_conditions: [],
+                source_fields: [{ field: '股息率', value: '5.1', condition: '高股息' }],
+                raw_field_map: { cookie: 'must not copy through candidate sanitizer' },
+            };
 
         (async () => {
             await handlers['iwencai:send-to-screener']({ pool: ['600000', '600000', '000001'], query: '高股息', source_context: sourceContext });
@@ -4803,6 +5483,96 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
             assert.equal(basketTextarea.value, '[{"code":"600519"}]');
             assert.equal(basketTextarea.dataset.sourceContext, 'old');
             assert.equal(toasts.at(-1).type, 'warning');
+
+            const eventGroupContext = {
+                source: 'overview:opportunity',
+                sourceLabel: 'AI信号',
+                event_group: {
+                    stock_code: '300308',
+                    stock_name: '中际旭创',
+                    event_date: '2026-06-10',
+                    event_count: 4,
+                    raw_count: 5,
+                    event_types: ['capital_flow', 'announcement', 'research_report'],
+                    primary_event_id: 'capital-1',
+                    event_titles: ['主力资金净流入', '签订重大合同'],
+                    dedupe_policy: '重复转载只计一次',
+                    rank_reason: '2026-06-10 同日事件组',
+                },
+            };
+            const backtestDraft = {
+                status: 'executed',
+                requires_confirmation: false,
+                execution_status: 'executed',
+                allowed_actions: ['view', 'run_live_trade'],
+                conditions: {
+                    event_date: '2026-06-10',
+                    entry_rule: '次一交易日开盘',
+                    holding_periods: [1, 3, 5],
+                },
+            };
+            await handlers['iwencai:analyze']({
+                query: '中际旭创 事件组',
+                data: {
+                    event_group: eventGroupContext.event_group,
+                    event_group_diagnosis: {
+                        summary: '4 个独立事件 / 5 条原始证据',
+                        counter_evidence: '重复转载 1 条',
+                        missing_evidence: '缺少回测验证',
+                        confidence: 'low',
+                        signal_direction: 'event_catalyst_needs_backtest',
+                    },
+                },
+                source_context: eventGroupContext,
+            });
+            assert.match(llmPrompt, /event_group/);
+            assert.match(llmPrompt, /重复转载 1 条/);
+            assert.match(llmPrompt, /中际旭创/);
+
+            await handlers['iwencai:draft-backtest']({
+                query: '中际旭创 事件组',
+                candidates: [{ code: '300308', name: '中际旭创' }],
+                source_context: eventGroupContext,
+                backtest_draft: backtestDraft,
+            });
+            assert.equal(setBasketCalled, true);
+            assert.deepEqual(loadedScripts, ['/static/alpha.js?v=6', '/static/alpha-tools.js?v=13']);
+            assert.deepEqual(switched.at(-1), { tab: 'research', opts: { subtab: 'basket', skipBundle: true, applySession: false } });
+            assert.match(basketTextarea.dataset.sourceContext, /stock_code/);
+            assert.match(basketTextarea.dataset.backtestDraft, /requires_confirmation/);
+            assert.match(basketTextarea.dataset.backtestDraft, /manual_only/);
+            assert.equal(App._iwencaiBasketDraft.draftMode, 'backtest');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.requires_confirmation, true);
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.event_date, '2026-06-10');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_policy, 'manual_only');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_status, 'not_executed');
+            assert.deepEqual(App._iwencaiBasketDraft.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.source_context.event_group.stock_name, '中际旭创');
+            assert.equal(renderedDraft.execution_policy, 'manual_only');
+            assert.equal(renderedDraft.execution_status, 'not_executed');
+            assert.equal(loadBasketBacktestCalled, false);
+            assert.equal(postJSONCalls.length, 0);
+            assert.match(toasts.at(-1).message, /手动执行计划回测/);
+
+            renderedDraft = null;
+            await handlers['iwencai:draft-backtest']({
+                query: '高股息 低估值 近5日放量',
+                candidates: [{ code: '600000', name: '浦发银行', candidate_provenance: verifiedProvenance }, { code: '000001', name: '平安银行' }],
+                source_context: sourceContext,
+            });
+            assert.equal(App._iwencaiBasketDraft.draftMode, 'backtest');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.draft_type, 'iwencai_basket_backtest_draft');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.candidate_count, 2);
+            assert.match(App._iwencaiBasketDraft.backtest_draft.conditions.hypothesis, /高股息/);
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.requires_confirmation, true);
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_status, 'not_executed');
+            assert.deepEqual(App._iwencaiBasketDraft.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
+            assert.equal(renderedDraft.draft_type, 'iwencai_basket_backtest_draft');
+            assert.equal(App._iwencaiBasketDraft.candidates[0].candidate_provenance.row_id, 'iwencai:test-pool:row:600000');
+            assert.equal(App._iwencaiBasketDraft.candidates[0].row_evidence_status, 'verified');
+            assert.equal(App._iwencaiBasketDraft.candidates[0].candidate_provenance.raw_field_map, undefined);
+            assert.equal(loadBasketBacktestCalled, false);
+            assert.equal(postJSONCalls.length, 0);
         })().catch((error) => {
             console.error(error);
             process.exit(1);

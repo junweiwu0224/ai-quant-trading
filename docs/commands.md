@@ -33,6 +33,8 @@ docker compose down
 
 `docker compose up -d` 会启动 OpenClaw 和 Dashboard，并挂载 `data/`、`logs/`、`dashboard/templates/`、`dashboard/static/`。执行前确认本地数据和环境变量影响。
 
+本地交付预检默认不执行 Docker；需要容器或部署验证时，先确认环境和数据影响。
+
 ## 测试
 
 ```bash
@@ -42,6 +44,19 @@ docker compose down
 ```
 
 `pyproject.toml` 设置了 `testpaths = ["tests"]`，并定义 `unit`、`integration` markers。
+
+## 本地交付预检
+
+```bash
+.venv/bin/python scripts/release_preflight.py --dry-run
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/release_preflight.py --with-audits
+```
+
+默认预检只编排本地可复现门禁：context pack verifier、release evidence 覆盖检查、全量 pytest、compileall 和 `git diff --check`。它不会启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、运行交易脚本或修改生产配置。`--verify-evidence` 可单独检查当前 modified/untracked 文件是否都被交付证据清单覆盖；`--with-audits` 会额外运行数据展示健康和前端静态扫描，并写入 `test-results/data-display-audit/` 报告。
+
+本地交付证据清单写在 `docs/release-evidence/`。当前同花顺式平台升级收口证据见 `docs/release-evidence/2026-06-12-local-delivery-readiness.md`。
 
 ## Context pack 验证
 

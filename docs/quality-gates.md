@@ -8,6 +8,7 @@
 - Git hooks / pre-commit：未启用项目级阻断 hooks；启用前需按本文候选集逐条确认。
 - CI required checks：未在本阶段调整。
 - 本地质量门禁脚本：context pack verifier、pytest、compileall、dashboard data health、frontend render audit、Playwright E2E。
+- 本地交付预检：`scripts/release_preflight.py`，用于顺序运行标准本地门禁；它不是部署或生产发布批准。
 
 ## 门禁分层
 
@@ -39,6 +40,8 @@
 
 适合实现完成后主动运行：
 
+- `.venv/bin/python scripts/release_preflight.py --dry-run`
+- `.venv/bin/python scripts/release_preflight.py`
 - `.venv/bin/python -m pytest -q`
 - `.venv/bin/python -m compileall -q .`
 - `.venv/bin/python scripts/frontend_data_render_audit.py`
@@ -47,6 +50,8 @@
 - 受影响 E2E：`scripts/e2e-local.sh smoke` 或 `scripts/e2e-local.sh data-health`。
 
 本地 Dashboard/dev server 或 E2E server 启动属于人工触发的标准交付门禁：需要监听 `localhost`/`127.0.0.1` 时默认外部/非沙箱执行启动，但页面验证仍使用 Codex in-app Browser。启动前检查端口/PID，验证后清理临时服务。
+
+`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。
 
 ### Level 3：高风险门禁
 
@@ -70,6 +75,8 @@
 | OpenClaw/LLM | 单元测试 | 用户确认后联调 | 凭证、外部调用默认禁用 |
 | 模拟盘/实盘 | 单元测试 | 人工确认的 dry-run | 下单、撤单、真实账户 |
 | Docker/配置 | 静态检查 | 用户确认后 compose | 部署、生产配置变更 |
+
+`release_preflight.py` 适合作为标准交付收口入口；若需要最小门禁或无写入 hook，仍按上表选择更小的针对性命令。
 
 ## 禁止放入 hooks
 

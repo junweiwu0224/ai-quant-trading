@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=117" in scripts
+    assert "/static/app.js?v=132" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -2839,7 +2839,7 @@ def test_stock_workbench_default_state_keeps_event_selection_and_bottom_tab():
     ]
 
     assert "selectedEvent: null" in default_state
-    assert "chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 }" in default_state
+    assert "chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 }" in default_state
     assert "layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile' }" in default_state
     assert "if (value === null)" in ensure_state
     assert "if (!(key in state)) state[key] = null" in ensure_state
@@ -2859,6 +2859,9 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
         "_onStockChartEventClick(",
         "_filteredWorkbenchEvents(",
         "_renderStockEventList(",
+        "_renderStockEventGroupFocus(",
+        "_syncWorkbenchEventGroupFocus(",
+        "_eventGroupAction(",
         "_bindStockBottomPanel(",
     ]
 
@@ -2868,7 +2871,10 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
     assert "data-stock-bottom-tab" in stock_detail_core
     assert "data-stock-event-id" in stock_detail_core
     assert "data-chart-event-id" in stock_detail_core
+    assert "data-stock-event-group-date" in stock_detail_core
+    assert "data-stock-event-group-action" in stock_detail_core
     assert "eventOverlayEvents" in stock_detail_core
+    assert "eventGroupFocus" in stock_detail_core
     assert "role=\"tablist\"" in stock_detail_core
     assert "role=\"list\"" in stock_detail_core
     assert "state.selectedEvent" in stock_detail_core
@@ -3217,6 +3223,607 @@ def test_stock_workbench_chart_event_overlay_click_reverse_selects_bottom_event(
         assert.match(elements['stock-bottom-panel'].innerHTML, /aria-pressed="true"/);
         assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /stock-chart-event-dot is-selected/);
         assert.doesNotMatch(elements['sd-kline-chart'].eventLayer.innerHTML, /announcement-missing/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            let html = '';
+            const el = {
+                id,
+                textContent: '',
+                title: '',
+                className: '',
+                dataset: {},
+                children: [],
+                listeners: {},
+                style: {},
+                setAttribute(name, value) {
+                    this[name] = value;
+                },
+                addEventListener(event, handler) {
+                    this.listeners[event] = handler;
+                },
+                appendChild(child) {
+                    this.children.push(child);
+                    if (child.className) this[child.className] = child;
+                    if (child.className === 'stock-chart-event-layer') this.eventLayer = child;
+                    if (child.className === 'stock-selected-event-marker') this.marker = child;
+                },
+                querySelector(selector) {
+                    if (selector === '.stock-chart-event-layer') return this.eventLayer || null;
+                    if (selector === '.stock-selected-event-marker') return this.marker || null;
+                    return null;
+                },
+                querySelectorAll(selector) {
+                    if (selector !== '[data-stock-event-id]') return [];
+                    return Array.from(html.matchAll(/data-stock-event-id="([^"]+)"/g)).map((match) => ({
+                        dataset: { stockEventId: match[1] },
+                        scrollIntoView() { this.scrolled = true; },
+                    }));
+                },
+            };
+            Object.defineProperty(el, 'innerHTML', {
+                get() { return html; },
+                set(value) { html = String(value ?? ''); },
+            });
+            return el;
+        }
+
+        const elements = {
+            'stock-bottom-panel': makeElement('stock-bottom-panel'),
+            'sd-kline-chart': makeElement('sd-kline-chart'),
+            'stock-evidence-rail': makeElement('stock-evidence-rail'),
+        };
+        const chart = {
+            created: [],
+            removed: [],
+            createOverlay(config) {
+                this.created.push(config);
+                return `overlay-${this.created.length}`;
+            },
+            removeOverlay(id) {
+                this.removed.push(id);
+            },
+        };
+
+        global.window = global;
+        global.globalThis = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            createElement: (tag) => makeElement(tag),
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            StockWorkbenchState: {
+                chartState: { period: 'daily', adjust: 'qfq', selectedCandle: null },
+                indicatorState: { active: 'MACD', main: ['MA'], sub: ['VOL', 'MACD'] },
+                layoutState: { bottomTab: 'events', railTab: 'ai' },
+                dataQuality: {
+                    quote: { status: 'ready', updated_at: '2026-06-10' },
+                    detail: { status: 'ready' },
+                    valuation: { status: 'missing', missing_reason: 'PEG缺失' },
+                    signal: { status: 'missing', missing_reason: 'Signal 暂缺' },
+                    ai: { status: 'missing', missing_reason: 'AI 暂缺' },
+                    news_research: { status: 'missing', missing_reason: '事件暂缺' },
+                },
+                relatedContext: { sectors: ['光模块'], concepts: ['CPO'], missing_reason: {} },
+                sourceContext: { source: 'overview:opportunity', sourceLabel: 'AI信号', context_type: 'signal', rank_reason: 'AI信号第1名' },
+                aiContext: { disclaimer: '不构成交易建议。' },
+            },
+            emitted: [],
+            emit(event, payload) {
+                this.emitted.push({ event, payload });
+            },
+        };
+        global.StockDetail = {
+            _headerData: {
+                code: '300308',
+                name: '中际旭创',
+                price: 123.45,
+                change_pct: 1.01,
+                industry: '通信',
+                sector: '通信设备',
+                concepts: ['CPO'],
+                updated_at: '2026-06-10',
+            },
+            _currentPeriod: 'daily',
+            _klineChart: chart,
+            _sourceContext: { source: 'overview:opportunity', sourceLabel: 'AI信号', context_type: 'signal', rank_reason: 'AI信号第1名' },
+            _buildStockIdentitySummary: (data = {}) => ({
+                peg: null,
+                generatedAt: '2026-06-10',
+                positioning: data.name || '基础资料',
+                aiCoverage: { covered: false, reason: 'AI 暂缺' },
+                signalCoverage: { covered: false, reason: 'Signal 暂缺' },
+                tags: data.concepts || [],
+                sourceContext: { sourceLabel: 'AI信号' },
+                sourceLabel: 'AI信号',
+                description: '',
+            }),
+            _renderStockEvidenceRail: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/stock-detail-core.js', 'utf8'));
+
+        const events = global.StockDetail._setWorkbenchEvents('same-day', [
+            {
+                id: 'news-1',
+                type: 'news',
+                title: '订单增长',
+                detail: '新闻事件详情',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '新闻',
+            },
+            {
+                id: 'announcement-1',
+                type: 'announcement',
+                title: '签订重大合同',
+                detail: '公告事件详情',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '公告',
+            },
+            {
+                id: 'capital-1',
+                type: 'capital_flow',
+                title: '主力资金净流入',
+                detail: '净流入 1.20亿',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '资金流',
+            },
+            {
+                id: 'report-1',
+                type: 'research_report',
+                title: '研报上调盈利预测',
+                detail: '研报事件详情',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '研报',
+            },
+            {
+                id: 'report-dup',
+                type: 'report',
+                title: '研报上调盈利预测',
+                detail: '重复转载研报',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '资讯转载',
+            },
+            {
+                id: 'note-1',
+                type: 'note',
+                title: '同日人工便签',
+                detail: '不是 K 线事件组成员',
+                at: '2026-06-10',
+                date_key: '2026-06-10',
+                chartTime: '2026-06-10',
+                status: 'ready',
+                source_label: '便签',
+            },
+        ], { source_label: 'QA同日事件' });
+
+        global.StockDetail._renderStockChartEventLayer([
+            { timestamp: 1781049600000, date_key: '2026-06-10', high: 12, low: 9, close: 11 },
+            { timestamp: 1781136000000, date_key: '2026-06-11', high: 13, low: 10, close: 12 },
+        ]);
+
+        const state = global.App.StockWorkbenchState;
+        assert.equal(events.filter((event) => event.status === 'ready' && event.date_key === '2026-06-10').length, 5);
+        const report = events.find((event) => event.type === 'research_report');
+        assert.equal(report.duplicate_count, 2);
+        assert.ok(report.duplicate_ids.some((id) => /report-dup/.test(id)));
+        assert.equal(state.chartState.eventOverlayCount, 1);
+        assert.equal(state.chartState.eventOverlayEvents[0].cluster_count, 4);
+        assert.deepEqual(state.chartState.eventOverlayEvents[0].event_ids.length, 4);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /class="stock-chart-event-dot is-cluster"/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /data-chart-event-count="4"/);
+        assert.ok(elements['sd-kline-chart'].eventLayer.innerHTML.includes('>4</span>'));
+        assert.equal(chart.created.length, 1);
+        assert.equal(chart.created[0].extendData.stockEventClusterCount, 4);
+
+        assert.match(elements['stock-bottom-panel'].innerHTML, /订单增长/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /签订重大合同/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /主力资金净流入/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /研报上调盈利预测/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /同日 5 条/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /合并 2 条/);
+
+        chart.created[0].onClick();
+        assert.equal(state.selectedEvent.id, 'capital-1-capital-flow-2026-06-10-2026-06-10-主力资金净流入-same-day');
+        assert.equal(state.chartState.eventFocus.date_key, '2026-06-10');
+        assert.equal(state.chartState.eventGroupFocus.date_key, '2026-06-10');
+        assert.equal(state.chartState.eventGroupFocus.event_ids.length, 4);
+        assert.equal(state.chartState.eventGroupFocus.raw_count, 5);
+        assert.equal(state.chartState.eventGroupFocus.source_context.sourceLabel, 'AI信号');
+        assert.equal(state.chartState.eventGroupFocus.source_context.evidence_scope, 'stock_event_group');
+        assert.equal(state.chartState.eventGroupFocus.source_context.row_evidence_status, 'not_applicable');
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.source, 'stock:event-group');
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.evidence_scope, 'stock_event_group');
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.stock_code, '300308');
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.event_count, 4);
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.raw_count, 5);
+        assert.equal(state.chartState.eventGroupFocus.source_context.event_group.duplicate_count, 1);
+        assert.match(state.chartState.eventGroupFocus.source_context.event_group.dedupe_policy, /重复转载/);
+        assert.equal(state.aiContext.event_group_diagnosis.active, true);
+        assert.equal(state.aiContext.event_group_diagnosis.raw_count, 5);
+        assert.equal(state.aiContext.event_group_diagnosis.independent_count, 4);
+        assert.equal(state.aiContext.event_group_diagnosis.duplicate_count, 1);
+        assert.match(state.aiContext.event_group_diagnosis.counter_evidence, /重复转载 1 条/);
+        assert.match(state.aiContext.event_group_diagnosis.missing_evidence, /回测验证/);
+        assert.equal(state.aiContext.diagnosis.find((item) => item.key === 'event_group').focus, true);
+        assert.match(state.aiContext.diagnosis.find((item) => item.key === 'event_group').counter_evidence, /重复转载/);
+        assert.equal(state.aiContext.diagnosis_focus_event_id, state.selectedEvent.id);
+        assert.equal(state.aiContext.diagnosis.find((item) => item.key === 'capital').focus, true);
+        assert.equal(state.indicatorState.active, 'MACD');
+        assert.equal(state.layoutState.railTab, 'ai');
+        assert.match(elements['stock-bottom-panel'].innerHTML, /data-stock-event-group-date="2026-06-10"/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /2026-06-10 同日事件组/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /主事件:/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /重复转载不作为独立证据加权/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /缺少事件后 N 日回测验证/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /回测草案/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /篮子草案/);
+        assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /undefined|\\[object Object\\]/);
+
+        const announcementId = events.find((event) => event.type === 'announcement').id;
+        global.StockDetail._selectStockEvent(announcementId, { focusChart: true });
+        assert.equal(state.selectedEvent.id, announcementId);
+        assert.equal(state.chartState.eventFocus.date_key, '2026-06-10');
+        assert.equal(state.chartState.eventGroupFocus.date_key, '2026-06-10');
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /stock-chart-event-dot is-cluster is-selected/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-item is-selected/);
+
+        const noteId = events.find((event) => event.type === 'note').id;
+        global.StockDetail._selectStockEvent(noteId, { focusChart: true });
+        assert.equal(state.selectedEvent.id, noteId);
+        assert.equal(state.chartState.eventGroupFocus, null);
+        assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /stock-event-group-item is-selected/);
+
+        chart.created[0].onClick();
+        assert.equal(state.chartState.eventGroupFocus.date_key, '2026-06-10');
+
+        const payload = global.StockDetail._eventGroupAction('draft-backtest');
+        assert.equal(global.App.emitted.at(-1).event, 'iwencai:draft-backtest');
+        assert.equal(payload.source_context.sourceLabel, 'AI信号');
+        assert.equal(payload.source_context.evidence_scope, 'stock_event_group');
+        assert.equal(payload.source_context.row_evidence_status, 'not_applicable');
+        assert.equal(payload.source_context.event_group.event_date, '2026-06-10');
+        assert.equal(payload.source_context.event_group.event_ids.length, 4);
+        assert.equal(payload.event_group_diagnosis.independent_count, 4);
+        assert.equal(payload.event_group_diagnosis.raw_count, 5);
+        assert.match(payload.event_group_diagnosis.dedupe_policy, /重复转载不作为独立证据加权/);
+        assert.equal(payload.backtest_draft.requires_confirmation, true);
+        assert.equal(payload.backtest_draft.conditions.event_date, '2026-06-10');
+        assert.equal(payload.backtest_draft.conditions.event_ids.length, 4);
+        assert.equal(payload.backtest_draft.conditions.primary_event_id, payload.event_group_diagnosis.primary_event_id);
+        assert.match(payload.backtest_draft.conditions.entry_rule, /次一交易日开盘/);
+        assert.ok(payload.backtest_draft.conditions.holding_periods.includes(5));
+        assert.match(payload.backtest_draft.conditions.dedupe_policy, /重复转载/);
+        assert.match(payload.backtest_draft.conditions.counter_evidence_filters.join('；'), /回测验证|重复转载/);
+        assert.equal(payload.backtest_draft.draft_type, 'event_group_backtest_draft');
+        assert.equal(payload.backtest_draft.evidence_scope, 'stock_event_group');
+        assert.equal(payload.backtest_draft.row_evidence_status, 'not_applicable');
+        assert.equal(payload.backtest_draft.source_context.evidence_scope, 'stock_event_group');
+        assert.equal(payload.backtest_draft.execution_policy, 'manual_only');
+        assert.equal(payload.backtest_draft.execution_status, 'not_executed');
+        assert.deepEqual(payload.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
+        assert.equal(payload.events.length, 4);
+        assert.equal(payload.candidates[0].code, '300308');
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeClassList(initial = '') {
+            const values = new Set(String(initial || '').split(/\s+/).filter(Boolean));
+            return {
+                add: (...items) => items.forEach((item) => values.add(item)),
+                remove: (...items) => items.forEach((item) => values.delete(item)),
+                contains: (item) => values.has(item),
+                toggle: (item, force) => {
+                    if (force === false) { values.delete(item); return false; }
+                    if (force === true || !values.has(item)) { values.add(item); return true; }
+                    values.delete(item);
+                    return false;
+                },
+                toString: () => Array.from(values).join(' '),
+            };
+        }
+
+        function makeElement(id, className = '') {
+            return {
+                id,
+                className,
+                classList: makeClassList(className),
+                dataset: {},
+                children: [],
+                textContent: '',
+                innerHTML: '',
+                value: '',
+                appendChild(child) { this.children.push(child); return child; },
+            };
+        }
+
+        const elements = {
+            'basket-candidates': makeElement('basket-candidates'),
+            'basket-backtest-draft': makeElement('basket-backtest-draft', 'basket-backtest-draft hidden'),
+            'basket-backtest-draft-fields': makeElement('basket-backtest-draft-fields'),
+            'basket-backtest-draft-conditions': makeElement('basket-backtest-draft-conditions'),
+            'basket-backtest-draft-error': makeElement('basket-backtest-draft-error', 'basket-backtest-draft-error hidden'),
+            'basket-backtest-draft-title': makeElement('basket-backtest-draft-title'),
+            'basket-backtest-draft-summary': makeElement('basket-backtest-draft-summary'),
+            'basket-backtest-draft-status': makeElement('basket-backtest-draft-status'),
+            'basket-backtest-summary': makeElement('basket-backtest-summary'),
+            'basket-draft-audit-study': makeElement('basket-draft-audit-study', 'basket-draft-audit-study hidden'),
+            'basket-warning-list': makeElement('basket-warning-list'),
+            'basket-cash': makeElement('basket-cash'),
+            'basket-allocation': makeElement('basket-allocation'),
+            'basket-rebalance': makeElement('basket-rebalance'),
+        };
+        const toasts = [];
+
+        global.window = global;
+        global.globalThis = global;
+        global.__AUTH_GATE_REQUIRED__ = true;
+        global.document = {
+            readyState: 'loading',
+            addEventListener: () => {},
+            getElementById: (id) => elements[id] || null,
+            createElement: (tag) => makeElement(tag),
+        };
+        global.App = {
+            toast: (message, type) => toasts.push({ message, type }),
+            escapeHTML: (value) => String(value ?? ''),
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/alpha-tools.js', 'utf8'));
+
+        App.renderBasketBacktestDraft(null);
+        assert.equal(elements['basket-backtest-draft'].classList.contains('hidden'), false);
+        assert.equal(elements['basket-backtest-draft'].classList.contains('is-empty'), true);
+        assert.match(elements['basket-backtest-draft-summary'].textContent, /草案不会自动执行/);
+        assert.match(elements['basket-backtest-draft-status'].textContent, /空态/);
+
+        App.renderBasketBacktestDraft({
+            draft_type: 'iwencai_basket_backtest_draft',
+            conditions: { hypothesis: '问财候选池需要验证', candidate_count: 2 },
+            source_context: { sourceLabel: '问财选股', query: '高股息 低估值' },
+        });
+        assert.equal(elements['basket-backtest-draft-title'].textContent, '候选池回测草案');
+        assert.match(elements['basket-backtest-draft-summary'].textContent, /问财候选池需要验证/);
+
+        const draft = {
+            draft_type: 'event_group_backtest',
+            status: 'executed',
+            requires_confirmation: false,
+            execution_status: 'executed',
+            allowed_actions: ['view', 'run_live_trade'],
+            conditions: {
+                hypothesis: '中际旭创 <事件> 需要验证',
+                event_date: '2026-06-10',
+                primary_event_title: '<公告>签订重大合同',
+                entry_rule: '次一交易日开盘',
+                exit_rule: '持有 5 日或出现反证退出',
+                holding_periods: [1, 3, 5],
+                benchmark: '沪深300',
+                dedupe_policy: '重复转载只计一次',
+                counter_evidence_filters: ['缺少回测验证'],
+            },
+            source_context: {
+                source: 'overview:opportunity',
+                sourceLabel: 'AI信号',
+                query: '中际旭创 事件组',
+                event_group: {
+                    stock_code: '300308',
+                    stock_name: '中际旭创',
+                    event_date: '2026-06-10',
+                    event_count: 4,
+                    raw_count: 5,
+                    event_types: ['capital_flow', 'announcement'],
+                    dedupe_policy: '重复转载只计一次',
+                    rank_reason: '2026-06-10 同日事件组',
+                },
+            },
+        };
+
+        App.renderBasketBacktestDraft(draft);
+        assert.equal(elements['basket-backtest-draft'].classList.contains('hidden'), false);
+        assert.equal(elements['basket-backtest-draft'].dataset.executionPolicy, 'manual_only');
+        assert.equal(elements['basket-backtest-draft'].dataset.executionStatus, 'not_executed');
+        assert.equal(App._iwencaiBasketDraft.backtest_draft.status, 'draft');
+        assert.match(elements['basket-backtest-draft-title'].textContent, /中际旭创/);
+        assert.match(elements['basket-backtest-draft-title'].textContent, /300308/);
+        assert.match(elements['basket-backtest-draft-summary'].textContent, /需要验证/);
+        assert.match(elements['basket-backtest-draft-status'].textContent, /手动计划回测/);
+        assert.match(elements['basket-backtest-draft-status'].textContent, /提交后端审计/);
+        assert.equal(elements['basket-backtest-draft-fields'].children.length >= 10, true);
+        const fieldText = elements['basket-backtest-draft-fields'].children.map((child) => child.children.map((node) => node.textContent).join(':')).join('|');
+        assert.match(fieldText, /来源:AI信号/);
+        assert.match(fieldText, /原始查询:中际旭创 事件组/);
+        assert.match(fieldText, /事件数:4 独立 \/ 5 原始/);
+        assert.match(fieldText, /事件类型:capital_flow \/ announcement/);
+        assert.match(elements['basket-backtest-draft-conditions'].value, /"event_date": "2026-06-10"/);
+        assert.match(elements['basket-candidates'].dataset.backtestDraft, /manual_only/);
+        assert.doesNotMatch(elements['basket-candidates'].dataset.backtestDraft, /run_live_trade/);
+        assert.equal(App._iwencaiBasketDraft.backtest_draft.requires_confirmation, true);
+        assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_policy, 'manual_only');
+        assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_status, 'not_executed');
+        assert.deepEqual(App._iwencaiBasketDraft.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
+
+        elements['basket-backtest-draft-conditions'].value = '{"entry_rule":';
+        App.updateBasketBacktestDraftFromEditor();
+        assert.equal(elements['basket-backtest-draft-error'].classList.contains('hidden'), false);
+        assert.match(elements['basket-backtest-draft-error'].textContent, /JSON 格式不正确/);
+
+        elements['basket-backtest-draft-conditions'].value = JSON.stringify(App._iwencaiBasketDraft.backtest_draft.conditions);
+        const edited = JSON.parse(elements['basket-backtest-draft-conditions'].value);
+        edited.entry_rule = '突破事件日高点后确认';
+        edited.holding_periods = [3, 5, 10];
+        elements['basket-backtest-draft-conditions'].value = JSON.stringify(edited);
+        App.updateBasketBacktestDraftFromEditor();
+        const saved = JSON.parse(elements['basket-candidates'].dataset.backtestDraft);
+        assert.equal(saved.conditions.entry_rule, '突破事件日高点后确认');
+        assert.deepEqual(saved.conditions.holding_periods, [3, 5, 10]);
+        assert.equal(saved.requires_confirmation, true);
+        assert.equal(saved.execution_policy, 'manual_only');
+        assert.equal(saved.execution_status, 'not_executed');
+        assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.entry_rule, '突破事件日高点后确认');
+        assert.match(toasts.at(-1).message, /手动执行计划回测/);
+
+        (async () => {
+            const postCalls = [];
+            App.postJSON = async (url, body) => {
+                postCalls.push({ url, body });
+                return {
+                    success: true,
+                    metrics: {},
+                    draft_audit: {
+                        manual_only: true,
+                        conditions_applied_to_backtest: false,
+                        execution_status: 'not_executed',
+                        sample_status: 'ready',
+                        sample_count: 1,
+                        candidate_count: 1,
+                        coverage_ratio: 1,
+                        event_date: '2026-06-10',
+                        holding_periods: [1, 3, 5],
+                        event_statistics: {
+                            status: 'ready',
+                            method: 'next_bar_open_to_holding_close',
+                            unit: 'percent',
+                            calculation_status: 'computed',
+                            cost_model: {
+                                available: true,
+                                calculation_status: 'computed',
+                                source: 'draft_conditions',
+                                estimated_round_trip_cost_pct: 0.24,
+                            },
+                            benchmark: {
+                                available: true,
+                                calculation_status: 'computed',
+                                code: '000300',
+                                name: '沪深300',
+                                data_source: 'price_data',
+                            },
+                            holding_periods: [1, 3, 5],
+                            candidate_count: 1,
+                            ready_sample_count: 1,
+                            missing_sample_count: 0,
+                            coverage_ratio: 1,
+                            by_holding_period: {
+                                '1': { period: 1, sample_count: 1, mean_return_pct: 1.23, mean_cost_pct: 0.24, mean_net_return_pct: 0.99, mean_benchmark_return_pct: 0.30, mean_excess_return_pct: 0.69, median_return_pct: 1.23, win_rate: 1, best_return_pct: 1.23, worst_return_pct: 1.23, t_stat_excess_return: 2.34, significance_status: 'computed_descriptive' },
+                                '3': { period: 3, sample_count: 1, mean_return_pct: -0.45, mean_cost_pct: 0.24, mean_net_return_pct: -0.69, mean_benchmark_return_pct: 0.12, mean_excess_return_pct: -0.81, median_return_pct: -0.45, win_rate: 0, best_return_pct: -0.45, worst_return_pct: -0.45, t_stat_excess_return: -1.12, significance_status: 'computed_descriptive' },
+                                '5': { period: 5, sample_count: 0, mean_return_pct: null, mean_cost_pct: null, mean_net_return_pct: null, mean_benchmark_return_pct: null, mean_excess_return_pct: null, median_return_pct: null, win_rate: null, best_return_pct: null, worst_return_pct: null, significance_status: 'insufficient_sample' },
+                            },
+                            best_period: { period: 1, mean_return_pct: 1.23, sample_count: 1 },
+                            methodology: '按草案 event_date 定位样本，净收益扣除估算双边成本，基准可用时计算净超额收益。',
+                            limitations: ['未执行草案 entry_rule/exit_rule 风控逻辑', 't-stat 仅为描述性统计'],
+                        },
+                        warnings: ['1 只候选缺少事件日或价格数据'],
+                        note: '草案审计仅用于验证样本覆盖和持有期收益；草案条件不会改变本次篮子回测规则，也不会自动交易或模拟盘下单。',
+                    },
+                };
+            };
+            elements['basket-candidates'].value = JSON.stringify([{ code: '300308', name: '中际旭创' }]);
+            elements['basket-cash'].value = '1000000';
+            elements['basket-allocation'].value = 'equal';
+            elements['basket-rebalance'].value = '5';
+
+            const submitEdited = JSON.parse(elements['basket-backtest-draft-conditions'].value);
+            submitEdited.entry_rule = '编辑器内临时改动，无需点击更新';
+            elements['basket-backtest-draft-conditions'].value = JSON.stringify(submitEdited);
+            await App.loadBasketBacktest();
+
+            assert.equal(postCalls.length, 1);
+            assert.equal(postCalls[0].url, '/api/alpha/basket/backtest');
+            assert.equal(postCalls[0].body.backtest_draft.conditions.entry_rule, '编辑器内临时改动，无需点击更新');
+            assert.equal(postCalls[0].body.backtest_draft.execution_policy, 'manual_only');
+            assert.equal(postCalls[0].body.backtest_draft.execution_status, 'not_executed');
+            assert.deepEqual(postCalls[0].body.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
+            assert.doesNotMatch(JSON.stringify(postCalls[0].body.backtest_draft), /run_live_trade/);
+            assert.deepEqual(postCalls[0].body.backtest_draft_conditions.holding_periods, [3, 5, 10]);
+            assert.match(elements['basket-backtest-draft-status'].textContent, /后端已审计草案/);
+            assert.equal(elements['basket-draft-audit-study'].classList.contains('hidden'), false);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /事件样本统计/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /覆盖率/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /100.0%/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /2026-06-10/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /1日/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /1.23%/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /净收益/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /成本/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /基准/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /超额/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /t值/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /沪深300/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /0.99%/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /0.69%/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /-0.81%/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /未执行草案 entry_rule/);
+            assert.match(elements['basket-warning-list'].innerHTML, /未改变本次篮子回测执行规则/);
+
+            App.clearBasketBacktestDraft();
+            assert.equal(elements['basket-draft-audit-study'].classList.contains('hidden'), true);
+            assert.doesNotMatch(elements['basket-draft-audit-study'].innerHTML, /0.99%/);
+            App.renderBasketBacktestDraft(saved);
+            elements['basket-backtest-draft-conditions'].value = JSON.stringify(saved.conditions);
+
+            App.renderBasketBacktest({ success: true, metrics: {} });
+            assert.equal(elements['basket-draft-audit-study'].classList.contains('hidden'), true);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /暂无草案审计/);
+            assert.equal(elements['basket-warning-list'].innerHTML, '暂无警告');
+            assert.doesNotMatch(elements['basket-backtest-draft-status'].textContent, /后端已审计草案/);
+            assert.doesNotMatch(elements['basket-draft-audit-study'].innerHTML, /0.99%/);
+            assert.match(elements['basket-backtest-draft-status'].textContent, /待后端审计/);
+
+            elements['basket-backtest-draft-conditions'].value = '{"entry_rule":';
+            await App.loadBasketBacktest();
+            assert.equal(postCalls.length, 1);
+            assert.match(elements['basket-backtest-draft-error'].textContent, /JSON 格式不正确/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
         """
     )
 
@@ -4045,15 +4652,15 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=73" in template
+    assert "/static/style.css?v=82" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=117" in scripts
+    assert "/static/app.js?v=132" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
-    assert "/static/core/app-shell.js?v=28" in scripts
+    assert "/static/core/app-shell.js?v=36" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=39" in scripts
+    assert "/static/app-ui-shell.js?v=45" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4068,12 +4675,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/paper-trading.js?v=8" in app
     assert "/static/backtest-strategies.js?v=2" in app
     assert "/static/compare.js?v=5" in app
-    assert "/static/alpha.js?v=5" in app
-    assert "/static/alpha-tools.js?v=7" in app
+    assert "/static/alpha.js?v=6" in app
+    assert "/static/alpha-tools.js?v=13" in app
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=17" in app
+    assert "/static/stock-detail-core.js?v=21" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app
@@ -4082,7 +4689,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/stock-detail-valuation.js?v=14" in app
     assert "/static/openclaw-conversations.js?v=3" in app
     assert "/static/openclaw-workbench.js?v=26" in app
-    assert "/static/intelligence.js?v=11" in app
+    assert "/static/intelligence.js?v=17" in app
 
     assert "minQueryLength" in search
     assert "stockSearchEmptyScopeItems" in search
@@ -4790,7 +5397,7 @@ def test_iwencai_run_preserves_source_context_and_renders_failure_degraded_state
         vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
 
         const stockRow = { '股票代码': '600000.SH', '股票简称': '浦发银行', '最新价': 8.5, '最新涨跌幅': 1.2 };
-        const blockedStatuses = new Set(['failed', 'no_match', 'needs_disambiguation', 'requires_confirmation']);
+        const blockedStatuses = new Set(['failed', 'no_match', 'partial_result', 'degraded_data', 'needs_disambiguation', 'requires_confirmation']);
         const writeOrBulkActionPattern = /data-intel-action="iwencai-(?:send-screener|add-watchlist|add-one-watchlist|create-basket|draft-backtest)"/;
         const cases = [
             {
@@ -5006,6 +5613,208 @@ def test_iwencai_run_preserves_source_context_and_renders_failure_degraded_state
             console.error(error);
             process.exit(1);
         });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_provider_failure_blocks_write_actions_even_with_cached_candidates():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: '',
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const input = makeElement('intel-iwencai-input');
+        const result = makeElement('intel-iwencai-result');
+        const elements = {
+            'intel-iwencai-input': input,
+            'intel-iwencai-btn': makeElement('intel-iwencai-btn'),
+            'intel-iwencai-result': result,
+        };
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+            readyState: 'complete',
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            on: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+
+        const stockRow = { '股票代码': '600000.SH', '股票简称': '浦发银行', '最新价': 8.5, '最新涨跌幅': 1.2 };
+        const cases = [
+            {
+                providerStatus: 'rate_limited',
+                sourceStatus: 'rate_limited',
+                issueType: 'rate_limited',
+                reason: '问财源限流或访问频率受限，请稍后重试',
+                label: '源限流',
+            },
+            {
+                providerStatus: 'provider_unavailable',
+                sourceStatus: 'unavailable',
+                issueType: 'provider_unavailable',
+                reason: 'pywencai 未安装，问财查询不可用',
+                label: '源不可用',
+            },
+            {
+                providerStatus: 'invalid_provider_response',
+                sourceStatus: 'invalid_response',
+                issueType: 'invalid_provider_response',
+                reason: '问财返回格式异常，无法稳定解析为候选池',
+                label: '源响应异常',
+                cacheStatus: 'live_request',
+            },
+            {
+                providerStatus: 'ok',
+                sourceStatus: 'ok',
+                issueType: 'stale_cache',
+                reason: '当前结果来自旧缓存或数据日期偏旧',
+                label: '缓存过期',
+                cacheStatus: 'stale_cache',
+                omitTopFailureType: true,
+            },
+        ];
+        const writeOrBulkActionPattern = /data-intel-action="iwencai-(?:send-screener|add-watchlist|add-one-watchlist|create-basket|draft-backtest)"/;
+
+        for (const item of cases) {
+            input.value = `provider ${item.providerStatus}`;
+            App.fetchJSON = async () => ({
+                success: true,
+                status: 'partial_result',
+                failure_type: item.omitTopFailureType ? '' : item.issueType,
+                failure_reason: item.reason,
+                total: 1,
+                data: [stockRow],
+                actions: ['open_stock', 'add_watchlist', 'send_screener', 'analyze', 'ask_ai', 'create_basket', 'draft_backtest'],
+                parsed_conditions: [
+                    { raw_text: '高股息', field: '股息率', status: 'ready', hit_count: 1 },
+                ],
+                buckets: [
+                    { id: 'candidates', name: '候选股票', count: 1, items: [stockRow], status: 'partial_result' },
+                ],
+                source_status: {
+                    provider: 'iwencai',
+                    status: item.sourceStatus,
+                    provider_status: item.providerStatus,
+                    type: item.issueType,
+                    reason: item.reason,
+                    data_as_of: '2026-06-10T10:00:00+00:00',
+                    cache_status: item.cacheStatus || 'live_request',
+                    response_type: 'FakeResponse',
+                },
+            });
+
+            const viewModel = await Intelligence.runIwencai({ query: input.value });
+
+            assert.equal(viewModel.status, 'partial_result');
+            assert.equal(viewModel.issue.type, item.issueType);
+            assert.equal(viewModel.source_context.data_status, item.sourceStatus);
+            assert.equal(viewModel.source_context.provider_status, item.providerStatus);
+            if (item.cacheStatus) {
+                assert.equal(viewModel.source_context.cache_status, item.cacheStatus);
+            }
+            assert.match(result.innerHTML, new RegExp(item.label));
+            assert.match(result.innerHTML, new RegExp(item.reason));
+            assert.match(result.innerHTML, /iwencai-focused-table/);
+            assert.match(result.innerHTML, /浦发银行/);
+            assert.doesNotMatch(
+                result.innerHTML,
+                writeOrBulkActionPattern,
+                `${item.providerStatus} should block write and bulk pool actions even with cached candidates`
+            );
+            assert.match(result.innerHTML, /data-intel-action="iwencai-analyze"/);
+        }
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_action_guard_blocks_partial_and_degraded_status_execution():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        global.window = global;
+        global.document = {
+            addEventListener: () => {},
+            getElementById: () => null,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            readyState: 'complete',
+        };
+        global.App = { escapeHTML: (value) => String(value ?? ''), on: () => {} };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence.js', 'utf8'));
+
+        for (const status of ['partial_result', 'degraded_data']) {
+            Intelligence.state.iwencaiActionState = {
+                candidates: [{ code: '600000', name: '浦发银行' }],
+                pool: ['600000'],
+                watchlistCodes: ['600000'],
+                source_context: {
+                    data_status: 'ok',
+                    provider_status: 'ok',
+                    cache_status: 'live_request',
+                    failure_type: '',
+                },
+                viewModel: {
+                    status,
+                    actions: ['open_stock', 'add_watchlist', 'send_screener', 'analyze', 'ask_ai', 'create_basket', 'draft_backtest'],
+                    raw_response: {
+                        source_status: {
+                            status: 'ok',
+                            provider_status: 'ok',
+                            cache_status: 'live_request',
+                        },
+                    },
+                },
+            };
+
+            assert.equal(Intelligence._canRunIwencaiAction('open_stock'), true);
+            assert.equal(Intelligence._canRunIwencaiAction('analyze'), true);
+            assert.equal(Intelligence._canRunIwencaiAction('ask_ai'), true);
+            assert.equal(Intelligence._canRunIwencaiAction('send_screener', { requiresPool: true }), false);
+            assert.equal(Intelligence._canRunIwencaiAction('add_watchlist', { requiresPool: true }), false);
+            assert.equal(Intelligence._canRunIwencaiAction('create_basket', { requiresPool: true }), false);
+            assert.equal(Intelligence._canRunIwencaiAction('draft_backtest', { requiresPool: true }), false);
+        }
         """
     )
 

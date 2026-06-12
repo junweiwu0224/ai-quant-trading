@@ -105,8 +105,8 @@ AI Quant 当前已经具备多个关键零件：
 - 页面之间没有形成“发现机会 -> 进入个股 -> 证据核验 -> 策略/回测 -> 模拟盘 -> 复盘”的单一连续链路。
 - 数据状态没有形成统一可信协议，用户需要反复追问“为什么是 0、为什么只拿 20 只、为什么不全量、为什么异常”。
 - AI 信号没有在所有页面统一表达为“候选排序 + 历史验证 + 适用范围”，仍有 legacy qlib 语义残留。
-- 个股详情页缺少同花顺式高密度工作台，当前更像纵向信息卡片集合。
-- 问财、OpenClaw、Signal、机会池、研究页和模拟盘还没有合成一个可执行任务编排器。
+- 个股详情页的基础 Stock Workbench 已开始落地；剩余问题从“缺少工作台”转向专业事件 tape、同业/指数映射、后端引用式诊断和回测延续。
+- 问财、OpenClaw、Signal、机会池、研究页和模拟盘已有前端任务路由、来源上下文和失败态基础；后端 owned schema、真实 provider 状态和 OpenClaw 深度编排仍未完成。
 
 ## 2. 产品定位
 
@@ -341,6 +341,9 @@ AI Quant 必须在以下方面超过传统行情软件：
 - FR-EVENT-5：持股基金显示基金名称、代码、持仓占比、基金规模、披露日期、持股变动。
 - FR-EVENT-6：公告研报显示标题、日期、类型、机构、评级、目标价或核心摘要，缺失时显示源状态。
 - FR-EVENT-7：便签与 OpenClaw 研究记忆互通，支持“把当前结论保存为研究记忆”。
+- FR-EVENT-8：同一股票同一日期的多源事件必须支持聚合展示，显示事件数量、类型分布、来源列表和主事件，不得丢失原始事件。
+- FR-EVENT-9：语义去重必须保守；不同日期、不同股票、方向冲突或证据主体不一致的事件不得合并，只能同日聚类展示。
+- FR-EVENT-10：点击 K 线同日聚合点必须把该日期作为事件组入口展开，选择组内单条事件时不得丢失当前股票、周期、来源池、K 线聚合高亮或 `source_context.event_group`；事件组展开只是图表当前日期的证据面板，不替代 K 线主工作区。
 
 ### 8.8 AI 诊股和证据链
 
@@ -350,6 +353,7 @@ AI Quant 必须在以下方面超过传统行情软件：
 - FR-DIAG-4：诊股报告必须包含风险声明：历史数据不代表未来，不构成投资建议。
 - FR-DIAG-5：诊股报告可以生成后续动作：加入观察、生成回测条件、创建模拟盘计划、设置预警。
 - FR-DIAG-6：AI 诊股结果必须可以复盘，保存输入数据版本、生成时间和关键证据。
+- FR-DIAG-7：AI 诊断消费聚合事件时必须区分聚合组和原始事件证据，不得把重复转载或同语义事件当作多条独立证据加权。
 
 ### 8.9 问财式自然语言任务入口
 
@@ -357,6 +361,17 @@ AI Quant 必须在以下方面超过传统行情软件：
 - FR-WENCAI-2：自然语言输入返回多分桶结果：选股结果、新闻证据、公告研报、板块主题、策略候选、功能入口。
 - FR-WENCAI-3：选股结果必须显示条件解析、字段来源、命中范围、缺失字段、数据时间和缓存/限流状态。
 - FR-WENCAI-3a：问财式结果必须有任务状态机：`parsing`、`routed`、`bucket_pending`、`result_ready`、`partial_result`、`needs_disambiguation`、`no_match`、`degraded_data`、`requires_confirmation`。失败或降级不能只显示空表。
+- FR-WENCAI-3b：后端必须拥有 additive routed schema，至少返回 `schema_version`、`intent`、`parsed_conditions`、`buckets`、`actions`、`selected_bucket`、`source_context`、`source_status`、legacy `data/total`。前端只在字段缺失的 legacy 响应中 fallback；字段存在但为空代表后端语义。
+- FR-WENCAI-3c：provider 失败不得折叠成 `no_match`。`pywencai` 缺失、请求失败、限流、超时、权限不足、非 DataFrame/格式漂移必须以顶层 `status/failure_type` 和 `source_status.status/provider_status/type/reason` 可见；只有 provider 正常返回空表才能显示为无匹配。
+- FR-WENCAI-3d：当 `source_status` 表示源不可用、限流、无效响应、离线/旧缓存或权限不足时，前端可保留候选股只读查看和 AI 解释，但不得暴露批量写入、自选、生成篮子或回测草案动作。
+- FR-WENCAI-3e：每个 `parsed_conditions[]` 必须包含字段级证据 envelope，例如 `hit_count_status`、`source_field/source_fields`、`evidence_level`、`missing_reason`、`evidence`。不得用候选数量或前端推断冒充 provider 字段命中数。
+- FR-WENCAI-3f：当部分条件缺少可验证 provider 字段证据时，任务状态必须降级为 `partial_result` 或等价状态，保留只读候选和 AI 解释，但不得暴露批量写入、生成篮子或回测草案。
+- FR-WENCAI-3g：每个候选股票行必须包含后端生成的 `candidate_provenance` envelope，至少包含 `result_pool_id`、`row_id`、`code/name/rank`、`provider`、`data_as_of/cache_status`、`matched_conditions[]`、`missing_conditions[]`、`source_fields[]`、`raw_field_map`、`evidence_level`、`validation_status` 和缺失/警告原因。前端不得把 legacy 行或客户端 `source_context` 推断成 verified row evidence。
+- FR-WENCAI-3h：行级 `candidate_provenance` 必须随 `open_stock`、`ask_ai/analyze`、`create_basket`、`draft_backtest` 的 `source_context` 传递，并保留原始 query、`parsed_conditions`、`result_pool_id`；传递内容必须白名单裁剪。
+- FR-WENCAI-3i：候选行缺少 verified row provenance 时，保留只读打开和 AI 解释，但不得进入批量写入、自选、生成篮子或回测草案；旧 DOM 或间接事件触发也必须被执行层拦截。
+- FR-WENCAI-3j：每次问财请求必须生成单调递增的 `request_generation` 或等价 `request_id`，并绑定 query、selected bucket、source context 和请求状态；pending 状态不得暴露写入类动作。
+- FR-WENCAI-3k：只有最新请求可以写入 `#intel-iwencai-result`、`state.iwencaiResult`、`state.iwencaiActionState`、候选池、可写动作池和来源上下文；旧请求成功、失败、超时或取消后返回时不得覆盖当前任务。
+- FR-WENCAI-3l：新请求开始后应取消上一请求；若运行环境不支持取消，也必须用 generation guard 丢弃旧响应。旧请求的 `AbortError` 不得渲染失败态，不得清空当前结果；旧 DOM 的写入按钮必须因 generation/result_pool/evidence 不匹配被执行层拒绝。
 - FR-WENCAI-4：支持热门问法、经典策略、大师策略、用户收藏问句。
 - FR-WENCAI-5：支持一问多答：规则引擎、数据检索、OpenClaw 总结和 Signal 证据并列展示。
 - FR-WENCAI-6：支持从问句直接生成：自选、篮子、回测草案、AI 看板、OpenClaw 任务。
@@ -398,7 +413,7 @@ AI Quant 必须在以下方面超过传统行情软件：
 ### 8.14 策略、回测和模拟盘闭环
 
 - FR-STRAT-1：问财条件、主题、Signal、机会池和篮子都可以生成回测草案。
-- FR-STRAT-2：回测草案必须包含基准、持股周期、调仓频率、样本范围、交易成本、风险约束。
+- FR-STRAT-2：回测草案必须包含基准、持股周期、调仓频率、样本范围、交易成本、风险约束。草案“包含”这些字段不等于审计或正式回测已经执行这些规则；API/UI 必须用 `computed`、`not_computed`、`insufficient_sample` 或等价状态说明哪些口径已计算，哪些只是待确认假设。
 - FR-STRAT-3：策略卡展示年化收益、累计收益、最大回撤、胜率、换手、样本区间、适用市场和失效风险。
 - FR-STRAT-4：回测结果可以送入模拟盘观察，但需要用户确认，不自动下单。
 - FR-STRAT-5：模拟盘每日复盘展示买入原因、当前证据是否变化、是否触发退出条件。
@@ -420,6 +435,7 @@ AI Quant 必须在以下方面超过传统行情软件：
 - NFR-3 可访问性：关键状态必须有文本，不只靠颜色；按钮和搜索框有 aria label；键盘可操作核心搜索和表格。
 - NFR-4 响应式：桌面、平板、移动端都不能空白、重叠、文本溢出或出现不可访问的核心操作。
 - NFR-5 安全：不读取或输出 `.env`、API key、券商凭证、真实交易账号；不自动执行真实交易。
+- NFR-5a 来源上下文安全：`source_context` 必须使用白名单字段；不得透传 cookie、headers、session、token、邀请码、API key、券商凭证或账号敏感信息。
 - NFR-6 兼容：legacy `/api/qlib/*` 和 `qlib_*` 字段保留到迁移计划完成；新增功能优先使用 `signal_*`。
 - NFR-7 可观测：新增数据路径必须有 health、audit、测试或浏览器证据。
 - NFR-8 可维护：前端避免继续堆大单体文件；新工作台模块应按 stock workspace、market radar、task router、event center 分边界。

@@ -15,7 +15,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
     <title>AI 量化交易系统</title>
-    <link rel="stylesheet" href="/static/style.css?v=73">
+    <link rel="stylesheet" href="/static/style.css?v=82">
     <link rel="stylesheet" href="/static/paper-trading.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js"></script>
@@ -1142,6 +1142,24 @@
                                     <summary>高级参数</summary>
                                     <textarea id="basket-candidates" class="code-input basket-candidate-json" rows="4" placeholder='[{"code":"000001","name":"平安银行","industry":"银行","probability":0.82}]'></textarea>
                                 </details>
+                                <div id="basket-backtest-draft" class="basket-backtest-draft is-empty" data-execution-policy="manual_only" data-execution-status="not_executed" aria-live="polite" aria-labelledby="basket-backtest-draft-title">
+                                    <div class="basket-backtest-draft-head">
+                                        <div>
+                                            <div class="basket-backtest-draft-kicker">事件回测草案</div>
+                                            <div id="basket-backtest-draft-title" class="basket-backtest-draft-title">等待事件组草案</div>
+                                        </div>
+                                        <span class="badge badge-sm">需确认</span>
+                                    </div>
+                                    <div id="basket-backtest-draft-summary" class="basket-backtest-draft-summary text-sm text-muted">从个股事件组或问财候选池生成回测草案后，可在这里核对来源、编辑条件 JSON；草案不会自动执行。</div>
+                                    <div id="basket-backtest-draft-fields" class="basket-backtest-draft-fields"></div>
+                                    <label for="basket-backtest-draft-conditions" class="basket-backtest-draft-editor-label">条件 JSON</label>
+                                    <textarea id="basket-backtest-draft-conditions" class="code-input basket-backtest-draft-editor" rows="7" spellcheck="false"></textarea>
+                                    <div id="basket-backtest-draft-error" class="basket-backtest-draft-error hidden" role="alert"></div>
+                                    <div class="basket-backtest-draft-actions">
+                                        <button class="btn btn-xs" type="button" id="basket-backtest-draft-apply" data-alpha-action="basket-update-backtest-draft">更新草案条件</button>
+                                        <span id="basket-backtest-draft-status" class="text-xs text-muted">空态 · 未执行</span>
+                                    </div>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="basket-cash">初始资金</label>
@@ -1182,6 +1200,7 @@
                         <div class="card">
                             <h2>回测摘要 / 警告</h2>
                             <div id="basket-backtest-summary" class="text-sm text-muted mb-md">暂无回测结果</div>
+                            <div id="basket-draft-audit-study" class="basket-draft-audit-study hidden">暂无草案审计</div>
                             <div id="basket-warning-list" class="text-sm text-muted">暂无警告</div>
                         </div>
                     </div>

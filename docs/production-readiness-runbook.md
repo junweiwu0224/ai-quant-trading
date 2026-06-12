@@ -28,7 +28,7 @@ git status --short
 - Git 工作树没有未提交源码改动。
 - Release evidence 和 bundle verify 通过。
 - Deployment static preflight 没有 hard findings。
-- 生产静态门禁没有 soft findings；如果仍存在 OpenClaw auth/network soft finding，必须在发布决策中作为显式 override 记录。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
+- 生产静态门禁通过；OpenClaw 必须保持 token auth、compose-only network expose，且不能默认发布宿主机 `18789` 端口。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
 
 ## 1. 本地标准门禁
 
@@ -60,7 +60,7 @@ git status --short
 
 - 允许 Docker 写入/挂载本地 `data/`、`logs/`、`dashboard/templates/`、`dashboard/static/`。
 - 已决定是否设置 `QUANT_SYSTEM_API_KEY`、`APP_ENV`、`OPENAI_*`、`OPENCLAW_*`、`IWENCAI_COOKIE`。
-- 已确认 OpenClaw `--auth none` 和 `18789` 端口发布只用于受控网络，或已准备反向代理、认证、防火墙策略。
+- 已设置 `OPENCLAW_API_KEY`，并确认 OpenClaw gateway 仅通过 compose 网络 `expose: 18789` 供 Dashboard 容器访问；若需要原生 Web 面板，必须显式设置受控的 `OPENCLAW_WEB_URL`。
 
 确认后执行：
 
@@ -142,12 +142,12 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 需要先确认：
 
 - 外部服务地址、认证、模型、额度和日志边界。
-- 是否允许 OpenClaw gateway 暴露到容器网络或宿主机端口。
+- 是否允许 OpenClaw gateway 暴露到容器网络；默认不发布宿主机端口。
 - 是否启用 `OPENCLAW_MANAGED`、`OPENCLAW_AUTO_START`。
 
 建议顺序：
 
-1. 先跑 `scripts/deployment_static_preflight.py --production`，确认生产 soft finding 是否已经被配置、网络策略解决，或已经进入发布决策记录。
+1. 先跑 `scripts/deployment_static_preflight.py --production`，确认 token auth、compose-only expose 和生产风险决策文档仍然有效。
 2. 只读检查 `/api/openclaw/status`。
 3. 使用受控 prompt 做一次非交易、非写入的 chat smoke。
 4. 验证 audit/history 是否按用户 workspace 隔离。
@@ -204,7 +204,7 @@ docker compose --profile trading up
 - 本地 preflight 输出。
 - Docker compose config / ps / smoke 结果。
 - Provider / OpenClaw / LLM 验证范围。
-- 未解决 soft findings 和接受人。
+- 未解决风险、接受人和到期时间。
 - 回滚命令和数据备份位置。
 
-如果接受 OpenClaw `auth none` 或公开端口等生产风险，必须在发布批准记录中写明 owner、到期时间、补偿控制、回滚路径和后续修复项；不得把本地 release preflight 当作生产暴露批准。长期门禁决策见 `docs/decisions/0004-production-release-risk-gates.md`。
+如果接受公开 OpenClaw 原生面板、真实 provider 限制或交易边界等生产风险，必须在发布批准记录中写明 owner、到期时间、补偿控制、回滚路径和后续修复项；不得把本地 release preflight 当作生产发布批准。长期门禁决策见 `docs/decisions/0004-production-release-risk-gates.md`。

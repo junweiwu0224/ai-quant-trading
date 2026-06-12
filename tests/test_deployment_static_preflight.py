@@ -24,10 +24,7 @@ def _copy_preflight_files(tmp_path):
 def test_current_deployment_static_preflight_has_no_hard_findings():
     findings = deployment_static_preflight.run_checks(ROOT)
 
-    hard = [item for item in findings if item.severity == "hard"]
-
-    assert hard == []
-    assert any(item.check == "openclaw-auth" and item.severity == "soft" for item in findings)
+    assert findings == []
 
 
 def test_secret_literal_in_compose_is_hard_finding(tmp_path):
@@ -92,25 +89,74 @@ def test_env_example_openclaw_managed_defaults_must_be_deployment_safe(tmp_path)
     )
 
 
-def test_fail_on_soft_exits_nonzero(capsys):
+def test_env_example_does_not_override_compose_openclaw_urls(tmp_path):
+    _copy_preflight_files(tmp_path)
+    env_example = (tmp_path / ".env.example").read_text(encoding="utf-8")
+    (tmp_path / ".env.example").write_text(
+        env_example.replace("OPENCLAW_GATEWAY_URL=", "OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789").replace(
+            "OPENCLAW_WEB_URL=",
+            "OPENCLAW_WEB_URL=http://127.0.0.1:18789",
+        ),
+        encoding="utf-8",
+    )
+
+    findings = deployment_static_preflight.run_checks(tmp_path)
+
+    assert any(
+        item.severity == "hard" and item.check == "env-example" and "OPENCLAW_GATEWAY_URL" in item.message
+        for item in findings
+    )
+    assert any(
+        item.severity == "hard" and item.check == "env-example" and "OPENCLAW_WEB_URL" in item.message
+        for item in findings
+    )
+
+
+def test_openclaw_auth_none_is_hard_finding(tmp_path):
+    _copy_preflight_files(tmp_path)
+    compose = (tmp_path / "docker-compose.yml").read_text(encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text(
+        compose.replace('--auth token --token "$${OPENCLAW_API_KEY}"', "--auth none"),
+        encoding="utf-8",
+    )
+
+    findings = deployment_static_preflight.run_checks(tmp_path)
+
+    assert any(item.severity == "hard" and item.check == "openclaw-auth" for item in findings)
+
+
+def test_openclaw_host_port_publish_is_hard_finding(tmp_path):
+    _copy_preflight_files(tmp_path)
+    compose = (tmp_path / "docker-compose.yml").read_text(encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text(
+        compose.replace('    expose:\n      - "18789"', '    ports:\n      - "18789:18789"'),
+        encoding="utf-8",
+    )
+
+    findings = deployment_static_preflight.run_checks(tmp_path)
+
+    assert any(item.severity == "hard" and item.check == "openclaw-port" for item in findings)
+
+
+def test_fail_on_soft_exits_zero_when_no_soft_findings(capsys):
     exit_code = deployment_static_preflight.main(["--root", str(ROOT), "--fail-on-soft"])
     output = capsys.readouterr().out
 
-    assert exit_code == 1
-    assert "openclaw-auth" in output
+    assert exit_code == 0
+    assert "Deployment static preflight OK" in output
 
 
-def test_production_mode_exits_nonzero_on_soft_findings(capsys):
+def test_production_mode_exits_zero_when_no_soft_findings(capsys):
     exit_code = deployment_static_preflight.main(["--root", str(ROOT), "--production"])
     output = capsys.readouterr().out
 
-    assert exit_code == 1
-    assert "openclaw-auth" in output
+    assert exit_code == 0
+    assert "Deployment static preflight OK" in output
 
 
-def test_default_cli_allows_soft_findings(capsys):
+def test_default_cli_reports_ok_without_findings(capsys):
     exit_code = deployment_static_preflight.main(["--root", str(ROOT)])
     output = capsys.readouterr().out
 
     assert exit_code == 0
-    assert "openclaw-auth" in output
+    assert "Deployment static preflight OK" in output

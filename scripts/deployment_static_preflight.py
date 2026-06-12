@@ -129,6 +129,7 @@ def run_checks(root: Path) -> list[Finding]:
     paper_block = _service_block(compose, "paper")
     live_block = _service_block(compose, "live")
     dashboard_block = _service_block(compose, "dashboard")
+    openclaw_block = _service_block(compose, "openclaw")
 
     if "profiles:" not in paper_block or "- trading" not in paper_block:
         findings.append(Finding("hard", "trading-profile", "paper service must stay behind the trading profile."))
@@ -149,20 +150,78 @@ def run_checks(root: Path) -> list[Finding]:
     if "OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}" not in compose:
         findings.append(Finding("hard", "openclaw-autostart", "OpenClaw auto-start must remain false by default."))
 
-    if "openclaw gateway run" in compose and "--auth none" in compose:
+    if "openclaw gateway run" in openclaw_block and "--auth none" in openclaw_block:
         findings.append(
             Finding(
-                "soft",
+                "hard",
                 "openclaw-auth",
-                "OpenClaw gateway uses --auth none in compose; production exposure needs explicit auth/network review.",
+                "OpenClaw gateway must not use --auth none in compose.",
             )
         )
-    if '"18789:18789"' in compose:
+    if "openclaw gateway run" in openclaw_block and (
+        "--auth token" not in openclaw_block or "--token" not in openclaw_block
+    ):
         findings.append(
             Finding(
-                "soft",
+                "hard",
+                "openclaw-auth",
+                "OpenClaw gateway compose command must use token auth.",
+            )
+        )
+    if '"bind": "0.0.0.0"' not in openclaw_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-bind",
+                "OpenClaw compose gateway must bind 0.0.0.0 so the dashboard container can reach it.",
+            )
+        )
+    if "OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}" not in openclaw_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-secret-env",
+                "OpenClaw service must receive OPENCLAW_API_KEY from the environment.",
+            )
+        )
+    if "OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_API_KEY:-}" not in openclaw_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-secret-env",
+                "OpenClaw service must map OPENCLAW_GATEWAY_TOKEN from OPENCLAW_API_KEY.",
+            )
+        )
+    if "OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}" not in dashboard_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-secret-env",
+                "Dashboard service must receive OPENCLAW_API_KEY from the environment.",
+            )
+        )
+    if "OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-}" not in dashboard_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-web-url",
+                "Dashboard OPENCLAW_WEB_URL must stay empty by default unless a controlled external panel URL is configured.",
+            )
+        )
+    if '"18789:18789"' in openclaw_block or "ports:" in openclaw_block:
+        findings.append(
+            Finding(
+                "hard",
                 "openclaw-port",
-                "OpenClaw port 18789 is published; production rollout needs network binding or reverse-proxy controls.",
+                "OpenClaw gateway must not publish host port 18789 by default; expose it only to the compose network.",
+            )
+        )
+    if "expose:" not in openclaw_block or '- "18789"' not in openclaw_block:
+        findings.append(
+            Finding(
+                "hard",
+                "openclaw-port",
+                "OpenClaw service must expose port 18789 only on the compose network.",
             )
         )
 
@@ -185,6 +244,26 @@ def run_checks(root: Path) -> list[Finding]:
         findings.append(Finding("hard", "env-example", ".env.example must default OPENCLAW_MANAGED to false."))
     if "OPENCLAW_AUTO_START=false" not in env_example:
         findings.append(Finding("hard", "env-example", ".env.example must default OPENCLAW_AUTO_START to false."))
+    if "OPENCLAW_GATEWAY_URL=" not in env_example:
+        findings.append(Finding("hard", "env-example", ".env.example must document OPENCLAW_GATEWAY_URL."))
+    if "OPENCLAW_WEB_URL=" not in env_example:
+        findings.append(Finding("hard", "env-example", ".env.example must document OPENCLAW_WEB_URL."))
+    if "OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789" in env_example:
+        findings.append(
+            Finding(
+                "hard",
+                "env-example",
+                ".env.example must leave OPENCLAW_GATEWAY_URL empty so Docker uses the compose service default.",
+            )
+        )
+    if "OPENCLAW_WEB_URL=http://127.0.0.1:18789" in env_example:
+        findings.append(
+            Finding(
+                "hard",
+                "env-example",
+                ".env.example must leave OPENCLAW_WEB_URL empty unless a controlled external panel URL is configured.",
+            )
+        )
     if "IWENCAI_COOKIE=" not in env_example:
         findings.append(Finding("soft", "provider-boundary", ".env.example does not document IWENCAI_COOKIE boundary."))
 

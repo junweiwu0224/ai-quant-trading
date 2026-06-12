@@ -25,9 +25,11 @@
 
 ## OpenClaw Auth And Network Gate
 
-- 当前配置是否仍包含 `openclaw gateway run --auth none`：
-- 当前配置是否仍发布宿主机端口 `18789`：
-- 解决方式：关闭宿主机暴露 / 反向代理认证 / 防火墙 / 内网限定 / 临时接受
+- 当前配置是否使用 `openclaw gateway run --auth token --token "$${OPENCLAW_API_KEY}"`：
+- 当前配置是否仅 `expose: 18789` 到 compose 网络，且未发布宿主机端口：
+- `OPENCLAW_API_KEY` / `OPENCLAW_GATEWAY_TOKEN` 是否从环境注入且未写入仓库：
+- 若需要原生 Web 面板，`OPENCLAW_WEB_URL` 是否指向受控反向代理入口：
+- 解决方式：保持 compose-only expose / 反向代理认证 / 防火墙 / 内网限定 / 临时接受
 - 若临时接受：
   - Owner：
   - 到期时间：

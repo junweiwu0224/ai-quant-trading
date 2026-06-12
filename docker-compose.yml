@@ -13,8 +13,8 @@ services:
           "gateway": {
             "mode": "local",
             "port": 18789,
-            "bind": "loopback",
-            "auth": { "mode": "none" },
+            "bind": "0.0.0.0",
+            "auth": { "mode": "token" },
             "http": {
               "endpoints": {
                 "chatCompletions": { "enabled": true },
@@ -29,15 +29,18 @@ services:
           }
         }
         EOF
-        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --auth none --allow-unconfigured
-    ports:
-      - "18789:18789"
+        : "$${OPENCLAW_API_KEY:?Set OPENCLAW_API_KEY before starting OpenClaw gateway}" &&
+        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --auth token --token "$${OPENCLAW_API_KEY}" --allow-unconfigured
+    expose:
+      - "18789"
     volumes:
       - ./openclaw-2026.5.20.tgz:/app/openclaw-2026.5.20.tgz:ro
       - ./data/openclaw:/data/openclaw
       - ./logs/openclaw:/logs/openclaw
     environment:
       - TZ=Asia/Shanghai
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_API_KEY:-}
       - OPENCLAW_WORKSPACE_DIR=/data/openclaw
     restart: unless-stopped
 
@@ -59,10 +62,11 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
       - APP_ENV=${APP_ENV:-development}
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}
       - OPENCLAW_MANAGED=${OPENCLAW_MANAGED:-false}
       - OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}
       - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-http://openclaw:18789}
-      - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-http://127.0.0.1:18789}
+      - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-}
       - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-0.0.0.0}
     depends_on:
       - openclaw

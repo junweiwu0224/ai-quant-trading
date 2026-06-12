@@ -40,7 +40,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # Full OpenClaw Gateway integration. The gateway remains a separate native service;
 # this app provides workspace mapping, permissions, audit logs, and system tools.
 OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
-OPENCLAW_WEB_URL = os.getenv("OPENCLAW_WEB_URL", OPENCLAW_GATEWAY_URL)
+OPENCLAW_WEB_URL = os.getenv("OPENCLAW_WEB_URL", "")
 OPENCLAW_API_KEY = os.getenv("OPENCLAW_API_KEY", "")
 OPENCLAW_MANAGED = os.getenv("OPENCLAW_MANAGED", "true").lower() in {"1", "true", "yes", "on"}
 OPENCLAW_AUTO_START = os.getenv("OPENCLAW_AUTO_START", "true").lower() in {"1", "true", "yes", "on"}

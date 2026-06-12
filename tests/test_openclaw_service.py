@@ -26,6 +26,31 @@ def test_gateway_headers_omit_optional_auth_and_workspace_when_blank():
     assert headers == {"Content-Type": "application/json"}
 
 
+def test_gateway_panel_url_requires_explicit_web_url():
+    gateway = OpenClawGateway(
+        base_url="http://openclaw.local:18789",
+        api_key="secret-token",
+        web_url="",
+    )
+
+    assert gateway.panel_url("workspace-123", "user-1") == ""
+
+
+def test_gateway_panel_url_uses_explicit_controlled_web_url():
+    gateway = OpenClawGateway(
+        base_url="http://openclaw.local:18789",
+        api_key="secret-token",
+        web_url="https://openclaw.example.com",
+    )
+
+    url = gateway.panel_url("workspace-123", "user-1", embed=True)
+
+    assert url.startswith("https://openclaw.example.com?")
+    assert "workspace=workspace-123" in url
+    assert "user=user-1" in url
+    assert "embed=1" in url
+
+
 def test_service_status_reports_external_without_starting_process(monkeypatch):
     monkeypatch.setattr(openclaw_service, "OPENCLAW_MANAGED", False)
     manager = OpenClawServiceManager()
@@ -61,6 +86,30 @@ def test_service_status_reports_managed_running_starting_and_failed(monkeypatch)
     failed = manager.status()
     assert failed["state"] == "failed"
     assert failed["last_error"] == "boom"
+
+
+def test_managed_start_command_uses_token_auth_when_api_key_is_set(monkeypatch):
+    monkeypatch.setattr(openclaw_service, "OPENCLAW_API_KEY", "secret-token")
+    manager = OpenClawServiceManager()
+
+    command = manager._start_command("openclaw")
+
+    assert "--auth" in command
+    assert command[command.index("--auth") + 1] == "token"
+    assert "--token" in command
+    assert command[command.index("--token") + 1] == "secret-token"
+    assert "none" not in command
+
+
+def test_managed_start_command_keeps_local_dev_none_auth_without_api_key(monkeypatch):
+    monkeypatch.setattr(openclaw_service, "OPENCLAW_API_KEY", "")
+    manager = OpenClawServiceManager()
+
+    command = manager._start_command("openclaw")
+
+    assert "--auth" in command
+    assert command[command.index("--auth") + 1] == "none"
+    assert "--token" not in command
 
 
 def test_health_probe_order_falls_through_gateway_endpoints(monkeypatch):

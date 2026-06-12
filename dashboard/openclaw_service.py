@@ -277,11 +277,12 @@ class OpenClawServiceManager:
         if not node_bin:
             self.last_error = "未找到可用 Node 运行时，无法初始化 OpenClaw 配置"
             return
+        auth_mode = "token" if OPENCLAW_API_KEY else "none"
         commands = [
             ["config", "set", "gateway.mode", "local"],
             ["config", "set", "gateway.port", str(self.port), "--strict-json"],
-            ["config", "set", "gateway.bind", "loopback"],
-            ["config", "set", "gateway.auth.mode", "none"],
+            ["config", "set", "gateway.bind", "127.0.0.1"],
+            ["config", "set", "gateway.auth.mode", auth_mode],
             ["config", "set", "gateway.http.endpoints.chatCompletions.enabled", "true", "--strict-json"],
             ["config", "set", "gateway.http.endpoints.responses.enabled", "true", "--strict-json"],
             ["config", "set", "agents.defaults.workspace", str(self.agent_workspace_dir)],

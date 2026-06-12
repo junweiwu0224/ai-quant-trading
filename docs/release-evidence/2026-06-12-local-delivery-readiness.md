@@ -46,6 +46,10 @@ dashboard/static/style.css
 dashboard/static/sw.js
 dashboard/templates/index.html
 dashboard/templates/partials/scripts.html
+config/settings.py
+dashboard/openclaw_gateway.py
+dashboard/openclaw_service.py
+docker-compose.yml
 docs/ARCHITECTURE.md
 docs/commands.md
 docs/decisions/README.md
@@ -58,6 +62,7 @@ tests/e2e/README.md
 tests/test_alpha_formula_basket.py
 tests/test_frontend_workflow_contracts.py
 tests/test_intelligence_market_frontend.py
+tests/test_openclaw_service.py
 tests/test_research_toolbar_frontend.py
 ```
 
@@ -104,8 +109,11 @@ The following commands passed on the local workspace:
 .venv/bin/python scripts/release_preflight.py --verify-evidence
 .venv/bin/python scripts/release_preflight.py
 .venv/bin/python scripts/release_preflight.py --with-deployment-static
+.venv/bin/python scripts/release_preflight.py --with-production-static
 .venv/bin/python scripts/release_preflight.py --with-audits
 .venv/bin/python scripts/deployment_static_preflight.py
+.venv/bin/python scripts/deployment_static_preflight.py --production
+docker compose config
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001 scripts/e2e-local.sh all
 .venv/bin/python scripts/verify_context_pack.py
 git diff --check
@@ -117,13 +125,11 @@ Observed results:
 - Local release bundle generated and verified: `46` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
 - Bundle checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256` and verified by `scripts/build_release_bundle.py --verify-only`.
 - Bundle verify-only checks the archive checksum, archive member list, unpack drill, and manifest file hashes against the current workspace so stale bundles fail before handoff. The exact archive checksum is intentionally kept out of archived source/docs to avoid a self-referential checksum.
-- Latest release preflight with deployment static gate: context pack OK, release evidence OK, pytest `807 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment static preflight passed with soft findings only.
+- Latest release preflight with production static gate: context pack OK, release evidence OK, pytest `819 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment production static preflight passed with no findings.
+- Production static preflight now passes without starting Docker or external services; it verifies OpenClaw token auth, compose-only port exposure, and production risk decision docs.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
-- Deployment static preflight passed with no hard findings. It still reports soft production-readiness findings for OpenClaw `--auth none` and published port `18789`, which require explicit production network/auth review before external exposure.
-- Production static preflight commands currently fail as designed:
-  - `.venv/bin/python scripts/deployment_static_preflight.py --production`
-  - `.venv/bin/python scripts/release_preflight.py --with-production-static`
-  The full production-static preflight reached the final gate after `812 passed, 1 warning`, compileall, and `git diff --check`, then failed on `deployment-production-static` because the OpenClaw auth/port soft findings remain unresolved. Production release requires fixing them or recording an explicit owner-approved override in the release decision record.
+- OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.
+- `docker compose config` parses successfully and shows OpenClaw `expose: 18789` without host `ports`, plus dashboard `OPENCLAW_GATEWAY_URL=http://openclaw:18789`.
 - Production readiness runbook and ADR `0004` document the remaining confirmed-execution gates, expected evidence, rollback paths, risk-acceptance fields, and actions that must not run without approval.
 - API data health report: `37` endpoints, `0` failed, `0` hard findings, `3` soft findings.
 - Frontend static render audit report: `914` heuristic risks by severity (`354` high, `545` medium, `15` low). These are historical/static heuristic findings and were not treated as new hard blockers by the audit gate.
@@ -148,7 +154,6 @@ These gates remain unresolved and require explicit confirmation, a dedicated env
 - Stage or commit the release delta deliberately so untracked tests/scripts are not omitted.
 - Decide whether the frontend static heuristic risks need triage beyond the current report-passing gate.
 - Run Docker compose and deployment-environment validation after confirming local data/env impact.
-- Resolve deployment static soft findings for production exposure, especially OpenClaw auth and network binding.
 - Fill a production release decision record from `docs/release-evidence/production-release-decision-template.md`; any temporary acceptance of OpenClaw auth/network risk must include owner, expiry, compensating controls, rollback, and follow-up.
 - Validate real provider/live behavior only after approving provider credentials, rate-limit safety, and data boundaries.
 - Validate OpenClaw/LLM integration only after approving external-service scope and credentials.

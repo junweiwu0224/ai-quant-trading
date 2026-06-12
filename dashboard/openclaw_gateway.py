@@ -13,9 +13,15 @@ from config.settings import OPENCLAW_API_KEY, OPENCLAW_GATEWAY_URL, OPENCLAW_WEB
 class OpenClawGateway:
     """Thin HTTP adapter; OpenClaw itself stays a native external service."""
 
-    def __init__(self, base_url: str = OPENCLAW_GATEWAY_URL, api_key: str = OPENCLAW_API_KEY):
+    def __init__(
+        self,
+        base_url: str = OPENCLAW_GATEWAY_URL,
+        api_key: str = OPENCLAW_API_KEY,
+        web_url: str | None = None,
+    ):
         self.base_url = (base_url or "").rstrip("/")
-        self.web_url = (OPENCLAW_WEB_URL or base_url or "").rstrip("/")
+        configured_web_url = OPENCLAW_WEB_URL if web_url is None else web_url
+        self.web_url = (configured_web_url or "").rstrip("/")
         self.api_key = api_key or ""
 
     def _headers(self, workspace_id: str = "") -> dict[str, str]:

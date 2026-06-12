@@ -4132,8 +4132,8 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/app.js?v=133" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
     assert "/static/app-ui-shell.js?v=45" in scripts
-    assert "/sw.js?v=73" in app_ui_shell
-    assert "ai-quant-v179" in service_worker
+    assert "/sw.js?v=74" in app_ui_shell
+    assert "ai-quant-v180" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
@@ -5356,7 +5356,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=36" in scripts
+    assert "/static/core/app-shell.js?v=37" in scripts
 
 
 def test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest():
@@ -5453,8 +5453,36 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
                 result_pool_id: 'iwencai:test-pool',
                 selected_bucket: 'candidates',
                 intent_type: 'natural_language_screener',
-            parsed_conditions: [{ raw_text: '高股息', hit_count: 473 }, { raw_text: '低估值', hit_count: 583 }],
+                parsed_conditions: [{ raw_text: '高股息', hit_count: 473 }, { raw_text: '低估值', hit_count: 583 }],
                 condition_hit_count: { '高股息': 473, '低估值': 583 },
+                provider_evidence: {
+                    schema_version: 'iwencai_provider_evidence_v1',
+                    summary_status: 'degraded',
+                    field_coverage_status: 'schema_drift',
+                    provider: 'iwencai',
+                    provider_status: 'schema_drift',
+                    data_status: 'degraded_data',
+                    cache_status: 'stale_cache',
+                    candidate_count: 2,
+                    reported_total: 2,
+                    condition_status_counts: { verified: 1, schema_drift: 1 },
+                    candidate_validation: { verified: 1, partial: 1, actionable: 0 },
+                    write_actions_allowed: false,
+                    enabled_write_actions: ['open_stock'],
+                    blocked_write_actions: ['create_basket', 'draft_backtest', 'send_screener'],
+                    degradation: {
+                        type: 'schema_drift',
+                        reason: '字段结构变化 token=SHOULD_NOT_LEAK',
+                        next_action: '只读解释，禁止生成篮子',
+                        cache_status: 'stale_cache',
+                        retry_after_seconds: 12,
+                        response_type: 'DataFrame:schema_vNext',
+                        schema_signature: '股票代码|Bearer SHOULD_NOT_LEAK',
+                    },
+                    raw_payload: {
+                        cookie: 'SHOULD_NOT_LEAK',
+                    },
+                },
             };
             const verifiedProvenance = {
                 result_pool_id: 'iwencai:test-pool',
@@ -5488,6 +5516,14 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
             assert.match(llmPrompt, /iwencai:test-pool/);
             assert.match(llmPrompt, /高股息/);
             assert.match(llmPrompt, /condition_hit_count/);
+            assert.match(llmPrompt, /provider_evidence/);
+            assert.match(llmPrompt, /schema_drift/);
+            assert.match(llmPrompt, /write_actions_allowed":false/);
+            assert.match(llmPrompt, /blocked_write_actions/);
+            assert.match(llmPrompt, /只读解释，禁止生成篮子/);
+            assert.doesNotMatch(llmPrompt, /SHOULD_NOT_LEAK/);
+            assert.doesNotMatch(llmPrompt, /raw_payload/);
+            assert.doesNotMatch(llmPrompt, /cookie/);
 
             const beforeSwitchCount = switched.length;
             await handlers['iwencai:create-basket']({ query: '空池', candidates: [], source_context: sourceContext });

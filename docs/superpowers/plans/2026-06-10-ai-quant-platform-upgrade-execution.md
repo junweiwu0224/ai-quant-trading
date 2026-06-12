@@ -2049,6 +2049,38 @@ Remaining gaps:
 - This closes the backend-owned evidence summary for deterministic fixtures; it still does not prove real provider credentials, live schema, rate-limit behavior, or OpenClaw deep orchestration.
 - OpenClaw should next consume `provider_evidence` in read-only research tasks before any write-capable orchestration is considered.
 
+## Task 9.28: Read-Only AI Assistant iWencai Evidence Handoff
+
+Status: delivered as the next P2 evidence-consumption slice after Task 9.27. This does not call external LLM/OpenClaw, enable OpenClaw orchestration, run a real provider query, write watchlists/baskets, execute backtests, submit paper/live orders, or approve production release; it makes the existing AI-assistant explanation path consume the backend-owned iWencai evidence summary instead of only conditions/hit counts.
+
+Implemented:
+
+- Added a compact allowlisted `App._buildIwencaiProviderEvidenceForPrompt()` helper for AI-assistant prompts.
+- `iwencai:analyze` now includes `provider_evidence` in the `来源上下文` JSON sent to the local AI assistant prompt path.
+- The prompt evidence includes schema/status, provider/data/cache status, candidate/report totals, condition status counts, candidate validation counts, write-action gate, enabled/blocked write actions, and degradation metadata.
+- The prompt helper redacts secret-like text and intentionally excludes raw provider payloads, raw rows, headers, cookies, tokens, and frontend-supplied arbitrary fields.
+- Cache-busting was updated for `core/app-shell.js?v=37`, `/sw.js?v=74`, and service worker cache `ai-quant-v180`.
+
+Safety boundary:
+
+- This is a read-only prompt-context handoff. It does not perform OpenClaw tool invocation, external LLM calls, provider calls, Docker, data sync, broker, paper/live, production config, or auth/invite-code changes.
+- The evidence remains advisory context for explanation; write-capable iWencai actions are still gated separately by backend/router status and UI action checks.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_send_to_screener_opens_research_screener_directly tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+node --check dashboard/static/core/app-shell.js
+node --check dashboard/static/app-ui-shell.js
+git diff --check
+```
+
+Remaining gaps:
+
+- This closes local AI-assistant evidence handoff only. It still does not prove real external LLM behavior, OpenClaw deep orchestration, real provider credentials/schema/rate limits, or production deployment readiness.
+- A future OpenClaw slice should consume the same `provider_evidence` through a read-only research task contract before any write-capable orchestration is considered.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

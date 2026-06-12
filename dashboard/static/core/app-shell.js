@@ -200,6 +200,65 @@
             return this._getLegacyActionButton(role);
         },
 
+        _buildIwencaiProviderEvidenceForPrompt(sourceContext) {
+            const source = sourceContext && typeof sourceContext === 'object' ? sourceContext : {};
+            const evidence = source.provider_evidence && typeof source.provider_evidence === 'object'
+                ? source.provider_evidence
+                : null;
+            if (!evidence) {
+                return null;
+            }
+            const safeText = (value, limit = 160) => {
+                if (value === null || value === undefined) return '';
+                return String(value)
+                    .replace(/\b(cookie|token|secret|password|passwd|authorization|session|api[_-]?key|invite)\s*[:=]\s*[^,\s;]+/ig, '[redacted]')
+                    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, '[redacted]')
+                    .slice(0, limit);
+            };
+            const safeNumber = (value) => {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : 0;
+            };
+            const safeObjectCounts = (value, maxKeys = 12) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+                return Object.fromEntries(Object.entries(value)
+                    .slice(0, maxKeys)
+                    .map(([key, count]) => [safeText(key, 80), safeNumber(count)]));
+            };
+            const degradation = evidence.degradation && typeof evidence.degradation === 'object'
+                ? evidence.degradation
+                : {};
+            return {
+                schema_version: safeText(evidence.schema_version, 80),
+                summary_status: safeText(evidence.summary_status, 80),
+                field_coverage_status: safeText(evidence.field_coverage_status, 80),
+                provider: safeText(evidence.provider, 80),
+                provider_status: safeText(evidence.provider_status, 80),
+                data_status: safeText(evidence.data_status, 80),
+                cache_status: safeText(evidence.cache_status, 80),
+                candidate_count: safeNumber(evidence.candidate_count),
+                reported_total: safeNumber(evidence.reported_total),
+                condition_status_counts: safeObjectCounts(evidence.condition_status_counts),
+                candidate_validation: safeObjectCounts(evidence.candidate_validation),
+                write_actions_allowed: evidence.write_actions_allowed === true,
+                enabled_write_actions: Array.isArray(evidence.enabled_write_actions)
+                    ? evidence.enabled_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                    : [],
+                blocked_write_actions: Array.isArray(evidence.blocked_write_actions)
+                    ? evidence.blocked_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                    : [],
+                degradation: {
+                    type: safeText(degradation.type, 80),
+                    reason: safeText(degradation.reason, 180),
+                    next_action: safeText(degradation.next_action, 180),
+                    cache_status: safeText(degradation.cache_status, 80),
+                    retry_after_seconds: safeText(degradation.retry_after_seconds, 40),
+                    response_type: safeText(degradation.response_type, 80),
+                    schema_signature: safeText(degradation.schema_signature, 160),
+                },
+            };
+        },
+
         async openOffcanvas(code) {
             if (typeof App.LLM !== 'undefined' && App.LLM.closeCopilot) App.LLM.closeCopilot();
 
@@ -495,6 +554,7 @@
                             signal_direction: data.event_group_diagnosis.signal_direction || '',
                         }
                         : null;
+                    const providerEvidence = this._buildIwencaiProviderEvidenceForPrompt(source_context);
                     const contextLine = source_context && typeof source_context === 'object'
                         ? `\n来源上下文：${JSON.stringify({
                             source: source_context.source || 'iwencai',
@@ -503,6 +563,7 @@
                             intent_type: source_context.intent_type || '',
                             parsed_conditions: conditions,
                             condition_hit_count: source_context.condition_hit_count || {},
+                            provider_evidence: providerEvidence,
                             event_group: eventGroupContext,
                             event_group_diagnosis: eventGroupDiagnosis,
                         })}`

@@ -6,7 +6,7 @@ This document records the local, non-production release evidence for the AI Quan
 
 Included in this local delivery slice:
 
-- iWencai/task-router backend-owned status, provider evidence summary, and degraded-state hardening.
+- iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, and degraded-state hardening.
 - Stock workbench event-flow, basket/backtest draft, and local event-study audit evidence.
 - Local release preflight gate and E2E runner portability.
 - Static deployment preflight for Docker/env safety boundaries without starting Docker.
@@ -140,6 +140,7 @@ Observed results:
 - Production auth preflight is now available as an explicit read-only static gate and is covered by tests. It checks Dashboard session/API-key/CORS/invite audit boundaries without importing the app or touching `.env`/database state.
 - Production release decision verification is now available as an explicit read-only gate and is covered by tests. It verifies the decision template by default, and can verify a filled record with `--decision <path>` for required identity fields, gate conclusions, final decision choice, risk-acceptance owner/expiry/control/rollback, and secret-like value redaction.
 - iWencai backend responses now include `provider_evidence` with field coverage, condition status counts, row provenance validation, degradation metadata, and write-action gating so frontend/OpenClaw/release review can consume one backend-owned evidence summary.
+- iWencai AI-assistant analysis prompts now include a compact allowlisted `provider_evidence` summary from `source_context`, preserving degradation/write-action gates for read-only explanation while redacting secret-like text and excluding raw provider payloads.
 - Provider-evidence focused checks passed locally: `tests/test_iwencai_task_router_api.py` + `tests/test_iwencai_client_status.py` + `tests/test_release_preflight.py` reported `31 passed, 1 warning`; full iWencai/intelligence frontend contract plus changed cache-busting workflow checks reported `66 passed, 1 warning`.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.

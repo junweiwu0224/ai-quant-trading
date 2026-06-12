@@ -95,6 +95,11 @@ def test_iwencai_api_returns_backend_owned_task_router_schema(client, monkeypatc
                 "headers": {"x-token": "SHOULD_NOT_LEAK"},
                 "concept": "token=SHOULD_NOT_LEAK",
                 "rank_reason": "token=SHOULD_NOT_LEAK",
+                "provider_evidence": {
+                    "schema_version": "spoofed_provider_evidence",
+                    "summary_status": "verified",
+                    "headers": {"x-token": "SHOULD_NOT_LEAK"},
+                },
                 "parsed_conditions": [
                     {
                         "raw_text": "高股息",
@@ -153,11 +158,26 @@ def test_iwencai_api_returns_backend_owned_task_router_schema(client, monkeypatc
     assert "headers" not in body["source_context"]
     assert "SHOULD_NOT_LEAK" not in str(body["source_context"])
     assert body["source_context"]["concept"] == "[redacted]"
+    assert "provider_evidence" not in body["source_context"]["origin_context"]
     assert "cookie=" not in str(body["source_context"]["origin_context"])
     assert "token=" not in str(body["source_context"]["origin_context"])
     assert body["source_context"]["rank_reason"] == "问财条件: 高股息 / 低估值 / 近5日放量"
     assert body["source_status"]["provider"] == "iwencai"
     assert body["source_status"]["status"] == "partial_source_failure"
+    provider_evidence = body["provider_evidence"]
+    assert provider_evidence["schema_version"] == "iwencai_provider_evidence_v1"
+    assert provider_evidence["summary_status"] == "partial"
+    assert provider_evidence["field_coverage_status"] == "partial"
+    assert provider_evidence["condition_status_counts"]["verified"] == 2
+    assert provider_evidence["condition_status_counts"]["missing_source_field"] == 1
+    assert provider_evidence["candidate_validation"]["verified"] == 0
+    assert provider_evidence["candidate_validation"]["partial"] == 2
+    assert provider_evidence["candidate_validation"]["actionable"] == 0
+    assert provider_evidence["write_actions_allowed"] is False
+    assert "create_basket" in provider_evidence["blocked_write_actions"]
+    assert provider_evidence["degradation"]["type"] == "partial_source_failure"
+    assert provider_evidence["schema_version"] != "spoofed_provider_evidence"
+    assert body["source_context"]["provider_evidence"]["result_pool_id"] == body["source_context"]["result_pool_id"]
 
 
 def test_iwencai_api_keeps_router_schema_for_empty_result(client, monkeypatch):
@@ -309,6 +329,46 @@ def test_iwencai_api_returns_candidate_row_provenance(client, monkeypatch):
     assert "draft_backtest" not in [item["id"] for item in body["actions"]]
 
 
+def test_iwencai_api_provider_evidence_marks_verified_write_ready_pool(client, monkeypatch):
+    _install_fake_iwencai(
+        monkeypatch,
+        pd.DataFrame(
+            [
+                {
+                    "股票代码": "600000.SH",
+                    "股票简称": "浦发银行",
+                    "股息率": 5.1,
+                    "市盈率": 5.2,
+                },
+                {
+                    "股票代码": "000001.SZ",
+                    "股票简称": "平安银行",
+                    "股息率": 3.2,
+                    "市盈率": 6.3,
+                },
+            ]
+        ),
+    )
+
+    resp = client.post("/api/llm/iwencai", json={"query": "高股息 低估值"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "result_ready"
+    assert {"send_screener", "create_basket", "draft_backtest"} <= _action_ids(body)
+    provider_evidence = body["provider_evidence"]
+    assert provider_evidence["summary_status"] == "verified"
+    assert provider_evidence["field_coverage_status"] == "verified"
+    assert provider_evidence["condition_status_counts"] == {"verified": 2}
+    assert provider_evidence["candidate_validation"]["verified"] == 2
+    assert provider_evidence["candidate_validation"]["actionable"] == 2
+    assert provider_evidence["write_actions_allowed"] is True
+    assert {"create_basket", "draft_backtest", "send_screener"} <= set(provider_evidence["enabled_write_actions"])
+    assert provider_evidence["blocked_write_actions"] == ["add_watchlist"]
+    assert provider_evidence["condition_evidence"][0]["source_field"] == "股息率"
+    assert body["source_context"]["provider_evidence"]["summary_status"] == "verified"
+
+
 def test_iwencai_api_distinguishes_provider_empty_from_unavailable(client, monkeypatch):
     _install_fake_iwencai_result(
         monkeypatch,
@@ -391,8 +451,15 @@ def test_iwencai_api_maps_provider_failure_statuses(client, monkeypatch):
         assert body["source_context"]["failure_type"] == failure_type
         assert body["source_context"]["status_reason"] == reason
         assert "create_basket" not in [item["id"] for item in body["actions"]]
+        provider_evidence = body["provider_evidence"]
+        assert provider_evidence["summary_status"] == "failed"
+        assert provider_evidence["write_actions_allowed"] is False
+        assert provider_evidence["candidate_validation"]["actionable"] == 0
+        assert provider_evidence["degradation"]["type"] == failure_type
+        assert provider_evidence["degradation"]["reason"] == reason
         if provider_status == "rate_limited":
             assert body["source_status"]["retry_after_seconds"] == 12
+            assert provider_evidence["degradation"]["retry_after_seconds"] == 12
 
 
 def test_iwencai_api_degrades_stale_cache_without_write_actions(client, monkeypatch):
@@ -455,6 +522,14 @@ def test_iwencai_api_degrades_stale_cache_without_write_actions(client, monkeypa
     assert provenance["validation_status"] == "unverified"
     assert provenance["matched_conditions"] == []
     _assert_read_only_iwencai_actions(body, has_candidates=True)
+    provider_evidence = body["provider_evidence"]
+    assert provider_evidence["summary_status"] == "degraded"
+    assert provider_evidence["field_coverage_status"] == "stale_cache"
+    assert provider_evidence["condition_status_counts"] == {"stale_cache": 2}
+    assert provider_evidence["candidate_validation"]["unverified"] == 2
+    assert provider_evidence["candidate_validation"]["actionable"] == 0
+    assert provider_evidence["write_actions_allowed"] is False
+    assert provider_evidence["degradation"]["cache_status"] == "stale_cache"
 
 
 def test_iwencai_api_preserves_unsupported_field_without_no_match(client, monkeypatch):
@@ -551,3 +626,10 @@ def test_iwencai_api_preserves_schema_drift_diagnostics(client, monkeypatch):
     assert provenance["matched_conditions"] == []
     assert {item["hit_count_status"] for item in provenance["missing_conditions"]} == {"schema_drift"}
     _assert_read_only_iwencai_actions(body, has_candidates=True)
+    provider_evidence = body["provider_evidence"]
+    assert provider_evidence["summary_status"] == "degraded"
+    assert provider_evidence["field_coverage_status"] == "schema_drift"
+    assert provider_evidence["condition_status_counts"] == {"schema_drift": 2}
+    assert provider_evidence["degradation"]["response_type"] == "DataFrame:schema_vNext"
+    assert provider_evidence["degradation"]["schema_signature"] == "股票代码|股票简称|陌生排名字段"
+    assert provider_evidence["write_actions_allowed"] is False

@@ -220,6 +220,7 @@ IWENCAI_DEGRADED_SOURCE_TYPES = {
     "schema_drift",
     "offline_fallback",
 }
+IWENCAI_WRITE_ACTION_IDS = {"send_screener", "add_watchlist", "create_basket", "draft_backtest"}
 
 
 @router.post("/iwencai")
@@ -498,6 +499,17 @@ def _build_iwencai_task_response(
     if not any(bucket["id"] == selected_bucket for bucket in buckets):
         selected_bucket = "candidates"
     actions = _build_iwencai_actions(computed_status, bool(normalized_candidates))
+    provider_evidence = _build_iwencai_provider_evidence(
+        query=query,
+        total=total,
+        result_pool_id=result_pool_id,
+        status=computed_status,
+        source_status=source_status,
+        parsed_conditions=parsed_conditions,
+        candidates=normalized_candidates,
+        actions=actions,
+        issue=issue,
+    )
     source_context = _build_iwencai_source_context(
         req,
         query,
@@ -508,6 +520,7 @@ def _build_iwencai_task_response(
         source_status,
         issue,
         result_pool_id,
+        provider_evidence,
     )
     response = {
         "success": success,
@@ -524,6 +537,7 @@ def _build_iwencai_task_response(
         "actions": actions,
         "source_context": source_context,
         "source_status": source_status,
+        "provider_evidence": provider_evidence,
         "issue": issue,
         "failure_type": issue["type"],
         "failure_reason": issue["reason"],
@@ -1135,6 +1149,121 @@ def _build_iwencai_actions(status: str, has_candidates: bool) -> list[dict[str, 
     return base
 
 
+def _build_iwencai_provider_evidence(
+    *,
+    query: str,
+    total: int,
+    result_pool_id: str,
+    status: str,
+    source_status: dict[str, Any],
+    parsed_conditions: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    issue: dict[str, str],
+) -> dict[str, Any]:
+    """Summarize provider evidence for UI, OpenClaw, and release review.
+
+    Keep this compact and derived from already-sanitized response fields; it is
+    intentionally not a raw provider payload.
+    """
+    action_ids = {
+        str(item.get("id") or "")
+        for item in actions
+        if isinstance(item, dict) and item.get("enabled") is not False
+    }
+    enabled_write_actions = sorted(action_ids & IWENCAI_WRITE_ACTION_IDS)
+    blocked_write_actions = sorted(IWENCAI_WRITE_ACTION_IDS - set(enabled_write_actions))
+
+    condition_status_counts = Counter(
+        str(item.get("hit_count_status") or item.get("status") or "unknown")
+        for item in parsed_conditions
+    )
+    condition_evidence = [
+        {
+            "raw_text": item.get("raw_text") or "",
+            "field": item.get("field") or "",
+            "hit_count": item.get("hit_count"),
+            "hit_count_status": item.get("hit_count_status") or "",
+            "evidence_level": item.get("evidence_level") or "",
+            "source_field": item.get("source_field") or "",
+            "source_fields": item.get("source_fields") or [],
+            "missing_reason": item.get("missing_reason") or item.get("unavailable_reason") or "",
+            "status": item.get("status") or "",
+        }
+        for item in parsed_conditions
+    ]
+
+    if not parsed_conditions:
+        field_coverage_status = "no_conditions"
+    elif all(item.get("hit_count_status") == "verified" for item in parsed_conditions):
+        field_coverage_status = "verified"
+    elif any(item.get("hit_count_status") == "verified" for item in parsed_conditions):
+        field_coverage_status = "partial"
+    else:
+        field_coverage_status = str(source_status.get("type") or source_status.get("status") or "unverified")
+
+    provenance_status_counts = Counter(
+        str((item.get("candidate_provenance") or {}).get("validation_status") or "missing")
+        for item in candidates
+    )
+    actionable_candidates = provenance_status_counts.get("verified", 0)
+    if status != "result_ready":
+        actionable_candidates = 0
+
+    if status == "result_ready" and field_coverage_status == "verified" and not provenance_status_counts.get("partial") and not provenance_status_counts.get("unverified"):
+        summary_status = "verified"
+    elif status == "result_ready":
+        summary_status = "partial"
+    elif status == "partial_result":
+        summary_status = "partial"
+    elif status == "degraded_data":
+        summary_status = "degraded"
+    elif status == "failed":
+        summary_status = "failed"
+    elif status == "no_match":
+        summary_status = "empty"
+    else:
+        summary_status = status or "unknown"
+
+    degradation = {
+        "type": source_status.get("type") or issue.get("type") or "",
+        "reason": source_status.get("reason") or issue.get("reason") or "",
+        "next_action": issue.get("next_action") or "",
+        "cache_status": source_status.get("cache_status") or "",
+        "retry_after_seconds": source_status.get("retry_after_seconds") or "",
+        "local_wait_seconds": source_status.get("local_wait_seconds") or "",
+        "response_type": source_status.get("response_type") or "",
+        "schema_signature": source_status.get("schema_signature") or "",
+    }
+    return {
+        "schema_version": "iwencai_provider_evidence_v1",
+        "query": query,
+        "result_pool_id": result_pool_id,
+        "summary_status": summary_status,
+        "provider": source_status.get("provider") or "iwencai",
+        "provider_status": source_status.get("provider_status") or "",
+        "data_status": source_status.get("status") or "",
+        "data_as_of": source_status.get("data_as_of") or "",
+        "cache_status": source_status.get("cache_status") or "",
+        "reported_total": total,
+        "candidate_count": len(candidates),
+        "field_coverage_status": field_coverage_status,
+        "condition_status_counts": dict(condition_status_counts),
+        "condition_evidence": condition_evidence,
+        "candidate_validation": {
+            "verified": provenance_status_counts.get("verified", 0),
+            "partial": provenance_status_counts.get("partial", 0),
+            "unverified": provenance_status_counts.get("unverified", 0),
+            "missing": provenance_status_counts.get("missing", 0),
+            "actionable": actionable_candidates,
+        },
+        "write_actions_allowed": bool(enabled_write_actions) and status == "result_ready",
+        "enabled_write_actions": enabled_write_actions,
+        "blocked_write_actions": blocked_write_actions,
+        "degradation": degradation,
+    }
+
+
 def _build_iwencai_issue(status: str, *, error: str = "", failure_type: str = "") -> dict[str, str]:
     if status == "result_ready":
         return {"type": "", "label": "", "reason": "", "next_action": ""}
@@ -1161,6 +1290,7 @@ def _build_iwencai_source_context(
     source_status: dict[str, Any],
     issue: dict[str, str],
     result_pool_id: str,
+    provider_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     incoming = _sanitize_iwencai_source_context(req.source_context)
     request_generation = _normalize_iwencai_request_generation(
@@ -1210,6 +1340,7 @@ def _build_iwencai_source_context(
         "schema_signature": source_status.get("schema_signature") or "",
         "retry_after_seconds": source_status.get("retry_after_seconds") or "",
         "local_wait_seconds": source_status.get("local_wait_seconds") or "",
+        "provider_evidence": provider_evidence,
         "failure_type": issue["type"],
         "status_reason": issue["reason"],
         "next_action": issue["next_action"],

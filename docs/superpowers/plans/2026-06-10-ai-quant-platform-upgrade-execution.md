@@ -2015,6 +2015,40 @@ Remaining gaps:
 - A real production release still needs a filled decision record generated from the template and verified with `--decision <record>` after Docker/provider/OpenClaw/LLM/data/trading gates have actual evidence.
 - This gate proves record structure and secret-redaction discipline; it does not prove production services are healthy or approved.
 
+## Task 9.27: Backend-Owned iWencai Provider Evidence Summary
+
+Status: delivered as the next P2 provider-evidence hardening slice after the release decision verifier. This does not call real iWencai/pywencai, log in to TongHuaShun, submit a provider query, call OpenClaw/LLM, write data, run backtests, or approve production release; it makes the already-derived provider evidence easier for UI/OpenClaw/release review to consume without trusting frontend inference.
+
+Implemented:
+
+- Added `provider_evidence` to `/api/llm/iwencai` responses and to the sanitized `source_context`.
+- The evidence summary includes `schema_version`, result pool, provider/data/cache status, reported total, candidate count, field coverage status, condition hit-count status counts, per-condition evidence, candidate row validation counts, degradation metadata, and write-action gating.
+- `write_actions_allowed` is true only when the router status is `result_ready` and the backend has enabled write-class actions; partial, degraded, stale-cache, schema-drift, rate-limited, no-match, and failed states stay read-only.
+- The frontend iWencai view model now preserves `provider_evidence` at both `viewModel.provider_evidence` and `source_context.provider_evidence`.
+- Cache-busting was updated for the dynamically loaded iWencai module: `intelligence-iwencai.js?v=14`, `app.js?v=133`, and service worker cache `ai-quant-v179`.
+
+Safety boundary:
+
+- The new summary is derived from already-sanitized rows, parsed conditions, source status, and action metadata.
+- No raw provider payload, cookie, token, secret, frontend-supplied provenance, external call, Docker, data sync, broker, paper/live, production config, or auth/invite-code path was changed.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_iwencai_task_router_api.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py tests/test_frontend_workflow_contracts.py::test_signal_engine_is_primary_frontend_semantics tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted -q -p no:cacheprovider
+.venv/bin/python -m compileall -q dashboard/routers/llm.py
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+.venv/bin/python scripts/release_preflight.py
+git diff --check
+```
+
+Remaining gaps:
+
+- This closes the backend-owned evidence summary for deterministic fixtures; it still does not prove real provider credentials, live schema, rate-limit behavior, or OpenClaw deep orchestration.
+- OpenClaw should next consume `provider_evidence` in read-only research tasks before any write-capable orchestration is considered.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

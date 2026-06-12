@@ -4126,14 +4126,14 @@ def test_intelligence_market_assets_are_versioned_and_styled():
 
     assert "/static/intelligence.js?v=17" in app_js
     assert "/static/intelligence-market.js?v=27" in app_js
-    assert "/static/intelligence-iwencai.js?v=13" in app_js
+    assert "/static/intelligence-iwencai.js?v=14" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=132" in scripts
+    assert "/static/app.js?v=133" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
     assert "/static/app-ui-shell.js?v=45" in scripts
     assert "/sw.js?v=73" in app_ui_shell
-    assert "ai-quant-v178" in service_worker
+    assert "ai-quant-v179" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
@@ -4387,6 +4387,16 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
                     data_as_of: '2026-06-12T09:30:00+08:00',
                     cache_status: 'fresh',
                 },
+                provider_evidence: {
+                    schema_version: 'iwencai_provider_evidence_v1',
+                    summary_status: 'partial',
+                    field_coverage_status: 'partial',
+                    write_actions_allowed: false,
+                    candidate_validation: { verified: 0, partial: 1, unverified: 0, missing: 0, actionable: 0 },
+                    condition_status_counts: { verified: 2, missing_source_field: 1 },
+                    blocked_write_actions: ['create_basket', 'draft_backtest'],
+                    degradation: { type: 'partial_source_failure', reason: '部分条件缺少可验证字段' },
+                },
                 source_context: {
                     result_pool_id: 'iwencai:test-pool',
                     provider: 'backend-iwencai',
@@ -4434,6 +4444,9 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
             assert.equal(Intelligence.state.iwencaiActionState.source_context.condition_evidence['高股息'].source_field, '股息率');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.condition_evidence['近5日放量'].hit_count_status, 'missing_source_field');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.parsed_conditions[0].evidence_level, 'provider_field');
+            assert.equal(Intelligence.state.iwencaiActionState.provider_evidence.summary_status, 'partial');
+            assert.equal(Intelligence.state.iwencaiActionState.provider_evidence.write_actions_allowed, false);
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.provider_evidence.field_coverage_status, 'partial');
             assert.equal(Intelligence.state.iwencaiActionState.contextList[0].sourceLabel, '问财');
 
             Intelligence.selectIwencaiBucket('themes');

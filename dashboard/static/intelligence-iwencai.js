@@ -712,6 +712,9 @@
         });
         const sourceContext = resp?.source_context && typeof resp.source_context === 'object' ? resp.source_context : {};
         const issue = normalizeTaskIssue(resp);
+        const providerEvidence = resp?.provider_evidence && typeof resp.provider_evidence === 'object'
+            ? resp.provider_evidence
+            : (sourceContext.provider_evidence && typeof sourceContext.provider_evidence === 'object' ? sourceContext.provider_evidence : null);
         return {
             ...sourceContext,
             source: sourceContext.source || 'iwencai',
@@ -737,6 +740,7 @@
             source_type: sourceContext.source_type || resp?.source_status?.type || resp?.failure_type || '',
             response_type: sourceContext.response_type || resp?.response_type || resp?.source_status?.response_type || '',
             retry_after_seconds: sourceContext.retry_after_seconds || resp?.retry_after_seconds || resp?.source_status?.retry_after_seconds || '',
+            provider_evidence: providerEvidence,
             rank_reason: sourceContext.rank_reason || `问财条件: ${conditionSummary(conditions) || query}`,
         };
     }
@@ -904,6 +908,9 @@
             issue,
             total,
             source_context: { ...sourceContext, selected_bucket: selected },
+            provider_evidence: resp?.provider_evidence && typeof resp.provider_evidence === 'object'
+                ? resp.provider_evidence
+                : sourceContext.provider_evidence,
             contextList,
         };
     }
@@ -1105,6 +1112,37 @@
         </section>`;
     }
 
+    function buildActionStateFromViewModel(viewModel, {
+        query,
+        requestGeneration = null,
+        requestStatus = '',
+        emptyPool = false,
+        previous = null,
+    } = {}) {
+        const actionableRows = emptyPool ? [] : (viewModel.actionableRows || []);
+        const normalizedRows = emptyPool ? [] : (viewModel.normalizedRows || []);
+        return {
+            ...(previous || {}),
+            pool: actionableRows.map((row) => row.code).filter(Boolean).slice(0, 50),
+            watchlistCodes: actionableRows.map((row) => row.code).filter(Boolean).slice(0, 20),
+            query: query || viewModel.query,
+            selectedBucket: viewModel.selected_bucket,
+            source_context: {
+                ...viewModel.source_context,
+                ...(requestGeneration ? { request_generation: requestGeneration } : {}),
+                ...(requestStatus ? { request_status: requestStatus } : {}),
+            },
+            contextList: emptyPool ? [] : (viewModel.contextList || []),
+            candidates: normalizedRows,
+            actionableCandidates: actionableRows,
+            excludedCandidates: emptyPool ? [] : (viewModel.excludedRows || []),
+            provider_evidence: viewModel.provider_evidence || viewModel.source_context?.provider_evidence || null,
+            viewModel,
+            ...(requestGeneration ? { requestGeneration } : {}),
+            ...(requestStatus ? { request_status: requestStatus } : {}),
+        };
+    }
+
     Object.assign(Intelligence, {
         _buildIwencaiTaskViewModel: buildIwencaiTaskViewModel,
 
@@ -1166,24 +1204,12 @@
                 source_context: externalSourceContext || {},
             }, query, selectedBucket);
             el.innerHTML = renderIwencaiTask(parsingViewModel);
-            state.iwencaiActionState = {
-                pool: [],
-                watchlistCodes: [],
+            state.iwencaiActionState = buildActionStateFromViewModel(parsingViewModel, {
                 query,
-                selectedBucket: parsingViewModel.selected_bucket,
-                source_context: {
-                    ...parsingViewModel.source_context,
-                    request_generation: requestToken.generation,
-                    request_status: 'pending',
-                },
-                contextList: [],
-                candidates: [],
-                actionableCandidates: [],
-                excludedCandidates: [],
-                viewModel: parsingViewModel,
                 requestGeneration: requestToken.generation,
-                request_status: 'pending',
-            };
+                requestStatus: 'pending',
+                emptyPool: true,
+            });
 
             try {
                 const resp = await App.fetchJSON('/api/llm/iwencai', {
@@ -1220,26 +1246,11 @@
                     summaryRows: viewModel.summaryRows,
                     viewModel,
                 };
-                const codes = viewModel.normalizedRows.map((row) => row.code).filter(Boolean);
-                const actionableCodes = viewModel.actionableRows.map((row) => row.code).filter(Boolean);
-                state.iwencaiActionState = {
-                    pool: actionableCodes.slice(0, 50),
-                    watchlistCodes: actionableCodes.slice(0, 20),
+                state.iwencaiActionState = buildActionStateFromViewModel(viewModel, {
                     query,
-                    selectedBucket: viewModel.selected_bucket,
-                    source_context: {
-                        ...viewModel.source_context,
-                        request_generation: requestToken.generation,
-                        request_status: 'completed',
-                    },
-                    contextList: viewModel.contextList,
-                    candidates: viewModel.normalizedRows,
-                    actionableCandidates: viewModel.actionableRows,
-                    excludedCandidates: viewModel.excludedRows,
-                    viewModel,
                     requestGeneration: requestToken.generation,
-                    request_status: 'completed',
-                };
+                    requestStatus: 'completed',
+                });
                 el.innerHTML = renderIwencaiTask(viewModel);
                 finishIwencaiRequest(requestToken);
                 return viewModel;
@@ -1264,24 +1275,12 @@
                     },
                 }, query, selectedBucket);
                 state.iwencaiResult = { query, data: [], summaryRows: [], viewModel };
-                state.iwencaiActionState = {
-                    pool: [],
-                    watchlistCodes: [],
+                state.iwencaiActionState = buildActionStateFromViewModel(viewModel, {
                     query,
-                    selectedBucket: viewModel.selected_bucket,
-                    source_context: {
-                        ...viewModel.source_context,
-                        request_generation: requestToken.generation,
-                        request_status: 'failed',
-                    },
-                    contextList: [],
-                    candidates: [],
-                    actionableCandidates: [],
-                    excludedCandidates: [],
-                    viewModel,
                     requestGeneration: requestToken.generation,
-                    request_status: 'failed',
-                };
+                    requestStatus: 'failed',
+                    emptyPool: true,
+                });
                 el.innerHTML = renderIwencaiTask(viewModel);
                 finishIwencaiRequest(requestToken);
                 return viewModel;
@@ -1302,19 +1301,9 @@
                 summaryRows: viewModel.summaryRows,
                 viewModel,
             };
-            state.iwencaiActionState = {
-                ...(state.iwencaiActionState || {}),
-                pool: viewModel.actionableRows.map((row) => row.code).filter(Boolean).slice(0, 50),
-                watchlistCodes: viewModel.actionableRows.map((row) => row.code).filter(Boolean).slice(0, 20),
-                query: viewModel.query,
-                selectedBucket: viewModel.selected_bucket,
-                source_context: viewModel.source_context,
-                contextList: viewModel.contextList,
-                candidates: viewModel.normalizedRows,
-                actionableCandidates: viewModel.actionableRows,
-                excludedCandidates: viewModel.excludedRows,
-                viewModel,
-            };
+            state.iwencaiActionState = buildActionStateFromViewModel(viewModel, {
+                previous: state.iwencaiActionState || {},
+            });
             el.innerHTML = renderIwencaiTask(viewModel);
             return true;
         },

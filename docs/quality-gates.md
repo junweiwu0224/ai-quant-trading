@@ -39,6 +39,8 @@
 
 `scripts/production_env_preflight.py` 只读当前 shell 环境变量且不打印 secret 值，但它要求上线变量存在，不适合默认 hook；适合作为生产前人工门禁或带明确环境的 release review 步骤。
 
+`scripts/production_auth_preflight.py` 只读源码和测试文件，不导入 FastAPI app、不触发 lifespan、不读取 `.env` 或数据库；适合作为生产认证边界的快速静态门禁。
+
 ### Level 2：标准交付门禁
 
 适合实现完成后主动运行：
@@ -48,8 +50,10 @@
 - `.venv/bin/python scripts/release_preflight.py --with-deployment-static`
 - `.venv/bin/python scripts/release_preflight.py --with-production-static`
 - `.venv/bin/python scripts/release_preflight.py --with-production-env`
+- `.venv/bin/python scripts/release_preflight.py --with-production-auth`
 - `.venv/bin/python scripts/deployment_static_preflight.py --production`
 - `.venv/bin/python scripts/production_env_preflight.py --profile all`
+- `.venv/bin/python scripts/production_auth_preflight.py`
 - `.venv/bin/python -m pytest -q`
 - `.venv/bin/python -m compileall -q .`
 - `.venv/bin/python scripts/frontend_data_render_audit.py`
@@ -59,7 +63,7 @@
 
 本地 Dashboard/dev server 或 E2E server 启动属于人工触发的标准交付门禁：需要监听 `localhost`/`127.0.0.1` 时默认外部/非沙箱执行启动，但页面验证仍使用 Codex in-app Browser。启动前检查端口/PID，验证后清理临时服务。
 
-`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。`--with-deployment-static` 会额外运行 Docker/环境文件静态检查，但仍不执行 `docker compose`。`--with-production-static` 使用同一只读静态检查并采用生产失败策略。`--with-production-env` 会额外运行只读环境变量检查，要求当前 shell 已准备生产变量，且输出不回显 secret 值。
+`scripts/release_preflight.py` 默认只运行 context pack verifier、全量 pytest、compileall 和 `git diff --check`；不启动 Dashboard、Docker、真实 provider、OpenClaw/LLM、同步数据、交易脚本或生产配置。`--with-audits` 会额外运行 report-writing 的数据展示健康和前端静态扫描，适合手动交付证据，不适合严格无写入 hook。`--with-deployment-static` 会额外运行 Docker/环境文件静态检查，但仍不执行 `docker compose`。`--with-production-static` 使用同一只读静态检查并采用生产失败策略。`--with-production-env` 会额外运行只读环境变量检查，要求当前 shell 已准备生产变量，且输出不回显 secret 值。`--with-production-auth` 会额外运行源码/测试级认证边界静态检查。
 
 ### Level 3：高风险门禁
 
@@ -78,6 +82,7 @@
 | Python 逻辑 | 针对性 pytest | compileall、全量 pytest | 外部数据同步；`compileall` 不进严格无写入 hook |
 | Dashboard 启动脚本 | `.venv/bin/python -m pytest tests/test_run_dashboard.py -q` | context pack verifier、必要时手动启动 smoke | 自动启动长期服务；真实外部服务 |
 | API/router | 针对性 pytest | dashboard data health（人工触发；会写本地报告并触发应用 lifespan） | 真实外部服务写入 |
+| 认证/session/API key | `tests/test_session_gate.py`、`tests/test_openclaw_account.py` | `.venv/bin/python scripts/production_auth_preflight.py` | 生产配置变更、真实账号权限变更 |
 | 前端 UI/JS/CSS | 前端契约测试，例如 `.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -q` | frontend render audit、browser smoke、E2E | 自动启动长期服务；报告型扫描不进严格无写入 hook |
 | 数据模型/存储 | 针对性 pytest | 全量 pytest | 迁移/清库/真实数据写入 |
 | OpenClaw/LLM | 单元测试 | 用户确认后联调 | 凭证、外部调用默认禁用 |

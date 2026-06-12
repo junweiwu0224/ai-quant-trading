@@ -28,6 +28,7 @@ def build_preflight_plan(
     with_deployment_static: bool = False,
     with_production_static: bool = False,
     with_production_env: bool = False,
+    with_production_auth: bool = False,
 ) -> list[PreflightStep]:
     """Return the ordered local preflight plan.
 
@@ -78,6 +79,13 @@ def build_preflight_plan(
             PreflightStep(
                 "production-env",
                 (PYTHON, "scripts/production_env_preflight.py", "--profile", "all"),
+            )
+        )
+    if with_production_auth:
+        plan.append(
+            PreflightStep(
+                "production-auth",
+                (PYTHON, "scripts/production_auth_preflight.py"),
             )
         )
     return plan
@@ -280,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also check required production environment variables without printing secret values.",
     )
+    parser.add_argument(
+        "--with-production-auth",
+        action="store_true",
+        help="Also run static production authentication boundary checks without importing the app.",
+    )
     parser.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     args = parser.parse_args(argv)
 
@@ -294,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         with_deployment_static=args.with_deployment_static,
         with_production_static=args.with_production_static,
         with_production_env=args.with_production_env,
+        with_production_auth=args.with_production_auth,
     )
     if args.dry_run:
         _print_plan(plan)

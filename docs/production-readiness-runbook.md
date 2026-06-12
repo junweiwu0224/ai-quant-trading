@@ -22,6 +22,7 @@ git status --short
 .venv/bin/python scripts/deployment_static_preflight.py
 .venv/bin/python scripts/release_preflight.py --with-production-static
 .venv/bin/python scripts/production_env_preflight.py --profile base
+.venv/bin/python scripts/production_auth_preflight.py
 ```
 
 通过标准：
@@ -31,6 +32,7 @@ git status --short
 - Deployment static preflight 没有 hard findings。
 - 生产静态门禁通过；OpenClaw 必须保持 token auth、compose-only network expose，且不能默认发布宿主机 `18789` 端口。生产风险门禁见 `docs/decisions/0004-production-release-risk-gates.md`；签收模板见 `docs/release-evidence/production-release-decision-template.md`。
 - 生产环境变量基础门禁通过；脚本只报告变量状态，不打印 secret 值。
+- 生产认证静态门禁通过；测试环境绕过、生产 CORS、session cookie、API key、默认邀请码和审计红线没有退化。
 
 ## 1. 本地标准门禁
 
@@ -83,6 +85,31 @@ git status --short
 - 由 operator 在受控环境中注入变量后重跑同一命令。
 - 不要为了让门禁通过而把 secret 写入仓库或 `.env.example`。
 
+## 1.6 生产认证静态门禁
+
+该门禁只读源码和测试文件，不导入 FastAPI app、不触发应用 lifespan、不读取 `.env` 或数据库。它用于上线前确认认证边界没有在后续改动中被静态弱化。
+
+执行：
+
+```bash
+.venv/bin/python scripts/production_auth_preflight.py
+```
+
+通过标准：
+
+- `SessionGateMiddleware` 的测试绕过只限 `APP_ENV=test`。
+- 配置 API key 后，HTTP API 支持 `X-API-Key` 或 `Authorization: Bearer`，且比较使用 constant-time compare。
+- 生产 CORS 只允许批准的 HTTPS origin，不包含 `localhost` 或 `127.0.0.1`。
+- `quant_session` cookie 在 `APP_ENV=production` 下启用 `secure`，并保留 `httponly`、`samesite=lax`、`path=/`。
+- 生产环境未设置有效 `QUANT_DEFAULT_INVITE_CODE` 时不会自动创建 `LOCAL1` 默认邀请码。
+- session token 和 invite code 只按 hash 存储/查询，注册审计记录不写明文邀请码。
+
+如果失败：
+
+- 先确认是脚本误报还是认证边界真的退化。
+- 真退化时修复源码并补测试，再重跑同一门禁。
+- 不要通过放宽门禁来推进上线。
+
 ## 2. Docker Compose 验证
 
 需要先确认：
@@ -91,6 +118,7 @@ git status --short
 - 已决定是否设置 `QUANT_SYSTEM_API_KEY`、`APP_ENV`、`OPENAI_*`、`OPENCLAW_*`、`IWENCAI_COOKIE`。
 - 已设置 `OPENCLAW_API_KEY`，并确认 OpenClaw gateway 仅通过 compose 网络 `expose: 18789` 供 Dashboard 容器访问；若需要原生 Web 面板，必须显式设置受控的 `OPENCLAW_WEB_URL`。
 - 已通过 `.venv/bin/python scripts/production_env_preflight.py --profile docker`。
+- 已通过 `.venv/bin/python scripts/production_auth_preflight.py`。
 
 确认后执行：
 
@@ -235,6 +263,7 @@ docker compose --profile trading up
 - Bundle path 和 checksum。
 - 本地 preflight 输出。
 - Production env preflight 输出状态；不得记录 secret 值。
+- Production auth preflight 输出。
 - Docker compose config / ps / smoke 结果。
 - Provider / OpenClaw / LLM 验证范围。
 - 未解决风险、接受人和到期时间。

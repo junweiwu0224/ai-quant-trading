@@ -39,6 +39,19 @@
 
 结论：
 
+## Production Auth Boundary Gate
+
+- `.venv/bin/python scripts/production_auth_preflight.py`：
+- 测试环境 API 绕过是否仅限 `APP_ENV=test`：
+- 生产 CORS 是否只允许批准的 HTTPS origin：
+- `quant_session` cookie 在生产是否 `secure` / `httponly` / `samesite=lax`：
+- API key 是否由 `X-API-Key` / `Authorization: Bearer` 支持，且使用 constant-time compare：
+- 生产是否禁止默认创建 `LOCAL1` 邀请码：
+- session token / invite code 是否只按 hash 存储或审计：
+- 注册审计是否未记录明文邀请码：
+
+结论：
+
 ## OpenClaw Auth And Network Gate
 
 - 当前配置是否使用 `openclaw gateway run --auth token --token "$${OPENCLAW_API_KEY}"`：

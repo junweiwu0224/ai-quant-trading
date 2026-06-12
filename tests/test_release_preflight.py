@@ -34,6 +34,7 @@ def test_default_preflight_plan_is_local_and_non_deploying():
     assert "scripts/sync_data.py" not in rendered
     assert "openclaw" not in rendered.lower()
     assert "production_env_preflight.py" not in rendered
+    assert "production_auth_preflight.py" not in rendered
 
 
 def test_preflight_plan_can_include_report_audits_explicitly():
@@ -75,6 +76,17 @@ def test_preflight_plan_can_include_production_env_gate_explicitly():
 
     assert labels[-1] == "production-env"
     assert ".venv/bin/python scripts/production_env_preflight.py --profile all" in rendered
+    assert "docker compose" not in rendered
+
+
+def test_preflight_plan_can_include_production_auth_gate_explicitly():
+    plan = release_preflight.build_preflight_plan(with_production_auth=True)
+    labels = [step.label for step in plan]
+    commands = [" ".join(step.command) for step in plan]
+    rendered = "\n".join(commands)
+
+    assert labels[-1] == "production-auth"
+    assert ".venv/bin/python scripts/production_auth_preflight.py" in rendered
     assert "docker compose" not in rendered
 
 
@@ -124,11 +136,13 @@ def test_local_delivery_evidence_lists_new_release_files():
         "docs/release-evidence/production-release-decision-template.md",
         "scripts/build_release_bundle.py",
         "scripts/release_preflight.py",
+        "scripts/production_auth_preflight.py",
         "scripts/production_env_preflight.py",
         "tests/test_build_release_bundle.py",
         "tests/test_e2e_local_script.py",
         "tests/test_iwencai_client_status.py",
         "tests/test_iwencai_task_router_api.py",
+        "tests/test_production_auth_preflight.py",
         "tests/test_production_env_preflight.py",
         "tests/test_release_preflight.py",
     ]:

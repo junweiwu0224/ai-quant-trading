@@ -1947,6 +1947,39 @@ Remaining gaps:
 - The production-env gate still must be run in an approved staging/production shell after operator-managed variables are injected; do not copy secrets into repo files or release evidence.
 - Passing the env gate proves only presence/shape/placeholders. It does not prove Docker startup, provider validity, LLM/OpenClaw connectivity, data sync safety, or trading readiness.
 
+## Task 9.25: Production Auth Static Preflight Gate
+
+Status: delivered as a production-readiness hardening slice after the production environment gate. This does not deploy, import the FastAPI app, start Docker, read `.env`, touch account databases, or approve production release; it turns the Dashboard auth/session/CORS/invite boundaries into a reproducible static gate.
+
+Implemented:
+
+- Added `scripts/production_auth_preflight.py`, a source/test static checker for production auth invariants.
+- The gate verifies that the API session bypass is test-only, API key auth remains enabled when configured, API key comparison uses `secrets.compare_digest`, production CORS does not include localhost, production session cookies are `secure`/`httponly`/`samesite=lax`, production does not auto-bootstrap `LOCAL1`, and invite/session secrets remain hash-only in storage/audit paths.
+- Added `tests/test_production_auth_preflight.py` with current-state coverage and mutation-style fixtures for weakened CORS, cookie secure flag, API key compare, production invite bootstrap, and plaintext invite audit regression.
+- `scripts/release_preflight.py --with-production-auth` now appends the auth static gate explicitly; the default local preflight remains unchanged.
+- Updated `AGENTS.md`, `docs/commands.md`, `docs/testing.md`, `docs/quality-gates.md`, `docs/production-readiness-runbook.md`, ADR `0004`, the production release decision template, and local delivery evidence so the auth gate is part of production readiness.
+
+Safety boundary:
+
+- No app import, lifespan startup, database access, Docker, deployment, production config mutation, real provider call, external LLM/OpenClaw call, data sync, broker API, paper/live order, migration, or auth weakening was performed.
+- This is a static gate; it does not replace HTTPS/proxy/session/browser smoke in the approved staging/production environment.
+
+Verification:
+
+```bash
+.venv/bin/python scripts/production_auth_preflight.py
+.venv/bin/python -m pytest tests/test_production_auth_preflight.py tests/test_release_preflight.py -q -p no:cacheprovider
+.venv/bin/python -m compileall -q scripts/production_auth_preflight.py scripts/release_preflight.py
+.venv/bin/python scripts/release_preflight.py --dry-run --with-production-auth
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+git diff --check
+```
+
+Remaining gaps:
+
+- The auth static gate must still be followed by real staging browser/API smoke after Docker/env confirmation.
+- It does not prove reverse proxy TLS, external domain cookies, live account creation, or operator-managed API key distribution.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

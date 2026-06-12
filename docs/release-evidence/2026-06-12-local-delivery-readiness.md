@@ -75,6 +75,7 @@ docs/production-readiness-runbook.md
 docs/release-evidence/production-release-decision-template.md
 scripts/build_release_bundle.py
 scripts/deployment_static_preflight.py
+scripts/production_auth_preflight.py
 scripts/production_env_preflight.py
 scripts/release_preflight.py
 tests/test_build_release_bundle.py
@@ -82,6 +83,7 @@ tests/test_deployment_static_preflight.py
 tests/test_e2e_local_script.py
 tests/test_iwencai_client_status.py
 tests/test_iwencai_task_router_api.py
+tests/test_production_auth_preflight.py
 tests/test_production_env_preflight.py
 tests/test_release_preflight.py
 ```
@@ -124,12 +126,13 @@ git diff --check
 Observed results:
 
 - Release evidence coverage check: current modified and untracked files matched the Release Delta section.
-- Local release bundle generated and verified: `46` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
+- Local release bundle generated and verified: `55` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
 - Bundle checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256` and verified by `scripts/build_release_bundle.py --verify-only`.
 - Bundle verify-only checks the archive checksum, archive member list, unpack drill, and manifest file hashes against the current workspace so stale bundles fail before handoff. The exact archive checksum is intentionally kept out of archived source/docs to avoid a self-referential checksum.
 - Latest release preflight with production static gate: context pack OK, release evidence OK, pytest `819 passed, 1 warning`, compileall passed, `git diff --check` passed, deployment production static preflight passed with no findings.
 - Production static preflight now passes without starting Docker or external services; it verifies OpenClaw token auth, compose-only port exposure, and production risk decision docs.
 - Production env preflight is now available as an explicit read-only gate and is covered by tests. It checks current shell variables by profile and never prints secret values; it is not part of the default local preflight because production secrets must not be required in local development or CI.
+- Production auth preflight is now available as an explicit read-only static gate and is covered by tests. It checks Dashboard session/API-key/CORS/invite audit boundaries without importing the app or touching `.env`/database state.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.
 - `docker compose config` parses successfully and shows OpenClaw `expose: 18789` without host `ports`, plus dashboard `OPENCLAW_GATEWAY_URL=http://openclaw:18789`.
@@ -158,6 +161,7 @@ These gates remain unresolved and require explicit confirmation, a dedicated env
 - Decide whether the frontend static heuristic risks need triage beyond the current report-passing gate.
 - Run Docker compose and deployment-environment validation after confirming local data/env impact.
 - Run `.venv/bin/python scripts/production_env_preflight.py --profile all` in the approved production/staging shell after operator-managed variables are injected; current local shell without those variables is expected to fail this gate. Do not record secret values.
+- Run `.venv/bin/python scripts/production_auth_preflight.py` before exposing the Dashboard outside localhost, and fix any hard findings instead of relaxing the gate.
 - Fill a production release decision record from `docs/release-evidence/production-release-decision-template.md`; any temporary acceptance of OpenClaw auth/network risk must include owner, expiry, compensating controls, rollback, and follow-up.
 - Validate real provider/live behavior only after approving provider credentials, rate-limit safety, and data boundaries.
 - Validate OpenClaw/LLM integration only after approving external-service scope and credentials.

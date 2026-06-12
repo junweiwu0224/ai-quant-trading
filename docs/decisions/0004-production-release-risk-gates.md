@@ -13,6 +13,7 @@
 
 - OpenClaw gateway 必须在 Docker Compose 中使用 token auth，并且默认只暴露给 compose 内部网络，不能发布宿主机端口 `18789`。
 - 生产环境变量必须由 operator 在受控环境中注入；不能把 API key、cookie、token 或生产配置值写入仓库、文档或 `.env.example`。
+- Dashboard 对外暴露前，认证边界必须保持可静态验证：测试环境绕过仅限 `APP_ENV=test`、生产 CORS 不放行 localhost、session cookie 在生产启用 secure、默认邀请码不在生产自动创建。
 - 真实 iWencai/provider、外部 LLM/OpenClaw、数据同步、数据库迁移、paper/live/broker/trading 都需要凭证、额度、数据写入或交易边界确认。
 - 本地 release preflight 的目标是可复现交付证据，不会启动 Docker、访问真实 provider、调用外部 LLM/OpenClaw、写生产数据或执行交易。
 
@@ -25,8 +26,9 @@
 1. 生产上线前必须先完成 `docs/production-readiness-runbook.md` 中的确认型门禁，并把结果记录到 `docs/release-evidence/production-release-decision-template.md` 的副本或等价发布批准记录中。
 2. `scripts/deployment_static_preflight.py` 必须把缺失的生产风险决策文档、OpenClaw `--auth none`、未使用 token auth、缺少 `OPENCLAW_API_KEY` 注入、宿主机端口 `18789` 发布等视为 hard finding。
 3. `scripts/production_env_preflight.py` 必须作为生产前显式门禁检查当前 shell 中的 `APP_ENV`、Dashboard API key、OpenClaw token、LLM 和 provider 变量状态；它只能输出 present/missing/placeholder/too_short 等状态，不得打印 secret 值。
-4. OpenClaw auth/network、真实 provider、外部 LLM/OpenClaw、数据同步/迁移、paper/live/broker/trading 不允许通过本地预检自动放行。
-5. 若上线时选择临时接受外部 OpenClaw 面板公开入口、真实 provider 限制或交易边界风险，必须记录 owner、到期时间、补偿控制、回滚方式和后续修复项；不得无限期默认接受。
+4. `scripts/production_auth_preflight.py` 必须作为生产前显式静态门禁检查 Dashboard 认证/session/CORS/invite 审计边界；它不得导入 FastAPI app、触发 lifespan、读取 `.env` 或访问数据库。
+5. OpenClaw auth/network、真实 provider、外部 LLM/OpenClaw、数据同步/迁移、paper/live/broker/trading 不允许通过本地预检自动放行。
+6. 若上线时选择临时接受外部 OpenClaw 面板公开入口、真实 provider 限制或交易边界风险，必须记录 owner、到期时间、补偿控制、回滚方式和后续修复项；不得无限期默认接受。
 
 ## 主要取舍
 
@@ -48,8 +50,10 @@
   - `docs/production-readiness-runbook.md`
   - `docs/release-evidence/2026-06-12-local-delivery-readiness.md`
   - `scripts/deployment_static_preflight.py`
+  - `scripts/production_auth_preflight.py`
   - `scripts/production_env_preflight.py`
   - `tests/test_deployment_static_preflight.py`
+  - `tests/test_production_auth_preflight.py`
   - `tests/test_production_env_preflight.py`
 
 ## 后续

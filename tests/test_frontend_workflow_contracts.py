@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=136" in scripts
+    assert "/static/app.js?v=137" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -2857,6 +2857,7 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
         "_selectStockEvent(",
         "_renderStockChartEventLayer(",
         "_onStockChartEventClick(",
+        "_buildChartEventHoverPreview(",
         "_filteredWorkbenchEvents(",
         "_renderStockEventList(",
         "_renderStockEventGroupFocus(",
@@ -2873,6 +2874,8 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
     assert "data-stock-bottom-tab" in stock_detail_core
     assert "data-stock-event-id" in stock_detail_core
     assert "data-chart-event-id" in stock_detail_core
+    assert "data-chart-event-preview" in stock_detail_core
+    assert "stock-chart-event-popover" in stock_detail_core
     assert "data-stock-event-group-date" in stock_detail_core
     assert "data-stock-event-group-action" in stock_detail_core
     assert "data-stock-event-group-drawer" in stock_detail_core
@@ -3449,9 +3452,16 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.ok(report.duplicate_ids.some((id) => /report-dup/.test(id)));
         assert.equal(state.chartState.eventOverlayCount, 1);
         assert.equal(state.chartState.eventOverlayEvents[0].cluster_count, 4);
+        assert.equal(state.chartState.eventOverlayEvents[0].raw_count, 5);
         assert.deepEqual(state.chartState.eventOverlayEvents[0].event_ids.length, 4);
+        assert.ok(state.chartState.eventOverlayEvents[0].event_titles.some((title) => /主力资金净流入|签订重大合同|订单增长/.test(title)));
         assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /class="stock-chart-event-dot is-cluster"/);
         assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /data-chart-event-count="4"/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /data-chart-event-preview="true"/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /stock-chart-event-popover/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /2026-06-10 同日事件组/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /4 个独立事件 \/ 5 条原始证据/);
+        assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /点击进入事件组/);
         assert.ok(elements['sd-kline-chart'].eventLayer.innerHTML.includes('>4</span>'));
         assert.equal(chart.created.length, 1);
         assert.equal(chart.created[0].extendData.stockEventClusterCount, 4);
@@ -4690,15 +4700,15 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=85" in template
+    assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=136" in scripts
+    assert "/static/app.js?v=137" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=47" in scripts
+    assert "/static/app-ui-shell.js?v=48" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4718,7 +4728,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=23" in app
+    assert "/static/stock-detail-core.js?v=24" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

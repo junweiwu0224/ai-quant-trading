@@ -2272,6 +2272,46 @@ Remaining gaps:
 - Hover-triggered previews, minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, backend-cited LLM diagnosis, and formal/provider-grade event-study validation remain follow-ups.
 - Browser QA does not use real provider/event feeds and does not run any write or execution path.
 
+## Task 9.34: Stock Chart Event Hover Preview
+
+Status: delivered as the next P1 stock-workbench workflow slice after drawer-level event detail. This does not call real provider data, external LLM/OpenClaw, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it closes the first hover/popover preview gap by making K-line event dots reveal compact, auditable event context before the user clicks into the bottom event group.
+
+TongHuaShun mechanism learned:
+
+- A mature K-line workbench lets the user inspect a dense event marker before committing to a click. The useful mechanism is quick evidence preview at the chart coordinate, then click-through into the richer event center.
+- AI Quant should learn the evidence continuity pattern, not copy 同花顺 visual skin, proprietary signals, paid/community content, or trading prompts.
+
+Implemented:
+
+- `stock-detail-core.js` now builds a chart-event hover preview for every DOM event marker, with single-event and same-day cluster copy kept distinct.
+- The K-line cluster dot now carries raw evidence count, event titles, type mix, source/date context, and a `点击进入事件组` cue; single events cue `点击同步底部事件`.
+- Overlay event construction now preserves `duplicate_count`, so chart-level cluster preview can distinguish independent events from raw evidence count instead of silently collapsing duplicate reposts.
+- `style.css` adds a compact hover/focus-visible popover for chart event dots, with constrained width and `overflow-wrap` so long titles do not create horizontal overflow.
+- Cache versions bumped: `style.css?v=86`, `app.js?v=137`, `app-ui-shell.js?v=48`, `stock-detail-core.js?v=24`, `/sw.js?v=77`, and service worker cache `ai-quant-v185`.
+
+Safety boundary:
+
+- This is a frontend rendering and interaction slice only. It does not fetch new event data, open external links, call provider/LLM/OpenClaw services, run backtests, create baskets/watchlists automatically, submit orders, or change production/auth/trading behavior.
+- Clicking event dots still uses the existing manual chart -> bottom event group path.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+```
+
+Results:
+
+- JS syntax checks passed for `stock-detail-core.js`, `app.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused chart-event hover/cache-busting contracts passed after fixing the overlay raw-count propagation gap: `4 passed, 1 warning`.
+- The Node DOM contract covers popover markup, cluster title, independent/raw count, click-through cue, event title preservation, and cache-bust literals.
+
+Remaining gaps:
+
+- Minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, backend-cited LLM diagnosis, and formal/provider-grade event-study validation remain follow-ups.
+- Browser QA does not use real provider/event feeds and does not run any write or execution path.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

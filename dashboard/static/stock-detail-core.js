@@ -1139,6 +1139,7 @@ Object.assign(globalThis.StockDetail, {
                     source_label: event.source_label || event.source || this._eventTypeLabel(event.type),
                     direction: event.direction || '',
                     value: event.value ?? null,
+                    duplicate_count: Number(event.duplicate_count || 1),
                     dataIndex,
                     timestamp: point?.timestamp ?? null,
                     high: point?.high ?? point?.close ?? point?.price ?? null,
@@ -1183,22 +1184,54 @@ Object.assign(globalThis.StockDetail, {
                 return {
                     ...representative,
                     cluster_count: 1,
+                    raw_count: Number(representative.duplicate_count || 1),
                     event_ids: eventIds,
+                    event_titles: members.map((event) => event.title).filter(Boolean).slice(0, 4),
                 };
             }
             const titles = members.slice(0, 4).map((event) => `${this._eventTypeLabel(event.type)}:${event.title}`).join('；');
             const types = this._uniqueEvidenceItems(members.map((event) => event.type));
+            const rawCount = members.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
             return {
                 ...representative,
                 title: `${representative.date_key} 事件 ${members.length} 条`,
                 detail: titles,
                 source_label: '事件聚合',
                 cluster_count: members.length,
+                raw_count: rawCount,
                 event_ids: eventIds,
                 event_types: types,
+                event_titles: members.map((event) => event.title).filter(Boolean).slice(0, 4),
                 color: representative.color || this._chartEventColor(representative.type),
             };
         });
+    },
+
+    _buildChartEventHoverPreview(event = {}) {
+        const clusterCount = Number(event.cluster_count || 1);
+        const rawCount = Number(event.raw_count || 0) || clusterCount;
+        const typeLabels = this._uniqueEvidenceItems(
+            (Array.isArray(event.event_types) && event.event_types.length ? event.event_types : [event.type])
+                .map((type) => this._eventTypeLabel(type)),
+        );
+        const title = clusterCount > 1
+            ? `${event.date_key || event.chartTime || ''} 同日事件组`
+            : (event.title || this._eventTypeLabel(event.type));
+        const summary = clusterCount > 1
+            ? `${clusterCount} 个独立事件 / ${rawCount} 条原始证据`
+            : this._eventDetailText(event);
+        const details = [
+            clusterCount > 1 ? `主事件 ${this._eventTypeLabel(event.type)} · ${event.event_titles?.[0] || event.title || '待确认'}` : '',
+            typeLabels.length ? `类型 ${typeLabels.join(' / ')}` : '',
+            event.source_label ? `来源 ${event.source_label}` : '',
+            event.date_key || event.chartTime ? `日期 ${event.date_key || event.chartTime}` : '',
+        ].filter(Boolean);
+        return {
+            title,
+            summary,
+            details,
+            cta: clusterCount > 1 ? '点击进入事件组' : '点击同步底部事件',
+        };
     },
 
     _syncWorkbenchEventOverlayState(events = null, chartData = null) {
@@ -1299,17 +1332,25 @@ Object.assign(globalThis.StockDetail, {
                 event.date_key,
                 event.detail,
             ].filter(Boolean).join(' · ');
+            const hoverPreview = this._buildChartEventHoverPreview(event);
             return `
                 <button type="button"
                     class="stock-chart-event-dot${clusterCount > 1 ? ' is-cluster' : ''}${selected ? ' is-selected' : ''}"
                     data-chart-event-id="${App.escapeHTML(event.id)}"
                     data-chart-event-date="${App.escapeHTML(event.date_key)}"
                     data-chart-event-count="${App.escapeHTML(clusterCount)}"
+                    data-chart-event-preview="true"
                     aria-pressed="${selected ? 'true' : 'false'}"
                     aria-label="${App.escapeHTML(title)}"
                     title="${App.escapeHTML(title)}"
                     style="left:${left.toFixed(2)}%;top:${top}px;--event-color:${App.escapeHTML(event.color)}">
                     <span>${App.escapeHTML(label)}</span>
+                    <span class="stock-chart-event-popover" role="tooltip">
+                        <strong>${App.escapeHTML(hoverPreview.title)}</strong>
+                        <em>${App.escapeHTML(hoverPreview.summary)}</em>
+                        ${hoverPreview.details.map((detail) => `<b>${App.escapeHTML(detail)}</b>`).join('')}
+                        <small>${App.escapeHTML(hoverPreview.cta)}</small>
+                    </span>
                 </button>
             `;
         }).join('');

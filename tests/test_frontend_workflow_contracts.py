@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=137" in scripts
+    assert "/static/app.js?v=138" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -4166,6 +4166,167 @@ def test_stock_workbench_evidence_state_completes_with_missing_reasons_and_tab_s
         assert.equal(global.App.StockWorkbenchState.layoutState.railTab, 'ai');
         assert.match(elements['stock-evidence-rail'].innerHTML, /data-stock-evidence-tab="ai" role="tab" aria-selected="true"/);
         assert.equal(global.App.StockWorkbenchState.sourceContext.sourceLabel, '板块');
+
+        const related = global.StockDetail._mergeWorkbenchRelatedContext({
+            peers: [
+                { code: '000063', name: '中兴通讯' },
+                { code: '000063', name: '中兴通讯' },
+                '新易盛 300502',
+            ],
+        }, { source: 'valuation_peers', sourceLabel: '同业估值' });
+        assert.deepEqual(related.peers, ['中兴通讯 000063', '新易盛 300502']);
+        assert.equal(related.missing_reason.peers, '');
+        assert.match(elements['stock-evidence-rail'].innerHTML, /中兴通讯 000063/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /新易盛 300502/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数等待行情联动模块回填/);
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_stock_industry_and_valuation_peers_feed_related_context():
+    script = textwrap.dedent(
+        r"""
+        (async () => {
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            const el = {
+                id,
+                textContent: '',
+                className: '',
+                style: {},
+                dataset: {},
+                addEventListener: () => {},
+                appendChild: () => {},
+                querySelector: () => null,
+            };
+            let html = '';
+            Object.defineProperty(el, 'innerHTML', {
+                get() { return html; },
+                set(value) {
+                    html = String(value ?? '');
+                    if (id === 'stock-evidence-rail') {
+                        el.buttons = Array.from(html.matchAll(/data-stock-evidence-tab="([^"]+)"/g)).map((match) => ({
+                            dataset: { stockEvidenceTab: match[1] },
+                            addEventListener(event, handler) {
+                                if (event === 'click') this.clickHandler = handler;
+                            },
+                            click() {
+                                if (this.clickHandler) this.clickHandler({ preventDefault: () => {} });
+                            },
+                        }));
+                    }
+                    if (id === 'sd-peer-panel') {
+                        el.peerButtons = Array.from(html.matchAll(/data-peer-code="([^"]+)"/g)).map((match) => ({
+                            dataset: { peerCode: match[1] },
+                            addEventListener: () => {},
+                        }));
+                    }
+                },
+            });
+            el.querySelectorAll = (selector) => {
+                if (selector === '[data-stock-evidence-tab]') return el.buttons || [];
+                if (selector === '[data-peer-code]') return el.peerButtons || [];
+                return [];
+            };
+            return el;
+        }
+
+        const elements = Object.fromEntries([
+            'sd-header',
+            'sd-name',
+            'sd-code',
+            'sd-price',
+            'sd-change',
+            'sd-industry',
+            'sd-sector',
+            'sd-concepts',
+            'sd-positioning',
+            'sd-trust-strip',
+            'stock-evidence-rail',
+            'stock-bottom-panel',
+            'sd-industry-name',
+            'sd-industry-body',
+            'sd-peer-panel',
+        ].map((id) => [id, makeElement(id)]));
+
+        global.window = global;
+        global.globalThis = global;
+        global.sessionStorage = { setItem: () => {} };
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: (selector) => selector === '#tab-stock .stock-detail-header' ? elements['sd-header'] : null,
+            createElement: (tag) => makeElement(tag),
+        };
+        global.App = {
+            fetchJSON: async (url) => {
+                if (url.includes('/api/stock/industry-comparison/')) {
+                    return {
+                        industry: '通信设备',
+                        stocks: [
+                            { code: '300308', name: '中际旭创', price: 123.45, change_pct: 1.01, pe_ratio: 20.2, pb_ratio: 4.1, roe: 18.5, market_cap: 1000000000 },
+                            { code: '000063', name: '中兴通讯', price: 32.1, change_pct: -0.6, pe_ratio: 15.3, pb_ratio: 2.2, roe: 11.1, market_cap: 900000000 },
+                        ],
+                    };
+                }
+                if (url.includes('/api/valuation/peers/')) {
+                    return {
+                        summary: { target_rank: 2, peer_count: 3, median_peg: 1.2 },
+                        peers: [
+                            { code: '300308', name: '中际旭创', peg_next_year: 0.88, growth_next_year_pct: 20 },
+                            { code: '300502', name: '新易盛', peg_next_year: 1.05, growth_next_year_pct: 18 },
+                        ],
+                    };
+                }
+                return {};
+            },
+            openStockDetail: () => {},
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+        };
+        global.StockDetail = {
+            _fmtNum: (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(2) : '--',
+            _fmtPct: (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : '--',
+            _sourceContext: { sourceLabel: 'AI信号' },
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/stock-detail-core.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/stock-detail-data.js', 'utf8'));
+        vm.runInThisContext(fs.readFileSync('dashboard/static/stock-detail-valuation.js', 'utf8'));
+
+        global.StockDetail._renderDetailHeader({
+            code: '300308',
+            name: '中际旭创',
+            industry: '通信',
+            sector: '通信设备',
+            concepts: ['CPO'],
+            main_business: '高速光模块',
+        });
+
+        await global.StockDetail._loadIndustryComparison('300308', () => false);
+        assert.deepEqual(global.App.StockWorkbenchState.relatedContext.peers, ['中兴通讯 000063']);
+        assert.equal(global.App.StockWorkbenchState.relatedContext.missing_reason.peers, '');
+        assert.match(elements['stock-evidence-rail'].innerHTML, /中兴通讯 000063/);
+
+        await global.StockDetail._renderPeerPanel({ code: '300308' }, null, false);
+        assert.deepEqual(global.App.StockWorkbenchState.relatedContext.peers, ['中兴通讯 000063', '新易盛 300502']);
+        assert.match(elements['sd-peer-panel'].innerHTML, /同业位置/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /新易盛 300502/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数等待行情联动模块回填/);
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
         """
     )
 
@@ -4703,12 +4864,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=137" in scripts
+    assert "/static/app.js?v=138" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=48" in scripts
+    assert "/static/app-ui-shell.js?v=49" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4728,13 +4889,13 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=24" in app
+    assert "/static/stock-detail-core.js?v=25" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app
-    assert "/static/stock-detail-data.js?v=2" in app
+    assert "/static/stock-detail-data.js?v=3" in app
     assert "/static/stock-detail-market-mtf.js?v=2" in app
-    assert "/static/stock-detail-valuation.js?v=14" in app
+    assert "/static/stock-detail-valuation.js?v=15" in app
     assert "/static/openclaw-conversations.js?v=3" in app
     assert "/static/openclaw-workbench.js?v=26" in app
     assert "/static/intelligence.js?v=17" in app

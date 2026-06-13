@@ -1971,6 +1971,42 @@ Object.assign(globalThis.StockDetail, {
         return evidenceState;
     },
 
+    _normalizeRelatedContextItem(item) {
+        if (item && typeof item === 'object') {
+            const code = String(item.code || item.symbol || item.stock_code || '').trim();
+            const name = String(item.name || item.stock_name || item.label || '').trim();
+            return [name, code].filter(Boolean).join(' ').trim();
+        }
+        return String(item || '').trim();
+    },
+
+    _mergeWorkbenchRelatedContext(patch = {}, source = {}) {
+        if (!patch || typeof patch !== 'object') return this._ensureStockWorkbenchState().relatedContext || {};
+        const state = this._ensureStockWorkbenchState();
+        const current = state.relatedContext || {};
+        const next = {
+            ...current,
+            missing_reason: { ...(current.missing_reason || {}) },
+            source: {
+                ...(source && typeof source === 'object' ? source : {}),
+                ...(current.source || {}),
+            },
+        };
+        ['sectors', 'concepts', 'indices', 'peers'].forEach((key) => {
+            const incoming = Array.isArray(patch[key]) ? patch[key] : [];
+            if (!incoming.length) return;
+            next[key] = this._uniqueEvidenceItems([
+                ...(Array.isArray(current[key]) ? current[key] : []),
+                ...incoming.map((item) => this._normalizeRelatedContextItem(item)),
+            ]);
+            if (next[key].length) next.missing_reason[key] = '';
+        });
+        state.relatedContext = next;
+        this._syncWorkbenchAiContextFromState();
+        this._renderStockEvidenceRail(this._headerData || {}, this._buildStockIdentitySummary(this._headerData || {}));
+        return state.relatedContext;
+    },
+
     _renderEvidenceQualityRows(dataQuality = {}) {
         const rows = [
             ['quote', '行情'],
@@ -2425,9 +2461,9 @@ Object.assign(globalThis.StockDetail, {
                     <div class="stock-evidence-chipset">
                         ${this._renderEvidenceChips(related.sectors, missing.sectors)}
                         ${this._renderEvidenceChips(related.concepts, missing.concepts)}
+                        ${this._renderEvidenceChips(related.indices, missing.indices)}
+                        ${this._renderEvidenceChips(related.peers, missing.peers)}
                     </div>
-                    <div class="stock-evidence-muted">${App.escapeHTML(missing.indices || '')}</div>
-                    <div class="stock-evidence-muted">${App.escapeHTML(missing.peers || '')}</div>
                 </div>
                 <div class="stock-evidence-section">
                     <h4>事件</h4>

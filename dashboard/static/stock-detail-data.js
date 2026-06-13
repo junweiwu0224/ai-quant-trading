@@ -472,6 +472,19 @@ Object.assign(globalThis.StockDetail, {
                 tbody.innerHTML = '<tr><td colspan="6" class="text-muted">暂无数据</td></tr>';
                 return;
             }
+            if (typeof this._mergeWorkbenchRelatedContext === 'function') {
+                this._mergeWorkbenchRelatedContext({
+                    sectors: industry && industry !== '--' ? [industry] : [],
+                    peers: stocks
+                        .filter((stock) => stock && stock.code && stock.code !== code)
+                        .slice(0, 6)
+                        .map((stock) => ({ code: stock.code, name: stock.name })),
+                }, {
+                    source: 'industry_comparison',
+                    sourceLabel: '行业对比',
+                    industry,
+                });
+            }
 
             tbody.innerHTML = stocks.map(s => {
                 const isCurrent = s.code === code;

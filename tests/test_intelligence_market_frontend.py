@@ -4129,11 +4129,11 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence-iwencai.js?v=15" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=137" in scripts
+    assert "/static/app.js?v=138" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=48" in scripts
-    assert "/sw.js?v=77" in app_ui_shell
-    assert "ai-quant-v185" in service_worker
+    assert "/static/app-ui-shell.js?v=49" in scripts
+    assert "/sw.js?v=78" in app_ui_shell
+    assert "ai-quant-v186" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker

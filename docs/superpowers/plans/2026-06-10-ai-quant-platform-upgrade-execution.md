@@ -2312,6 +2312,57 @@ Remaining gaps:
 - Minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, backend-cited LLM diagnosis, and formal/provider-grade event-study validation remain follow-ups.
 - Browser QA does not use real provider/event feeds and does not run any write or execution path.
 
+## Task 9.35: Stock Related Peer Evidence Context
+
+Status: delivered as the next P1 stock-workbench evidence-continuity slice after chart-event hover preview. This does not call real provider data, external LLM/OpenClaw, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it closes the safe local peer-mapping part of the richer `relatedContext` gap by feeding already-loaded local industry/valuation peer data into the right evidence rail.
+
+TongHuaShun mechanism learned:
+
+- A mature stock workbench keeps same-industry/peer context near the current K-line and right rail, so the user can compare a stock without losing the current source pool, event focus, or AI evidence state.
+- AI Quant should learn the continuity and local-evidence pattern, not copy 同花顺 paid data, proprietary industry/index mappings, community content, visual skin, or buy/sell prompts.
+
+Implemented:
+
+- `stock-detail-core.js` now exposes `_mergeWorkbenchRelatedContext()` to merge `sectors`, `concepts`, `indices`, and `peers` into `StockWorkbenchState.relatedContext` without rebuilding the whole workbench state.
+- Peer items are normalized and de-duplicated as `name code`, clear `missing_reason.peers` only when concrete peer evidence exists, and trigger the existing AI diagnosis/evidence-rail refresh path.
+- The right evidence rail now renders `indices` and `peers` through the same chip renderer as sectors/concepts, so peer evidence appears inline while missing index evidence remains explicit.
+- `stock-detail-valuation.js` feeds `/api/valuation/peers/{code}` results into `relatedContext.peers` after a successful local peer-panel load.
+- `stock-detail-data.js` feeds successful industry-comparison rows into `relatedContext.sectors` and `relatedContext.peers` when that module already has concrete comparison rows.
+- Cache versions bumped: `app.js?v=138`, `app-ui-shell.js?v=49`, `stock-detail-core.js?v=25`, `stock-detail-data.js?v=3`, `stock-detail-valuation.js?v=15`, `/sw.js?v=78`, and service worker cache `ai-quant-v186`.
+
+Safety boundary:
+
+- This is a local frontend state/evidence slice only. It does not invent关联指数 mapping, scrape provider data, submit real iWencai/pywencai requests, call external LLM/OpenClaw, run a backtest, create baskets/watchlists automatically, submit orders, or change production/auth/trading behavior.
+- The existing行业对比 loader may depend on its current API behavior in normal use, but this slice only consumes its successful response; tests use deterministic local fixtures and do not call external providers.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/stock-detail-data.js && node --check dashboard/static/stock-detail-valuation.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_evidence_state_completes_with_missing_reasons_and_tab_state tests/test_frontend_workflow_contracts.py::test_stock_industry_and_valuation_peers_feed_related_context tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "stock_workbench or stock_ai_diagnosis or stock_industry or stock_valuation or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/build_release_bundle.py && .venv/bin/python scripts/build_release_bundle.py --verify-only
+```
+
+Results:
+
+- JS syntax checks passed for `stock-detail-core.js`, `stock-detail-data.js`, `stock-detail-valuation.js`, `app.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused related-context/cache-busting contracts passed: `5 passed, 1 warning`.
+- Broader stock-workbench related contracts passed: `14 passed, 73 deselected, 1 warning`.
+- Focused asset-version contracts passed: `2 passed, 1 warning`.
+- Default local release preflight passed: `855 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- Local release bundle rebuilt and verify-only passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#stock` at desktop `1280x900` and mobile `390x844`: page was nonblank, no console errors, no horizontal overflow, and resources loaded `app.js?v=138`, `app-ui-shell.js?v=49`, `stock-detail-core.js?v=25`, `stock-detail-data.js?v=3`, `stock-detail-valuation.js?v=15`, `style.css?v=86`, and `/sw.js?v=78`.
+- The local stock search returned `无匹配结果` for the manual `600519` input in this workspace data state, so concrete peer-chip detail rendering remains covered by the Node DOM contract rather than a real provider/browser data path.
+
+Remaining gaps:
+
+- `relatedContext.indices` still intentionally shows a missing reason until a reliable local sector/index/benchmark mapping exists.
+- This closes local peer evidence continuity, not provider-grade peer universe validation, real-time industry/index mapping, backend-cited LLM diagnosis, or formal/provider-grade event-study validation.
+- Browser QA does not use real provider/industry-comparison network responses and does not run any write or execution path.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

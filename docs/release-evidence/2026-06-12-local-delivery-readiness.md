@@ -7,7 +7,7 @@ This document records the local, non-production release evidence for the AI Quan
 Included in this local delivery slice:
 
 - iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, visible evidence review panel, OpenClaw read-only evidence review/tool handoff, and degraded-state hardening.
-- Stock workbench event-flow, same-day event-group hover preview/detail drawer, basket/backtest draft, and local event-study audit evidence.
+- Stock workbench event-flow, same-day event-group hover preview/detail drawer, local peer/industry related-context evidence, basket/backtest draft, and local event-study audit evidence.
 - Local release preflight gate and E2E runner portability.
 - Static deployment preflight for Docker/env safety boundaries without starting Docker.
 - Production readiness runbook for confirmed Docker/provider/OpenClaw/data/trading gates.
@@ -30,17 +30,15 @@ Modified files currently in the delivery delta:
 dashboard/static/app-ui-shell.js
 dashboard/static/app.js
 dashboard/static/stock-detail-core.js
-dashboard/static/style.css
+dashboard/static/stock-detail-data.js
+dashboard/static/stock-detail-valuation.js
 dashboard/static/sw.js
-dashboard/templates/index.html
 dashboard/templates/partials/scripts.html
 docs/release-evidence/2026-06-12-local-delivery-readiness.md
 docs/superpowers/plans/2026-06-10-ai-quant-platform-upgrade-execution.md
-scripts/release_preflight.py
 tests/test_frontend_workflow_contracts.py
 tests/test_intelligence_market_frontend.py
 tests/test_research_toolbar_frontend.py
-tests/test_release_preflight.py
 ```
 
 New files that must be included in a staging/release bundle:
@@ -61,6 +59,27 @@ Local release bundle artifacts generated for handoff:
 releases/local-delivery-2026-06-12/manifest.json
 releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz
 releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256
+```
+
+Supporting gates and runbook files that remain part of this local-delivery evidence contract:
+
+```text
+docs/release-evidence/2026-06-12-local-delivery-readiness.md
+docs/decisions/0004-production-release-risk-gates.md
+docs/release-evidence/production-release-decision-template.md
+scripts/build_release_bundle.py
+scripts/release_preflight.py
+scripts/production_auth_preflight.py
+scripts/production_env_preflight.py
+scripts/production_release_decision_verify.py
+tests/test_build_release_bundle.py
+tests/test_e2e_local_script.py
+tests/test_iwencai_client_status.py
+tests/test_iwencai_task_router_api.py
+tests/test_production_auth_preflight.py
+tests/test_production_env_preflight.py
+tests/test_production_release_decision_verify.py
+tests/test_release_preflight.py
 ```
 
 ## Verification Evidence
@@ -88,7 +107,7 @@ git diff --check
 Observed results:
 
 - Release evidence coverage check: current modified and untracked files matched the Release Delta section.
-- Local release bundle generated and verified: `14` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
+- Local release bundle generated and verified: `12` files plus `manifest.json` in `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz`.
 - Bundle checksum is written to `releases/local-delivery-2026-06-12/local-delivery-2026-06-12.tar.gz.sha256` and verified by `scripts/build_release_bundle.py --verify-only`.
 - Bundle verify-only checks the archive checksum, archive member list, unpack drill, and manifest file hashes against the current workspace so stale bundles fail before handoff. The exact archive checksum is intentionally kept out of archived source/docs to avoid a self-referential checksum.
 - Latest default local release preflight: context pack OK, release evidence OK, pytest `852 passed, 1 warning`, compileall passed, `git diff --check` passed.
@@ -108,6 +127,9 @@ Observed results:
 - OpenClaw evidence-review handoff checks passed locally: focused iWencai/AppShell/cache-busting contracts reported `5 passed, 1 warning`, and `node --check dashboard/static/core/app-shell.js && node --check dashboard/static/sw.js` passed.
 - Visible evidence-review panel checks passed locally: focused iWencai/App/cache-busting contracts reported `5 passed, 1 warning`, broader iWencai frontend contracts reported `16 passed, 49 deselected, 1 warning`, workflow contracts reported `7 passed, 79 deselected, 1 warning`, and `node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/app.js && node --check dashboard/static/sw.js` passed.
 - Event-group hover-preview/detail-drawer checks passed locally: focused chart-event/cache-busting contracts reported `4 passed, 1 warning`; broader stock-workbench/cache-busting contracts reported `12 passed, 74 deselected, 1 warning`; focused asset-version contracts reported `2 passed, 1 warning`; `node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js`, targeted `compileall`, and `git diff --check` passed.
+- Stock related peer-context checks passed locally: focused related-context/cache-busting contracts reported `5 passed, 1 warning`; broader stock-workbench related contracts reported `14 passed, 73 deselected, 1 warning`; focused asset-version contracts reported `2 passed, 1 warning`; `node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/stock-detail-data.js && node --check dashboard/static/stock-detail-valuation.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js` passed.
+- Latest default local release preflight passed after the peer-context slice: context pack OK, release evidence OK, pytest `855 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- Local release bundle was rebuilt after updating this evidence document and verify-only passed against the current workspace manifest/checksums.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.
 - `docker compose config` parses successfully and shows OpenClaw `expose: 18789` without host `ports`, plus dashboard `OPENCLAW_GATEWAY_URL=http://openclaw:18789`.
@@ -116,7 +138,7 @@ Observed results:
 - Frontend static render audit report: `914` heuristic risks by severity (`354` high, `545` medium, `15` low). These are historical/static heuristic findings and were not treated as new hard blockers by the audit gate.
 - Full local Playwright E2E: data-display health `1 passed`; smoke/OpenClaw `13 passed`.
 - In-app Browser mobile QA: `#intelligence` and `#research` basket subtab rendered at `390x844` without page console errors or horizontal overflow; key iWencai/basket controls were visible. No real provider query was submitted.
-- In-app Browser stock QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#stock` at desktop `1280x900` and mobile `390x844` without page console errors or horizontal overflow, and loaded cache-busted resources `app.js?v=137`, `stock-detail-core.js?v=24`, and `style.css?v=86`. Event-group hover/preview/drawer state is covered by the Node DOM contract because the in-app Browser read-only page scope cannot construct internal workbench state.
+- In-app Browser stock QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#stock` at desktop `1280x900` and mobile `390x844` without page console errors or horizontal overflow, and loaded cache-busted resources `app.js?v=138`, `app-ui-shell.js?v=49`, `stock-detail-core.js?v=25`, `stock-detail-data.js?v=3`, `stock-detail-valuation.js?v=15`, `style.css?v=86`, and `/sw.js?v=78`. Manual `600519` entry returned `无匹配结果` in the local watchlist/search state, so concrete peer-chip detail rendering remains covered by Node DOM contracts rather than a real provider/browser data path.
 
 ## Safety Boundary
 
@@ -127,6 +149,7 @@ No command in this evidence set performed:
 - Real provider, external LLM, or OpenClaw integration call.
 - OpenClaw iWencai evidence review, the iWencai-to-review handoff, and the visible iWencai evidence-review panel are local and read-only; they consume caller-provided compact evidence and do not invoke the OpenClaw Gateway, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
 - Stock event-group hover preview/detail drawer is local frontend rendering only; it does not fetch new event data, open external source links, run backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
+- Stock related peer-context evidence is local frontend state merging only; it consumes existing successful valuation peer or industry-comparison responses, does not invent关联指数 mappings, and does not fetch providers, execute backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
 - Data sync, database migration, broker API call, paper/live order, or trading execution.
 
 The `--with-audits` preflight does trigger FastAPI TestClient lifespan and local report writes. It initializes local SQLite paths, starts and stops the local scheduler/quote-service lifecycle during the audit, and writes `test-results/data-display-audit/` reports.

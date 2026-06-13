@@ -138,6 +138,18 @@ Object.assign(globalThis.StockDetail, {
                 panel.innerHTML = '<div class="text-muted text-center" style="padding:12px">暂无同业对比</div>';
                 return;
             }
+            if (typeof this._mergeWorkbenchRelatedContext === 'function') {
+                this._mergeWorkbenchRelatedContext({
+                    peers: peers
+                        .filter((peer) => peer && peer.code !== code)
+                        .slice(0, 6)
+                        .map((peer) => ({ code: peer.code, name: peer.name })),
+                }, {
+                    source: 'valuation_peers',
+                    sourceLabel: '同业估值',
+                    peer_count: summary.peer_count || peers.length,
+                });
+            }
             panel.innerHTML = `
                 <div class="valuation-peer-head">
                     <strong>同业位置</strong>

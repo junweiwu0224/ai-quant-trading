@@ -26,7 +26,7 @@ Object.assign(globalThis.App, {
     _initPWA() {
         // Service Worker 注册
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js?v=74', { scope: '/' }).then((reg) => {
+            navigator.serviceWorker.register('/sw.js?v=75', { scope: '/' }).then((reg) => {
                 // 强制检查 SW 更新
                 reg.update();
                 reg.addEventListener('updatefound', () => {

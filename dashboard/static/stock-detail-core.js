@@ -424,6 +424,16 @@ Object.assign(globalThis.StockDetail, {
         return 'events';
     },
 
+    _eventDetailText(event = {}) {
+        return event.detail
+            || event.summary
+            || event.value
+            || event.missing_reason
+            || event.source_label
+            || event.source
+            || '暂无详情';
+    },
+
     _eventGroupDateCounts(events = []) {
         const counts = new Map();
         (Array.isArray(events) ? events : []).forEach((event) => {
@@ -607,6 +617,37 @@ Object.assign(globalThis.StockDetail, {
         };
     },
 
+    _buildEventGroupPreview(focus = null, events = [], selectedEvent = null) {
+        const groupEvents = Array.isArray(events) ? events : [];
+        const selected = selectedEvent && groupEvents.some((event) => event.id === selectedEvent.id)
+            ? selectedEvent
+            : null;
+        const selectedEventId = String(focus?.selected_event_id || '').trim();
+        const primaryId = focus?.representative_event_id || '';
+        const rankedEvents = [...groupEvents].sort((a, b) => this._eventClusterRank(a) - this._eventClusterRank(b));
+        const representative = groupEvents.find((event) => event.id === primaryId) || rankedEvents[0] || null;
+        const primary = selected || representative;
+        if (!primary) return null;
+        const rawCount = groupEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const duplicateCount = Math.max(0, rawCount - groupEvents.length);
+        return {
+            event: primary,
+            title: primary.title || this._eventTypeLabel(primary.type),
+            type_label: this._eventTypeLabel(primary.type),
+            detail: this._eventDetailText(primary),
+            source_label: primary.source_label || primary.source || this._eventTypeLabel(primary.type),
+            at: primary.at || primary.chartTime || primary.date_key || focus?.date_key || '',
+            selected: Boolean(selected && selectedEventId && selected.id === selectedEventId),
+            raw_count: rawCount,
+            independent_count: groupEvents.length,
+            duplicate_count: duplicateCount,
+            duplicate_sources: this._uniqueEvidenceItems(primary.duplicate_source_labels || []),
+            link_url: primary.link_url || primary.url || '',
+            direction: primary.direction || '',
+            value: primary.value ?? '',
+        };
+    },
+
     _syncWorkbenchEventGroupFocus(dateKey = '', events = null, representative = null) {
         const state = this._ensureStockWorkbenchState();
         const key = String(dateKey || '').trim();
@@ -619,13 +660,23 @@ Object.assign(globalThis.StockDetail, {
         }
         const groupEvents = this._eventsForDateKey(key, events || state.eventFeed || []);
         const rawCount = groupEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const previousGroupDate = state.chartState?.eventGroupFocus?.date_key || '';
+        const previousRepresentativeId = state.chartState?.eventGroupFocus?.representative_event_id || '';
+        const representativeId = (previousGroupDate === key ? previousRepresentativeId : '')
+            || representative?.id
+            || groupEvents[0]?.id
+            || '';
+        const selectedEventId = representative?.id && previousGroupDate === key
+            ? representative.id
+            : '';
         const groupFocus = {
             date_key: key,
             event_ids: groupEvents.map((event) => event.id).filter(Boolean),
             event_types: this._uniqueEvidenceItems(groupEvents.map((event) => event.type)),
             event_count: groupEvents.length,
             raw_count: rawCount,
-            representative_event_id: representative?.id || groupEvents[0]?.id || '',
+            representative_event_id: representativeId,
+            selected_event_id: selectedEventId,
             source_context: this._buildEventGroupSourceContext(key, groupEvents),
         };
         state.chartState = {
@@ -1256,11 +1307,20 @@ Object.assign(globalThis.StockDetail, {
         const sourceContext = focus.source_context || this._buildEventGroupSourceContext(focus.date_key, events);
         const eventGroup = sourceContext.event_group || {};
         const groupDiagnosis = this._buildEventGroupDiagnosisFocus(focus, state.eventFeed || []);
+        const groupPreview = this._buildEventGroupPreview(focus, events, state.selectedEvent);
         const sourceSummary = [
             eventGroup.stock_name || this._headerData?.name || '',
             eventGroup.stock_code || this._currentCode || '',
             eventGroup.rank_reason || '',
         ].filter(Boolean).join(' · ');
+        const previewFacts = groupPreview ? [
+            ['来源', groupPreview.source_label],
+            ['时间', groupPreview.at],
+            ['独立/原始', `${groupPreview.independent_count} / ${groupPreview.raw_count}`],
+            groupPreview.duplicate_count ? ['去重', `合并 ${groupPreview.duplicate_count} 条重复转载`] : null,
+            groupPreview.direction ? ['方向', groupPreview.direction] : null,
+            groupPreview.value !== '' && groupPreview.value !== null && groupPreview.value !== undefined ? ['数值', groupPreview.value] : null,
+        ].filter(Boolean) : [];
         return `
             <section class="stock-event-group" data-stock-event-group-date="${App.escapeHTML(focus.date_key)}" aria-expanded="true">
                 <div class="stock-event-group-head">
@@ -1280,6 +1340,27 @@ Object.assign(globalThis.StockDetail, {
                         <span>主事件: ${App.escapeHTML(groupDiagnosis.primary_event_title || '待确认')}</span>
                         <span>置信 ${App.escapeHTML(groupDiagnosis.confidence)} · ${App.escapeHTML(groupDiagnosis.dedupe_policy)}</span>
                         <em>${App.escapeHTML([groupDiagnosis.counter_evidence, groupDiagnosis.missing_evidence].filter(Boolean).join('；'))}</em>
+                    </div>
+                ` : ''}
+                ${groupPreview ? `
+                    <div class="stock-event-group-preview" data-stock-event-preview-id="${App.escapeHTML(groupPreview.event.id || '')}">
+                        <div class="stock-event-group-preview-head">
+                            <span class="stock-event-type" data-type="${App.escapeHTML(groupPreview.event.type || '')}">${App.escapeHTML(groupPreview.type_label)}</span>
+                            <strong>${App.escapeHTML(groupPreview.selected ? '选中事件详情' : '主事件详情')}</strong>
+                            <em>${App.escapeHTML(groupPreview.title)}</em>
+                        </div>
+                        <p>${App.escapeHTML(groupPreview.detail)}</p>
+                        <div class="stock-event-group-preview-facts">
+                            ${previewFacts.map(([label, value]) => `
+                                <span><b>${App.escapeHTML(label)}</b>${App.escapeHTML(value)}</span>
+                            `).join('')}
+                        </div>
+                        ${groupPreview.duplicate_sources.length ? `
+                            <div class="stock-event-group-preview-note">重复来源: ${App.escapeHTML(groupPreview.duplicate_sources.join(' / '))}</div>
+                        ` : ''}
+                        ${groupPreview.link_url ? `
+                            <div class="stock-event-group-preview-note">外部链接仅作来源线索，打开前需自行确认来源可信度</div>
+                        ` : ''}
                     </div>
                 ` : ''}
                 <div class="stock-event-group-items">
@@ -1329,7 +1410,7 @@ Object.assign(globalThis.StockDetail, {
                     <span class="stock-event-type" data-type="${App.escapeHTML(event.type || '')}">${App.escapeHTML(this._eventTypeLabel(event.type))}</span>
                     <span class="stock-event-main">
                         <strong>${App.escapeHTML(event.title || '事件')}</strong>
-                        <em>${App.escapeHTML(event.detail || event.missing_reason || event.source_label || event.source || '暂无详情')}</em>
+                        <em>${App.escapeHTML(this._eventDetailText(event))}</em>
                         ${countBadges}
                     </span>
                     <span class="stock-event-time">${App.escapeHTML(dateKey || event.at || event.chartTime || '')}</span>

@@ -2185,6 +2185,53 @@ Remaining gaps:
 - This proves only the local visible review UI, local review helper handoff, and no-leak/no-write contracts. It still does not prove real OpenClaw Gateway behavior, external LLM responses, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
 - A future confirmed-environment slice can run a real OpenClaw/LLM/provider smoke after credentials and external-service scope are approved.
 
+## Task 9.32: Stock Event Group Detail Preview
+
+Status: delivered as the next P1 stock-workbench workflow slice after the visible iWencai evidence panel. This does not call real provider data, external LLM/OpenClaw, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it closes the first hover/detail gap by making an already-selected same-day K-line event group expose a compact, auditable detail preview in the bottom event center.
+
+TongHuaShun mechanism learned:
+
+- The useful K-line event workflow is not just dots on a chart. A date cluster should behave as an evidence doorway: date -> event group -> selected evidence detail -> diagnosis/draft next action.
+- AI Quant should learn the continuity and evidence inspection pattern, not copy 同花顺 visual skin, paid content, social/community features, proprietary signals, or trading prompts.
+
+Implemented:
+
+- `stock-detail-core.js` now builds an event-group preview from the current event group, preserving the distinction between the representative/main event and a manually selected group member.
+- The bottom event-group card shows `主事件详情` for the representative event and `选中事件详情` when the user clicks another group member.
+- The preview displays event type, title, source, time, detail text, independent/raw evidence counts, duplicate-source hints, optional direction/value fields, and a source-link caution without opening external links or executing follow-up actions.
+- Event-list detail fallback is centralized through `_eventDetailText()` so missing/detail/source text is consistent across the group preview and event list.
+- Cache versions bumped: `style.css?v=84`, `app.js?v=135`, `app-ui-shell.js?v=46`, `stock-detail-core.js?v=22`, `/sw.js?v=75`, and service worker cache `ai-quant-v183`.
+
+Safety boundary:
+
+- This is a frontend evidence/interaction slice only. It does not fetch new event data, call provider/LLM/OpenClaw services, run backtests, create baskets/watchlists automatically, submit orders, or change production/auth/trading behavior.
+- Existing event-group actions remain manual draft/explain paths; broker, paper/live, backtest execution, provider, and external-service gates remain behind explicit confirmation.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "stock_workbench or stock_ai_diagnosis or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q dashboard/static
+git diff --check
+```
+
+Results:
+
+- JS syntax checks passed for `stock-detail-core.js`, `app.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused event-group/cache-busting contracts passed: `4 passed, 1 warning`.
+- Broader stock-workbench/cache-busting contracts passed: `12 passed, 74 deselected, 1 warning`.
+- Focused asset-version contracts passed: `2 passed, 1 warning`.
+- Targeted `compileall` and `git diff --check` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#stock` at desktop `1280x900` and mobile `390x844`: page loaded without console errors, resource versions were `app.js?v=135`, `stock-detail-core.js?v=22`, and `style.css?v=84`, and there was no horizontal overflow. The event-group detail state itself is covered by the Node DOM contract because the in-app Browser read-only page scope cannot construct internal workbench state.
+
+Remaining gaps:
+
+- This is the first detail-preview slice, not a full drawer. Richer drawer-level detail, hover-triggered previews, minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, and backend-cited LLM diagnosis remain follow-ups.
+- Browser QA did not use real provider/event feeds and did not run any write or execution path.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

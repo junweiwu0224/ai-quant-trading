@@ -209,7 +209,7 @@ def _release_evidence_issues_for_delta(
 
 def _extract_text_block(text: str, heading: str) -> set[str]:
     pattern = re.compile(
-        rf"{re.escape(heading)}:\n\n```text\n(?P<body>.*?)\n```",
+        rf"{re.escape(heading)}:\n\n```text\n(?P<body>.*?)```",
         re.DOTALL,
     )
     match = pattern.search(text)

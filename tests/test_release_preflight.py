@@ -170,6 +170,46 @@ def test_release_evidence_matches_current_modified_and_new_files():
     assert release_preflight.verify_release_evidence(root=ROOT) == []
 
 
+def test_release_evidence_accepts_empty_new_files_block(tmp_path, monkeypatch):
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text(
+        """# Evidence
+
+This is not a production deployment approval.
+
+Modified files currently in the delivery delta:
+
+```text
+README.md
+```
+
+New files that must be included in a staging/release bundle:
+
+```text
+```
+""",
+        encoding="utf-8",
+    )
+
+    def fake_capture(command, *, cwd):
+        if command == ("git", "diff", "--name-only", "HEAD", "--"):
+            return ["README.md"]
+        if command == ("git", "diff", "--name-only", "--diff-filter=A", "HEAD", "--"):
+            return []
+        if command == ("git", "ls-files", "--others", "--exclude-standard"):
+            return []
+        raise AssertionError(command)
+
+    monkeypatch.setattr(release_preflight, "_run_capture", fake_capture)
+    monkeypatch.setattr(
+        release_preflight,
+        "_candidate_delta_bases",
+        lambda *, root, evidence_path, base_ref: ["HEAD"],
+    )
+
+    assert release_preflight.verify_release_evidence(root=tmp_path, evidence_path="evidence.md") == []
+
+
 def test_release_evidence_reports_missing_current_files(tmp_path, monkeypatch):
     evidence = tmp_path / "evidence.md"
     evidence.write_text(

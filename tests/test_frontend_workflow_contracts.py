@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=134" in scripts
+    assert "/static/app.js?v=135" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -3489,6 +3489,12 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.match(elements['stock-bottom-panel'].innerHTML, /data-stock-event-group-date="2026-06-10"/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /2026-06-10 同日事件组/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /主事件:/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-preview/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /主事件详情/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /主力资金净流入/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /净流入 1.20亿/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /独立\/原始/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /4 \/ 5/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /重复转载不作为独立证据加权/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /缺少事件后 N 日回测验证/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /回测草案/);
@@ -3502,6 +3508,9 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.equal(state.chartState.eventGroupFocus.date_key, '2026-06-10');
         assert.match(elements['sd-kline-chart'].eventLayer.innerHTML, /stock-chart-event-dot is-cluster is-selected/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-item is-selected/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /选中事件详情/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /签订重大合同/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /公告事件详情/);
 
         const noteId = events.find((event) => event.type === 'note').id;
         global.StockDetail._selectStockEvent(noteId, { focusChart: true });
@@ -4652,15 +4661,15 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=83" in template
+    assert "/static/style.css?v=84" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=134" in scripts
+    assert "/static/app.js?v=135" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=45" in scripts
+    assert "/static/app-ui-shell.js?v=46" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4680,7 +4689,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=21" in app
+    assert "/static/stock-detail-core.js?v=22" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

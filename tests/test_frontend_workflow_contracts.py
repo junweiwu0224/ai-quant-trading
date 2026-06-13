@@ -4658,7 +4658,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/app.js?v=133" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
-    assert "/static/core/app-shell.js?v=37" in scripts
+    assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
     assert "/static/app-ui-shell.js?v=45" in scripts
     assert "/static/app-workbench.js?v=3" in scripts

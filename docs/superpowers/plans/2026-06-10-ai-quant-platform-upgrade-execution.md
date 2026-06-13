@@ -2116,6 +2116,40 @@ Remaining gaps:
 - This proves only local deterministic OpenClaw system-tool behavior. It still does not prove real OpenClaw Gateway, external LLM behavior, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
 - A future slice can wire this review output into an OpenClaw read-only research workflow, but write-capable orchestration remains out of scope until the provider, LLM, data, and confirmation gates are signed off.
 
+## Task 9.30: AI Assistant Uses OpenClaw iWencai Evidence Review
+
+Status: delivered as the next P2 read-only workflow slice after Task 9.29. This does not call the real OpenClaw Gateway, external LLM, iWencai/pywencai, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it makes the existing `iwencai:analyze` workflow consume the local OpenClaw evidence-review system tool before building the AI assistant prompt.
+
+Implemented:
+
+- `dashboard/static/core/app-shell.js` now calls local `/api/openclaw/tools/invoke` with `quant.iwencai.evidence.review` when `source_context.provider_evidence` exists.
+- The request body uses an allowlisted compact evidence payload rather than forwarding raw provider payloads or arbitrary frontend-supplied fields.
+- The AI assistant prompt now includes `openclaw_evidence_review` alongside `provider_evidence`, preserving review status, evidence/provider/cache status, condition counts, candidate validation, degradation, safe next actions, and the write-action gate.
+- The prompt allowlist keeps `allowed_by_review_tool=false` visible and redacts secret-like text before prompt construction.
+- Cache versions bumped: `core/app-shell.js?v=38` and service worker cache `ai-quant-v181`.
+
+Safety boundary:
+
+- This is still a local FastAPI system-tool call using the current Dashboard session. It does not send messages to OpenClaw chat, invoke native tools, call OpenClaw Gateway, call external LLM, fetch real provider data, or perform write-capable actions.
+- If the review call is unavailable or permission-denied, the workflow falls back to the existing AI explanation prompt without blocking the user.
+- Write-capable follow-up still must use explicit tools, permissions, confirmation cards, and production runbook gates.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_intelligence_market_frontend.py::test_iwencai_send_to_screener_opens_research_screener_directly tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+node --check dashboard/static/core/app-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+.venv/bin/python scripts/build_release_bundle.py
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+git diff --check
+```
+
+Remaining gaps:
+
+- This proves only the local browser-to-FastAPI review handoff and prompt context. It still does not prove real OpenClaw Gateway behavior, external LLM responses, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
+- A future confirmed-environment slice can run a real OpenClaw/LLM smoke after credentials and external-service scope are approved.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

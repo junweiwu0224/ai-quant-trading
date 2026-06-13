@@ -259,6 +259,200 @@
             };
         },
 
+        _buildIwencaiProviderEvidenceForReview(sourceContext) {
+            const source = sourceContext && typeof sourceContext === 'object' ? sourceContext : {};
+            const evidence = source.provider_evidence && typeof source.provider_evidence === 'object'
+                ? source.provider_evidence
+                : null;
+            if (!evidence) {
+                return null;
+            }
+            const safeText = (value, limit = 180) => {
+                if (value === null || value === undefined) return '';
+                return String(value)
+                    .replace(/\b(cookie|token|secret|password|passwd|authorization|session|api[_-]?key|invite)\s*[:=]\s*[^,\s;]+/ig, '[redacted]')
+                    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, '[redacted]')
+                    .slice(0, limit);
+            };
+            const safeNumberOrNull = (value) => {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+            const safeObjectCounts = (value, maxKeys = 12) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+                return Object.fromEntries(Object.entries(value)
+                    .slice(0, maxKeys)
+                    .map(([key, count]) => [safeText(key, 80), safeNumberOrNull(count) || 0]));
+            };
+            const degradation = evidence.degradation && typeof evidence.degradation === 'object'
+                ? evidence.degradation
+                : {};
+            const conditionEvidence = Array.isArray(evidence.condition_evidence)
+                ? evidence.condition_evidence
+                    .filter((item) => item && typeof item === 'object')
+                    .slice(0, 8)
+                    .map((item) => ({
+                        raw_text: safeText(item.raw_text, 120),
+                        field: safeText(item.field, 100),
+                        hit_count: safeNumberOrNull(item.hit_count),
+                        hit_count_status: safeText(item.hit_count_status || item.status, 80),
+                        evidence_level: safeText(item.evidence_level, 80),
+                        source_field: safeText(item.source_field, 100),
+                        missing_reason: safeText(item.missing_reason, 160),
+                        status: safeText(item.status, 80),
+                    }))
+                : [];
+            return {
+                schema_version: safeText(evidence.schema_version, 80),
+                query: safeText(evidence.query || source.query || source.raw_query, 240),
+                result_pool_id: safeText(evidence.result_pool_id || source.result_pool_id, 120),
+                summary_status: safeText(evidence.summary_status, 80),
+                provider: safeText(evidence.provider, 80),
+                provider_status: safeText(evidence.provider_status, 80),
+                data_status: safeText(evidence.data_status, 80),
+                data_as_of: safeText(evidence.data_as_of, 80),
+                cache_status: safeText(evidence.cache_status, 80),
+                reported_total: safeNumberOrNull(evidence.reported_total) || 0,
+                candidate_count: safeNumberOrNull(evidence.candidate_count) || 0,
+                field_coverage_status: safeText(evidence.field_coverage_status, 80),
+                condition_status_counts: safeObjectCounts(evidence.condition_status_counts),
+                condition_evidence: conditionEvidence,
+                candidate_validation: safeObjectCounts(evidence.candidate_validation),
+                write_actions_allowed: evidence.write_actions_allowed === true,
+                enabled_write_actions: Array.isArray(evidence.enabled_write_actions)
+                    ? evidence.enabled_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                    : [],
+                blocked_write_actions: Array.isArray(evidence.blocked_write_actions)
+                    ? evidence.blocked_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                    : [],
+                degradation: {
+                    type: safeText(degradation.type, 80),
+                    reason: safeText(degradation.reason, 180),
+                    next_action: safeText(degradation.next_action, 180),
+                    cache_status: safeText(degradation.cache_status, 80),
+                    retry_after_seconds: safeText(degradation.retry_after_seconds, 40),
+                    local_wait_seconds: safeText(degradation.local_wait_seconds, 40),
+                    response_type: safeText(degradation.response_type, 80),
+                    schema_signature: safeText(degradation.schema_signature, 160),
+                },
+            };
+        },
+
+        _buildIwencaiEvidenceReviewForPrompt(review) {
+            const payload = review && typeof review === 'object' && review.result && typeof review.result === 'object'
+                ? review.result
+                : review;
+            if (!payload || typeof payload !== 'object') {
+                return null;
+            }
+            const safeText = (value, limit = 180) => {
+                if (value === null || value === undefined) return '';
+                return String(value)
+                    .replace(/\b(cookie|token|secret|password|passwd|authorization|session|api[_-]?key|invite)\s*[:=]\s*[^,\s;]+/ig, '[redacted]')
+                    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, '[redacted]')
+                    .slice(0, limit);
+            };
+            const safeNumber = (value) => {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : 0;
+            };
+            const safeObjectCounts = (value, maxKeys = 12) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+                return Object.fromEntries(Object.entries(value)
+                    .slice(0, maxKeys)
+                    .map(([key, count]) => [safeText(key, 80), safeNumber(count)]));
+            };
+            const evidenceStatus = payload.evidence_status && typeof payload.evidence_status === 'object'
+                ? payload.evidence_status
+                : {};
+            const conditionValidation = payload.condition_validation && typeof payload.condition_validation === 'object'
+                ? payload.condition_validation
+                : {};
+            const candidateValidation = payload.candidate_validation && typeof payload.candidate_validation === 'object'
+                ? payload.candidate_validation
+                : {};
+            const degradation = payload.degradation && typeof payload.degradation === 'object'
+                ? payload.degradation
+                : {};
+            const gate = payload.write_action_gate && typeof payload.write_action_gate === 'object'
+                ? payload.write_action_gate
+                : {};
+            return {
+                schema_version: safeText(payload.schema_version, 80),
+                input_trust: safeText(payload.input_trust, 80),
+                review_status: safeText(payload.review_status, 80),
+                evidence_status: {
+                    present: evidenceStatus.present === true,
+                    schema_version: safeText(evidenceStatus.schema_version, 80),
+                    summary_status: safeText(evidenceStatus.summary_status, 80),
+                    provider: safeText(evidenceStatus.provider, 80),
+                    provider_status: safeText(evidenceStatus.provider_status, 80),
+                    data_status: safeText(evidenceStatus.data_status, 80),
+                    cache_status: safeText(evidenceStatus.cache_status, 80),
+                    result_pool_id: safeText(evidenceStatus.result_pool_id, 120),
+                    candidate_count: safeNumber(evidenceStatus.candidate_count),
+                    reported_total: safeNumber(evidenceStatus.reported_total),
+                    field_coverage_status: safeText(evidenceStatus.field_coverage_status, 80),
+                },
+                condition_status_counts: safeObjectCounts(conditionValidation.status_counts),
+                candidate_validation: safeObjectCounts(candidateValidation),
+                degradation: {
+                    type: safeText(degradation.type, 80),
+                    reason: safeText(degradation.reason, 180),
+                    next_action: safeText(degradation.next_action, 180),
+                    cache_status: safeText(degradation.cache_status, 80),
+                    retry_after_seconds: safeText(degradation.retry_after_seconds, 40),
+                    response_type: safeText(degradation.response_type, 80),
+                    schema_signature: safeText(degradation.schema_signature, 160),
+                },
+                write_action_gate: {
+                    allowed_by_review_tool: gate.allowed_by_review_tool === true,
+                    evidence_allows_write_actions: gate.evidence_allows_write_actions === true,
+                    requires_separate_tool_and_confirmation: gate.requires_separate_tool_and_confirmation === true,
+                    reason: safeText(gate.reason, 120),
+                    enabled_write_actions: Array.isArray(gate.enabled_write_actions)
+                        ? gate.enabled_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                        : [],
+                    blocked_write_actions: Array.isArray(gate.blocked_write_actions)
+                        ? gate.blocked_write_actions.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8)
+                        : [],
+                },
+                recommended_safe_next_actions: Array.isArray(payload.recommended_safe_next_actions)
+                    ? payload.recommended_safe_next_actions.map((item) => safeText(item, 180)).filter(Boolean).slice(0, 5)
+                    : [],
+            };
+        },
+
+        async _reviewIwencaiProviderEvidence(sourceContext) {
+            const source = sourceContext && typeof sourceContext === 'object' ? sourceContext : {};
+            const evidence = this._buildIwencaiProviderEvidenceForReview(source);
+            if (!evidence || typeof this.fetchJSON !== 'function') {
+                return null;
+            }
+            try {
+                const response = await this.fetchJSON('/api/openclaw/tools/invoke', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tool: 'quant.iwencai.evidence.review',
+                        arguments: {
+                            source_context: {
+                                source: source.source || 'iwencai',
+                                result_pool_id: source.result_pool_id || '',
+                                provider_evidence: evidence,
+                            },
+                        },
+                    }),
+                    silent: true,
+                    timeout: 15000,
+                });
+                return this._buildIwencaiEvidenceReviewForPrompt(response);
+            } catch (error) {
+                console.warn('[iWencai] OpenClaw evidence review failed', error);
+                return null;
+            }
+        },
+
         async openOffcanvas(code) {
             if (typeof App.LLM !== 'undefined' && App.LLM.closeCopilot) App.LLM.closeCopilot();
 
@@ -521,6 +715,7 @@
 
             this.on('iwencai:analyze', async ({ query, data, source_context }) => {
                 await this.ensureBundle?.('llm');
+                const openclawEvidenceReview = await this._reviewIwencaiProviderEvidence(source_context);
                 if (typeof App.LLM !== 'undefined') {
                     this.toast('已发送至 AI 助手', 'info');
                     App.LLM.openCopilot();
@@ -564,6 +759,7 @@
                             parsed_conditions: conditions,
                             condition_hit_count: source_context.condition_hit_count || {},
                             provider_evidence: providerEvidence,
+                            openclaw_evidence_review: openclawEvidenceReview,
                             event_group: eventGroupContext,
                             event_group_diagnosis: eventGroupDiagnosis,
                         })}`

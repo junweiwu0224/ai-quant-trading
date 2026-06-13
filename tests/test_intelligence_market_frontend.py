@@ -4126,14 +4126,14 @@ def test_intelligence_market_assets_are_versioned_and_styled():
 
     assert "/static/intelligence.js?v=17" in app_js
     assert "/static/intelligence-market.js?v=27" in app_js
-    assert "/static/intelligence-iwencai.js?v=14" in app_js
+    assert "/static/intelligence-iwencai.js?v=15" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=133" in scripts
+    assert "/static/app.js?v=134" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
     assert "/static/app-ui-shell.js?v=45" in scripts
     assert "/sw.js?v=74" in app_ui_shell
-    assert "ai-quant-v181" in service_worker
+    assert "ai-quant-v182" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
@@ -4454,6 +4454,203 @@ def test_iwencai_renders_task_router_conditions_buckets_and_source_context():
             assert.equal(Intelligence.state.iwencaiActionState.source_context.selected_bucket, 'themes');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.result_pool_id, 'iwencai:test-pool');
             assert.equal(Intelligence.state.iwencaiActionState.source_context.provider, 'backend-iwencai');
+        })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+        """
+    )
+
+    result = run_node(script)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_iwencai_visible_openclaw_evidence_review_panel_updates_safely():
+    script = textwrap.dedent(
+        r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        function makeElement(id) {
+            return {
+                id,
+                value: '高股息 低估值',
+                innerHTML: '',
+                textContent: '',
+                classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+                addEventListener: () => {},
+            };
+        }
+
+        const input = makeElement('intel-iwencai-input');
+        const button = makeElement('intel-iwencai-btn');
+        const result = makeElement('intel-iwencai-result');
+        const elements = {
+            'intel-iwencai-input': input,
+            'intel-iwencai-btn': button,
+            'intel-iwencai-result': result,
+        };
+        let reviewCalls = 0;
+        let resolveReview = null;
+        const reviewPromise = new Promise((resolve) => { resolveReview = resolve; });
+
+        global.window = global;
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            querySelector: () => null,
+            addEventListener: () => {},
+            readyState: 'complete',
+        };
+        global.App = {
+            escapeHTML: (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;'),
+            fetchJSON: async (url) => {
+                assert.equal(url, '/api/llm/iwencai');
+                return {
+                    success: true,
+                    schema_version: 'iwencai_task_router_v1',
+                    query: '高股息 低估值',
+                    status: 'partial_result',
+                    total: 2,
+                    intent: { type: 'natural_language_screener', confidence: 0.88, reason: '证据面板测试' },
+                    parsed_conditions: [
+                        { raw_text: '高股息', field: '股息率', hit_count: 2, hit_count_status: 'verified', source_field: '股息率', status: 'ready' },
+                        { raw_text: '低估值', field: '市盈率', hit_count: 2, hit_count_status: 'verified', source_field: '市盈率', status: 'ready' },
+                    ],
+                    buckets: [
+                        { id: 'candidates', name: '候选股票', count: 2, items: [], status: 'partial_result' },
+                        { id: 'themes', name: '板块主题', count: 1, items: [{ name: '银行', description: '低估值高股息集中' }] },
+                    ],
+                    actions: [{ id: 'open_stock', enabled: true }, { id: 'analyze', enabled: true }],
+                    data: [
+                        {
+                            '股票代码': '600000.SH',
+                            '股票简称': '浦发银行',
+                            '最新价': 8.5,
+                            '最新涨跌幅': 1.2,
+                            '所属同花顺行业': '银行-股份制银行',
+                            '所属概念': '高股息;低估值',
+                            candidate_provenance: {
+                                result_pool_id: 'iwencai:visible-review',
+                                row_id: 'iwencai:visible-review:row:600000',
+                                validation_status: 'partial',
+                                evidence_level: 'provider_field',
+                                matched_conditions: [{ raw_text: '高股息', field: '股息率', source_field: '股息率' }],
+                                missing_conditions: [{ raw_text: '低估值', field: '市盈率', missing_reason: '字段待补' }],
+                                provider: 'iwencai',
+                                data_as_of: '2026-06-12T09:30:00+08:00',
+                            },
+                        },
+                    ],
+                    provider_evidence: {
+                        schema_version: 'iwencai_provider_evidence_v1',
+                        summary_status: 'degraded',
+                        field_coverage_status: 'partial',
+                        provider: 'iwencai',
+                        provider_status: 'schema_drift',
+                        data_status: 'degraded_data',
+                        cache_status: 'stale_cache',
+                        data_as_of: '2026-06-12T09:30:00+08:00',
+                        result_pool_id: 'iwencai:visible-review',
+                        candidate_count: 2,
+                        reported_total: 2,
+                        condition_status_counts: { verified: 2, schema_drift: 1 },
+                        candidate_validation: { verified: 0, partial: 1, actionable: 0 },
+                        write_actions_allowed: false,
+                        blocked_write_actions: ['create_basket', 'draft_backtest'],
+                        degradation: {
+                            type: 'schema_drift',
+                            reason: '字段漂移 token=SHOULD_NOT_LEAK',
+                            next_action: '保持只读审查',
+                        },
+                        raw_payload: { cookie: 'SHOULD_NOT_LEAK' },
+                    },
+                    source_context: {
+                        result_pool_id: 'iwencai:visible-review',
+                        provider: 'iwencai',
+                        data_as_of: '2026-06-12T09:30:00+08:00',
+                        cache_status: 'stale_cache',
+                        data_status: 'degraded_data',
+                    },
+                };
+            },
+            _reviewIwencaiProviderEvidence: async (sourceContext) => {
+                reviewCalls += 1;
+                assert.equal(sourceContext.result_pool_id, 'iwencai:visible-review');
+                assert.equal(sourceContext.provider_evidence.summary_status, 'degraded');
+                await reviewPromise;
+                return {
+                    schema_version: 'iwencai_evidence_review_v1',
+                    input_trust: 'caller_supplied_not_live_provider',
+                    review_status: 'degraded_review',
+                    evidence_status: {
+                        present: true,
+                        schema_version: 'iwencai_provider_evidence_v1',
+                        summary_status: 'degraded',
+                        provider: 'iwencai',
+                        provider_status: 'schema_drift',
+                        cache_status: 'stale_cache',
+                        result_pool_id: 'iwencai:visible-review',
+                        candidate_count: 2,
+                        reported_total: 2,
+                    },
+                    condition_status_counts: { verified: 2, schema_drift: 1 },
+                    candidate_validation: { partial: 1, actionable: 0 },
+                    degradation: {
+                        type: 'schema_drift',
+                        reason: 'review token=SHOULD_NOT_LEAK',
+                        next_action: '保持只读解释',
+                    },
+                    write_action_gate: {
+                        allowed_by_review_tool: false,
+                        evidence_allows_write_actions: false,
+                        requires_separate_tool_and_confirmation: false,
+                        reason: 'read_only_review_tool',
+                        blocked_write_actions: ['create_basket', 'draft_backtest'],
+                    },
+                    recommended_safe_next_actions: ['保持只读解释，并展示降级原因。'],
+                };
+            },
+            on: () => {},
+        };
+
+        vm.runInThisContext(fs.readFileSync('dashboard/static/intelligence-iwencai.js', 'utf8'));
+
+        (async () => {
+            const viewModel = await Intelligence.runIwencai();
+            assert.equal(viewModel.openclaw_evidence_review_status, 'pending');
+            assert.match(result.innerHTML, /证据审查/);
+            assert.match(result.innerHTML, /Provider Evidence/);
+            assert.match(result.innerHTML, /OpenClaw Review/);
+            assert.match(result.innerHTML, /review_pending/);
+            assert.match(result.innerHTML, /本地 OpenClaw 只读审查中/);
+
+            resolveReview();
+            await new Promise((resolve) => setImmediate(resolve));
+
+            assert.equal(reviewCalls, 1);
+            assert.equal(Intelligence.state.iwencaiActionState.openclaw_evidence_review_status, 'completed');
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.openclaw_evidence_review.review_status, 'degraded_review');
+            assert.match(result.innerHTML, /degraded_review/);
+            assert.match(result.innerHTML, /read_only_review_tool/);
+            assert.match(result.innerHTML, /OpenClaw review 不授权写入/);
+            assert.match(result.innerHTML, /blocked create_basket/);
+            assert.match(result.innerHTML, /保持只读解释/);
+            assert.doesNotMatch(result.innerHTML, /SHOULD_NOT_LEAK/);
+            assert.doesNotMatch(result.innerHTML, /raw_payload/);
+            assert.doesNotMatch(result.innerHTML, /cookie/);
+
+            Intelligence.selectIwencaiBucket('themes');
+            assert.match(result.innerHTML, /银行/);
+            assert.match(result.innerHTML, /degraded_review/);
+            assert.equal(Intelligence.state.iwencaiActionState.source_context.selected_bucket, 'themes');
+            assert.equal(Intelligence.state.iwencaiActionState.openclaw_evidence_review_status, 'completed');
         })().catch((error) => {
             console.error(error);
             process.exit(1);

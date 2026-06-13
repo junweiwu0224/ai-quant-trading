@@ -6,7 +6,7 @@ This document records the local, non-production release evidence for the AI Quan
 
 Included in this local delivery slice:
 
-- iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, OpenClaw read-only evidence review/tool handoff, and degraded-state hardening.
+- iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, visible evidence review panel, OpenClaw read-only evidence review/tool handoff, and degraded-state hardening.
 - Stock workbench event-flow, basket/backtest draft, and local event-study audit evidence.
 - Local release preflight gate and E2E runner portability.
 - Static deployment preflight for Docker/env safety boundaries without starting Docker.
@@ -146,10 +146,12 @@ Observed results:
 - iWencai AI-assistant analysis prompts now include a compact allowlisted `provider_evidence` summary from `source_context`, preserving degradation/write-action gates for read-only explanation while redacting secret-like text and excluding raw provider payloads.
 - OpenClaw now exposes `quant.iwencai.evidence.review` as a `read_market`/`confirm: false` system tool that reviews caller-provided `provider_evidence` only, returns evidence/provider/cache/condition/candidate/degradation and safe-next-action summaries, and keeps `write_action_gate.allowed_by_review_tool=false` even when evidence says write-class actions are available through separate confirmed paths.
 - iWencai AI-assistant analysis now invokes the local OpenClaw system tool `quant.iwencai.evidence.review` through `/api/openclaw/tools/invoke` when backend `provider_evidence` is present, then includes an allowlisted `openclaw_evidence_review` summary in the prompt context. This is local and read-only; it does not call the OpenClaw Gateway, native tools, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
+- iWencai result rendering now includes a visible `证据审查` panel when backend `provider_evidence` is present. The panel shows provider evidence, local OpenClaw review state/result, condition/candidate validation counts, degradation reason/next action, and write-action gate context. It renders immediately with `review_pending`, updates asynchronously when the local review helper returns, preserves the review across bucket switches, and redacts secret-like text/raw payloads from visible HTML.
 - OpenClaw system-tool audit argument redaction now recursively redacts cookies, authorization/header containers, API keys, invite/session/credential fields, tokens, passwords, secrets, and inline secret-like text before metadata is recorded.
 - Provider-evidence focused checks passed locally: `tests/test_iwencai_task_router_api.py` + `tests/test_iwencai_client_status.py` + `tests/test_release_preflight.py` reported `31 passed, 1 warning`; full iWencai/intelligence frontend contract plus changed cache-busting workflow checks reported `66 passed, 1 warning`.
 - OpenClaw evidence-review focused checks passed locally: `tests/test_openclaw_tools.py` + `tests/test_openclaw_bridge.py` reported `23 passed, 1 warning`.
 - OpenClaw evidence-review handoff checks passed locally: focused iWencai/AppShell/cache-busting contracts reported `5 passed, 1 warning`, and `node --check dashboard/static/core/app-shell.js && node --check dashboard/static/sw.js` passed.
+- Visible evidence-review panel checks passed locally: focused iWencai/App/cache-busting contracts reported `5 passed, 1 warning`, broader iWencai frontend contracts reported `16 passed, 49 deselected, 1 warning`, workflow contracts reported `7 passed, 79 deselected, 1 warning`, and `node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/app.js && node --check dashboard/static/sw.js` passed.
 - Release preflight with audits previously passed: default gates passed, plus API data health and frontend static render audit passed.
 - OpenClaw Docker static boundary was hardened after the prior local delivery gate: the compose gateway now requires token auth from `OPENCLAW_API_KEY`, exposes `18789` only on the compose network, and leaves `OPENCLAW_WEB_URL` empty unless a controlled external panel URL is configured.
 - `docker compose config` parses successfully and shows OpenClaw `expose: 18789` without host `ports`, plus dashboard `OPENCLAW_GATEWAY_URL=http://openclaw:18789`.
@@ -166,7 +168,7 @@ No command in this evidence set performed:
 - Docker compose start/stop.
 - Production deployment or production configuration change.
 - Real provider, external LLM, or OpenClaw integration call.
-- OpenClaw iWencai evidence review and the iWencai-to-review handoff are local and read-only; they consume caller-provided compact evidence and do not invoke the OpenClaw Gateway, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
+- OpenClaw iWencai evidence review, the iWencai-to-review handoff, and the visible iWencai evidence-review panel are local and read-only; they consume caller-provided compact evidence and do not invoke the OpenClaw Gateway, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
 - Data sync, database migration, broker API call, paper/live order, or trading execution.
 
 The `--with-audits` preflight does trigger FastAPI TestClient lifespan and local report writes. It initializes local SQLite paths, starts and stops the local scheduler/quote-service lifecycle during the audit, and writes `test-results/data-display-audit/` reports.

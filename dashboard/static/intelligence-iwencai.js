@@ -243,6 +243,30 @@
             .replace(/'/g, '&#x27;');
     }
 
+    function safeEvidenceText(value, limit = 180) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/\b(cookie|token|secret|password|passwd|authorization|session|api[_-]?key|invite)\s*[:=]\s*[^,\s;|]+/ig, '[redacted]')
+            .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, '[redacted]')
+            .slice(0, limit);
+    }
+
+    function safeEvidenceNumber(value, fallback = 0) {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+    }
+
+    function countMapItems(value, limit = 6) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+        return Object.entries(value)
+            .slice(0, limit)
+            .map(([key, count]) => ({
+                key: safeEvidenceText(key, 80),
+                count: safeEvidenceNumber(count),
+            }))
+            .filter((item) => item.key);
+    }
+
     function hasOwn(obj, key) {
         return Object.prototype.hasOwnProperty.call(obj || {}, key);
     }
@@ -715,6 +739,9 @@
         const providerEvidence = resp?.provider_evidence && typeof resp.provider_evidence === 'object'
             ? resp.provider_evidence
             : (sourceContext.provider_evidence && typeof sourceContext.provider_evidence === 'object' ? sourceContext.provider_evidence : null);
+        const openclawEvidenceReview = resp?.openclaw_evidence_review && typeof resp.openclaw_evidence_review === 'object'
+            ? resp.openclaw_evidence_review
+            : (sourceContext.openclaw_evidence_review && typeof sourceContext.openclaw_evidence_review === 'object' ? sourceContext.openclaw_evidence_review : null);
         return {
             ...sourceContext,
             source: sourceContext.source || 'iwencai',
@@ -741,6 +768,8 @@
             response_type: sourceContext.response_type || resp?.response_type || resp?.source_status?.response_type || '',
             retry_after_seconds: sourceContext.retry_after_seconds || resp?.retry_after_seconds || resp?.source_status?.retry_after_seconds || '',
             provider_evidence: providerEvidence,
+            openclaw_evidence_review: openclawEvidenceReview,
+            openclaw_evidence_review_status: sourceContext.openclaw_evidence_review_status || resp?.openclaw_evidence_review_status || '',
             rank_reason: sourceContext.rank_reason || `问财条件: ${conditionSummary(conditions) || query}`,
         };
     }
@@ -911,6 +940,8 @@
             provider_evidence: resp?.provider_evidence && typeof resp.provider_evidence === 'object'
                 ? resp.provider_evidence
                 : sourceContext.provider_evidence,
+            openclaw_evidence_review: sourceContext.openclaw_evidence_review || null,
+            openclaw_evidence_review_status: sourceContext.openclaw_evidence_review_status || '',
             contextList,
         };
     }
@@ -934,6 +965,99 @@
                 </span>`;
             }).join('')}
         </div>`;
+    }
+
+    function renderEvidenceCountChips(items, emptyText = '暂无') {
+        if (!items.length) {
+            return `<span>${escapeHTML(emptyText)}</span>`;
+        }
+        return items.map((item) => `<span>${escapeHTML(item.key)} ${escapeHTML(item.count)}</span>`).join('');
+    }
+
+    function renderEvidenceKv(label, value) {
+        const text = safeEvidenceText(value, 160);
+        if (!text) return '';
+        return `<span><em>${escapeHTML(label)}</em><strong>${escapeHTML(text)}</strong></span>`;
+    }
+
+    function renderIwencaiEvidenceReview(viewModel) {
+        const evidence = viewModel.provider_evidence || viewModel.source_context?.provider_evidence;
+        const review = viewModel.openclaw_evidence_review || viewModel.source_context?.openclaw_evidence_review;
+        const reviewStatus = viewModel.openclaw_evidence_review_status
+            || viewModel.source_context?.openclaw_evidence_review_status
+            || '';
+        if (!evidence && !review && !reviewStatus) return '';
+
+        const degradation = evidence?.degradation && typeof evidence.degradation === 'object' ? evidence.degradation : {};
+        const reviewDegradation = review?.degradation && typeof review.degradation === 'object' ? review.degradation : {};
+        const reviewGate = review?.write_action_gate && typeof review.write_action_gate === 'object' ? review.write_action_gate : {};
+        const evidenceCounts = countMapItems(evidence?.condition_status_counts);
+        const candidateCounts = countMapItems(evidence?.candidate_validation);
+        const reviewCounts = countMapItems(review?.condition_status_counts);
+        const reviewCandidateCounts = countMapItems(review?.candidate_validation);
+        const safeNextActions = Array.isArray(review?.recommended_safe_next_actions)
+            ? review.recommended_safe_next_actions.map((item) => safeEvidenceText(item, 160)).filter(Boolean).slice(0, 4)
+            : [];
+        const blockedActions = Array.isArray(reviewGate.blocked_write_actions)
+            ? reviewGate.blocked_write_actions.map((item) => safeEvidenceText(item, 80)).filter(Boolean).slice(0, 6)
+            : [];
+        const providerHeader = [
+            evidence?.summary_status ? `provider ${evidence.summary_status}` : '',
+            evidence?.field_coverage_status ? `字段 ${evidence.field_coverage_status}` : '',
+            evidence?.cache_status ? `缓存 ${evidence.cache_status}` : '',
+        ].filter(Boolean).map((item) => safeEvidenceText(item, 80));
+        const reviewLabel = review?.review_status
+            || (reviewStatus === 'pending' ? 'review_pending' : '')
+            || (reviewStatus === 'failed' ? 'review_unavailable' : '')
+            || (reviewStatus === 'unavailable' ? 'review_unavailable' : '')
+            || 'not_requested';
+        const gateText = review
+            ? (reviewGate.allowed_by_review_tool === true ? 'OpenClaw review 允许' : 'OpenClaw review 不授权写入')
+            : (evidence?.write_actions_allowed === true ? '证据提示可走独立确认路径' : '写入动作仍需确认');
+        const degradationReason = reviewDegradation.reason || degradation.reason || evidence?.missing_reason || '';
+        const nextAction = reviewDegradation.next_action || degradation.next_action || evidence?.next_action || '';
+
+        return `<section class="iwencai-evidence-review" data-openclaw-review-status="${escapeHTML(reviewLabel)}">
+            <div class="iwencai-evidence-review-head">
+                <div>
+                    <div class="iwencai-router-kicker">证据审查</div>
+                    <strong>${escapeHTML(gateText)}</strong>
+                    <small>${escapeHTML(providerHeader.join(' · ') || '后端证据已保留')}</small>
+                </div>
+                <span class="iwencai-status-badge status-${escapeHTML(viewModel.status)}">${escapeHTML(reviewLabel)}</span>
+            </div>
+            <div class="iwencai-evidence-review-grid">
+                <div class="iwencai-evidence-review-card">
+                    <span class="iwencai-evidence-review-title">Provider Evidence</span>
+                    <div class="iwencai-evidence-kv">
+                        ${renderEvidenceKv('来源', evidence?.provider || viewModel.source_context?.provider)}
+                        ${renderEvidenceKv('池', evidence?.result_pool_id || viewModel.source_context?.result_pool_id)}
+                        ${renderEvidenceKv('数据', evidence?.data_as_of || viewModel.source_context?.data_as_of)}
+                        ${renderEvidenceKv('候选', `${safeEvidenceNumber(evidence?.candidate_count, viewModel.normalizedRows.length)} / ${safeEvidenceNumber(evidence?.reported_total, viewModel.total)}`)}
+                    </div>
+                    <div class="iwencai-evidence-chipset">${renderEvidenceCountChips(evidenceCounts, '条件状态待回填')}</div>
+                    <div class="iwencai-evidence-chipset">${renderEvidenceCountChips(candidateCounts, '候选验证待回填')}</div>
+                </div>
+                <div class="iwencai-evidence-review-card">
+                    <span class="iwencai-evidence-review-title">OpenClaw Review</span>
+                    ${reviewStatus === 'pending' ? '<p>本地 OpenClaw 只读审查中，结果不会阻塞候选池查看。</p>' : ''}
+                    ${reviewStatus === 'failed' ? '<p>本地 OpenClaw 审查不可用，当前仍按后端 provider evidence 展示。</p>' : ''}
+                    ${review ? `<div class="iwencai-evidence-kv">
+                        ${renderEvidenceKv('信任', review.input_trust)}
+                        ${renderEvidenceKv('状态', review.review_status)}
+                        ${renderEvidenceKv('门禁', reviewGate.reason)}
+                    </div>
+                    <div class="iwencai-evidence-chipset">${renderEvidenceCountChips(reviewCounts, 'Review 条件待回填')}</div>
+                    <div class="iwencai-evidence-chipset">${renderEvidenceCountChips(reviewCandidateCounts, 'Review 候选待回填')}</div>` : ''}
+                    ${blockedActions.length ? `<div class="iwencai-evidence-chipset">${blockedActions.map((item) => `<span>blocked ${escapeHTML(item)}</span>`).join('')}</div>` : ''}
+                </div>
+            </div>
+            ${(degradationReason || nextAction || safeNextActions.length) ? `<div class="iwencai-evidence-review-foot">
+                ${degradationReason ? `<span>${escapeHTML(safeEvidenceText(degradationReason, 180))}</span>` : ''}
+                ${nextAction ? `<span>${escapeHTML(safeEvidenceText(nextAction, 180))}</span>` : ''}
+                ${safeNextActions.map((item) => `<span>${escapeHTML(item)}</span>`).join('')}
+            </div>` : ''}
+        </section>`;
     }
 
     function renderBucketTabs(viewModel) {
@@ -1106,10 +1230,74 @@
             </header>
             ${renderTaskIssue(viewModel)}
             ${renderConditionChips(viewModel.parsed_conditions)}
+            ${renderIwencaiEvidenceReview(viewModel)}
             ${renderBucketTabs(viewModel)}
             ${renderBucketContent(viewModel)}
             ${renderGlobalActions(viewModel)}
         </section>`;
+    }
+
+    function canHydrateOpenClawEvidenceReview(viewModel) {
+        return Boolean(
+            viewModel
+            && (viewModel.provider_evidence || viewModel.source_context?.provider_evidence)
+            && globalThis.App
+            && typeof App._reviewIwencaiProviderEvidence === 'function'
+        );
+    }
+
+    function withOpenClawEvidenceReview(viewModel, review, status) {
+        const nextStatus = status || viewModel.openclaw_evidence_review_status || viewModel.source_context?.openclaw_evidence_review_status || '';
+        const nextReview = review || viewModel.openclaw_evidence_review || viewModel.source_context?.openclaw_evidence_review || null;
+        return {
+            ...viewModel,
+            openclaw_evidence_review: nextReview,
+            openclaw_evidence_review_status: nextStatus,
+            source_context: {
+                ...(viewModel.source_context || {}),
+                openclaw_evidence_review: nextReview,
+                openclaw_evidence_review_status: nextStatus,
+            },
+        };
+    }
+
+    function currentIwencaiGeneration() {
+        return Number(
+            state.iwencaiResult?.viewModel?.source_context?.request_generation
+            || state.iwencaiActionState?.source_context?.request_generation
+            || 0
+        );
+    }
+
+    function installIwencaiViewModel(viewModel, { query = null, previous = null } = {}) {
+        state.iwencaiResult = {
+            query: query || viewModel.query,
+            data: viewModel.data,
+            summaryRows: viewModel.summaryRows,
+            viewModel,
+        };
+        state.iwencaiActionState = buildActionStateFromViewModel(viewModel, {
+            previous: previous || state.iwencaiActionState || {},
+        });
+        const el = document.getElementById('intel-iwencai-result');
+        if (el) el.innerHTML = renderIwencaiTask(viewModel);
+    }
+
+    async function hydrateOpenClawEvidenceReview(viewModel, requestToken) {
+        if (!canHydrateOpenClawEvidenceReview(viewModel)) return;
+        const generation = Number(requestToken?.generation || viewModel.source_context?.request_generation || 0);
+        try {
+            const review = await App._reviewIwencaiProviderEvidence(viewModel.source_context || {});
+            if (!generation || currentIwencaiGeneration() !== generation) return;
+            const current = state.iwencaiResult?.viewModel || viewModel;
+            const updated = withOpenClawEvidenceReview(current, review, review ? 'completed' : 'unavailable');
+            installIwencaiViewModel(updated);
+        } catch (error) {
+            console.warn('[iWencai] visible OpenClaw evidence review failed', error);
+            if (!generation || currentIwencaiGeneration() !== generation) return;
+            const current = state.iwencaiResult?.viewModel || viewModel;
+            installIwencaiViewModel(withOpenClawEvidenceReview(current, null, 'failed'));
+        }
     }
 
     function buildActionStateFromViewModel(viewModel, {
@@ -1137,6 +1325,8 @@
             actionableCandidates: actionableRows,
             excludedCandidates: emptyPool ? [] : (viewModel.excludedRows || []),
             provider_evidence: viewModel.provider_evidence || viewModel.source_context?.provider_evidence || null,
+            openclaw_evidence_review: viewModel.openclaw_evidence_review || viewModel.source_context?.openclaw_evidence_review || null,
+            openclaw_evidence_review_status: viewModel.openclaw_evidence_review_status || viewModel.source_context?.openclaw_evidence_review_status || '',
             viewModel,
             ...(requestGeneration ? { requestGeneration } : {}),
             ...(requestStatus ? { request_status: requestStatus } : {}),
@@ -1240,20 +1430,27 @@
                     },
                     selected_bucket: selectedBucket || resp?.selected_bucket,
                 }, query, selectedBucket);
+                const shouldHydrateReview = canHydrateOpenClawEvidenceReview(viewModel);
+                const renderViewModel = shouldHydrateReview
+                    ? withOpenClawEvidenceReview(viewModel, null, 'pending')
+                    : viewModel;
                 state.iwencaiResult = {
                     query,
-                    data: viewModel.data,
-                    summaryRows: viewModel.summaryRows,
-                    viewModel,
+                    data: renderViewModel.data,
+                    summaryRows: renderViewModel.summaryRows,
+                    viewModel: renderViewModel,
                 };
-                state.iwencaiActionState = buildActionStateFromViewModel(viewModel, {
+                state.iwencaiActionState = buildActionStateFromViewModel(renderViewModel, {
                     query,
                     requestGeneration: requestToken.generation,
                     requestStatus: 'completed',
                 });
-                el.innerHTML = renderIwencaiTask(viewModel);
+                el.innerHTML = renderIwencaiTask(renderViewModel);
+                if (shouldHydrateReview) {
+                    void hydrateOpenClawEvidenceReview(renderViewModel, requestToken);
+                }
                 finishIwencaiRequest(requestToken);
-                return viewModel;
+                return renderViewModel;
             } catch (e) {
                 if (!isCurrentIwencaiRequest(requestToken)) {
                     return state.iwencaiResult?.viewModel || parsingViewModel;

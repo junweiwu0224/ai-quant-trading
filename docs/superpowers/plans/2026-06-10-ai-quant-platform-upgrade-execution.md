@@ -2150,6 +2150,41 @@ Remaining gaps:
 - This proves only the local browser-to-FastAPI review handoff and prompt context. It still does not prove real OpenClaw Gateway behavior, external LLM responses, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
 - A future confirmed-environment slice can run a real OpenClaw/LLM smoke after credentials and external-service scope are approved.
 
+## Task 9.31: Visible iWencai Evidence Review Panel
+
+Status: delivered as the next P2 visible workflow slice after Task 9.30. This does not call the real OpenClaw Gateway, external LLM, iWencai/pywencai, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it makes the existing iWencai result UI show backend provider evidence and the local OpenClaw evidence-review result as an auditable panel instead of hiding review context only inside the AI assistant prompt.
+
+Implemented:
+
+- `dashboard/static/intelligence-iwencai.js` now renders a `证据审查` panel inside the iWencai router when `provider_evidence` exists.
+- The panel shows provider status, result pool, data/cache state, condition status counts, candidate validation counts, degradation reason/next action, and write-action gate context.
+- When `App._reviewIwencaiProviderEvidence()` is available, iWencai results render immediately with a `review_pending` OpenClaw review state and then asynchronously update to the local review result without blocking the candidate table.
+- The visible panel preserves the review result across bucket switches and stores it in `state.iwencaiActionState.source_context.openclaw_evidence_review`.
+- The renderer redacts secret-like text and excludes raw provider payloads/cookies/tokens from the visible panel.
+- Cache versions bumped: `style.css?v=83`, `app.js?v=134`, `intelligence-iwencai.js?v=15`, and service worker cache `ai-quant-v182`.
+
+Safety boundary:
+
+- This is a local Dashboard UI and local FastAPI system-tool handoff only. It does not send messages to OpenClaw chat, invoke native tools, call OpenClaw Gateway, call external LLM, fetch real provider data, or perform write-capable actions.
+- If the local review helper is unavailable, the provider evidence panel still renders from backend-owned `provider_evidence`.
+- If the local review call fails, the UI keeps the candidate/result workflow available and marks the OpenClaw review as unavailable/failed rather than authorizing any write.
+
+Verification:
+
+```bash
+node --check dashboard/static/intelligence-iwencai.js && node --check dashboard/static/app.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_iwencai_visible_openclaw_evidence_review_panel_updates_safely tests/test_intelligence_market_frontend.py::test_iwencai_renders_task_router_conditions_buckets_and_source_context tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py -k "iwencai" -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "iwencai or changed_frontend_assets" -q -p no:cacheprovider
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+git diff --check
+```
+
+Remaining gaps:
+
+- This proves only the local visible review UI, local review helper handoff, and no-leak/no-write contracts. It still does not prove real OpenClaw Gateway behavior, external LLM responses, real iWencai credentials/schema/rate limits, Docker startup, production environment injection, or trading/data gates.
+- A future confirmed-environment slice can run a real OpenClaw/LLM/provider smoke after credentials and external-service scope are approved.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

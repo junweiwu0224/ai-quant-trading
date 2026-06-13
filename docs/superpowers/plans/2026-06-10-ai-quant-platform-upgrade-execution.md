@@ -2232,6 +2232,46 @@ Remaining gaps:
 - This is the first detail-preview slice, not a full drawer. Richer drawer-level detail, hover-triggered previews, minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, and backend-cited LLM diagnosis remain follow-ups.
 - Browser QA did not use real provider/event feeds and did not run any write or execution path.
 
+## Task 9.33: Stock Event Group Drawer Detail
+
+Status: delivered as the next P1 stock-workbench workflow slice after the compact event-group preview. This does not call real provider data, external LLM/OpenClaw, Docker, data sync, backtest execution, paper/live trading, broker APIs, production config, or auth/invite-code paths; it closes the first drawer-level detail gap by making the selected same-day K-line event group expandable into an auditable evidence drawer.
+
+TongHuaShun mechanism learned:
+
+- The useful K-line event cluster workflow needs a second inspection layer after the compact preview: date cluster -> group summary -> full event evidence list -> manual next action.
+- AI Quant should learn the continuity and evidence-audit pattern, not copy 同花顺 visual skin, paid content, social/community features, proprietary signals, or trading prompts.
+
+Implemented:
+
+- `stock-detail-core.js` now stores `layoutState.eventGroupDrawerOpen`, resets it when opening a new stock or leaving the active event group, and exposes a manual `详情/收起详情` control inside the same-day event-group card.
+- The drawer renders event date, stock identity, independent/raw evidence scale, duplicate转载 note, event-type mix, main event, selected event, source context, counter/missing evidence, and the full ranked evidence list.
+- Each drawer item keeps chart-event selection behavior and shows type, title, detail, source/time facts, duplicate-source hints, primary/selected badges, optional direction/value fields, and external-source caution without opening external links.
+- `style.css` adds responsive, compact drawer styles that preserve long-title wrapping/ellipsis and avoid horizontal overflow on narrow screens.
+- Cache versions bumped: `style.css?v=85`, `app.js?v=136`, `app-ui-shell.js?v=47`, `stock-detail-core.js?v=23`, `/sw.js?v=76`, and service worker cache `ai-quant-v184`.
+
+Safety boundary:
+
+- This is a frontend evidence/interaction slice only. It does not fetch new event data, call provider/LLM/OpenClaw services, run backtests, create baskets/watchlists automatically, submit orders, or change production/auth/trading behavior.
+- Existing event-group actions remain manual draft/explain paths; broker, paper/live, backtest execution, provider, and external-service gates remain behind explicit confirmation.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+```
+
+Results:
+
+- JS syntax checks passed for `stock-detail-core.js`, `app.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused event-group/cache-busting contracts passed: `4 passed, 1 warning`.
+- The Node DOM contract covers opening the drawer, rendering drawer facts/warnings/evidence list, switching to a selected group member, resetting the drawer when leaving the group, and closing the drawer.
+
+Remaining gaps:
+
+- Hover-triggered previews, minute-level positioning, cited semantic dedupe, provider-backed event samples, richer sector/index/peer mappings, backend-cited LLM diagnosis, and formal/provider-grade event-study validation remain follow-ups.
+- Browser QA does not use real provider/event feeds and does not run any write or execution path.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

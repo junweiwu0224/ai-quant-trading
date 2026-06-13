@@ -97,10 +97,10 @@ def test_research_toolbar_asset_versions_are_bumped_for_browser_cache():
     template = read_template()
     scripts = read_scripts_partial()
 
-    assert "/static/style.css?v=84" in template
+    assert "/static/style.css?v=85" in template
     assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=46" in scripts
+    assert "/static/app-ui-shell.js?v=47" in scripts
 
 
 def test_mobile_research_subtabs_avoid_fixed_user_shell_bar():

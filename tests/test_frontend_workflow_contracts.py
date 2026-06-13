@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=135" in scripts
+    assert "/static/app.js?v=136" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -2840,7 +2840,7 @@ def test_stock_workbench_default_state_keeps_event_selection_and_bottom_tab():
 
     assert "selectedEvent: null" in default_state
     assert "chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 }" in default_state
-    assert "layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile' }" in default_state
+    assert "layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile', eventGroupDrawerOpen: false }" in default_state
     assert "if (value === null)" in ensure_state
     assert "if (!(key in state)) state[key] = null" in ensure_state
     assert "state.layoutState = { ...state.layoutState, ...stored.layoutState }" in ensure_state
@@ -2860,7 +2860,9 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
         "_filteredWorkbenchEvents(",
         "_renderStockEventList(",
         "_renderStockEventGroupFocus(",
+        "_renderStockEventGroupDrawer(",
         "_syncWorkbenchEventGroupFocus(",
+        "_setEventGroupDrawerOpen(",
         "_eventGroupAction(",
         "_bindStockBottomPanel(",
     ]
@@ -2873,8 +2875,10 @@ def test_stock_workbench_bottom_event_core_contracts_are_wired():
     assert "data-chart-event-id" in stock_detail_core
     assert "data-stock-event-group-date" in stock_detail_core
     assert "data-stock-event-group-action" in stock_detail_core
+    assert "data-stock-event-group-drawer" in stock_detail_core
     assert "eventOverlayEvents" in stock_detail_core
     assert "eventGroupFocus" in stock_detail_core
+    assert "eventGroupDrawerOpen" in stock_detail_core
     assert "role=\"tablist\"" in stock_detail_core
     assert "role=\"list\"" in stock_detail_core
     assert "state.selectedEvent" in stock_detail_core
@@ -3396,6 +3400,7 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
                 chartTime: '2026-06-10',
                 status: 'ready',
                 source_label: '资金流',
+                link_url: 'https://example.com/evidence/capital-flow',
             },
             {
                 id: 'report-1',
@@ -3491,6 +3496,8 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.match(elements['stock-bottom-panel'].innerHTML, /主事件:/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-preview/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /主事件详情/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /data-stock-event-group-drawer="open"/);
+        assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /stock-event-group-drawer-list/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /主力资金净流入/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /净流入 1.20亿/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /独立\/原始/);
@@ -3499,6 +3506,18 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.match(elements['stock-bottom-panel'].innerHTML, /缺少事件后 N 日回测验证/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /回测草案/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /篮子草案/);
+        assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /undefined|\\[object Object\\]/);
+
+        global.StockDetail._setEventGroupDrawerOpen(true);
+        assert.equal(state.layoutState.eventGroupDrawerOpen, true);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-drawer-list/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /事件组详情/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /300308/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /4 独立 \/ 5 原始/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /重复转载不作为独立证据加权/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /主事件/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /外部来源线索/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /data-stock-event-group-drawer="close"/);
         assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /undefined|\\[object Object\\]/);
 
         const announcementId = events.find((event) => event.type === 'announcement').id;
@@ -3511,15 +3530,25 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.match(elements['stock-bottom-panel'].innerHTML, /选中事件详情/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /签订重大合同/);
         assert.match(elements['stock-bottom-panel'].innerHTML, /公告事件详情/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /当前选中/);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /已选中/);
 
         const noteId = events.find((event) => event.type === 'note').id;
         global.StockDetail._selectStockEvent(noteId, { focusChart: true });
         assert.equal(state.selectedEvent.id, noteId);
         assert.equal(state.chartState.eventGroupFocus, null);
+        assert.equal(state.layoutState.eventGroupDrawerOpen, false);
         assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /stock-event-group-item is-selected/);
 
         chart.created[0].onClick();
         assert.equal(state.chartState.eventGroupFocus.date_key, '2026-06-10');
+        assert.equal(state.layoutState.eventGroupDrawerOpen, false);
+
+        global.StockDetail._setEventGroupDrawerOpen(true);
+        assert.match(elements['stock-bottom-panel'].innerHTML, /stock-event-group-drawer-list/);
+        global.StockDetail._setEventGroupDrawerOpen(false);
+        assert.equal(state.layoutState.eventGroupDrawerOpen, false);
+        assert.doesNotMatch(elements['stock-bottom-panel'].innerHTML, /stock-event-group-drawer-list/);
 
         const payload = global.StockDetail._eventGroupAction('draft-backtest');
         assert.equal(global.App.emitted.at(-1).event, 'iwencai:draft-backtest');
@@ -4661,15 +4690,15 @@ def test_changed_frontend_assets_are_cache_busted():
     alpha = read("dashboard/static/alpha.js")
     alpha_tools = read("dashboard/static/alpha-tools.js")
 
-    assert "/static/style.css?v=84" in template
+    assert "/static/style.css?v=85" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=135" in scripts
+    assert "/static/app.js?v=136" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=38" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=46" in scripts
+    assert "/static/app-ui-shell.js?v=47" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4689,7 +4718,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=22" in app
+    assert "/static/stock-detail-core.js?v=23" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

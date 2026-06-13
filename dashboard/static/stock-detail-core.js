@@ -204,7 +204,7 @@ Object.assign(globalThis.StockDetail, {
             contextList: [],
             chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 },
             indicatorState: { main: ['MA'], sub: ['VOL'], active: '' },
-            layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile' },
+            layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile', eventGroupDrawerOpen: false },
             relatedContext: { sectors: [], indices: [], peers: [] },
             eventFeed: [],
             selectedEvent: null,
@@ -285,6 +285,9 @@ Object.assign(globalThis.StockDetail, {
                 configurable: true,
             });
         }
+        if (typeof state.layoutState.eventGroupDrawerOpen !== 'boolean') {
+            state.layoutState.eventGroupDrawerOpen = false;
+        }
         if (
             this._sourceContext
             && typeof this._sourceContext === 'object'
@@ -314,6 +317,10 @@ Object.assign(globalThis.StockDetail, {
         };
         state.sourceContext = { ...(this._sourceContext || {}) };
         state.selectedEvent = null;
+        state.layoutState = {
+            ...(state.layoutState || {}),
+            eventGroupDrawerOpen: false,
+        };
         state.chartState = {
             ...(state.chartState || {}),
             eventFocus: null,
@@ -648,6 +655,94 @@ Object.assign(globalThis.StockDetail, {
         };
     },
 
+    _renderStockEventGroupDrawer(focus = null, events = [], selectedEvent = null) {
+        const groupEvents = Array.isArray(events) ? events : [];
+        if (!focus?.date_key || !groupEvents.length) return '';
+        const selectedId = selectedEvent?.id || '';
+        const sourceContext = focus.source_context || this._buildEventGroupSourceContext(focus.date_key, groupEvents);
+        const eventGroup = sourceContext.event_group || {};
+        const groupDiagnosis = this._buildEventGroupDiagnosisFocus(focus, groupEvents);
+        const rawCount = groupEvents.reduce((total, event) => total + Number(event.duplicate_count || 1), 0);
+        const duplicateCount = Math.max(0, rawCount - groupEvents.length);
+        const typeSummary = this._uniqueEvidenceItems(groupEvents.map((event) => this._eventTypeLabel(event.type))).join(' / ');
+        const activeEvent = selectedId && groupEvents.some((event) => event.id === selectedId)
+            ? groupEvents.find((event) => event.id === selectedId)
+            : null;
+        const primaryId = focus.representative_event_id || eventGroup.primary_event_id || '';
+        const rankedEvents = [...groupEvents].sort((a, b) => this._eventClusterRank(a) - this._eventClusterRank(b));
+        const primaryEvent = groupEvents.find((event) => event.id === primaryId) || rankedEvents[0] || null;
+        const drawerFacts = [
+            ['事件日期', focus.date_key],
+            ['股票', [eventGroup.stock_name || this._headerData?.name || '', eventGroup.stock_code || this._currentCode || ''].filter(Boolean).join(' ')],
+            ['证据规模', `${groupEvents.length} 独立 / ${rawCount} 原始`],
+            duplicateCount ? ['重复转载', `${duplicateCount} 条只作传播热度`] : null,
+            ['事件类型', typeSummary || '事件'],
+            ['主事件', primaryEvent?.title || '待确认'],
+            activeEvent ? ['当前选中', activeEvent.title || this._eventTypeLabel(activeEvent.type)] : null,
+            ['来源上下文', eventGroup.rank_reason || sourceContext.sourceLabel || sourceContext.source || '来源待补充'],
+        ].filter(Boolean);
+        const warnings = [
+            groupDiagnosis.counter_evidence,
+            groupDiagnosis.missing_evidence,
+            eventGroup.dedupe_policy || '重复转载不作为独立证据加权',
+        ].filter(Boolean);
+        return `
+            <div class="stock-event-group-drawer" id="stock-event-group-drawer" role="region" aria-label="同日事件组详情">
+                <div class="stock-event-group-drawer-head">
+                    <div>
+                        <strong>事件组详情</strong>
+                        <span>${App.escapeHTML(focus.date_key)} · ${App.escapeHTML(groupEvents.length)} 个独立事件 · ${App.escapeHTML(rawCount)} 条原始证据</span>
+                    </div>
+                    <button type="button" class="btn btn-xs" data-stock-event-group-drawer="close" aria-label="收起事件组详情">收起</button>
+                </div>
+                <div class="stock-event-group-drawer-facts">
+                    ${drawerFacts.map(([label, value]) => `
+                        <span><b>${App.escapeHTML(label)}</b>${App.escapeHTML(value)}</span>
+                    `).join('')}
+                </div>
+                ${warnings.length ? `
+                    <div class="stock-event-group-drawer-warnings">
+                        ${warnings.map((warning) => `<span>${App.escapeHTML(warning)}</span>`).join('')}
+                    </div>
+                ` : ''}
+                <div class="stock-event-group-drawer-list" role="list" aria-label="事件组证据明细">
+                    ${rankedEvents.map((event) => {
+                        const duplicateSources = this._uniqueEvidenceItems(event.duplicate_source_labels || []);
+                        const duplicateCountForEvent = Number(event.duplicate_count || 1);
+                        const isSelected = event.id === selectedId;
+                        const isPrimary = event.id === primaryEvent?.id;
+                        const linkUrl = event.link_url || event.url || '';
+                        const facts = [
+                            ['来源', event.source_label || event.source || this._eventTypeLabel(event.type)],
+                            ['时间', event.at || event.chartTime || event.date_key || focus.date_key],
+                            duplicateCountForEvent > 1 ? ['合并', `${duplicateCountForEvent} 条`] : null,
+                            event.direction ? ['方向', event.direction] : null,
+                            event.value !== '' && event.value !== null && event.value !== undefined ? ['数值', event.value] : null,
+                        ].filter(Boolean);
+                        return `
+                            <button type="button" class="stock-event-group-drawer-item${isSelected ? ' is-selected' : ''}${isPrimary ? ' is-primary' : ''}" data-stock-event-id="${App.escapeHTML(event.id)}" aria-pressed="${isSelected ? 'true' : 'false'}">
+                                <span class="stock-event-type" data-type="${App.escapeHTML(event.type || '')}">${App.escapeHTML(this._eventTypeLabel(event.type))}</span>
+                                <span class="stock-event-group-drawer-main">
+                                    <strong>${App.escapeHTML(event.title || '事件')}</strong>
+                                    <em>${App.escapeHTML(this._eventDetailText(event))}</em>
+                                    <span class="stock-event-group-drawer-tags">
+                                        ${isPrimary ? '<b>主事件</b>' : ''}
+                                        ${isSelected ? '<b>已选中</b>' : ''}
+                                        ${duplicateSources.length ? `<b>重复来源 ${App.escapeHTML(duplicateSources.join(' / '))}</b>` : ''}
+                                        ${linkUrl ? '<b>外部来源线索</b>' : ''}
+                                    </span>
+                                </span>
+                                <span class="stock-event-group-drawer-meta">
+                                    ${facts.map(([label, value]) => `<b>${App.escapeHTML(label)} ${App.escapeHTML(value)}</b>`).join('')}
+                                </span>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    },
+
     _syncWorkbenchEventGroupFocus(dateKey = '', events = null, representative = null) {
         const state = this._ensureStockWorkbenchState();
         const key = String(dateKey || '').trim();
@@ -655,6 +750,10 @@ Object.assign(globalThis.StockDetail, {
             state.chartState = {
                 ...state.chartState,
                 eventGroupFocus: null,
+            };
+            state.layoutState = {
+                ...(state.layoutState || {}),
+                eventGroupDrawerOpen: false,
             };
             return state;
         }
@@ -683,7 +782,24 @@ Object.assign(globalThis.StockDetail, {
             ...state.chartState,
             eventGroupFocus: groupFocus,
         };
+        if (previousGroupDate && previousGroupDate !== key) {
+            state.layoutState = {
+                ...(state.layoutState || {}),
+                eventGroupDrawerOpen: false,
+            };
+        }
         return state;
+    },
+
+    _setEventGroupDrawerOpen(open = true) {
+        const state = this._ensureStockWorkbenchState();
+        state.layoutState = {
+            ...(state.layoutState || {}),
+            eventGroupDrawerOpen: Boolean(open),
+        };
+        this._persistStockWorkbenchState(state);
+        this._renderStockBottomPanel();
+        return state.layoutState.eventGroupDrawerOpen;
     },
 
     _eventGroupAction(action = '') {
@@ -1308,6 +1424,7 @@ Object.assign(globalThis.StockDetail, {
         const eventGroup = sourceContext.event_group || {};
         const groupDiagnosis = this._buildEventGroupDiagnosisFocus(focus, state.eventFeed || []);
         const groupPreview = this._buildEventGroupPreview(focus, events, state.selectedEvent);
+        const drawerOpen = Boolean(state.layoutState?.eventGroupDrawerOpen);
         const sourceSummary = [
             eventGroup.stock_name || this._headerData?.name || '',
             eventGroup.stock_code || this._currentCode || '',
@@ -1329,6 +1446,7 @@ Object.assign(globalThis.StockDetail, {
                         <span>${App.escapeHTML(typeSummary || '事件')} · ${App.escapeHTML(rawCount)} 条原始证据</span>
                     </div>
                     <div class="stock-event-group-actions" aria-label="事件组后续动作">
+                        <button type="button" class="btn btn-xs" data-stock-event-group-drawer="${drawerOpen ? 'close' : 'open'}" aria-expanded="${drawerOpen ? 'true' : 'false'}" aria-controls="stock-event-group-drawer">${drawerOpen ? '收起详情' : '详情'}</button>
                         <button type="button" class="btn btn-xs" data-stock-event-group-action="analyze">解释</button>
                         <button type="button" class="btn btn-xs" data-stock-event-group-action="create-basket">篮子草案</button>
                         <button type="button" class="btn btn-xs" data-stock-event-group-action="draft-backtest">回测草案</button>
@@ -1363,6 +1481,7 @@ Object.assign(globalThis.StockDetail, {
                         ` : ''}
                     </div>
                 ` : ''}
+                ${drawerOpen ? this._renderStockEventGroupDrawer(focus, events, state.selectedEvent) : ''}
                 <div class="stock-event-group-items">
                     ${events.map((event) => `
                         <button type="button" class="stock-event-group-item${event.id === selectedId ? ' is-selected' : ''}" data-stock-event-id="${App.escapeHTML(event.id)}" aria-pressed="${event.id === selectedId ? 'true' : 'false'}">
@@ -1428,6 +1547,12 @@ Object.assign(globalThis.StockDetail, {
             if (tab) {
                 event.preventDefault();
                 this._setStockBottomTab(tab.dataset.stockBottomTab || 'events');
+                return;
+            }
+            const groupDrawer = event.target.closest('[data-stock-event-group-drawer]');
+            if (groupDrawer) {
+                event.preventDefault();
+                this._setEventGroupDrawerOpen(groupDrawer.dataset.stockEventGroupDrawer !== 'close');
                 return;
             }
             const groupAction = event.target.closest('[data-stock-event-group-action]');

@@ -2841,6 +2841,144 @@ input:focus, select:focus, textarea:focus {
     line-height: 1.35;
     overflow-wrap: anywhere;
 }
+.stock-event-group-drawer {
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent-color) 18%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-primary) 96%, var(--accent-color) 4%);
+}
+.stock-event-group-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+.stock-event-group-drawer-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+.stock-event-group-drawer-head strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    line-height: 1.25;
+}
+.stock-event-group-drawer-head span {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stock-event-group-drawer-facts,
+.stock-event-group-drawer-warnings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+.stock-event-group-drawer-facts span,
+.stock-event-group-drawer-warnings span {
+    max-width: 100%;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+.stock-event-group-drawer-facts span {
+    border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+.stock-event-group-drawer-facts b {
+    margin-right: 4px;
+    color: var(--text-secondary);
+}
+.stock-event-group-drawer-warnings span {
+    border: 1px solid color-mix(in srgb, var(--warning-color) 24%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--warning-color) 8%);
+    color: var(--text-secondary);
+}
+.stock-event-group-drawer-list {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+.stock-event-group-drawer-item {
+    display: grid;
+    grid-template-columns: minmax(46px, 58px) minmax(0, 1fr) minmax(92px, 132px);
+    align-items: start;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    padding: 7px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+}
+.stock-event-group-drawer-item:hover,
+.stock-event-group-drawer-item.is-selected {
+    border-color: color-mix(in srgb, var(--accent-color) 42%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--accent-color) 12%);
+}
+.stock-event-group-drawer-item.is-primary {
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-color) 66%, var(--border-color));
+}
+.stock-event-group-drawer-main {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+.stock-event-group-drawer-main strong,
+.stock-event-group-drawer-main em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stock-event-group-drawer-main strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    line-height: 1.25;
+}
+.stock-event-group-drawer-main em {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-style: normal;
+    line-height: 1.35;
+}
+.stock-event-group-drawer-tags,
+.stock-event-group-drawer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    min-width: 0;
+}
+.stock-event-group-drawer-tags b,
+.stock-event-group-drawer-meta b {
+    max-width: 100%;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent-color) 10%, var(--bg-tertiary));
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stock-event-group-drawer-meta {
+    justify-content: flex-end;
+}
 .stock-event-group-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2884,6 +3022,23 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-muted);
     font-size: 10px;
     font-style: normal;
+}
+@media (max-width: 640px) {
+    .stock-event-group-head,
+    .stock-event-group-drawer-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .stock-event-group-actions {
+        justify-content: flex-start;
+    }
+    .stock-event-group-drawer-item {
+        grid-template-columns: minmax(44px, 54px) minmax(0, 1fr);
+    }
+    .stock-event-group-drawer-meta {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
 }
 .stock-event-time {
     min-width: 0;

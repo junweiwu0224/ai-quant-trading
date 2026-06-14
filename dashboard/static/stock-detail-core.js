@@ -205,7 +205,7 @@ Object.assign(globalThis.StockDetail, {
             chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 },
             indicatorState: { main: ['MA'], sub: ['VOL'], active: '' },
             layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile', eventGroupDrawerOpen: false },
-            relatedContext: { sectors: [], indices: [], peers: [] },
+            relatedContext: { sectors: [], concepts: [], indices: [], peers: [], index_evidence: [] },
             eventFeed: [],
             selectedEvent: null,
             fundamentalSnapshot: {},
@@ -1789,6 +1789,141 @@ Object.assign(globalThis.StockDetail, {
             });
     },
 
+    _normalizeIndexEvidenceItem(item, fallback = {}) {
+        if (!item && item !== 0) return null;
+        if (item && typeof item === 'object') {
+            const code = String(item.code || item.symbol || item.index_code || '').trim();
+            const name = String(item.name || item.index_name || item.label || '').trim();
+            const label = String(item.label || [name, code].filter(Boolean).join(' ') || code).trim();
+            if (!label) return null;
+            return {
+                label,
+                code,
+                source: item.source || fallback.source || 'local_workbench_index_bridge',
+                sourceLabel: item.sourceLabel || item.source_label || fallback.sourceLabel || '本地指数候选',
+                reason: item.reason || fallback.reason || '本地工作台候选',
+                confidence: item.confidence || fallback.confidence || 'low',
+                provider_verified: item.provider_verified === true || item.providerVerified === true || fallback.provider_verified === true,
+                local_only: item.local_only !== false && fallback.local_only !== false,
+                source_fields: Array.isArray(item.source_fields)
+                    ? item.source_fields.filter(Boolean)
+                    : (Array.isArray(fallback.source_fields) ? fallback.source_fields.filter(Boolean) : []),
+            };
+        }
+        const label = String(item || '').trim();
+        if (!label) return null;
+        return {
+            label,
+            code: '',
+            source: fallback.source || 'detail_payload',
+            sourceLabel: fallback.sourceLabel || '详情字段',
+            reason: fallback.reason || '详情接口返回关联指数字段，未在本地重新验证成分股',
+            confidence: fallback.confidence || 'medium',
+            provider_verified: fallback.provider_verified === true,
+            local_only: fallback.local_only !== false,
+            source_fields: Array.isArray(fallback.source_fields) ? fallback.source_fields.filter(Boolean) : [],
+        };
+    },
+
+    _mergeRelatedIndexEvidence(...groups) {
+        const seen = new Set();
+        const merged = [];
+        groups.flat().forEach((item) => {
+            const evidence = this._normalizeIndexEvidenceItem(item);
+            if (!evidence) return;
+            const key = evidence.label.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            merged.push(evidence);
+        });
+        return merged.slice(0, 6);
+    },
+
+    _buildLocalRelatedIndexEvidence(data = {}, summary = {}) {
+        const explicitRaw = [
+            data.related_indices,
+            data.indices,
+            data.relatedIndexes,
+        ].flatMap((items) => (Array.isArray(items) ? items : (items ? [items] : [])));
+        const explicitEvidence = explicitRaw
+            .map((item) => this._normalizeIndexEvidenceItem(item, {
+                source: 'detail_payload',
+                sourceLabel: '详情字段',
+                reason: '详情接口返回关联指数字段，未在本地重新验证成分股',
+                confidence: 'medium',
+                provider_verified: data.related_indices_provider_verified === true || data.indices_provider_verified === true,
+                local_only: data.related_indices_provider_verified !== true && data.indices_provider_verified !== true,
+                source_fields: ['related_indices'],
+            }))
+            .filter(Boolean);
+        const sourceContext = this._sourceContext && typeof this._sourceContext === 'object' ? this._sourceContext : {};
+        const code = String(
+            data.code
+            || this._currentCode
+            || this._ensureStockWorkbenchState().selectedSymbol?.code
+            || ''
+        ).replace(/\D/g, '').slice(0, 6);
+        const tagItems = this._uniqueEvidenceItems([
+            sourceContext.sector_name,
+            data.sector,
+            data.industry,
+            ...(Array.isArray(data.concepts) ? data.concepts : []),
+            ...(Array.isArray(summary.tags) ? summary.tags : []),
+        ]);
+        const tagText = tagItems.join(' ');
+        const localEvidence = [];
+        const pushLocal = (candidate) => {
+            if (!candidate || !candidate.label) return;
+            localEvidence.push(this._normalizeIndexEvidenceItem(candidate, {
+                source: 'local_workbench_index_bridge',
+                sourceLabel: '本地指数候选',
+                confidence: 'low',
+                provider_verified: false,
+                local_only: true,
+            }));
+        };
+        const boardRules = [
+            { test: (value) => /^688/.test(value), name: '科创50', code: '000688', reason: '股票代码指向科创板上市板块基准' },
+            { test: (value) => /^(300|301)/.test(value), name: '创业板指', code: '399006', reason: '股票代码指向创业板上市板块基准' },
+            { test: (value) => /^6/.test(value), name: '上证指数', code: '000001', reason: '股票代码指向上交所上市板块基准' },
+            { test: (value) => /^(000|001|002|003)/.test(value), name: '深证成指', code: '399001', reason: '股票代码指向深交所上市板块基准' },
+        ];
+        const board = code ? boardRules.find((rule) => rule.test(code)) : null;
+        if (board) {
+            pushLocal({
+                label: `${board.name} ${board.code}`,
+                code: board.code,
+                reason: board.reason,
+                source_fields: ['code'],
+            });
+        }
+        const themeRules = [
+            { pattern: /通信|光模块|光通信|CPO|算力|数据中心|AI服务器/i, label: '通信/TMT主题候选（本地标签）', reason: '行业或概念标签包含通信、光模块、CPO 或算力线索' },
+            { pattern: /半导体|芯片|集成电路|电子/i, label: '半导体/电子主题候选（本地标签）', reason: '行业或概念标签包含半导体、芯片或电子线索' },
+            { pattern: /新能源|电池|锂电|光伏|储能|电力设备/i, label: '新能源主题候选（本地标签）', reason: '行业或概念标签包含新能源、电池、光伏或储能线索' },
+            { pattern: /银行|证券|券商|保险|金融/i, label: '金融主题候选（本地标签）', reason: '行业或概念标签包含银行、证券、保险或金融线索' },
+            { pattern: /白酒|食品饮料|消费/i, label: '消费主题候选（本地标签）', reason: '行业或概念标签包含白酒、食品饮料或消费线索' },
+            { pattern: /医药|医疗|创新药|CXO/i, label: '医药主题候选（本地标签）', reason: '行业或概念标签包含医药、医疗或创新药线索' },
+            { pattern: /汽车|整车|零部件|智能驾驶/i, label: '汽车主题候选（本地标签）', reason: '行业或概念标签包含汽车、零部件或智能驾驶线索' },
+            { pattern: /传媒|游戏|影视/i, label: '传媒主题候选（本地标签）', reason: '行业或概念标签包含传媒、游戏或影视线索' },
+            { pattern: /计算机|软件|人工智能|AI/i, label: '计算机/AI主题候选（本地标签）', reason: '行业或概念标签包含计算机、软件或人工智能线索' },
+        ];
+        const theme = tagText ? themeRules.find((rule) => rule.pattern.test(tagText)) : null;
+        if (theme) {
+            pushLocal({
+                label: theme.label,
+                reason: theme.reason,
+                source_fields: tagItems,
+            });
+        }
+        const evidence = this._mergeRelatedIndexEvidence(explicitEvidence, localEvidence);
+        return {
+            indices: evidence.map((item) => item.label),
+            evidence,
+            missing_reason: evidence.length ? '' : '关联指数等待详情字段、本地上市板块基准或行业主题候选回填',
+        };
+    },
+
     _coverageStatus(coverage) {
         if (coverage && coverage.covered === true) return 'ready';
         if (coverage && coverage.covered === false) return 'missing';
@@ -1820,7 +1955,8 @@ Object.assign(globalThis.StockDetail, {
             data.industry,
         ]);
         const concepts = this._uniqueEvidenceItems(Array.isArray(data.concepts) ? data.concepts : summary.tags);
-        const indices = this._uniqueEvidenceItems(data.related_indices || data.indices || data.relatedIndexes || []);
+        const indexEvidenceState = this._buildLocalRelatedIndexEvidence(data, summary);
+        const indices = indexEvidenceState.indices;
         const peers = this._uniqueEvidenceItems(data.peers || data.peer_stocks || data.peerStocks || []);
         const hasQuote = data.price != null || data.change != null || data.change_pct != null;
         const hasDetail = Boolean(data.code || data.name || summary.description || summary.positioning || summary.tags.length);
@@ -1906,11 +2042,12 @@ Object.assign(globalThis.StockDetail, {
                 concepts,
                 indices,
                 peers,
+                index_evidence: indexEvidenceState.evidence,
                 source: sourceContext,
                 missing_reason: {
                     sectors: sectors.length ? '' : '行业/板块信息暂缺',
                     concepts: concepts.length ? '' : '概念标签暂缺',
-                    indices: indices.length ? '' : '关联指数等待行情联动模块回填',
+                    indices: indexEvidenceState.missing_reason,
                     peers: peers.length ? '' : '同业/同板块标的等待估值或行业比较模块回填',
                 },
             },
@@ -2013,6 +2150,36 @@ Object.assign(globalThis.StockDetail, {
             ]);
             if (next[key].length) next.missing_reason[key] = '';
         });
+        const derivedIndexEvidence = this._buildLocalRelatedIndexEvidence({
+            ...(this._headerData || {}),
+            code: this._headerData?.code || state.selectedSymbol?.code || this._currentCode,
+            sector: Array.isArray(next.sectors) ? next.sectors[0] : this._headerData?.sector,
+            industry: Array.isArray(next.sectors) ? next.sectors[next.sectors.length - 1] : this._headerData?.industry,
+            concepts: Array.isArray(next.concepts) ? next.concepts : [],
+            related_indices: Array.isArray(patch.indices) ? patch.indices : [],
+        }, { tags: Array.isArray(next.concepts) ? next.concepts : [] });
+        const mergedIndexEvidence = this._mergeRelatedIndexEvidence(
+            Array.isArray(current.index_evidence) ? current.index_evidence : [],
+            Array.isArray(next.indices) ? next.indices.map((label) => ({
+                label,
+                source: 'related_context',
+                sourceLabel: '工作台上下文',
+                reason: '工作台已有关联指数',
+                confidence: 'low',
+                provider_verified: false,
+                local_only: true,
+            })) : [],
+            Array.isArray(patch.index_evidence) ? patch.index_evidence : [],
+            derivedIndexEvidence.evidence
+        );
+        next.index_evidence = mergedIndexEvidence;
+        next.indices = this._uniqueEvidenceItems([
+            ...(Array.isArray(next.indices) ? next.indices : []),
+            ...mergedIndexEvidence.map((item) => item.label),
+        ]).slice(0, 6);
+        next.missing_reason.indices = next.indices.length
+            ? ''
+            : (derivedIndexEvidence.missing_reason || next.missing_reason.indices || '关联指数等待详情字段、本地上市板块基准或行业主题候选回填');
         state.relatedContext = next;
         this._syncWorkbenchAiContextFromState();
         this._renderStockEvidenceRail(this._headerData || {}, this._buildStockIdentitySummary(this._headerData || {}));
@@ -2047,6 +2214,18 @@ Object.assign(globalThis.StockDetail, {
             return items.map((item) => `<span>${App.escapeHTML(item)}</span>`).join('');
         }
         return `<em>${App.escapeHTML(missingReason || '暂缺')}</em>`;
+    },
+
+    _renderIndexEvidenceNote(indexEvidence = [], missingReason = '') {
+        const evidence = Array.isArray(indexEvidence) ? indexEvidence : [];
+        if (!evidence.length) return '';
+        const reasons = this._uniqueEvidenceItems(evidence.map((item) => item.reason)).slice(0, 2);
+        const localOnly = evidence.some((item) => item && item.provider_verified !== true);
+        const text = [
+            reasons.length ? `关联指数证据：${reasons.join('；')}` : '关联指数证据：本地工作台候选',
+            localOnly ? '本地基准候选，未做 provider 成分股验证' : '',
+        ].filter(Boolean).join('。');
+        return `<p class="stock-evidence-muted">${App.escapeHTML(text || missingReason || '关联指数状态暂缺')}</p>`;
     },
 
     _renderEvidenceEvents(events = []) {
@@ -2131,6 +2310,10 @@ Object.assign(globalThis.StockDetail, {
             ...(Array.isArray(relatedContext.sectors) ? relatedContext.sectors : []),
             ...(Array.isArray(relatedContext.concepts) ? relatedContext.concepts : []),
         ].filter(Boolean);
+        const indexBits = (Array.isArray(relatedContext.indices) ? relatedContext.indices : [])
+            .filter(Boolean)
+            .map((item) => `关联指数 ${item}`);
+        const industryEvidenceBits = [...sectorBits.slice(0, 5), ...indexBits.slice(0, 2)];
         const hasPeg = summary.peg !== null && summary.peg !== undefined && summary.peg !== '' && Number.isFinite(Number(summary.peg));
         const quoteEvidence = quoteStatus === 'ready'
             ? `当前${data.price != null ? `价 ${data.price}` : '行情可用'} · 涨跌幅 ${data.change_pct ?? '--'}%`
@@ -2202,9 +2385,11 @@ Object.assign(globalThis.StockDetail, {
             this._diagnosisRow({
                 key: 'industry',
                 label: '行业面',
-                status: sectorBits.length ? 'ready' : 'missing',
-                evidence: sectorBits.slice(0, 5).join(' · '),
-                missingReason: sectorBits.length ? '' : relatedContext.missing_reason?.sectors || '行业、概念或来源板块暂缺',
+                status: industryEvidenceBits.length ? 'ready' : 'missing',
+                evidence: industryEvidenceBits.join(' · '),
+                missingReason: industryEvidenceBits.length
+                    ? ''
+                    : relatedContext.missing_reason?.sectors || relatedContext.missing_reason?.indices || '行业、概念或来源板块暂缺',
                 updatedAt,
                 source: relatedContext.source?.sourceLabel || relatedContext.source?.source || '个股资料',
                 confidence: sectorBits.length ? 'medium' : 'low',
@@ -2476,6 +2661,7 @@ Object.assign(globalThis.StockDetail, {
                         ${this._renderEvidenceChips(related.indices, missing.indices)}
                         ${this._renderEvidenceChips(related.peers, missing.peers)}
                     </div>
+                    ${this._renderIndexEvidenceNote(related.index_evidence, missing.indices)}
                 </div>
                 <div class="stock-evidence-section">
                     <h4>事件</h4>

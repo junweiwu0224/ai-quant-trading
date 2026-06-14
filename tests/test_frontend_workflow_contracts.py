@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=142" in scripts
+    assert "/static/app.js?v=143" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -2839,6 +2839,7 @@ def test_stock_workbench_default_state_keeps_event_selection_and_bottom_tab():
     ]
 
     assert "selectedEvent: null" in default_state
+    assert "relatedContext: { sectors: [], concepts: [], indices: [], peers: [], index_evidence: [] }" in default_state
     assert "chartState: { period: 'timeline', adjust: 'qfq', visibleRange: null, selectedCandle: null, eventFocus: null, eventGroupFocus: null, eventOverlay: true, eventOverlayEvents: [], eventOverlayCount: 0 }" in default_state
     assert "layoutState: { leftOpen: true, rightOpen: true, bottomTab: 'events', railTab: 'profile', eventGroupDrawerOpen: false }" in default_state
     assert "if (value === null)" in ensure_state
@@ -4174,7 +4175,13 @@ def test_stock_workbench_evidence_state_completes_with_missing_reasons_and_tab_s
         assert.match(state.dataQuality.news_research.missing_reason, /尚未汇入工作台状态/);
         assert.deepEqual(state.relatedContext.sectors, ['光模块', '通信设备', '通信']);
         assert.deepEqual(state.relatedContext.concepts, ['CPO', '算力']);
-        assert.match(state.relatedContext.missing_reason.indices, /关联指数/);
+        assert.deepEqual(state.relatedContext.indices, ['创业板指 399006', '通信/TMT主题候选（本地标签）']);
+        assert.equal(state.relatedContext.index_evidence.length, 2);
+        assert.equal(state.relatedContext.index_evidence[0].provider_verified, false);
+        assert.equal(state.relatedContext.index_evidence[0].sourceLabel, '本地指数候选');
+        assert.equal(state.relatedContext.index_evidence[1].source_fields[0], '光模块');
+        assert.equal(state.relatedContext.missing_reason.indices, '');
+        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数证据：股票代码指向创业板上市板块基准；行业或概念标签包含通信、光模块、CPO 或算力线索/);
         assert.match(state.relatedContext.missing_reason.peers, /同业/);
         assert.equal(state.aiContext.aiCoverage.status, 'missing');
         assert.equal(state.aiContext.signalCoverage.status, 'missing');
@@ -4208,7 +4215,7 @@ def test_stock_workbench_evidence_state_completes_with_missing_reasons_and_tab_s
         assert.equal(related.missing_reason.peers, '');
         assert.match(elements['stock-evidence-rail'].innerHTML, /中兴通讯 000063/);
         assert.match(elements['stock-evidence-rail'].innerHTML, /新易盛 300502/);
-        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数等待行情联动模块回填/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数证据：股票代码指向创业板上市板块基准；行业或概念标签包含通信、光模块、CPO 或算力线索/);
         """
     )
 
@@ -4352,7 +4359,7 @@ def test_stock_industry_and_valuation_peers_feed_related_context():
         assert.deepEqual(global.App.StockWorkbenchState.relatedContext.peers, ['中兴通讯 000063', '新易盛 300502']);
         assert.match(elements['sd-peer-panel'].innerHTML, /同业位置/);
         assert.match(elements['stock-evidence-rail'].innerHTML, /新易盛 300502/);
-        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数等待行情联动模块回填/);
+        assert.match(elements['stock-evidence-rail'].innerHTML, /关联指数证据：股票代码指向创业板上市板块基准；行业或概念标签包含通信、光模块、CPO 或算力线索/);
         })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -4894,12 +4901,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=142" in scripts
+    assert "/static/app.js?v=143" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=42" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=53" in scripts
+    assert "/static/app-ui-shell.js?v=54" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4919,7 +4926,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=26" in app
+    assert "/static/stock-detail-core.js?v=27" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

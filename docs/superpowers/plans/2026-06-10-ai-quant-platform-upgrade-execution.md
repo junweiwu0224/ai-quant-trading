@@ -2560,6 +2560,48 @@ Remaining gaps:
 - `event_samples` are still caller-supplied and local-audit only; there is no real provider event-sample service, no provider normalization, and no provider freshness/rate-limit contract attached to each sample yet.
 - Backend-cited LLM diagnosis, richer sector/index/peer evidence, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
 
+## Task 9.40: Stock Workbench Local Related-Index Evidence Bridge
+
+Status: delivered as a P1 stock-workbench evidence slice after Task 9.39. This closes the first local `relatedContext.indices` gap by deriving auditable index candidates from existing detail/source-context fields and code-board hints. It is not a provider-grade constituent or benchmark service.
+
+TongHuaShun mechanism learned:
+
+- A serious stock terminal keeps index/sector context next to the chart and evidence rail, but it must distinguish "local candidate benchmark" from verified provider membership.
+- AI Quant should learn this as an evidence-boundary pattern: when exact provider mappings are unavailable, show the local reason and missing verification rather than leaving the user with a blank rail or fabricating certainty.
+
+Implemented:
+
+- `stock-detail-core.js` now initializes `relatedContext.concepts`, `indices`, and `index_evidence` together, preserving sectors/peers and the existing right-rail rendering path.
+- Detail payload `related_indices`/`indices` are normalized into labeled index evidence, preserving provider verification flags when supplied.
+- When explicit indices are absent, the workbench now derives low-confidence local candidates from stock code board rules (`创业板指`, `科创50`, `上证指数`, `深证成指`) and source/detail industry or concept tags such as 通信/CPO/算力, while marking them as local-only and not provider-verified.
+- `_mergeWorkbenchRelatedContext()` now recomputes/merges local index evidence after industry-comparison or valuation peer updates, so right-rail context can improve as deferred modules finish.
+- AI diagnosis industry evidence now includes visible related-index candidates while retaining the no-trading-advice disclaimer.
+- Cache versions bumped: `app.js?v=143`, `app-ui-shell.js?v=54`, `stock-detail-core.js?v=27`, `/sw.js?v=83`, and service worker cache `ai-quant-v191`.
+
+Safety boundary:
+
+- This slice is local frontend state and rendering only. It does not call real providers, pywencai/iWencai, OpenClaw Gateway, external LLMs, Docker, data sync, migrations, backtests, basket/watchlist writes, broker APIs, paper/live orders, production config, or auth paths.
+- Local index candidates are context hints for review, not verified index membership, provider-grade benchmark coverage, investment advice, or trading readiness.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_default_state_keeps_event_selection_and_bottom_tab tests/test_frontend_workflow_contracts.py::test_stock_workbench_evidence_state_completes_with_missing_reasons_and_tab_state tests/test_frontend_workflow_contracts.py::test_stock_industry_and_valuation_peers_feed_related_context tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+git diff --check
+```
+
+Results:
+
+- JS syntax checks passed for the changed frontend bundles.
+- Focused stock-workbench/cache contracts passed: `6 passed, 1 warning`.
+- `git diff --check` passed.
+
+Remaining gaps:
+
+- `relatedContext.indices` still uses local heuristics unless the detail payload supplies explicit provider-verified index evidence.
+- Provider-grade sector/index constituent mapping, benchmark freshness/rate-limit evidence, backend-cited LLM diagnosis, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=143" in scripts
+    assert "/static/app.js?v=144" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -4481,6 +4481,34 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
             peg_next_year: 0.88,
             ai_coverage: { covered: false, reason: 'AI 证据未覆盖该股票' },
             signal_coverage: { covered: false, reason: 'Signal Engine 暂无验证样本' },
+            diagnosis_evidence: {
+                schema_version: 'stock_diagnosis_evidence_v1',
+                decision: 'evidence_only',
+                llm_status: 'not_invoked',
+                summary: { citation_count: 7 },
+                rows: [
+                    {
+                        key: 'technical',
+                        label: '技术面',
+                        status: 'ready',
+                        evidence: '后端引用：价格 123.45 · 涨跌幅 1.01%',
+                        source: 'stock_detail_api',
+                        updated_at: '2026-06-10T09:30:00',
+                        confidence: 'medium',
+                        citations: ['price', 'change_pct'],
+                    },
+                    {
+                        key: 'valuation',
+                        label: '估值',
+                        status: 'ready',
+                        evidence: '后端引用：PE 20 · PB 4',
+                        source: 'stock_detail_api',
+                        updated_at: '2026-06-10T09:30:00',
+                        confidence: 'medium',
+                        citations: ['pe_ratio', 'pb_ratio'],
+                    },
+                ],
+            },
             source: 'stock_detail_api',
             updated_at: '2026-06-10T09:30:00',
         });
@@ -4498,6 +4526,11 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         ]);
         assert.equal(state.aiContext.diagnosis.find((item) => item.key === 'capital').status, 'missing');
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'capital').missing_reason, /资金流/);
+        assert.equal(state.aiContext.backend_evidence_schema, 'stock_diagnosis_evidence_v1');
+        assert.equal(state.aiContext.backend_evidence_llm_status, 'not_invoked');
+        assert.match(state.aiContext.diagnosis.find((item) => item.key === 'technical').evidence, /后端引用/);
+        assert.deepEqual(state.aiContext.diagnosis.find((item) => item.key === 'technical').citations, ['price', 'change_pct']);
+        assert.match(state.aiContext.diagnosis.find((item) => item.key === 'valuation').evidence, /后端引用：PE 20/);
         assert.match(state.aiContext.disclaimer, /不构成交易建议/);
 
         const events = global.StockDetail._setWorkbenchEvents('qa-capital', [{
@@ -4536,7 +4569,12 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         assert.match(railText, /估值/);
         assert.match(railText, /Signal/);
         assert.match(railText, /风险/);
-        assert.match(railText, /图表焦点 资金/);
+        assert.match(railText, /后端证据/);
+        assert.match(railText, /stock_diagnosis_evidence_v1/);
+        assert.match(railText, /not_invoked/);
+        assert.match(railText, /引用 7/);
+        assert.match(railText, /后端引用：价格 123.45/);
+        assert.match(railText, /当前聚焦事件: 资金 · 主力资金净流入/);
         assert.match(railText, /主力资金净流入/);
         assert.match(railText, /QA诊断证据/);
         assert.match(railText, /不构成交易建议/);
@@ -4901,12 +4939,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=143" in scripts
+    assert "/static/app.js?v=144" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=42" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=54" in scripts
+    assert "/static/app-ui-shell.js?v=55" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4926,7 +4964,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=27" in app
+    assert "/static/stock-detail-core.js?v=28" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

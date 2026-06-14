@@ -32,6 +32,164 @@ _DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
 _HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"}
 
 
+def _stock_diag_status(ready: bool, degraded: bool = False) -> str:
+    if degraded:
+        return "degraded"
+    return "ready" if ready else "missing"
+
+
+def _stock_diag_row(
+    key: str,
+    label: str,
+    *,
+    status: str,
+    evidence: str = "",
+    missing_reason: str = "",
+    source: str = "",
+    updated_at: str = "",
+    citations: list[str] | None = None,
+    confidence: str = "low",
+) -> dict:
+    return {
+        "key": key,
+        "label": label,
+        "status": status,
+        "evidence": evidence,
+        "missing_reason": missing_reason,
+        "source": source,
+        "updated_at": updated_at,
+        "citations": citations or [],
+        "confidence": confidence,
+    }
+
+
+def _has_number(value) -> bool:
+    try:
+        return value is not None and math.isfinite(float(value)) and float(value) != 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_stock_diagnosis_evidence(result: dict) -> dict:
+    """Build a local, cited evidence snapshot for stock workbench diagnosis.
+
+    This is intentionally deterministic and local. It prepares backend-owned
+    evidence/citation fields for future LLM explanation without calling an LLM
+    or claiming investment advice.
+    """
+    code = str(result.get("code") or "").strip()
+    updated_at = result.get("updated_at") or ""
+    source = result.get("source") or "stock_detail_api"
+    source_version = result.get("source_version") or ""
+    concepts = result.get("concepts") if isinstance(result.get("concepts"), list) else []
+    sector_bits = [result.get("sector"), result.get("industry"), *concepts]
+    sector_evidence = " · ".join(str(item) for item in sector_bits if item)
+    price = result.get("price")
+    change_pct = result.get("change_pct")
+    has_quote = _has_number(price) or change_pct is not None
+    valuation_bits = []
+    if _has_number(result.get("pe_ratio")):
+        valuation_bits.append(f"PE {round(float(result['pe_ratio']), 2)}")
+    if _has_number(result.get("pb_ratio")):
+        valuation_bits.append(f"PB {round(float(result['pb_ratio']), 2)}")
+    if _has_number(result.get("pe_ttm")):
+        valuation_bits.append(f"PE(TTM) {round(float(result['pe_ttm']), 2)}")
+    fundamental_bits = []
+    for key, label in [
+        ("roe", "ROE"),
+        ("revenue_growth", "营收增速"),
+        ("net_profit_growth", "净利增速"),
+        ("debt_ratio", "资产负债率"),
+    ]:
+        if _has_number(result.get(key)):
+            fundamental_bits.append(f"{label} {round(float(result[key]), 2)}")
+    rows = [
+        _stock_diag_row(
+            "technical",
+            "技术面",
+            status=_stock_diag_status(has_quote, bool(result.get("degraded")) and not has_quote),
+            evidence=(
+                f"价格 {price if price is not None else '--'} · 涨跌幅 {change_pct if change_pct is not None else '--'}%"
+                if has_quote else ""
+            ),
+            missing_reason="" if has_quote else "详情接口暂未返回可用价格或涨跌幅",
+            source=source,
+            updated_at=updated_at,
+            citations=["price", "change_pct", "updated_at"],
+            confidence="medium" if has_quote else "low",
+        ),
+        _stock_diag_row(
+            "industry",
+            "行业面",
+            status=_stock_diag_status(bool(sector_evidence)),
+            evidence=sector_evidence,
+            missing_reason="" if sector_evidence else "行业、板块或概念标签暂缺",
+            source=source,
+            updated_at=updated_at,
+            citations=["industry", "sector", "concepts"],
+            confidence="medium" if sector_evidence else "low",
+        ),
+        _stock_diag_row(
+            "fundamental",
+            "基本面",
+            status=_stock_diag_status(bool(fundamental_bits)),
+            evidence=" · ".join(fundamental_bits),
+            missing_reason="" if fundamental_bits else "ROE、成长或负债率字段暂缺",
+            source=source,
+            updated_at=updated_at,
+            citations=["roe", "revenue_growth", "net_profit_growth", "debt_ratio"],
+            confidence="medium" if fundamental_bits else "low",
+        ),
+        _stock_diag_row(
+            "valuation",
+            "估值",
+            status=_stock_diag_status(bool(valuation_bits)),
+            evidence=" · ".join(valuation_bits),
+            missing_reason="" if valuation_bits else "PE/PB/PE(TTM) 估值字段暂缺",
+            source=source,
+            updated_at=updated_at,
+            citations=["pe_ratio", "pb_ratio", "pe_ttm"],
+            confidence="medium" if valuation_bits else "low",
+        ),
+        _stock_diag_row(
+            "risk",
+            "风险",
+            status="degraded" if result.get("degraded") else "unverified",
+            evidence=result.get("stale_reason") or ("本地降级数据" if result.get("degraded") else "未形成交易建议"),
+            missing_reason="" if result.get("degraded") else "风险仅展示证据状态，不输出买卖结论",
+            source=source,
+            updated_at=updated_at,
+            citations=["source", "source_version", "degraded", "stale_reason"],
+            confidence="low",
+        ),
+    ]
+    ready_count = sum(1 for row in rows if row["status"] == "ready")
+    degraded_count = sum(1 for row in rows if row["status"] == "degraded")
+    return {
+        "schema_version": "stock_diagnosis_evidence_v1",
+        "code": code,
+        "name": result.get("name") or "",
+        "source": source,
+        "source_version": source_version,
+        "generated_at": updated_at,
+        "decision": "evidence_only",
+        "llm_status": "not_invoked",
+        "provider_verified": False,
+        "rows": rows,
+        "summary": {
+            "ready_count": ready_count,
+            "degraded_count": degraded_count,
+            "missing_count": len(rows) - ready_count - degraded_count,
+            "citation_count": sum(len(row["citations"]) for row in rows),
+        },
+        "limitations": [
+            "本地详情接口证据，不代表 provider-grade 诊断",
+            "未调用外部 LLM、OpenClaw、交易或生产路径",
+            "不构成投资建议或交易准备结论",
+        ],
+    }
+
+
 async def _fetch_async(url: str) -> dict:
     """异步包装的 HTTP 请求"""
     return await asyncio.to_thread(fetch_json, url, None, 10.0, _HEADERS)
@@ -734,6 +892,9 @@ async def get_stock_detail(code: str):
     }
     if local_meta:
         result.update(local_meta)
+    diagnosis_evidence = _build_stock_diagnosis_evidence(result)
+    result["diagnosis_evidence"] = diagnosis_evidence
+    result["ai_diagnosis_evidence"] = diagnosis_evidence
     return result
 
 

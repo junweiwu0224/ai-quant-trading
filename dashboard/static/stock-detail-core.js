@@ -2267,6 +2267,8 @@ Object.assign(globalThis.StockDetail, {
         source = '',
         confidence = 'low',
         focus = false,
+        citations = [],
+        backendEvidence = null,
     }) {
         return {
             key,
@@ -2279,7 +2281,56 @@ Object.assign(globalThis.StockDetail, {
             source,
             confidence,
             focus,
+            citations: Array.isArray(citations) ? citations.filter(Boolean) : [],
+            backend_evidence: backendEvidence,
         };
+    },
+
+    _normalizeBackendDiagnosisRow(row = {}) {
+        if (!row || typeof row !== 'object') return null;
+        const key = String(row.key || '').trim();
+        if (!key) return null;
+        return this._diagnosisRow({
+            key,
+            label: row.label || key,
+            status: row.status || 'unverified',
+            evidence: row.evidence || '',
+            missingReason: row.missing_reason || row.missingReason || '',
+            updatedAt: row.updated_at || row.updatedAt || '',
+            source: row.source || '',
+            confidence: row.confidence || 'low',
+            citations: Array.isArray(row.citations) ? row.citations : [],
+            backendEvidence: row,
+        });
+    },
+
+    _backendDiagnosisEvidence(data = {}) {
+        const evidence = data.diagnosis_evidence || data.ai_diagnosis_evidence || data.stock_diagnosis_evidence || null;
+        return evidence && typeof evidence === 'object' && Array.isArray(evidence.rows) ? evidence : null;
+    },
+
+    _mergeBackendDiagnosisRows(frontendRows = [], backendEvidence = null) {
+        if (!backendEvidence || !Array.isArray(backendEvidence.rows)) return frontendRows;
+        const backendRows = new Map();
+        backendEvidence.rows.forEach((row) => {
+            const normalized = this._normalizeBackendDiagnosisRow(row);
+            if (normalized) backendRows.set(normalized.key, normalized);
+        });
+        return frontendRows.map((row) => {
+            const backendRow = backendRows.get(row.key);
+            if (!backendRow) return row;
+            return {
+                ...row,
+                status: backendRow.status || row.status,
+                evidence: backendRow.evidence || row.evidence,
+                missing_reason: backendRow.missing_reason || row.missing_reason,
+                updated_at: backendRow.updated_at || row.updated_at,
+                source: backendRow.source || row.source,
+                confidence: backendRow.confidence || row.confidence,
+                citations: backendRow.citations || [],
+                backend_evidence: backendRow.backend_evidence,
+            };
+        });
     },
 
     _buildWorkbenchAiDiagnosis({
@@ -2341,7 +2392,7 @@ Object.assign(globalThis.StockDetail, {
             })]
             : [];
 
-        return [
+        const frontendRows = [
             ...eventGroupRow,
             this._diagnosisRow({
                 key: 'technical',
@@ -2446,16 +2497,21 @@ Object.assign(globalThis.StockDetail, {
                 confidence: 'low',
             }),
         ];
+        return this._mergeBackendDiagnosisRows(frontendRows, this._backendDiagnosisEvidence(data));
     },
 
     _buildWorkbenchAiContext(baseContext = {}, payload = {}) {
         const diagnosis = this._buildWorkbenchAiDiagnosis(payload);
+        const backendEvidence = this._backendDiagnosisEvidence(payload.data || {});
         return {
             ...(baseContext || {}),
             diagnosis,
             diagnosis_updated_at: payload.data?.updated_at || payload.data?.timestamp || payload.summary?.generatedAt || '',
             diagnosis_focus_event_id: payload.selectedEvent?.id || payload.chartState?.eventFocus?.event_id || '',
             event_group_diagnosis: this._buildEventGroupDiagnosisFocus(payload.chartState?.eventGroupFocus || null, payload.eventFeed || []),
+            backend_evidence: backendEvidence || baseContext?.backend_evidence || null,
+            backend_evidence_schema: backendEvidence?.schema_version || baseContext?.backend_evidence_schema || '',
+            backend_evidence_llm_status: backendEvidence?.llm_status || baseContext?.backend_evidence_llm_status || '',
             disclaimer: baseContext?.disclaimer || 'AI/Signal 仅展示证据覆盖和状态，不构成交易建议。',
         };
     },
@@ -2625,6 +2681,10 @@ Object.assign(globalThis.StockDetail, {
         const related = state.relatedContext || {};
         const missing = related.missing_reason || {};
         const aiContext = state.aiContext || {};
+        const backendEvidence = this._backendDiagnosisEvidence(data) || aiContext.backend_evidence || null;
+        const backendEvidenceSummary = backendEvidence && backendEvidence.summary
+            ? backendEvidence.summary
+            : null;
         const tabs = [
             ['orderbook', '盘口'],
             ['profile', '资料'],
@@ -2671,6 +2731,9 @@ Object.assign(globalThis.StockDetail, {
                     <h4>AI/Signal</h4>
                     <div class="stock-evidence-kv"><span>AI</span><strong>${App.escapeHTML(aiContext.aiCoverage?.label || aiText)}</strong><em>${App.escapeHTML(aiContext.aiCoverage?.reason || aiReason)}</em></div>
                     <div class="stock-evidence-kv"><span>Signal</span><strong>${App.escapeHTML(aiContext.signalCoverage?.label || signalText)}</strong><em>${App.escapeHTML(aiContext.signalCoverage?.reason || signalReason)}</em></div>
+                    ${backendEvidence ? `
+                    <div class="stock-evidence-kv"><span>后端证据</span><strong>${App.escapeHTML(backendEvidence.schema_version || 'stock_diagnosis_evidence_v1')}</strong><em>${App.escapeHTML(backendEvidence.llm_status || 'not_invoked')} · ${App.escapeHTML(backendEvidence.decision || 'evidence_only')} · 引用 ${App.escapeHTML(String(backendEvidenceSummary?.citation_count ?? 0))}</em></div>
+                    ` : ''}
                     <div class="stock-ai-diagnosis" aria-label="证据驱动AI诊断">
                         ${this._renderAiDiagnosisRows(aiContext.diagnosis || [])}
                     </div>

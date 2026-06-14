@@ -321,6 +321,18 @@ class TestValuationDataHubAPI:
         assert data["source"] == "astock"
         assert data["source_version"]
         assert data["updated_at"] == "2026-05-24T12:00:00+08:00"
+        evidence = data["diagnosis_evidence"]
+        assert evidence["schema_version"] == "stock_diagnosis_evidence_v1"
+        assert evidence["code"] == "000001"
+        assert evidence["decision"] == "evidence_only"
+        assert evidence["llm_status"] == "not_invoked"
+        assert evidence["provider_verified"] is False
+        assert data["ai_diagnosis_evidence"] == evidence
+        rows = {row["key"]: row for row in evidence["rows"]}
+        assert rows["technical"]["status"] == "ready"
+        assert "price" in rows["technical"]["citations"]
+        assert rows["risk"]["status"] == "unverified"
+        assert "不构成投资建议" in " ".join(evidence["limitations"])
 
     def test_stock_detail_degrades_to_local_daily_when_realtime_sources_are_unavailable(self, monkeypatch):
         import pandas as pd
@@ -388,6 +400,12 @@ class TestValuationDataHubAPI:
         assert data["change"] == 20.0
         assert data["change_pct"] == 1.29
         assert data["industry"] == "白酒"
+        evidence = data["diagnosis_evidence"]
+        assert evidence["llm_status"] == "not_invoked"
+        assert evidence["summary"]["degraded_count"] >= 1
+        rows = {row["key"]: row for row in evidence["rows"]}
+        assert rows["risk"]["status"] == "degraded"
+        assert "degraded" in rows["risk"]["citations"]
         assert data["latest_local_date"] == "2026-06-05"
 
     def test_stock_detail_uses_short_refresh_budget_before_local_fallback(self, monkeypatch):

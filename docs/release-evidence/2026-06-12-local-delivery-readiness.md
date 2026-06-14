@@ -9,6 +9,7 @@ Included in this local delivery slice:
 - iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, visible evidence review panel, OpenClaw read-only evidence review/tool handoff, and degraded-state hardening.
 - Stock workbench event-flow, same-day event-group hover preview/detail drawer, local peer/industry related-context evidence, basket/backtest draft, and local event-study audit evidence.
 - Stock workbench local related-index evidence bridge, showing board/theme index candidates with explicit local-only/provider-unverified disclosure.
+- Stock diagnosis backend-cited evidence bridge, exposing local `stock_diagnosis_evidence_v1` rows with citations and `llm_status=not_invoked` for the AI rail.
 - Event-study local p/q validation plus conservative time-ordered holdout direction checks, shown as audit-only evidence in the basket draft UI.
 - Caller-provided event sample bridge from stock event-group drafts into backend basket draft audit, preserving per-code event date/source without real provider calls.
 - Local release preflight gate and E2E runner portability.
@@ -31,6 +32,7 @@ Modified files currently in the delivery delta:
 
 ```text
 alpha/basket.py
+dashboard/routers/stock_detail.py
 dashboard/static/alpha-tools.js
 dashboard/static/app.js
 dashboard/static/app-ui-shell.js
@@ -41,6 +43,7 @@ dashboard/templates/partials/scripts.html
 docs/release-evidence/2026-06-12-local-delivery-readiness.md
 docs/superpowers/plans/2026-06-10-ai-quant-platform-upgrade-execution.md
 tests/test_alpha_formula_basket.py
+tests/test_dashboard.py
 tests/test_frontend_workflow_contracts.py
 tests/test_intelligence_market_frontend.py
 tests/test_research_toolbar_frontend.py
@@ -153,6 +156,8 @@ Observed results:
 - In-app Browser local holdout QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#research` basket subtab at desktop `1280x900` and mobile `390x844` with cache-busted resources `app.js?v=141`, `app-ui-shell.js?v=52`, `core/app-shell.js?v=41`, and `alpha-tools.js?v=16`; the basket/draft panel existed, current `task938` page/new-asset logs had no errors, and there was no horizontal overflow. The exact `样本外通过`/holdout status rendering is covered by the Node DOM contract because the browser smoke did not submit a real provider query or run a write/execution path.
 - In-app Browser event-sample bridge QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#research` basket subtab at desktop `1280x900` and mobile `390x844` with cache-busted resources `app.js?v=142` and `core/app-shell.js?v=42`; the basket draft/audit containers existed, current page logs had no errors, and there was no horizontal overflow. The exact `event_samples` flow is covered by the Node DOM contracts because the browser smoke did not trigger a stock event-group action or run a provider/write/execution path.
 - Stock local related-index bridge checks passed locally: JS syntax checks for changed stock/cache bundles passed; focused stock-workbench/cache contracts reported `6 passed, 1 warning`; `git diff --check` passed. The right rail now shows local board/theme index candidates and a "not provider verified" disclosure instead of leaving `relatedContext.indices` as an unconditional missing reason.
+- Stock backend-cited diagnosis evidence checks passed locally: JS syntax and targeted Python compileall passed; focused stock-detail backend evidence checks reported `2 passed, 1 warning`; `TestValuationDataHubAPI` reported `33 passed, 1 warning`; focused stock-workbench/cache frontend contracts reported `12 passed, 75 deselected, 1 warning`; `git diff --check` passed. The detail payload now carries `stock_diagnosis_evidence_v1` rows with citations and `llm_status=not_invoked`, and the AI rail can show the backend evidence schema/citation count without invoking an LLM.
+- In-app Browser stock diagnosis bridge QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#stock` at desktop `1280x900` and mobile `390x844` with cache-busted resources `app.js?v=144`, `app-ui-shell.js?v=55`, `stock-detail-core.js?v=28`, and `/sw.js?v=84`; the stock input/evidence rail empty state existed, current page logs had no errors, and there was no horizontal overflow. Authenticated detail evidence rendering is covered by TestClient/Node DOM contracts rather than a direct browser API fetch.
 - In-app Browser stock QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#stock` at desktop `1280x900` and mobile `390x844` without page console errors or horizontal overflow, and loaded cache-busted resources `app.js?v=138`, `app-ui-shell.js?v=49`, `stock-detail-core.js?v=25`, `stock-detail-data.js?v=3`, `stock-detail-valuation.js?v=15`, `style.css?v=86`, and `/sw.js?v=78`. Manual `600519` entry returned `无匹配结果` in the local watchlist/search state, so concrete peer-chip detail rendering remains covered by Node DOM contracts rather than a real provider/browser data path.
 
 ## Safety Boundary
@@ -165,6 +170,7 @@ No command in this evidence set performed:
 - OpenClaw iWencai evidence review, the iWencai-to-review handoff, and the visible iWencai evidence-review panel are local and read-only; they consume caller-provided compact evidence and do not invoke the OpenClaw Gateway, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
 - Stock event-group hover preview/detail drawer is local frontend rendering only; it does not fetch new event data, open external source links, run backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
 - Stock related peer-context and related-index evidence is local frontend state merging only; it consumes existing detail/source-context/valuation peer/industry-comparison responses, derives local board/theme index candidates with explicit provider-unverified disclosure, and does not fetch providers, verify real index constituents, execute backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
+- Stock backend-cited diagnosis evidence is local detail-response shaping only; it exposes citations over existing detail fields and keeps `llm_status=not_invoked`, so it does not call external LLM/OpenClaw/provider services or produce a recommendation/trading-readiness claim.
 - Event-study p-value/BH correction is local audit statistics and frontend disclosure only; it computes two-sided one-sample t-test p-values and Benjamini-Hochberg correction over the current holding-period set, but it does not perform sample-out validation, claim signal efficacy, or execute strategy/backtest/trading paths automatically.
 - Event-study local holdout validation is local audit statistics and frontend disclosure only; it checks time-ordered `entry_date` holdout direction consistency over existing basket draft samples and does not fetch provider-grade event samples, claim signal efficacy, or execute strategy/backtest/trading paths automatically.
 - Event-study explicit event samples are caller-provided local audit metadata only; they preserve per-code event date/source through the draft path but do not fetch, normalize, or validate real provider-grade event samples.

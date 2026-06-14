@@ -2602,6 +2602,57 @@ Remaining gaps:
 - `relatedContext.indices` still uses local heuristics unless the detail payload supplies explicit provider-verified index evidence.
 - Provider-grade sector/index constituent mapping, benchmark freshness/rate-limit evidence, backend-cited LLM diagnosis, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
 
+## Task 9.41: Stock Diagnosis Backend-Cited Evidence Bridge
+
+Status: delivered as the next P1/P2 stock-workbench diagnosis bridge after Task 9.40. This does not call an external LLM; it makes the backend own a cited, versioned stock diagnosis evidence snapshot that the frontend AI rail can consume before future LLM explanation is enabled.
+
+TongHuaShun mechanism learned:
+
+- A professional diagnosis panel should not be an opaque frontend paragraph. It needs stable evidence rows, source fields, timestamps, and citations so the user can inspect what the explanation is grounded in.
+- AI Quant should learn the backend-citation contract first: prepare evidence-only rows with `citations[]`, `schema_version`, and `llm_status=not_invoked`, then let any future LLM layer explain those rows without inventing facts.
+
+Implemented:
+
+- `/api/stock/detail/{code}` now includes `diagnosis_evidence` and `ai_diagnosis_evidence` with schema `stock_diagnosis_evidence_v1`.
+- The evidence snapshot includes technical, industry, fundamental, valuation, and risk rows, each carrying status, evidence/missing reason, source, timestamp, confidence, and cited source fields.
+- The snapshot explicitly records `decision: evidence_only`, `llm_status: not_invoked`, `provider_verified: false`, summary counts, and limitations that block advice/trading-readiness interpretation.
+- `stock-detail-core.js` now merges backend diagnosis evidence into the existing workbench AI diagnosis rows without removing event focus, capital/news event rows, or the no-trading-advice disclaimer.
+- The right evidence rail now displays backend evidence schema/status and citation count when the detail payload supplies it.
+- Cache versions bumped: `app.js?v=144`, `app-ui-shell.js?v=55`, `stock-detail-core.js?v=28`, `/sw.js?v=84`, and service worker cache `ai-quant-v192`.
+
+Safety boundary:
+
+- This slice is local detail-response evidence shaping plus frontend rendering only. It does not call external LLMs, OpenClaw Gateway, native tools, real providers beyond the existing stock-detail data path, Docker, data sync, migrations, backtests, basket/watchlist writes, broker APIs, paper/live orders, production config, or auth paths.
+- Backend diagnosis evidence is a cited evidence snapshot, not a generated recommendation, investment advice, provider-grade diagnosis, or trading readiness claim.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js && .venv/bin/python -m compileall -q dashboard/routers/stock_detail.py
+.venv/bin/python -m pytest tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_includes_source_provenance tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_degrades_to_local_daily_when_realtime_sources_are_unavailable -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_dashboard.py::TestValuationDataHubAPI -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py -k "stock_workbench or stock_ai_diagnosis or changed_frontend_assets or service_worker_precache" -q -p no:cacheprovider
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+git diff --check
+```
+
+Results:
+
+- JS syntax and targeted Python compileall passed.
+- Focused stock-detail backend evidence checks passed: `2 passed, 1 warning`.
+- `TestValuationDataHubAPI` passed: `33 passed, 1 warning`.
+- Focused stock-workbench/cache frontend contracts passed: `12 passed, 75 deselected, 1 warning`.
+- Default local release preflight passed: context pack OK, release evidence OK, pytest `860 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- Local release bundle was rebuilt and `scripts/build_release_bundle.py --verify-only` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#stock` at desktop `1280x900` and mobile `390x844`: fresh full navigation loaded `app.js?v=144`, `app-ui-shell.js?v=55`, `stock-detail-core.js?v=28`, and `/sw.js?v=84`; the stock input and evidence rail empty state existed, both viewports had no horizontal overflow, and no current page console errors were observed. The concrete backend evidence row rendering is covered by TestClient and Node DOM contracts because authenticated direct API detail fetch was not performed in browser QA.
+- `git diff --check` passed.
+
+Remaining gaps:
+
+- The backend now owns cited evidence rows, but no external/backend LLM explanation is invoked yet.
+- Provider-grade diagnosis, real provider freshness/rate-limit evidence, OpenClaw/LLM integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

@@ -2502,6 +2502,9 @@ Results:
 - Focused basket backend tests passed, including same-date no-holdout and time-ordered holdout direction regressions: `18 passed, 1 warning`.
 - Focused draft-audit/cache-busting/frontend contracts passed: `6 passed, 1 warning`.
 - Targeted compileall passed for `alpha/basket.py` and `dashboard/routers/alpha.py`.
+- Default local release preflight passed: context pack OK, release evidence OK, pytest `859 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- Local release bundle was rebuilt and `scripts/build_release_bundle.py --verify-only` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#research` basket subtab at desktop `1280x900` and mobile `390x844`: fresh full navigation loaded `app.js?v=141`, `app-ui-shell.js?v=52`, `core/app-shell.js?v=41`, `alpha-tools.js?v=16`, and no current `task938` page/new-asset console errors were observed; both viewports had no horizontal overflow. The browser log still contained old captured `task937-mobile`/`sw.js?v=80` entries from the previous QA session, so this run filtered for current page and current asset versions.
 
 Remaining gaps:
 

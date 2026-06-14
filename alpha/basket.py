@@ -503,6 +503,17 @@ class BasketBuilder:
                     "validation_status": "insufficient_sample",
                     "validation_warning": "无可统计样本",
                     "out_of_sample_validated": False,
+                    "out_of_sample_status": "metric_unavailable",
+                    "out_of_sample_method": None,
+                    "out_of_sample_train_sample_count": 0,
+                    "out_of_sample_holdout_sample_count": 0,
+                    "out_of_sample_sample_count": 0,
+                    "out_of_sample_mean_metric_pct": None,
+                    "out_of_sample_training_mean_metric_pct": None,
+                    "out_of_sample_win_rate": None,
+                    "out_of_sample_p_value": None,
+                    "out_of_sample_p_value_method": None,
+                    "out_of_sample_warning": "无可验证指标样本",
                     "significance_status": "insufficient_sample",
                     "significance_note": "无可统计样本",
                     "positive_count": 0,
@@ -537,6 +548,16 @@ class BasketBuilder:
                 significance_status=selected_sig["status"],
                 p_value=selected_sig.get("p_value"),
             )
+            out_of_sample = self._period_out_of_sample_summary(
+                ready_samples,
+                key,
+                validation_metric=validation_metric,
+            )
+            validation_warning = validation["warning"]
+            if out_of_sample.get("out_of_sample_validated") is True:
+                validation_warning = "已计算 p-value 和多重校正；holdout 样本外方向一致"
+            elif out_of_sample.get("out_of_sample_method") == "time_ordered_entry_date_holdout":
+                validation_warning = f"{validation_warning}；{out_of_sample.get('out_of_sample_warning')}"
             period_stats[key] = {
                 "period": period,
                 "sample_count": len(values),
@@ -576,8 +597,9 @@ class BasketBuilder:
                     else f"{net_sig['note']}；未计算基准超额显著性"
                 ),
                 "validation_status": validation["status"],
-                "validation_warning": validation["warning"],
+                "validation_warning": validation_warning,
                 "out_of_sample_validated": False,
+                **out_of_sample,
                 "positive_count": positive_count,
                 "negative_count": negative_count,
                 "net_positive_count": net_positive_count,
@@ -636,7 +658,7 @@ class BasketBuilder:
                 "成本为审计估算，不代表真实成交、最低佣金逐笔影响或冲击成本",
                 "基准只在本地可用价格数据覆盖事件窗口时计算；不可用时不伪造超额收益",
                 "t-stat 仅为样本均值相对 0 的描述性统计，不构成策略显著有效证明",
-                "p-value 为双侧单样本 t 检验，BH 校正仅覆盖当前持有期集合；未做样本外验证，统计结论必须降级为审计提示",
+                "p-value 为双侧单样本 t 检验，BH 校正仅覆盖当前持有期集合；本地 holdout 样本外验证只检查时间切分后的方向一致性，统计结论必须降级为审计提示",
                 "样本只覆盖当前候选和本地可用价格数据",
             ],
         }
@@ -680,6 +702,142 @@ class BasketBuilder:
             "warning": "已计算 p-value 和多重校正；未做样本外验证",
         }
 
+    def _period_out_of_sample_summary(
+        self,
+        ready_samples: list[dict[str, Any]],
+        key: str,
+        *,
+        validation_metric: str,
+    ) -> dict[str, Any]:
+        min_total_sample_count = 8
+        min_training_sample_count = 5
+        min_holdout_sample_count = 3
+        metric_field = "holding_excess_returns" if validation_metric == "excess_return_pct" else "holding_net_returns"
+        metric_label = "超额收益" if validation_metric == "excess_return_pct" else "净收益"
+        rows: list[dict[str, Any]] = []
+        for item in ready_samples:
+            value = item.get(metric_field, {}).get(key)
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                continue
+            try:
+                entry_date = pd.Timestamp(item.get("entry_date")).normalize()
+            except (TypeError, ValueError):
+                continue
+            if pd.isna(entry_date):
+                continue
+            rows.append({
+                "entry_date": entry_date,
+                "code": str(item.get("code") or ""),
+                "value": float(value),
+            })
+
+        base = {
+            "out_of_sample_validated": False,
+            "out_of_sample_status": "not_available",
+            "out_of_sample_method": None,
+            "out_of_sample_metric": validation_metric,
+            "out_of_sample_train_sample_count": 0,
+            "out_of_sample_holdout_sample_count": 0,
+            "out_of_sample_sample_count": len(rows),
+            "out_of_sample_holdout_start_date": "",
+            "out_of_sample_holdout_end_date": "",
+            "out_of_sample_mean_metric_pct": None,
+            "out_of_sample_training_mean_metric_pct": None,
+            "out_of_sample_win_rate": None,
+            "out_of_sample_p_value": None,
+            "out_of_sample_p_value_method": None,
+            "out_of_sample_warning": "",
+            "out_of_sample_min_total_sample_count": min_total_sample_count,
+            "out_of_sample_min_training_sample_count": min_training_sample_count,
+            "out_of_sample_min_holdout_sample_count": min_holdout_sample_count,
+        }
+        if not rows:
+            return {
+                **base,
+                "out_of_sample_status": "metric_unavailable",
+                "out_of_sample_warning": f"{metric_label}样本不可用，无法做样本外 holdout",
+            }
+        if len(rows) < min_total_sample_count:
+            return {
+                **base,
+                "out_of_sample_status": "insufficient_total_sample",
+                "out_of_sample_warning": f"{metric_label}样本少于 {min_total_sample_count}，未做样本外验证",
+            }
+
+        grouped: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+        for row in sorted(rows, key=lambda item: (item["entry_date"], item["code"])):
+            grouped.setdefault(row["entry_date"], []).append(row)
+        ordered_dates = sorted(grouped.keys())
+        if len(ordered_dates) < 2:
+            return {
+                **base,
+                "out_of_sample_status": "insufficient_time_split",
+                "out_of_sample_warning": "entry_date 无法形成时间切分，未做样本外验证",
+            }
+
+        target_holdout_count = max(min_holdout_sample_count, math.ceil(len(rows) * 0.25))
+        selected_split: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
+        fallback_split: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
+        holdout_dates: list[pd.Timestamp] = []
+        for entry_date in reversed(ordered_dates):
+            holdout_dates.insert(0, entry_date)
+            holdout_count = sum(len(grouped[date_value]) for date_value in holdout_dates)
+            training_count = len(rows) - holdout_count
+            if training_count < min_training_sample_count:
+                break
+            training_rows = [row for date_value in ordered_dates if date_value not in holdout_dates for row in grouped[date_value]]
+            holdout_rows = [row for date_value in holdout_dates for row in grouped[date_value]]
+            if holdout_count >= min_holdout_sample_count and fallback_split is None:
+                fallback_split = (training_rows, holdout_rows)
+            if holdout_count >= target_holdout_count:
+                selected_split = (training_rows, holdout_rows)
+                break
+        selected_split = selected_split or fallback_split
+        if selected_split is None:
+            return {
+                **base,
+                "out_of_sample_status": "insufficient_holdout",
+                "out_of_sample_warning": (
+                    f"无法在保留至少 {min_training_sample_count} 个训练样本的同时形成 "
+                    f"{min_holdout_sample_count} 个 holdout 样本"
+                ),
+            }
+
+        training_rows, holdout_rows = selected_split
+        training_values = [float(row["value"]) for row in training_rows]
+        holdout_values = [float(row["value"]) for row in holdout_rows]
+        training_mean = sum(training_values) / len(training_values)
+        holdout_mean = sum(holdout_values) / len(holdout_values)
+        holdout_sig = self._significance_summary(holdout_values)
+        holdout_start = min(row["entry_date"] for row in holdout_rows)
+        holdout_end = max(row["entry_date"] for row in holdout_rows)
+        direction_consistent = training_mean > 0 and holdout_mean > 0
+        if direction_consistent:
+            status = "direction_consistent"
+            warning = "holdout 样本外方向与训练窗口一致；仍仅作审计提示"
+        elif training_mean <= 0:
+            status = "non_positive_training"
+            warning = "训练窗口均值不为正，不能用 holdout 证明正向有效"
+        else:
+            status = "direction_failed"
+            warning = "holdout 样本外方向未延续训练窗口"
+        return {
+            **base,
+            "out_of_sample_validated": direction_consistent,
+            "out_of_sample_status": status,
+            "out_of_sample_method": "time_ordered_entry_date_holdout",
+            "out_of_sample_train_sample_count": len(training_values),
+            "out_of_sample_holdout_sample_count": len(holdout_values),
+            "out_of_sample_holdout_start_date": str(holdout_start.date()),
+            "out_of_sample_holdout_end_date": str(holdout_end.date()),
+            "out_of_sample_mean_metric_pct": round(holdout_mean, 4),
+            "out_of_sample_training_mean_metric_pct": round(training_mean, 4),
+            "out_of_sample_win_rate": round(sum(1 for value in holdout_values if value > 0) / len(holdout_values), 4),
+            "out_of_sample_p_value": holdout_sig.get("p_value"),
+            "out_of_sample_p_value_method": holdout_sig.get("p_value_method"),
+            "out_of_sample_warning": warning,
+        }
+
     def _event_study_validation_summary(
         self,
         period_stats: dict[str, dict[str, Any]],
@@ -700,6 +858,16 @@ class BasketBuilder:
             and isinstance(item.get("adjusted_p_value"), (int, float))
             and math.isfinite(float(item["adjusted_p_value"]))
         ]
+        out_of_sample_periods = [
+            str(key)
+            for key, item in period_stats.items()
+            if item.get("out_of_sample_validated") is True
+        ]
+        out_of_sample_evaluated_periods = [
+            str(key)
+            for key, item in period_stats.items()
+            if item.get("out_of_sample_method") == "time_ordered_entry_date_holdout"
+        ]
         warnings = []
         if p_value_periods:
             warnings.append("已计算双侧单样本 t 检验 p-value")
@@ -709,7 +877,15 @@ class BasketBuilder:
             warnings.append("已做 Benjamini-Hochberg 多重检验校正")
         else:
             warnings.append("未做多重检验校正")
-        warnings.append("未做样本外验证")
+        if out_of_sample_periods:
+            warnings.append("已做时间切分 holdout 样本外方向验证")
+            out_of_sample_status = "holdout_direction_confirmed"
+        elif out_of_sample_evaluated_periods:
+            warnings.append("holdout 样本外方向未通过")
+            out_of_sample_status = "holdout_direction_failed"
+        else:
+            warnings.append("未做样本外验证")
+            out_of_sample_status = self._event_study_out_of_sample_status(period_stats)
         if not benchmark.get("available"):
             warnings.append("基准超额收益未验证")
         if ready_sample_count < 5:
@@ -729,7 +905,14 @@ class BasketBuilder:
             "multiple_testing_adjusted": bool(adjusted_periods),
             "multiple_testing_period_count": len(adjusted_periods),
             "multiple_testing_method": "benjamini_hochberg_fdr" if adjusted_periods else None,
-            "out_of_sample_validated": False,
+            "out_of_sample_validated": bool(out_of_sample_periods),
+            "out_of_sample_status": out_of_sample_status,
+            "out_of_sample_method": "time_ordered_entry_date_holdout" if out_of_sample_periods or out_of_sample_evaluated_periods else None,
+            "out_of_sample_period_count": len(out_of_sample_periods),
+            "out_of_sample_periods": out_of_sample_periods,
+            "out_of_sample_evaluated_periods": out_of_sample_evaluated_periods,
+            "out_of_sample_min_total_sample_count": 8,
+            "out_of_sample_min_holdout_sample_count": 3,
             "tested_period_count": len(tested_periods),
             "tested_periods": tested_periods,
             "ready_sample_count": ready_sample_count,
@@ -738,6 +921,18 @@ class BasketBuilder:
             "warning": "；".join(warnings),
             "limitations": warnings,
         }
+
+    def _event_study_out_of_sample_status(self, period_stats: dict[str, dict[str, Any]]) -> str:
+        statuses = {str(item.get("out_of_sample_status") or "") for item in period_stats.values()}
+        if "insufficient_time_split" in statuses:
+            return "insufficient_time_split"
+        if "insufficient_holdout" in statuses:
+            return "insufficient_holdout"
+        if "insufficient_total_sample" in statuses:
+            return "insufficient_total_sample"
+        if "metric_unavailable" in statuses:
+            return "metric_unavailable"
+        return "not_available"
 
     def _apply_multiple_testing_correction(self, period_stats: dict[str, dict[str, Any]]) -> None:
         p_values: list[tuple[str, float]] = []

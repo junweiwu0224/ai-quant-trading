@@ -2463,6 +2463,52 @@ Remaining gaps:
 - Local p-values and BH q-values do not prove strategy efficacy or production trading readiness.
 - Browser QA does not use real provider/event feeds and does not submit a provider query or run any write/execution path; the exact `p=... · q=...` rendering is covered by the Node DOM contract.
 
+## Task 9.38: Event-Study Local Holdout Gate
+
+Status: delivered as the next P1 event-study validation slice after Task 9.37. This does not complete provider-grade event studies; it adds a conservative local time-ordered holdout direction check over existing basket draft audit samples while preserving `decision: audit_only`.
+
+TongHuaShun mechanism learned:
+
+- A research terminal can make sample-out status visible near the same event-study table, but it must distinguish a lightweight holdout direction check from formal provider-grade validation.
+- AI Quant should learn the validation-ladder pattern: in-sample p/q values, local holdout direction consistency, provider sample coverage, and production/trading readiness are separate gates. Passing a lower gate must not imply the higher gates are passed.
+
+Implemented:
+
+- `alpha/basket.py` now computes per-period `out_of_sample_*` metadata using a time-ordered `entry_date` holdout split when the selected validation metric has at least 8 samples, at least 5 training samples, at least 3 holdout samples, and at least two distinct `entry_date` values.
+- The selected holdout metric remains `excess_return_pct` when a benchmark is available and `net_return_pct` otherwise. Rows expose holdout method, train/holdout counts, holdout date window, mean metric, training mean, win rate, optional holdout p-value, status, and warning.
+- Root `statistical_validation` now exposes `out_of_sample_status`, `out_of_sample_method`, evaluated periods, passed periods, and minimum sample thresholds. It only sets `out_of_sample_validated=true` when the training mean and holdout mean are both positive.
+- Same-date cross-sectional event samples are explicitly reported as `insufficient_time_split` instead of being treated as sample-out evidence.
+- `alpha-tools.js` now renders a `样本外` summary card and appends sample-out status to each period's validation label, such as `样本外通过`, `无法时间切分`, `holdout 不足`, or `样本外未过`.
+- Cache versions bumped: `app.js?v=141`, `app-ui-shell.js?v=52`, `core/app-shell.js?v=41`, `alpha-tools.js?v=16`, `/sw.js?v=81`, and service worker cache `ai-quant-v189`.
+
+Safety boundary:
+
+- This slice uses only local basket draft audit samples and local price frames already supplied to the existing audit path. It does not fetch provider samples, call pywencai/iWencai, call external LLM/OpenClaw, run Docker, sync data, migrate databases, create baskets/watchlists automatically, run formal backtests, submit paper/live orders, or change production/auth/trading behavior.
+- A local holdout pass means only that the later `entry_date` holdout direction is consistent with the earlier training window for the selected metric. It is not a provider-grade event study, signal efficacy proof, financial advice, or trading readiness claim.
+
+Verification:
+
+```bash
+node --check dashboard/static/alpha-tools.js && node --check dashboard/static/app.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/basket.py dashboard/routers/alpha.py
+.venv/bin/python scripts/release_preflight.py
+```
+
+Results:
+
+- JS syntax checks passed for `alpha-tools.js`, `app.js`, `core/app-shell.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused basket backend tests passed, including same-date no-holdout and time-ordered holdout direction regressions: `18 passed, 1 warning`.
+- Focused draft-audit/cache-busting/frontend contracts passed: `6 passed, 1 warning`.
+- Targeted compileall passed for `alpha/basket.py` and `dashboard/routers/alpha.py`.
+
+Remaining gaps:
+
+- Local holdout direction consistency does not prove statistical robustness, provider-grade event coverage, or production trading readiness.
+- Provider-grade event samples, broader event normalization, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind the existing explicit-confirmation boundaries.
+- Browser QA does not submit real provider queries or execute write/trading paths; exact sample-out label rendering is covered by the Node DOM contract.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

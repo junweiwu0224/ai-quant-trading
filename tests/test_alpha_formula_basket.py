@@ -55,6 +55,21 @@ def _event_price_frame(code: str, one_day_close: float, three_day_close: float) 
     )
 
 
+def _shifted_event_price_frame(code: str, dates: list[str], one_day_close: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "code": [code] * len(dates),
+            "date": pd.to_datetime(dates),
+            "open": [100] * len(dates),
+            "high": [max(101, one_day_close)] * len(dates),
+            "low": [99] * len(dates),
+            "close": [100, *([one_day_close] * (len(dates) - 1))],
+            "volume": [100000] * len(dates),
+            "amount": [1000000] * len(dates),
+        }
+    )
+
+
 class TestFormulaEngine:
     def test_catalog_exposes_expected_functions(self):
         engine = FormulaEngine(storage=FakeStorage())
@@ -278,6 +293,87 @@ class TestBasketBuilder:
             assert item["validation_metric"] == "net_return_pct"
             assert item["validation_status"] == "missing_benchmark_validation"
         assert one_day["adjusted_p_value"] <= 0.05
+
+    def test_audit_backtest_draft_keeps_same_date_samples_out_of_holdout_validation(self):
+        builder = BasketBuilder(storage=FakeStorage())
+        closes = [
+            ("000001", 102.0, 101.8),
+            ("000002", 103.0, 102.2),
+            ("000003", 104.0, 102.5),
+            ("000004", 102.5, 101.9),
+            ("000005", 103.5, 102.8),
+            ("000006", 104.5, 103.1),
+            ("000007", 103.2, 102.1),
+            ("000008", 104.2, 102.9),
+        ]
+        price_data = {code: _event_price_frame(code, one_day, three_day) for code, one_day, three_day in closes}
+
+        audit = builder.audit_backtest_draft(
+            [{"code": code, "probability": 0.8} for code, *_ in closes],
+            price_data,
+            {"conditions": {"event_date": "2024-01-03", "holding_periods": [1]}},
+        )
+
+        stats = audit["event_statistics"]
+        one_day = stats["by_holding_period"]["1"]
+        assert stats["ready_sample_count"] == 8
+        assert stats["statistical_validation"]["out_of_sample_validated"] is False
+        assert stats["statistical_validation"]["out_of_sample_status"] == "insufficient_time_split"
+        assert "未做样本外验证" in stats["statistical_validation"]["warning"]
+        assert one_day["out_of_sample_validated"] is False
+        assert one_day["out_of_sample_status"] == "insufficient_time_split"
+        assert "entry_date 无法形成时间切分" in one_day["out_of_sample_warning"]
+
+    def test_audit_backtest_draft_reports_time_ordered_holdout_direction_validation(self):
+        builder = BasketBuilder(storage=FakeStorage())
+        early_dates = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08"]
+        late_dates = ["2024-01-05", "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11"]
+        closes = [
+            ("000001", early_dates, 102.0),
+            ("000002", early_dates, 103.0),
+            ("000003", early_dates, 104.0),
+            ("000004", early_dates, 102.5),
+            ("000005", early_dates, 103.5),
+            ("000006", late_dates, 102.4),
+            ("000007", late_dates, 102.8),
+            ("000008", late_dates, 103.2),
+        ]
+        price_data = {code: _shifted_event_price_frame(code, dates, one_day) for code, dates, one_day in closes}
+
+        audit = builder.audit_backtest_draft(
+            [{"code": code, "probability": 0.8} for code, *_ in closes],
+            price_data,
+            {
+                "conditions": {
+                    "event_date": "2024-01-03",
+                    "holding_periods": [1],
+                    "cost_model": {"commission": 0, "slippage": 0, "stamp_tax": 0},
+                }
+            },
+        )
+
+        stats = audit["event_statistics"]
+        one_day = stats["by_holding_period"]["1"]
+        assert stats["ready_sample_count"] == 8
+        assert stats["statistical_validation"]["decision"] == "audit_only"
+        assert stats["statistical_validation"]["out_of_sample_validated"] is True
+        assert stats["statistical_validation"]["out_of_sample_status"] == "holdout_direction_confirmed"
+        assert stats["statistical_validation"]["out_of_sample_method"] == "time_ordered_entry_date_holdout"
+        assert stats["statistical_validation"]["out_of_sample_periods"] == ["1"]
+        assert "已做时间切分 holdout 样本外方向验证" in stats["statistical_validation"]["warning"]
+        assert one_day["out_of_sample_validated"] is True
+        assert one_day["out_of_sample_status"] == "direction_consistent"
+        assert one_day["out_of_sample_method"] == "time_ordered_entry_date_holdout"
+        assert one_day["out_of_sample_train_sample_count"] == 5
+        assert one_day["out_of_sample_holdout_sample_count"] == 3
+        assert one_day["out_of_sample_sample_count"] == 8
+        assert one_day["out_of_sample_holdout_start_date"] == "2024-01-08"
+        assert one_day["out_of_sample_holdout_end_date"] == "2024-01-08"
+        assert one_day["out_of_sample_mean_metric_pct"] > 0
+        assert one_day["out_of_sample_training_mean_metric_pct"] > 0
+        assert one_day["out_of_sample_win_rate"] == 1
+        assert one_day["validation_warning"] == "已计算 p-value 和多重校正；holdout 样本外方向一致"
+        assert "本地 holdout 样本外验证" in stats["limitations"][4]
 
     def test_audit_backtest_draft_reports_missing_samples_without_faking_result(self):
         builder = BasketBuilder(storage=FakeStorage())

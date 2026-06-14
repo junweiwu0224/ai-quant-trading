@@ -654,6 +654,22 @@ Object.assign(App, {
             insufficient_sample: '样本不足',
             zero_variance: '零波动',
         }[firstComputedStat?.significance_status] || (firstComputedStat?.significance_status || '未计算');
+        const outOfSampleLabel = (status, validated) => {
+            if (validated === true) return '样本外通过';
+            return ({
+                holdout_direction_confirmed: '样本外通过',
+                direction_consistent: '样本外通过',
+                holdout_direction_failed: '样本外未过',
+                direction_failed: '样本外未过',
+                non_positive_training: '训练非正',
+                insufficient_time_split: '无法时间切分',
+                insufficient_holdout: 'holdout 不足',
+                insufficient_total_sample: '样本不足',
+                metric_unavailable: '指标缺失',
+                not_available: '未验证',
+            }[status] || '未验证');
+        };
+        const outOfSampleSummary = outOfSampleLabel(validation.out_of_sample_status, validation.out_of_sample_validated);
         const summaryCards = [
             ['样本覆盖', `${Number(stats.ready_sample_count ?? audit?.sample_count ?? 0)}/${Number(stats.candidate_count ?? audit?.candidate_count ?? 0)}`],
             ['覆盖率', coveragePct],
@@ -662,6 +678,7 @@ Object.assign(App, {
             ['基准', benchmarkStatus],
             ['估算成本', costStatus],
             ['统计显著性', significanceLabel],
+            ['样本外', outOfSampleSummary],
             ['统计门禁', validation.decision === 'audit_only' ? '仅审计' : (validation.status || '未验证')],
         ];
         const fmtPct = (value) => value == null || value === '' || !Number.isFinite(Number(value)) ? '--' : `${Number(value).toFixed(2)}%`;
@@ -677,9 +694,10 @@ Object.assign(App, {
             const tStat = item.t_stat_excess_return ?? item.t_stat_net_return ?? item.t_stat_return;
             const pValue = Number(item.p_value);
             const adjustedPValue = Number(item.adjusted_p_value);
-            const validationLabel = item.p_value != null && Number.isFinite(pValue)
+            const statLabel = item.p_value != null && Number.isFinite(pValue)
                 ? `p=${pValue.toFixed(3)}${Number.isFinite(adjustedPValue) ? ` · q=${adjustedPValue.toFixed(3)}` : ''}`
                 : (item.validation_status === 'insufficient_sample' ? '样本不足' : '仅描述');
+            const validationLabel = `${statLabel} · ${outOfSampleLabel(item.out_of_sample_status, item.out_of_sample_validated)}`;
             return `
                 <tr>
                     <td>${esc(period)}日</td>
@@ -720,7 +738,7 @@ Object.assign(App, {
             ${best}
             <div class="basket-draft-study-note">${esc(methodology)}</div>
             ${benchmark.reason ? `<div class="basket-draft-study-note">基准状态：${esc(benchmarkStatus)} · ${esc(benchmark.reason)}</div>` : ''}
-            ${validation.warning ? `<div class="basket-draft-study-note">统计门禁：${esc(validation.warning)} · ${validation.out_of_sample_validated ? '已做样本外验证' : '未做样本外验证'}</div>` : ''}
+            ${validation.warning ? `<div class="basket-draft-study-note">统计门禁：${esc(validation.warning)} · ${esc(outOfSampleSummary)}</div>` : ''}
             ${limitations.length ? `<div class="basket-draft-study-limits">${limitations.map(item => `<span>${esc(item)}</span>`).join('')}</div>` : ''}
         `;
     },

@@ -286,6 +286,7 @@ class BasketBuilder:
         event_date = str(conditions.get("event_date") or "").strip()
         holding_periods = self._normalize_holding_periods(conditions.get("holding_periods"))
         codes = [str(item.get("code", "")).strip() for item in candidates if str(item.get("code", "")).strip()]
+        event_sample_plan = self._normalize_event_sample_plan(conditions.get("event_samples"), codes, event_date)
         warnings: list[str] = []
         samples: list[dict[str, Any]] = []
         missing_samples: list[dict[str, str]] = []
@@ -311,16 +312,31 @@ class BasketBuilder:
             event_date_ts = None
             warnings.append(f"草案 event_date 无法解析: {event_date}")
 
-        for code in codes:
+        if event_sample_plan["invalid_count"]:
+            warnings.append(f"{event_sample_plan['invalid_count']} 条 event_samples 无法用于审计")
+
+        for sample_plan in event_sample_plan["samples"]:
+            code = str(sample_plan.get("code") or "").strip()
             df = (price_data or {}).get(code)
             normalized_df = self._normalize_price_frame(df)
             if normalized_df.empty:
-                missing_samples.append({"code": code, "reason": "missing_price_data"})
+                missing_samples.append({
+                    "code": code,
+                    "event_date": str(sample_plan.get("event_date") or ""),
+                    "source": str(sample_plan.get("source") or event_sample_plan["source"]),
+                    "reason": "missing_price_data",
+                })
                 continue
 
-            event_index = self._locate_event_index(normalized_df, event_date_ts)
+            sample_event_date_ts = sample_plan.get("event_date_ts") or event_date_ts
+            event_index = self._locate_event_index(normalized_df, sample_event_date_ts)
             if event_index is None:
-                missing_samples.append({"code": code, "reason": "event_date_out_of_range"})
+                missing_samples.append({
+                    "code": code,
+                    "event_date": str(sample_plan.get("event_date") or event_date),
+                    "source": str(sample_plan.get("source") or event_sample_plan["source"]),
+                    "reason": "event_date_out_of_range",
+                })
                 continue
 
             entry_index = event_index + 1
@@ -328,6 +344,9 @@ class BasketBuilder:
                 samples.append({
                     "code": code,
                     "event_date": str(normalized_df.iloc[event_index]["date"].date()),
+                    "event_sample_id": str(sample_plan.get("sample_id") or ""),
+                    "event_sample_source": str(sample_plan.get("source") or event_sample_plan["source"]),
+                    "event_sample_reason": str(sample_plan.get("reason") or ""),
                     "sample_status": "no_next_bar",
                     "holding_returns": {},
                 })
@@ -382,6 +401,9 @@ class BasketBuilder:
             samples.append({
                 "code": code,
                 "event_date": str(normalized_df.iloc[event_index]["date"].date()),
+                "event_sample_id": str(sample_plan.get("sample_id") or ""),
+                "event_sample_source": str(sample_plan.get("source") or event_sample_plan["source"]),
+                "event_sample_reason": str(sample_plan.get("reason") or ""),
                 "entry_date": str(entry_row["date"].date()),
                 "entry_price": round(entry_price, 4) if entry_price else None,
                 "sample_status": "ready",
@@ -400,9 +422,10 @@ class BasketBuilder:
         if missing_samples:
             warnings.append(f"{len(missing_samples)} 只候选缺少事件日或价格数据")
         ready_count = sum(1 for item in samples if item.get("sample_status") == "ready")
+        planned_sample_count = len(event_sample_plan["samples"])
         if not samples:
             sample_status = "no_sample"
-        elif ready_count == len(codes) and ready_count == len(samples):
+        elif ready_count == planned_sample_count and ready_count == len(samples):
             sample_status = "ready"
         else:
             sample_status = "partial"
@@ -411,6 +434,8 @@ class BasketBuilder:
             samples,
             holding_periods,
             len(codes),
+            planned_sample_count,
+            event_sample_plan["source"],
             missing_samples,
             sample_status,
             cost_model,
@@ -433,8 +458,11 @@ class BasketBuilder:
             "condition_keys": sorted(str(key) for key in conditions.keys()),
             "unsupported_execution_keys": unsupported_execution_keys,
             "candidate_count": len(codes),
+            "event_sample_source": event_sample_plan["source"],
+            "event_sample_count": planned_sample_count,
+            "invalid_event_sample_count": event_sample_plan["invalid_count"],
             "sample_count": len(samples),
-            "coverage_ratio": round(len(samples) / len(codes), 4) if codes else 0,
+            "coverage_ratio": round(len(samples) / planned_sample_count, 4) if planned_sample_count else 0,
             "event_statistics": event_statistics,
             "event_study": event_statistics,
             "samples": samples[:50],
@@ -443,11 +471,79 @@ class BasketBuilder:
             "note": "草案审计仅用于验证样本覆盖和持有期收益；草案条件不会改变本次篮子回测规则，也不会自动交易或模拟盘下单。",
         }
 
+    def _normalize_event_sample_plan(self, raw: Any, codes: list[str], fallback_event_date: str) -> dict[str, Any]:
+        candidate_codes = {str(code).strip() for code in codes if str(code).strip()}
+        source = "global_event_date"
+        samples: list[dict[str, Any]] = []
+        invalid_count = 0
+
+        raw_items = raw if isinstance(raw, list) else []
+        seen: set[tuple[str, str, str]] = set()
+        for index, item in enumerate(raw_items):
+            if not isinstance(item, dict):
+                invalid_count += 1
+                continue
+            code = str(item.get("code") or item.get("stock_code") or item.get("symbol") or "").strip()
+            if code.lower().startswith(("sh", "sz", "bj")):
+                code = code[2:]
+            code = "".join(ch for ch in code if ch.isdigit())[:6]
+            raw_event_date = str(
+                item.get("event_date")
+                or item.get("date")
+                or item.get("event_time")
+                or item.get("timestamp")
+                or ""
+            ).strip()
+            try:
+                event_date_ts = pd.Timestamp(raw_event_date) if raw_event_date else None
+            except (TypeError, ValueError):
+                event_date_ts = None
+            if not code or code not in candidate_codes or event_date_ts is None or pd.isna(event_date_ts):
+                invalid_count += 1
+                continue
+            event_date = str(event_date_ts.date())
+            sample_id = str(item.get("sample_id") or item.get("id") or f"event-sample-{index + 1}").strip()
+            source_label = str(item.get("source") or item.get("source_label") or "draft_event_samples").strip()
+            key = (code, event_date, sample_id)
+            if key in seen:
+                invalid_count += 1
+                continue
+            seen.add(key)
+            samples.append({
+                "code": code,
+                "event_date": event_date,
+                "event_date_ts": event_date_ts,
+                "sample_id": sample_id,
+                "source": source_label,
+                "reason": str(item.get("reason") or item.get("title") or item.get("event_title") or "").strip(),
+            })
+        if samples:
+            source = "event_samples"
+            return {"source": source, "samples": samples, "invalid_count": invalid_count}
+
+        fallback_samples = []
+        try:
+            fallback_ts = pd.Timestamp(fallback_event_date) if fallback_event_date else None
+        except (TypeError, ValueError):
+            fallback_ts = None
+        for code in codes:
+            fallback_samples.append({
+                "code": code,
+                "event_date": fallback_event_date,
+                "event_date_ts": fallback_ts,
+                "sample_id": f"{code}:{fallback_event_date or 'missing'}",
+                "source": "global_event_date",
+                "reason": "",
+            })
+        return {"source": source, "samples": fallback_samples, "invalid_count": invalid_count}
+
     def _summarize_event_study(
         self,
         samples: list[dict[str, Any]],
         holding_periods: list[int],
         candidate_count: int,
+        event_sample_count: int,
+        event_sample_source: str,
         missing_samples: list[dict[str, str]],
         sample_status: str,
         cost_model: dict[str, Any],
@@ -640,10 +736,12 @@ class BasketBuilder:
             "benchmark": benchmark,
             "holding_periods": holding_periods,
             "candidate_count": candidate_count,
+            "event_sample_source": event_sample_source,
+            "event_sample_count": event_sample_count,
             "sample_count": len(samples),
             "ready_sample_count": len(ready_samples),
             "missing_sample_count": len(missing_samples),
-            "coverage_ratio": round(len(ready_samples) / candidate_count, 4) if candidate_count else 0,
+            "coverage_ratio": round(len(ready_samples) / event_sample_count, 4) if event_sample_count else 0,
             "by_holding_period": period_stats,
             "period_stats": period_stats,
             "statistical_validation": validation_summary,

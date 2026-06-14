@@ -248,6 +248,72 @@ class TestBasketBuilder:
         assert audit["samples"][0]["holding_benchmark_returns"]["3"] == 1.9802
         assert audit["samples"][0]["holding_excess_returns"]["1"] == -0.24
 
+    def test_audit_backtest_draft_uses_explicit_event_samples_per_code_and_date(self):
+        builder = BasketBuilder(storage=FakeStorage())
+        price_data = {
+            "000001": _shifted_event_price_frame(
+                "000001",
+                ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08"],
+                102.0,
+            ),
+            "000002": _shifted_event_price_frame(
+                "000002",
+                ["2024-01-05", "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11"],
+                103.0,
+            ),
+        }
+
+        audit = builder.audit_backtest_draft(
+            [{"code": "000001", "probability": 0.8}, {"code": "000002", "probability": 0.7}],
+            price_data,
+            {
+                "conditions": {
+                    "event_date": "2024-01-03",
+                    "holding_periods": [1],
+                    "event_samples": [
+                        {
+                            "sample_id": "evt-1",
+                            "code": "000001",
+                            "event_date": "2024-01-03",
+                            "source": "stock_event_group",
+                            "title": "资金净流入",
+                        },
+                        {
+                            "sample_id": "evt-2",
+                            "stock_code": "000002",
+                            "date": "2024-01-08",
+                            "source_label": "iwencai_result_pool",
+                            "reason": "同类事件",
+                        },
+                        {"sample_id": "bad-code", "code": "999999", "event_date": "2024-01-03"},
+                        {"sample_id": "bad-date", "code": "000001", "event_date": "not-a-date"},
+                    ],
+                }
+            },
+        )
+
+        assert audit["event_sample_source"] == "event_samples"
+        assert audit["event_sample_count"] == 2
+        assert audit["invalid_event_sample_count"] == 2
+        assert audit["sample_status"] == "ready"
+        assert audit["coverage_ratio"] == 1
+        assert "2 条 event_samples 无法用于审计" in audit["warnings"]
+        assert [item["code"] for item in audit["samples"]] == ["000001", "000002"]
+        assert [item["event_date"] for item in audit["samples"]] == ["2024-01-03", "2024-01-08"]
+        assert [item["entry_date"] for item in audit["samples"]] == ["2024-01-04", "2024-01-09"]
+        assert audit["samples"][0]["event_sample_id"] == "evt-1"
+        assert audit["samples"][0]["event_sample_source"] == "stock_event_group"
+        assert audit["samples"][0]["event_sample_reason"] == "资金净流入"
+        assert audit["samples"][1]["event_sample_source"] == "iwencai_result_pool"
+        stats = audit["event_statistics"]
+        assert stats["event_sample_source"] == "event_samples"
+        assert stats["event_sample_count"] == 2
+        assert stats["candidate_count"] == 2
+        assert stats["ready_sample_count"] == 2
+        assert stats["coverage_ratio"] == 1
+        assert stats["sample_window"]["first_entry_date"] == "2024-01-04"
+        assert stats["sample_window"]["last_entry_date"] == "2024-01-09"
+
     def test_audit_backtest_draft_computes_p_values_and_multiple_testing_correction(self):
         builder = BasketBuilder(storage=FakeStorage())
         closes = [
@@ -420,11 +486,16 @@ class TestBasketBuilder:
 
         assert audit["sample_status"] == "partial"
         assert audit["candidate_count"] == 2
+        assert audit["event_sample_source"] == "global_event_date"
+        assert audit["event_sample_count"] == 2
         assert audit["sample_count"] == 1
         assert audit["event_statistics"]["ready_sample_count"] == 1
         assert audit["event_statistics"]["missing_sample_count"] == 1
         assert audit["event_statistics"]["coverage_ratio"] == 0.5
-        assert audit["missing_samples"] == [{"code": "000002", "reason": "missing_price_data"}]
+        assert audit["missing_samples"][0]["code"] == "000002"
+        assert audit["missing_samples"][0]["event_date"] == "2024-01-03"
+        assert audit["missing_samples"][0]["source"] == "global_event_date"
+        assert audit["missing_samples"][0]["reason"] == "missing_price_data"
 
     def test_backtest_plan_returns_clear_error_for_empty_price_frames(self):
         builder = BasketBuilder(storage=FakeStorage())

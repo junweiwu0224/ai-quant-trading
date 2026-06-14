@@ -4129,11 +4129,11 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     assert "/static/intelligence-iwencai.js?v=15" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=141" in scripts
+    assert "/static/app.js?v=142" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=52" in scripts
-    assert "/sw.js?v=81" in app_ui_shell
-    assert "ai-quant-v189" in service_worker
+    assert "/static/app-ui-shell.js?v=53" in scripts
+    assert "/sw.js?v=82" in app_ui_shell
+    assert "ai-quant-v190" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker
@@ -5553,7 +5553,7 @@ def test_iwencai_send_to_screener_opens_research_screener_directly():
     assert 'querySelector(\'.research-sub-tab[data-subtab="screener"]\')?.click()' not in app_shell
     assert "codes: codes.slice(0, 100)" in screener_ai
     assert "this.renderResult(data, `问财: ${query}`)" in screener_ai
-    assert "/static/core/app-shell.js?v=41" in scripts
+    assert "/static/core/app-shell.js?v=42" in scripts
 
 
 def test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest():
@@ -5564,6 +5564,8 @@ def test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest():
     assert "await this.loadScript?.('/static/alpha.js?v=6')" in app_shell
     assert "await this.loadScript?.('/static/alpha-tools.js?v=16')" in app_shell
     assert "await this.switchTab('research', { subtab: 'basket', skipBundle: true, applySession: false })" in app_shell
+    assert "const defaultEventSamples = eventGroup.stock_code && eventGroup.event_date" in app_shell
+    assert "event_samples: Array.isArray(baseConditions.event_samples)" in app_shell
     assert "if (options.skipBundle !== true)" in app_shell
     assert "if (!skipBundle)" in app_shell
     assert "App._setBasketCandidates(normalized)" in app_shell
@@ -5850,6 +5852,8 @@ def test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_poo
             assert.equal(App._iwencaiBasketDraft.draftMode, 'backtest');
             assert.equal(App._iwencaiBasketDraft.backtest_draft.requires_confirmation, true);
             assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.event_date, '2026-06-10');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.event_samples[0].code, '300308');
+            assert.equal(App._iwencaiBasketDraft.backtest_draft.conditions.event_samples[0].event_date, '2026-06-10');
             assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_policy, 'manual_only');
             assert.equal(App._iwencaiBasketDraft.backtest_draft.execution_status, 'not_executed');
             assert.deepEqual(App._iwencaiBasketDraft.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);

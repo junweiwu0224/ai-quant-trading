@@ -842,6 +842,15 @@
                 if (query && !sourceContext.query && !sourceContext.raw_query) {
                     sourceContext.query = query;
                 }
+                const defaultEventSamples = eventGroup.stock_code && eventGroup.event_date
+                    ? [{
+                        sample_id: eventGroup.primary_event_id || `${eventGroup.stock_code}:${eventGroup.event_date}`,
+                        code: eventGroup.stock_code,
+                        event_date: eventGroup.event_date,
+                        source: eventGroup.source || 'source_context_event_group',
+                        title: eventGroup.primary_event_title || eventGroup.event_titles?.[0] || '',
+                    }]
+                    : [];
                 const baseConditions = backtest_draft?.conditions && typeof backtest_draft.conditions === 'object'
                     ? backtest_draft.conditions
                     : {
@@ -849,6 +858,7 @@
                             ? `${eventGroup.stock_name || eventGroup.stock_code} 事件组需要验证`
                             : `${query || '问财候选池'} 候选池需要验证`,
                         event_date: eventGroup.event_date || '',
+                        event_samples: defaultEventSamples,
                         primary_event_title: eventGroup.primary_event_title || eventGroup.primary_event_id || '',
                         rank_reason: eventGroup.rank_reason || '',
                         candidate_count: candidates.length,
@@ -865,7 +875,12 @@
                     execution_policy: 'manual_only',
                     execution_status: 'not_executed',
                     allowed_actions: ['view', 'edit', 'run_backtest_after_confirmation'],
-                    conditions: baseConditions,
+                    conditions: {
+                        ...baseConditions,
+                        event_samples: Array.isArray(baseConditions.event_samples) && baseConditions.event_samples.length
+                            ? baseConditions.event_samples
+                            : defaultEventSamples,
+                    },
                     source_context: {
                         ...sourceContext,
                         ...(backtest_draft?.source_context || {}),

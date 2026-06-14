@@ -2512,6 +2512,54 @@ Remaining gaps:
 - Provider-grade event samples, broader event normalization, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind the existing explicit-confirmation boundaries.
 - Browser QA does not submit real provider queries or execute write/trading paths; exact sample-out label rendering is covered by the Node DOM contract.
 
+## Task 9.39: Event-Study Explicit Event Sample Bridge
+
+Status: delivered as the next P1/P2 event-to-research bridge after Task 9.38. This does not fetch real provider samples; it makes the existing manual-only backtest draft able to carry caller-provided event samples with per-code event dates and source labels into the backend audit path.
+
+TongHuaShun mechanism learned:
+
+- A professional event workflow is sample-based, not just one global event date applied to a candidate list. The useful mechanism is preserving the stock/date/source for each event sample from chart or query context into the research audit.
+- AI Quant should learn this as a provenance bridge: event samples can be supplied by chart/event-group/iWencai/provider fixtures later, but the backend must already validate, count, and disclose them without treating them as provider-grade proof.
+
+Implemented:
+
+- `alpha/basket.py` now accepts `conditions.event_samples[]` with `code`/`stock_code`, `event_date`/`date`, `sample_id`, source/source_label, and reason/title fields. Only valid candidate codes with parseable dates are used; invalid or duplicate samples are counted as `invalid_event_sample_count`.
+- `audit_backtest_draft` now audits each accepted sample by its own event date, attaches `event_sample_id`, `event_sample_source`, and `event_sample_reason` to returned samples, and includes event date/source in `missing_samples`.
+- Root audit and `event_statistics` now expose `event_sample_source`, `event_sample_count`, invalid count, and coverage based on event-sample count rather than only candidate count. Legacy drafts without `event_samples` still fall back to the global `event_date` per candidate.
+- `stock-detail-core.js` now includes the selected event group's member events as `conditions.event_samples` when generating an event-group backtest draft.
+- `core/app-shell.js` preserves existing caller-provided `event_samples` and safely fills a single source-context event-group sample when an incoming draft lacks one.
+- Cache versions bumped: `app.js?v=142`, `app-ui-shell.js?v=53`, `core/app-shell.js?v=42`, `stock-detail-core.js?v=26`, `/sw.js?v=82`, and service worker cache `ai-quant-v190`.
+
+Safety boundary:
+
+- This slice uses caller-provided/local event sample metadata only. It does not call pywencai/iWencai, providers, OpenClaw Gateway, external LLMs, Docker, data sync, migrations, formal backtests, paper/live orders, broker APIs, production config, or auth paths.
+- Event samples are provenance for audit coverage and local return calculations, not verified provider-grade event normalization, investment advice, or trading readiness.
+
+Verification:
+
+```bash
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/basket.py dashboard/routers/alpha.py
+.venv/bin/python scripts/release_preflight.py
+```
+
+Results:
+
+- JS syntax checks passed for `stock-detail-core.js`, `core/app-shell.js`, `app.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused basket backend tests passed, including explicit per-code/per-date event-sample audit coverage: `19 passed, 1 warning`.
+- Focused event-group/AppShell/draft-audit/cache-busting frontend contracts passed: `7 passed, 1 warning`.
+- Targeted compileall passed for `alpha/basket.py` and `dashboard/routers/alpha.py`.
+- Default local release preflight passed: context pack OK, release evidence OK, pytest `860 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- Local release bundle was rebuilt and `scripts/build_release_bundle.py --verify-only` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#research` basket subtab at desktop `1280x900` and mobile `390x844`: fresh full navigation loaded `app.js?v=142` and `core/app-shell.js?v=42`, the basket draft/audit containers existed, both viewports had no horizontal overflow, and no current page console errors were observed. The exact `event_samples` flow is covered by Node contracts because the browser smoke did not trigger a stock event-group action or submit a real provider query.
+
+Remaining gaps:
+
+- `event_samples` are still caller-supplied and local-audit only; there is no real provider event-sample service, no provider normalization, and no provider freshness/rate-limit contract attached to each sample yet.
+- Backend-cited LLM diagnosis, richer sector/index/peer evidence, real provider/live behavior, OpenClaw/LLM external integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

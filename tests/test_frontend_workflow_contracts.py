@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=141" in scripts
+    assert "/static/app.js?v=142" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -3572,6 +3572,10 @@ def test_stock_workbench_same_day_events_cluster_chart_dot_without_losing_items(
         assert.match(payload.event_group_diagnosis.dedupe_policy, /重复转载不作为独立证据加权/);
         assert.equal(payload.backtest_draft.requires_confirmation, true);
         assert.equal(payload.backtest_draft.conditions.event_date, '2026-06-10');
+        assert.equal(payload.backtest_draft.conditions.event_samples.length, 4);
+        assert.equal(payload.backtest_draft.conditions.event_samples[0].code, '300308');
+        assert.equal(payload.backtest_draft.conditions.event_samples[0].event_date, '2026-06-10');
+        assert.ok(payload.backtest_draft.conditions.event_samples.every((item) => item.source));
         assert.equal(payload.backtest_draft.conditions.event_ids.length, 4);
         assert.equal(payload.backtest_draft.conditions.primary_event_id, payload.event_group_diagnosis.primary_event_id);
         assert.match(payload.backtest_draft.conditions.entry_rule, /次一交易日开盘/);
@@ -3689,6 +3693,7 @@ def test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions():
             conditions: {
                 hypothesis: '中际旭创 <事件> 需要验证',
                 event_date: '2026-06-10',
+                event_samples: [{ sample_id: 'capital-1', code: '300308', event_date: '2026-06-10', source: 'stock_event_group' }],
                 primary_event_title: '<公告>签订重大合同',
                 entry_rule: '次一交易日开盘',
                 exit_rule: '持有 5 日或出现反证退出',
@@ -3839,6 +3844,7 @@ def test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions():
             assert.equal(postCalls.length, 1);
             assert.equal(postCalls[0].url, '/api/alpha/basket/backtest');
             assert.equal(postCalls[0].body.backtest_draft.conditions.entry_rule, '编辑器内临时改动，无需点击更新');
+            assert.equal(postCalls[0].body.backtest_draft.conditions.event_samples[0].code, '300308');
             assert.equal(postCalls[0].body.backtest_draft.execution_policy, 'manual_only');
             assert.equal(postCalls[0].body.backtest_draft.execution_status, 'not_executed');
             assert.deepEqual(postCalls[0].body.backtest_draft.allowed_actions, ['view', 'edit', 'run_backtest_after_confirmation']);
@@ -4888,12 +4894,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=141" in scripts
+    assert "/static/app.js?v=142" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
-    assert "/static/core/app-shell.js?v=41" in scripts
+    assert "/static/core/app-shell.js?v=42" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=52" in scripts
+    assert "/static/app-ui-shell.js?v=53" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4913,7 +4919,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=25" in app
+    assert "/static/stock-detail-core.js?v=26" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

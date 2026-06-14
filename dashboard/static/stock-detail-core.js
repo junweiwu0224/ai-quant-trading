@@ -577,9 +577,21 @@ Object.assign(globalThis.StockDetail, {
         const eventGroup = sourceContext.event_group || {};
         const code = eventGroup.stock_code || this._ensureStockWorkbenchState().selectedSymbol?.code || this._currentCode || this._headerData?.code || '';
         const name = eventGroup.stock_name || this._ensureStockWorkbenchState().selectedSymbol?.name || this._headerData?.name || code;
+        const eventSamples = (Array.isArray(events) ? events : [])
+            .filter((event) => diagnosis.event_ids.includes(event.id))
+            .map((event, index) => ({
+                sample_id: event.id || `${code}:${diagnosis.date_key}:${index + 1}`,
+                code,
+                event_date: event.date_key || diagnosis.date_key,
+                source: event.source_label || event.source || event.type || 'stock_event_group',
+                title: event.title || '',
+                event_type: event.type || '',
+            }))
+            .filter((sample) => sample.code && sample.event_date);
         const conditions = {
             hypothesis: `${name || code} ${diagnosis.date_key} 同日事件组形成事件驱动假设，需验证事件后 N 日是否有超额收益`,
             event_date: diagnosis.date_key,
+            event_samples: eventSamples,
             event_ids: diagnosis.event_ids,
             event_types: diagnosis.event_types,
             primary_event_id: diagnosis.primary_event_id,

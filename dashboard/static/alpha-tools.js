@@ -676,8 +676,9 @@ Object.assign(App, {
             const winRate = item.win_rate == null ? '--' : `${(Number(item.win_rate) * 100).toFixed(1)}%`;
             const tStat = item.t_stat_excess_return ?? item.t_stat_net_return ?? item.t_stat_return;
             const pValue = Number(item.p_value);
+            const adjustedPValue = Number(item.adjusted_p_value);
             const validationLabel = item.p_value != null && Number.isFinite(pValue)
-                ? `p=${pValue.toFixed(3)}`
+                ? `p=${pValue.toFixed(3)}${Number.isFinite(adjustedPValue) ? ` · q=${adjustedPValue.toFixed(3)}` : ''}`
                 : (item.validation_status === 'insufficient_sample' ? '样本不足' : '仅描述');
             return `
                 <tr>

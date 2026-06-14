@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=139" in scripts
+    assert "/static/app.js?v=140" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -3795,25 +3795,28 @@ def test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions():
                             },
                             holding_periods: [1, 3, 5],
                             candidate_count: 1,
-                            ready_sample_count: 1,
+                            ready_sample_count: 6,
                             missing_sample_count: 0,
                             coverage_ratio: 1,
                             by_holding_period: {
-                                '1': { period: 1, sample_count: 1, mean_return_pct: 1.23, mean_cost_pct: 0.24, mean_net_return_pct: 0.99, mean_benchmark_return_pct: 0.30, mean_excess_return_pct: 0.69, median_return_pct: 1.23, win_rate: 1, best_return_pct: 1.23, worst_return_pct: 1.23, t_stat_excess_return: 2.34, significance_status: 'computed_descriptive', validation_status: 'insufficient_sample', p_value: null, multiple_testing_adjusted: false, out_of_sample_validated: false },
+                                '1': { period: 1, sample_count: 6, validation_sample_count: 6, mean_return_pct: 1.23, mean_cost_pct: 0.24, mean_net_return_pct: 0.99, mean_benchmark_return_pct: 0.30, mean_excess_return_pct: 0.69, median_return_pct: 1.23, win_rate: 1, best_return_pct: 1.23, worst_return_pct: 1.23, t_stat_excess_return: 2.34, significance_status: 'computed_descriptive', validation_status: 'in_sample_statistical_test', p_value: 0.0412, adjusted_p_value: 0.0824, multiple_testing_adjusted: true, multiple_testing_method: 'benjamini_hochberg_fdr', out_of_sample_validated: false },
                                 '3': { period: 3, sample_count: 1, mean_return_pct: -0.45, mean_cost_pct: 0.24, mean_net_return_pct: -0.69, mean_benchmark_return_pct: 0.12, mean_excess_return_pct: -0.81, median_return_pct: -0.45, win_rate: 0, best_return_pct: -0.45, worst_return_pct: -0.45, t_stat_excess_return: -1.12, significance_status: 'computed_descriptive', validation_status: 'insufficient_sample', p_value: null, multiple_testing_adjusted: false, out_of_sample_validated: false },
                                 '5': { period: 5, sample_count: 0, mean_return_pct: null, mean_cost_pct: null, mean_net_return_pct: null, mean_benchmark_return_pct: null, mean_excess_return_pct: null, median_return_pct: null, win_rate: null, best_return_pct: null, worst_return_pct: null, significance_status: 'insufficient_sample', validation_status: 'insufficient_sample', p_value: null, multiple_testing_adjusted: false, out_of_sample_validated: false },
                             },
                             statistical_validation: {
-                                status: 'insufficient_sample',
+                                status: 'in_sample_statistical_test',
                                 decision: 'audit_only',
-                                p_value_available: false,
-                                multiple_testing_adjusted: false,
+                                p_value_available: true,
+                                p_value_period_count: 1,
+                                p_value_method: 'two_sided_one_sample_t_test',
+                                multiple_testing_adjusted: true,
+                                multiple_testing_method: 'benjamini_hochberg_fdr',
                                 out_of_sample_validated: false,
-                                warning: 'p-value 未计算；未做多重检验校正；未做样本外验证；样本少于 5',
+                                warning: '已计算双侧单样本 t 检验 p-value；已做 Benjamini-Hochberg 多重检验校正；未做样本外验证',
                             },
-                            best_period: { period: 1, mean_return_pct: 1.23, sample_count: 1 },
+                            best_period: { period: 1, mean_return_pct: 1.23, sample_count: 6 },
                             methodology: '按草案 event_date 定位样本，净收益扣除估算双边成本，基准可用时计算净超额收益。',
-                            limitations: ['未执行草案 entry_rule/exit_rule 风控逻辑', 't-stat 仅为描述性统计', '未计算 p-value、未做多重检验校正、未做样本外验证；统计结论必须降级为审计提示'],
+                            limitations: ['未执行草案 entry_rule/exit_rule 风控逻辑', 't-stat 仅为描述性统计', 'p-value 为双侧单样本 t 检验，BH 校正仅覆盖当前持有期集合；未做样本外验证，统计结论必须降级为审计提示'],
                         },
                         warnings: ['1 只候选缺少事件日或价格数据'],
                         note: '草案审计仅用于验证样本覆盖和持有期收益；草案条件不会改变本次篮子回测规则，也不会自动交易或模拟盘下单。',
@@ -3854,9 +3857,11 @@ def test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions():
             assert.match(elements['basket-draft-audit-study'].innerHTML, /统计门禁/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /仅审计/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /验证/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /p=0.041/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /q=0.082/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /样本不足/);
-            assert.match(elements['basket-draft-audit-study'].innerHTML, /p-value 未计算/);
-            assert.match(elements['basket-draft-audit-study'].innerHTML, /未做多重检验校正/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /已计算双侧单样本 t 检验 p-value/);
+            assert.match(elements['basket-draft-audit-study'].innerHTML, /Benjamini-Hochberg 多重检验校正/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /未做样本外验证/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /沪深300/);
             assert.match(elements['basket-draft-audit-study'].innerHTML, /0.99%/);
@@ -4879,12 +4884,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=139" in scripts
+    assert "/static/app.js?v=140" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
-    assert "/static/core/app-shell.js?v=39" in scripts
+    assert "/static/core/app-shell.js?v=40" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=50" in scripts
+    assert "/static/app-ui-shell.js?v=51" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4900,7 +4905,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/backtest-strategies.js?v=2" in app
     assert "/static/compare.js?v=5" in app
     assert "/static/alpha.js?v=6" in app
-    assert "/static/alpha-tools.js?v=14" in app
+    assert "/static/alpha-tools.js?v=15" in app
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app

@@ -2415,6 +2415,54 @@ Remaining gaps:
 - Browser QA does not use real provider/event feeds and does not submit a provider query or run any write/execution path.
 - The statistical boundary reduces overclaim risk but does not prove signal efficacy or production trading readiness.
 
+## Task 9.37: Event-Study p-value and Multiple-Testing Gate
+
+Status: delivered as the next P1 event-study validation slice after Task 9.36. This does not complete provider-grade event studies or sample-out validation; it closes the local p-value and multiple-testing-control gap for the current basket draft audit output while preserving `decision: audit_only`.
+
+TongHuaShun mechanism learned:
+
+- A professional research terminal can show a statistical test next to an event hypothesis, but it must keep the testing method, tested windows, and remaining validation gaps visible.
+- AI Quant should learn the guardrail pattern: calculate local p-values and q-values when the sample supports them, expose method/sample/window metadata, and still prevent users from treating that as a trading approval without sample-out and provider-grade validation.
+
+Implemented:
+
+- `alpha/basket.py` now computes two-sided one-sample t-test p-values for return/net/excess return series when sample count and variance allow it, using an in-repo Student t CDF implementation based on the regularized incomplete beta function to avoid adding SciPy/statsmodels.
+- The selected validation metric is `excess_return_pct` when a benchmark is available and `net_return_pct` otherwise; every period now exposes `validation_sample_count`, `validation_metric`, `p_value`, component p-values, `adjusted_p_value`, `p_value_method`, and multiple-testing metadata.
+- Holding-period p-values are corrected with Benjamini-Hochberg FDR across the current tested holding-period set. Period rows expose `multiple_testing_adjusted`, `multiple_testing_method`, and q-values while keeping `out_of_sample_validated=false`.
+- Root `statistical_validation` now reports p-value availability, p-value periods, p-value method, BH correction method/count, and an `in_sample_statistical_test` status when local tests are available. The decision remains `audit_only`.
+- `alpha-tools.js` now renders `p=... · q=...` in the validation column when p/q values are present, while retaining `样本不足` or `仅描述` labels for weaker rows.
+- Cache versions bumped: `app.js?v=140`, `app-ui-shell.js?v=51`, `core/app-shell.js?v=40`, `alpha-tools.js?v=15`, `/sw.js?v=80`, and service worker cache `ai-quant-v188`.
+
+Safety boundary:
+
+- This slice computes local audit statistics only. It does not fetch provider samples, run external LLM/OpenClaw, execute formal backtests, create baskets/watchlists automatically, submit paper/live orders, run Docker, migrate data, or change production/auth/trading behavior.
+- p-values and BH q-values are in-sample checks over local available prices and current holding periods only; without sample-out validation they remain audit evidence, not signal efficacy proof, financial advice, or trading readiness.
+
+Verification:
+
+```bash
+node --check dashboard/static/alpha-tools.js && node --check dashboard/static/app.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/basket.py dashboard/routers/alpha.py
+.venv/bin/python scripts/release_preflight.py
+```
+
+Results:
+
+- JS syntax checks passed for `alpha-tools.js`, `app.js`, `core/app-shell.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused basket backend tests passed, including the 6-sample p-value/BH regression and t-distribution p-value reference points: `16 passed, 1 warning`.
+- Focused draft-audit/cache-busting/frontend contracts passed: `6 passed, 1 warning`.
+- Targeted compileall passed for `alpha/basket.py` and `dashboard/routers/alpha.py`.
+- Default local release preflight passed: context pack OK, release evidence OK, pytest `857 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#research` basket subtab at desktop `1280x900` and mobile `390x844`: fresh full navigation loaded `app.js?v=140`, `app-ui-shell.js?v=51`, `core/app-shell.js?v=40`, `alpha-tools.js?v=15`, `style.css?v=86`, and `/sw.js?v=80`; the basket/draft panel existed, there were no new console errors, and there was no horizontal overflow.
+
+Remaining gaps:
+
+- Sample-out validation and provider-grade event sample expansion remain future work.
+- Local p-values and BH q-values do not prove strategy efficacy or production trading readiness.
+- Browser QA does not use real provider/event feeds and does not submit a provider query or run any write/execution path; the exact `p=... · q=...` rendering is covered by the Node DOM contract.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

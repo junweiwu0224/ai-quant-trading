@@ -1,6 +1,6 @@
 /* AI Quant Service Worker — 离线缓存 + 资源预缓存 */
 
-const CACHE_NAME = 'ai-quant-v187';
+const CACHE_NAME = 'ai-quant-v188';
 const STATIC_ASSETS = [
     '/static/style.css',
     '/static/paper-trading.css',

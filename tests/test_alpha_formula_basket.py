@@ -40,6 +40,21 @@ class FakeStorage:
         return ["000001"]
 
 
+def _event_price_frame(code: str, one_day_close: float, three_day_close: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "code": [code] * 5,
+            "date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08"]),
+            "open": [100, 100, 100, 100, 100],
+            "high": [101, 101, max(one_day_close, 100), 101, max(three_day_close, 100)],
+            "low": [99, 99, 99, 99, 99],
+            "close": [100, 100, one_day_close, 100, three_day_close],
+            "volume": [100000] * 5,
+            "amount": [1000000] * 5,
+        }
+    )
+
+
 class TestFormulaEngine:
     def test_catalog_exposes_expected_functions(self):
         engine = FormulaEngine(storage=FakeStorage())
@@ -78,6 +93,15 @@ class TestBasketBuilder:
         plan = builder.build_plan([])
         assert plan.success is False
         assert plan.error == "候选集为空"
+
+    def test_two_sided_t_test_p_value_matches_reference_points(self):
+        builder = BasketBuilder(storage=FakeStorage())
+
+        assert builder._two_sided_t_test_p_value(0, 5) == 1
+        assert abs(builder._two_sided_t_test_p_value(1, 1) - 0.5) < 1e-12
+        assert abs(builder._two_sided_t_test_p_value(2, 10) - 0.07338803477070985) < 1e-12
+        assert abs(builder._two_sided_t_test_p_value(2.570581835636314, 5) - 0.05) < 1e-12
+        assert builder._two_sided_t_test_p_value(1, 0) is None
 
     def test_backtest_plan_requires_price_data(self):
         builder = BasketBuilder(storage=FakeStorage())
@@ -147,7 +171,7 @@ class TestBasketBuilder:
         assert stats["by_holding_period"]["1"]["out_of_sample_validated"] is False
         assert stats["by_holding_period"]["1"]["validation_status"] == "insufficient_sample"
         assert "样本少于 5" in stats["by_holding_period"]["1"]["validation_warning"]
-        assert "未计算 p-value" in stats["limitations"][4]
+        assert "p-value 为双侧单样本 t 检验" in stats["limitations"][4]
         assert stats["best_period"]["period"] in [1, 3]
         assert audit["event_study"] == stats
         assert audit["samples"][0]["entry_date"] == "2024-01-04"
@@ -208,6 +232,52 @@ class TestBasketBuilder:
         assert three_day["mean_excess_return_pct"] is not None
         assert audit["samples"][0]["holding_benchmark_returns"]["3"] == 1.9802
         assert audit["samples"][0]["holding_excess_returns"]["1"] == -0.24
+
+    def test_audit_backtest_draft_computes_p_values_and_multiple_testing_correction(self):
+        builder = BasketBuilder(storage=FakeStorage())
+        closes = [
+            ("000001", 102.0, 101.8),
+            ("000002", 103.0, 102.2),
+            ("000003", 104.0, 102.5),
+            ("000004", 102.5, 101.9),
+            ("000005", 103.5, 102.8),
+            ("000006", 104.5, 103.1),
+        ]
+        price_data = {code: _event_price_frame(code, one_day, three_day) for code, one_day, three_day in closes}
+
+        audit = builder.audit_backtest_draft(
+            [{"code": code, "probability": 0.8} for code, *_ in closes],
+            price_data,
+            {"conditions": {"event_date": "2024-01-03", "holding_periods": [1, 3]}},
+        )
+
+        stats = audit["event_statistics"]
+        one_day = stats["by_holding_period"]["1"]
+        three_day = stats["by_holding_period"]["3"]
+        assert stats["ready_sample_count"] == 6
+        assert stats["statistical_validation"]["status"] == "in_sample_statistical_test"
+        assert stats["statistical_validation"]["decision"] == "audit_only"
+        assert stats["statistical_validation"]["p_value_available"] is True
+        assert stats["statistical_validation"]["p_value_period_count"] == 2
+        assert stats["statistical_validation"]["p_value_method"] == "two_sided_one_sample_t_test"
+        assert stats["statistical_validation"]["multiple_testing_adjusted"] is True
+        assert stats["statistical_validation"]["multiple_testing_method"] == "benjamini_hochberg_fdr"
+        assert stats["statistical_validation"]["out_of_sample_validated"] is False
+        assert "已计算双侧单样本 t 检验 p-value" in stats["statistical_validation"]["warning"]
+        assert "已做 Benjamini-Hochberg 多重检验校正" in stats["statistical_validation"]["warning"]
+        assert "未做样本外验证" in stats["statistical_validation"]["warning"]
+        for item in (one_day, three_day):
+            assert item["validation_sample_count"] == 6
+            assert item["p_value"] is not None
+            assert 0 <= item["p_value"] <= 1
+            assert item["adjusted_p_value"] is not None
+            assert item["adjusted_p_value"] >= item["p_value"]
+            assert item["multiple_testing_adjusted"] is True
+            assert item["multiple_testing_method"] == "benjamini_hochberg_fdr"
+            assert item["p_value_method"] == "two_sided_one_sample_t_test"
+            assert item["validation_metric"] == "net_return_pct"
+            assert item["validation_status"] == "missing_benchmark_validation"
+        assert one_day["adjusted_p_value"] <= 0.05
 
     def test_audit_backtest_draft_reports_missing_samples_without_faking_result(self):
         builder = BasketBuilder(storage=FakeStorage())

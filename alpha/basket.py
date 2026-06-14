@@ -471,6 +471,7 @@ class BasketBuilder:
                 period_stats[key] = {
                     "period": period,
                     "sample_count": 0,
+                    "validation_sample_count": 0,
                     "mean_return_pct": None,
                     "median_return_pct": None,
                     "mean_cost_pct": None,
@@ -490,6 +491,18 @@ class BasketBuilder:
                     "t_stat_return": None,
                     "t_stat_net_return": None,
                     "t_stat_excess_return": None,
+                    "p_value": None,
+                    "p_value_return": None,
+                    "p_value_net_return": None,
+                    "p_value_excess_return": None,
+                    "adjusted_p_value": None,
+                    "p_value_method": None,
+                    "multiple_testing_adjusted": False,
+                    "multiple_testing_method": None,
+                    "validation_metric": "excess_return_pct" if benchmark.get("available") else "net_return_pct",
+                    "validation_status": "insufficient_sample",
+                    "validation_warning": "无可统计样本",
+                    "out_of_sample_validated": False,
                     "significance_status": "insufficient_sample",
                     "significance_note": "无可统计样本",
                     "positive_count": 0,
@@ -515,14 +528,19 @@ class BasketBuilder:
             return_sig = self._significance_summary(values)
             net_sig = self._significance_summary(net_values)
             excess_sig = self._significance_summary(excess_values)
+            selected_sig = excess_sig if benchmark.get("available") else net_sig
+            selected_values = excess_values if benchmark.get("available") else net_values
+            validation_metric = "excess_return_pct" if benchmark.get("available") else "net_return_pct"
             validation = self._period_validation_summary(
-                sample_count=len(values),
+                sample_count=len(selected_values),
                 benchmark_available=bool(benchmark.get("available")),
-                significance_status=excess_sig["status"] if benchmark.get("available") else net_sig["status"],
+                significance_status=selected_sig["status"],
+                p_value=selected_sig.get("p_value"),
             )
             period_stats[key] = {
                 "period": period,
                 "sample_count": len(values),
+                "validation_sample_count": len(selected_values),
                 "mean_return_pct": round(sum(values) / len(values), 4),
                 "median_return_pct": round(median, 4),
                 "mean_cost_pct": self._mean_or_none(cost_values),
@@ -542,6 +560,15 @@ class BasketBuilder:
                 "t_stat_return": return_sig["t_stat"],
                 "t_stat_net_return": net_sig["t_stat"],
                 "t_stat_excess_return": excess_sig["t_stat"],
+                "p_value": selected_sig.get("p_value"),
+                "p_value_return": return_sig.get("p_value"),
+                "p_value_net_return": net_sig.get("p_value"),
+                "p_value_excess_return": excess_sig.get("p_value"),
+                "adjusted_p_value": None,
+                "p_value_method": selected_sig.get("p_value_method"),
+                "multiple_testing_adjusted": False,
+                "multiple_testing_method": None,
+                "validation_metric": validation_metric,
                 "significance_status": excess_sig["status"] if benchmark.get("available") else net_sig["status"],
                 "significance_note": (
                     excess_sig["note"]
@@ -550,8 +577,6 @@ class BasketBuilder:
                 ),
                 "validation_status": validation["status"],
                 "validation_warning": validation["warning"],
-                "p_value": None,
-                "multiple_testing_adjusted": False,
                 "out_of_sample_validated": False,
                 "positive_count": positive_count,
                 "negative_count": negative_count,
@@ -560,6 +585,8 @@ class BasketBuilder:
                 "excess_positive_count": excess_positive_count,
                 "excess_negative_count": excess_negative_count,
             }
+
+        self._apply_multiple_testing_correction(period_stats)
 
         best_period = None
         ranked_stats = [
@@ -609,7 +636,7 @@ class BasketBuilder:
                 "成本为审计估算，不代表真实成交、最低佣金逐笔影响或冲击成本",
                 "基准只在本地可用价格数据覆盖事件窗口时计算；不可用时不伪造超额收益",
                 "t-stat 仅为样本均值相对 0 的描述性统计，不构成策略显著有效证明",
-                "未计算 p-value、未做多重检验校正、未做样本外验证；统计结论必须降级为审计提示",
+                "p-value 为双侧单样本 t 检验，BH 校正仅覆盖当前持有期集合；未做样本外验证，统计结论必须降级为审计提示",
                 "样本只覆盖当前候选和本地可用价格数据",
             ],
         }
@@ -620,8 +647,15 @@ class BasketBuilder:
         sample_count: int,
         benchmark_available: bool,
         significance_status: str,
+        p_value: Any,
     ) -> dict[str, str]:
+        has_p_value = isinstance(p_value, (int, float)) and math.isfinite(float(p_value))
         if sample_count < 5:
+            if has_p_value:
+                return {
+                    "status": "insufficient_sample",
+                    "warning": "已计算 p-value，但样本少于 5，只能作为事件审计提示",
+                }
             return {
                 "status": "insufficient_sample",
                 "warning": "样本少于 5，只能作为事件审计提示",
@@ -631,14 +665,19 @@ class BasketBuilder:
                 "status": "descriptive_only",
                 "warning": "统计量不可用或只具描述性，不能证明策略有效",
             }
+        if not has_p_value:
+            return {
+                "status": "descriptive_only",
+                "warning": "p-value 不可用，不能证明策略有效",
+            }
         if not benchmark_available:
             return {
                 "status": "missing_benchmark_validation",
-                "warning": "缺少基准超额验证，不能按相对收益下结论",
+                "warning": "已计算净收益 p-value，但缺少基准超额验证，不能按相对收益下结论",
             }
         return {
-            "status": "descriptive_only",
-            "warning": "已计算描述性 t-stat，但未计算 p-value、多重检验或样本外验证",
+            "status": "in_sample_statistical_test",
+            "warning": "已计算 p-value 和多重校正；未做样本外验证",
         }
 
     def _event_study_validation_summary(
@@ -649,20 +688,47 @@ class BasketBuilder:
         ready_sample_count: int,
     ) -> dict[str, Any]:
         tested_periods = [str(key) for key, item in period_stats.items() if item.get("sample_count")]
-        warnings = [
-            "p-value 未计算",
-            "未做多重检验校正",
-            "未做样本外验证",
+        p_value_periods = [
+            str(key)
+            for key, item in period_stats.items()
+            if isinstance(item.get("p_value"), (int, float)) and math.isfinite(float(item["p_value"]))
         ]
+        adjusted_periods = [
+            str(key)
+            for key, item in period_stats.items()
+            if item.get("multiple_testing_adjusted") is True
+            and isinstance(item.get("adjusted_p_value"), (int, float))
+            and math.isfinite(float(item["adjusted_p_value"]))
+        ]
+        warnings = []
+        if p_value_periods:
+            warnings.append("已计算双侧单样本 t 检验 p-value")
+        else:
+            warnings.append("p-value 未计算")
+        if adjusted_periods:
+            warnings.append("已做 Benjamini-Hochberg 多重检验校正")
+        else:
+            warnings.append("未做多重检验校正")
+        warnings.append("未做样本外验证")
         if not benchmark.get("available"):
             warnings.append("基准超额收益未验证")
         if ready_sample_count < 5:
             warnings.append("样本少于 5")
-        status = "insufficient_sample" if ready_sample_count < 5 else "descriptive_only"
+        if ready_sample_count < 5:
+            status = "insufficient_sample"
+        elif p_value_periods:
+            status = "in_sample_statistical_test"
+        else:
+            status = "descriptive_only"
         return {
             "status": status,
-            "p_value_available": False,
-            "multiple_testing_adjusted": False,
+            "p_value_available": bool(p_value_periods),
+            "p_value_period_count": len(p_value_periods),
+            "p_value_periods": p_value_periods,
+            "p_value_method": "two_sided_one_sample_t_test" if p_value_periods else None,
+            "multiple_testing_adjusted": bool(adjusted_periods),
+            "multiple_testing_period_count": len(adjusted_periods),
+            "multiple_testing_method": "benjamini_hochberg_fdr" if adjusted_periods else None,
             "out_of_sample_validated": False,
             "tested_period_count": len(tested_periods),
             "tested_periods": tested_periods,
@@ -672,6 +738,28 @@ class BasketBuilder:
             "warning": "；".join(warnings),
             "limitations": warnings,
         }
+
+    def _apply_multiple_testing_correction(self, period_stats: dict[str, dict[str, Any]]) -> None:
+        p_values: list[tuple[str, float]] = []
+        for key, item in period_stats.items():
+            p_value = item.get("p_value")
+            if isinstance(p_value, (int, float)) and math.isfinite(float(p_value)):
+                p_values.append((key, float(p_value)))
+        if not p_values:
+            return
+
+        ranked = sorted(p_values, key=lambda item: item[1])
+        adjusted_by_key: dict[str, float] = {}
+        running_min = 1.0
+        total = len(ranked)
+        for rank, (key, p_value) in reversed(list(enumerate(ranked, start=1))):
+            adjusted = min(running_min, p_value * total / rank, 1.0)
+            running_min = adjusted
+            adjusted_by_key[key] = adjusted
+        for key, adjusted in adjusted_by_key.items():
+            period_stats[key]["adjusted_p_value"] = round(adjusted, 6)
+            period_stats[key]["multiple_testing_adjusted"] = True
+            period_stats[key]["multiple_testing_method"] = "benjamini_hochberg_fdr"
 
     def _normalize_audit_cost_model(self, raw: Any) -> dict[str, Any]:
         default_cost = BacktestConfig().cost
@@ -885,6 +973,9 @@ class BasketBuilder:
             return {
                 "sample_std_pct": None,
                 "t_stat": None,
+                "p_value": None,
+                "p_value_method": None,
+                "degrees_of_freedom": max(len(values) - 1, 0),
                 "status": "insufficient_sample",
                 "note": "样本数少于 2，仅展示描述性收益",
             }
@@ -895,16 +986,85 @@ class BasketBuilder:
             return {
                 "sample_std_pct": 0,
                 "t_stat": None,
+                "p_value": None,
+                "p_value_method": None,
+                "degrees_of_freedom": len(values) - 1,
                 "status": "zero_variance",
                 "note": "样本波动为 0，无法计算有效 t-stat",
             }
         t_stat = mean_value / (sample_std / math.sqrt(len(values)))
+        p_value = self._two_sided_t_test_p_value(t_stat, len(values) - 1)
         return {
             "sample_std_pct": round(sample_std, 4),
             "t_stat": round(t_stat, 4),
+            "p_value": round(p_value, 6) if p_value is not None else None,
+            "p_value_method": "two_sided_one_sample_t_test" if p_value is not None else None,
+            "degrees_of_freedom": len(values) - 1,
             "status": "computed_descriptive",
-            "note": "描述性单样本 t-stat，未做多重检验或样本外验证",
+            "note": "双侧单样本 t 检验 p-value；多重检验和样本外验证需结合统计门禁判断",
         }
+
+    def _two_sided_t_test_p_value(self, t_stat: float, degrees_of_freedom: int) -> float | None:
+        if degrees_of_freedom <= 0 or not math.isfinite(float(t_stat)):
+            return None
+        t_abs = abs(float(t_stat))
+        x = degrees_of_freedom / (degrees_of_freedom + t_abs * t_abs)
+        return max(0.0, min(1.0, self._regularized_incomplete_beta(x, degrees_of_freedom / 2, 0.5)))
+
+    def _regularized_incomplete_beta(self, x: float, a: float, b: float) -> float:
+        if x <= 0:
+            return 0.0
+        if x >= 1:
+            return 1.0
+        beta_log = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+        beta_log += a * math.log(x) + b * math.log1p(-x)
+        beta_front = math.exp(beta_log)
+        if x < (a + 1) / (a + b + 2):
+            return beta_front * self._beta_continued_fraction(a, b, x) / a
+        return 1 - beta_front * self._beta_continued_fraction(b, a, 1 - x) / b
+
+    def _beta_continued_fraction(self, a: float, b: float, x: float) -> float:
+        max_iterations = 200
+        epsilon = 3e-12
+        floor = 1e-300
+        qab = a + b
+        qap = a + 1
+        qam = a - 1
+        c = 1.0
+        d = 1.0 - qab * x / qap
+        if abs(d) < floor:
+            d = floor
+        d = 1.0 / d
+        h = d
+        for iteration in range(1, max_iterations + 1):
+            m2 = 2 * iteration
+            numerator = iteration * (b - iteration) * x
+            denominator = (qam + m2) * (a + m2)
+            aa = numerator / denominator if denominator else 0.0
+            d = 1.0 + aa * d
+            if abs(d) < floor:
+                d = floor
+            c = 1.0 + aa / c
+            if abs(c) < floor:
+                c = floor
+            d = 1.0 / d
+            h *= d * c
+
+            numerator = -(a + iteration) * (qab + iteration) * x
+            denominator = (a + m2) * (qap + m2)
+            aa = numerator / denominator if denominator else 0.0
+            d = 1.0 + aa * d
+            if abs(d) < floor:
+                d = floor
+            c = 1.0 + aa / c
+            if abs(c) < floor:
+                c = floor
+            d = 1.0 / d
+            delta = d * c
+            h *= delta
+            if abs(delta - 1.0) < epsilon:
+                break
+        return h
 
     def _normalize_price_frame(self, df: pd.DataFrame | None) -> pd.DataFrame:
         if df is None or df.empty or "date" not in df.columns:

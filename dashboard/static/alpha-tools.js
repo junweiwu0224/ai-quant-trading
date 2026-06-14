@@ -626,6 +626,7 @@ Object.assign(App, {
             ? stats.holding_periods
             : (Array.isArray(audit?.holding_periods) ? audit.holding_periods : []);
         const periodStats = stats.by_holding_period || stats.period_stats || {};
+        const validation = stats.statistical_validation || {};
         const coverage = Number(stats.coverage_ratio ?? audit?.coverage_ratio ?? 0);
         const coveragePct = Number.isFinite(coverage) ? `${(coverage * 100).toFixed(1)}%` : '--';
         const benchmark = stats.benchmark || {};
@@ -661,6 +662,7 @@ Object.assign(App, {
             ['基准', benchmarkStatus],
             ['估算成本', costStatus],
             ['统计显著性', significanceLabel],
+            ['统计门禁', validation.decision === 'audit_only' ? '仅审计' : (validation.status || '未验证')],
         ];
         const fmtPct = (value) => value == null || value === '' || !Number.isFinite(Number(value)) ? '--' : `${Number(value).toFixed(2)}%`;
         const signedClass = (value) => {
@@ -673,6 +675,10 @@ Object.assign(App, {
             const item = periodStats[key] || {};
             const winRate = item.win_rate == null ? '--' : `${(Number(item.win_rate) * 100).toFixed(1)}%`;
             const tStat = item.t_stat_excess_return ?? item.t_stat_net_return ?? item.t_stat_return;
+            const pValue = Number(item.p_value);
+            const validationLabel = item.p_value != null && Number.isFinite(pValue)
+                ? `p=${pValue.toFixed(3)}`
+                : (item.validation_status === 'insufficient_sample' ? '样本不足' : '仅描述');
             return `
                 <tr>
                     <td>${esc(period)}日</td>
@@ -684,6 +690,7 @@ Object.assign(App, {
                     <td class="${signedClass(item.mean_excess_return_pct)}">${esc(fmtPct(item.mean_excess_return_pct))}</td>
                     <td>${esc(winRate)}</td>
                     <td>${esc(tStat == null ? '--' : Number(tStat).toFixed(2))}</td>
+                    <td>${esc(validationLabel)}</td>
                 </tr>
             `;
         }).join('');
@@ -704,7 +711,7 @@ Object.assign(App, {
             ${rows ? `
                 <div class="table-wrap basket-draft-study-table">
                     <table>
-                        <thead><tr><th>持有</th><th>样本</th><th>毛收益</th><th>成本</th><th>净收益</th><th>基准</th><th>超额</th><th>胜率</th><th>t值</th></tr></thead>
+                        <thead><tr><th>持有</th><th>样本</th><th>毛收益</th><th>成本</th><th>净收益</th><th>基准</th><th>超额</th><th>胜率</th><th>t值</th><th>验证</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
@@ -712,6 +719,7 @@ Object.assign(App, {
             ${best}
             <div class="basket-draft-study-note">${esc(methodology)}</div>
             ${benchmark.reason ? `<div class="basket-draft-study-note">基准状态：${esc(benchmarkStatus)} · ${esc(benchmark.reason)}</div>` : ''}
+            ${validation.warning ? `<div class="basket-draft-study-note">统计门禁：${esc(validation.warning)} · ${validation.out_of_sample_validated ? '已做样本外验证' : '未做样本外验证'}</div>` : ''}
             ${limitations.length ? `<div class="basket-draft-study-limits">${limitations.map(item => `<span>${esc(item)}</span>`).join('')}</div>` : ''}
         `;
     },

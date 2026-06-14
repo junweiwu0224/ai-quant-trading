@@ -515,6 +515,11 @@ class BasketBuilder:
             return_sig = self._significance_summary(values)
             net_sig = self._significance_summary(net_values)
             excess_sig = self._significance_summary(excess_values)
+            validation = self._period_validation_summary(
+                sample_count=len(values),
+                benchmark_available=bool(benchmark.get("available")),
+                significance_status=excess_sig["status"] if benchmark.get("available") else net_sig["status"],
+            )
             period_stats[key] = {
                 "period": period,
                 "sample_count": len(values),
@@ -543,6 +548,11 @@ class BasketBuilder:
                     if benchmark.get("available")
                     else f"{net_sig['note']}；未计算基准超额显著性"
                 ),
+                "validation_status": validation["status"],
+                "validation_warning": validation["warning"],
+                "p_value": None,
+                "multiple_testing_adjusted": False,
+                "out_of_sample_validated": False,
                 "positive_count": positive_count,
                 "negative_count": negative_count,
                 "net_positive_count": net_positive_count,
@@ -566,6 +576,11 @@ class BasketBuilder:
             }
 
         entry_dates = [str(item.get("entry_date")) for item in ready_samples if item.get("entry_date")]
+        validation_summary = self._event_study_validation_summary(
+            period_stats,
+            benchmark,
+            ready_sample_count=len(ready_samples),
+        )
         return {
             "available": bool(ready_samples),
             "status": sample_status if ready_samples else "no_sample",
@@ -582,6 +597,7 @@ class BasketBuilder:
             "coverage_ratio": round(len(ready_samples) / candidate_count, 4) if candidate_count else 0,
             "by_holding_period": period_stats,
             "period_stats": period_stats,
+            "statistical_validation": validation_summary,
             "best_period": best_period,
             "sample_window": {
                 "first_entry_date": min(entry_dates) if entry_dates else "",
@@ -593,8 +609,68 @@ class BasketBuilder:
                 "成本为审计估算，不代表真实成交、最低佣金逐笔影响或冲击成本",
                 "基准只在本地可用价格数据覆盖事件窗口时计算；不可用时不伪造超额收益",
                 "t-stat 仅为样本均值相对 0 的描述性统计，不构成策略显著有效证明",
+                "未计算 p-value、未做多重检验校正、未做样本外验证；统计结论必须降级为审计提示",
                 "样本只覆盖当前候选和本地可用价格数据",
             ],
+        }
+
+    def _period_validation_summary(
+        self,
+        *,
+        sample_count: int,
+        benchmark_available: bool,
+        significance_status: str,
+    ) -> dict[str, str]:
+        if sample_count < 5:
+            return {
+                "status": "insufficient_sample",
+                "warning": "样本少于 5，只能作为事件审计提示",
+            }
+        if significance_status != "computed_descriptive":
+            return {
+                "status": "descriptive_only",
+                "warning": "统计量不可用或只具描述性，不能证明策略有效",
+            }
+        if not benchmark_available:
+            return {
+                "status": "missing_benchmark_validation",
+                "warning": "缺少基准超额验证，不能按相对收益下结论",
+            }
+        return {
+            "status": "descriptive_only",
+            "warning": "已计算描述性 t-stat，但未计算 p-value、多重检验或样本外验证",
+        }
+
+    def _event_study_validation_summary(
+        self,
+        period_stats: dict[str, dict[str, Any]],
+        benchmark: dict[str, Any],
+        *,
+        ready_sample_count: int,
+    ) -> dict[str, Any]:
+        tested_periods = [str(key) for key, item in period_stats.items() if item.get("sample_count")]
+        warnings = [
+            "p-value 未计算",
+            "未做多重检验校正",
+            "未做样本外验证",
+        ]
+        if not benchmark.get("available"):
+            warnings.append("基准超额收益未验证")
+        if ready_sample_count < 5:
+            warnings.append("样本少于 5")
+        status = "insufficient_sample" if ready_sample_count < 5 else "descriptive_only"
+        return {
+            "status": status,
+            "p_value_available": False,
+            "multiple_testing_adjusted": False,
+            "out_of_sample_validated": False,
+            "tested_period_count": len(tested_periods),
+            "tested_periods": tested_periods,
+            "ready_sample_count": ready_sample_count,
+            "benchmark_adjusted": bool(benchmark.get("available")),
+            "decision": "audit_only",
+            "warning": "；".join(warnings),
+            "limitations": warnings,
         }
 
     def _normalize_audit_cost_model(self, raw: Any) -> dict[str, Any]:

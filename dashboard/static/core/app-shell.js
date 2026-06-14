@@ -831,7 +831,7 @@
 
             const ensureBasketDraftBundle = async () => {
                 await this.loadScript?.('/static/alpha.js?v=6');
-                await this.loadScript?.('/static/alpha-tools.js?v=13');
+                await this.loadScript?.('/static/alpha-tools.js?v=14');
             };
 
             const buildBacktestDraft = ({ query, candidates, source_context, backtest_draft }) => {

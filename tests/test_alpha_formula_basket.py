@@ -131,9 +131,23 @@ class TestBasketBuilder:
         assert stats["cost_model"]["estimated_round_trip_cost_pct"] > 0
         assert stats["benchmark"]["calculation_status"] == "not_computed"
         assert stats["benchmark"]["reason"] == "benchmark_not_requested"
+        assert stats["statistical_validation"]["decision"] == "audit_only"
+        assert stats["statistical_validation"]["p_value_available"] is False
+        assert stats["statistical_validation"]["multiple_testing_adjusted"] is False
+        assert stats["statistical_validation"]["out_of_sample_validated"] is False
+        assert stats["statistical_validation"]["tested_period_count"] == 2
+        assert "p-value 未计算" in stats["statistical_validation"]["warning"]
+        assert "未做多重检验校正" in stats["statistical_validation"]["warning"]
+        assert "未做样本外验证" in stats["statistical_validation"]["warning"]
         assert stats["by_holding_period"]["1"]["mean_cost_pct"] == stats["cost_model"]["estimated_round_trip_cost_pct"]
         assert stats["by_holding_period"]["1"]["mean_net_return_pct"] < stats["by_holding_period"]["1"]["mean_return_pct"]
         assert stats["by_holding_period"]["1"]["significance_status"] == "insufficient_sample"
+        assert stats["by_holding_period"]["1"]["p_value"] is None
+        assert stats["by_holding_period"]["1"]["multiple_testing_adjusted"] is False
+        assert stats["by_holding_period"]["1"]["out_of_sample_validated"] is False
+        assert stats["by_holding_period"]["1"]["validation_status"] == "insufficient_sample"
+        assert "样本少于 5" in stats["by_holding_period"]["1"]["validation_warning"]
+        assert "未计算 p-value" in stats["limitations"][4]
         assert stats["best_period"]["period"] in [1, 3]
         assert audit["event_study"] == stats
         assert audit["samples"][0]["entry_date"] == "2024-01-04"
@@ -182,6 +196,10 @@ class TestBasketBuilder:
         assert stats["benchmark"]["data_source"] == "price_data"
         assert stats["cost_model"]["source"] == "draft_conditions"
         assert stats["cost_model"]["estimated_round_trip_cost_pct"] == 0.24
+        assert stats["statistical_validation"]["benchmark_adjusted"] is True
+        assert stats["statistical_validation"]["decision"] == "audit_only"
+        assert stats["statistical_validation"]["p_value_available"] is False
+        assert stats["statistical_validation"]["out_of_sample_validated"] is False
         assert one_day["mean_return_pct"] == 0
         assert one_day["mean_net_return_pct"] == -0.24
         assert one_day["mean_benchmark_return_pct"] == 0

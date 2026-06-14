@@ -2363,6 +2363,58 @@ Remaining gaps:
 - This closes local peer evidence continuity, not provider-grade peer universe validation, real-time industry/index mapping, backend-cited LLM diagnosis, or formal/provider-grade event-study validation.
 - Browser QA does not use real provider/industry-comparison network responses and does not run any write or execution path.
 
+## Task 9.36: Event-Study Statistical Validation Boundary
+
+Status: delivered as the next P1 event-study audit hardening slice after local peer context. This does not complete formal/provider-grade validation; it makes the current limitation machine-readable in the backend response and visible in the basket draft audit UI so descriptive event-study output is not mistaken for a statistically validated trading signal.
+
+TongHuaShun mechanism learned:
+
+- A serious research workflow lets users move from event evidence into a strategy hypothesis, but it also keeps statistical confidence boundaries visible near the result.
+- AI Quant should learn the evidence-boundary pattern: samples, benchmark adjustment, p-value availability, multiple-testing status, and sample-out validation status must be explicit. It should not copy proprietary 同花顺 datasets, ranking logic, paid research, or imply a validated buy/sell conclusion from local descriptive statistics.
+
+Implemented:
+
+- `alpha/basket.py` now adds per-holding-period validation metadata: `validation_status`, `validation_warning`, `p_value: null`, `multiple_testing_adjusted: false`, and `out_of_sample_validated: false`.
+- The root `event_statistics.statistical_validation` object records `decision: audit_only`, tested periods, ready sample count, benchmark-adjustment status, p-value availability, multiple-testing status, out-of-sample status, warning text, and limitations.
+- The event-study limitations now explicitly state that p-values, multiple-testing correction, and out-of-sample validation are not computed, so statistical conclusions must be downgraded to audit prompts.
+- `alpha-tools.js` renders a `统计门禁` summary card, a `验证` table column, per-period labels such as `样本不足` or `仅描述`, and a note that includes p-value/multiple-testing/out-of-sample warnings.
+- Cache versions bumped: `app.js?v=139`, `app-ui-shell.js?v=50`, `core/app-shell.js?v=39`, `alpha-tools.js?v=14`, `/sw.js?v=79`, and service worker cache `ai-quant-v187`.
+
+Safety boundary:
+
+- This slice adds validation-disclosure fields and UI only. It does not compute formal p-values, perform multiple-testing correction, run sample-out validation, execute backtests, create baskets/watchlists automatically, submit paper/live orders, call providers, call external LLM/OpenClaw, run Docker, migrate data, or change production/auth/trading behavior.
+- Existing descriptive t-stat and return summaries remain audit evidence, not strategy approval, financial advice, or trading readiness.
+
+Verification:
+
+```bash
+node --check dashboard/static/alpha-tools.js && node --check dashboard/static/app.js && node --check dashboard/static/core/app-shell.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js
+.venv/bin/python -m pytest tests/test_alpha_formula_basket.py -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_basket_backtest_draft_panel_renders_and_edits_manual_only_conditions tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_intelligence_market_frontend.py::test_iwencai_basket_draft_routes_to_research_basket_without_auto_backtest tests/test_intelligence_market_frontend.py::test_iwencai_app_shell_preserves_source_context_and_ignores_empty_basket_pool tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+.venv/bin/python -m compileall -q alpha/basket.py dashboard/routers/alpha.py
+.venv/bin/python scripts/release_preflight.py --verify-evidence
+git diff --check
+.venv/bin/python scripts/build_release_bundle.py && .venv/bin/python scripts/build_release_bundle.py --verify-only
+.venv/bin/python scripts/release_preflight.py
+```
+
+Results:
+
+- JS syntax checks passed for `alpha-tools.js`, `app.js`, `core/app-shell.js`, `app-ui-shell.js`, and `sw.js`.
+- Focused basket backend validation tests passed: `14 passed, 1 warning`.
+- Focused draft-audit/cache-busting/frontend contracts passed after fixing one stale `app.js?v=138` assertion: `6 passed, 1 warning`.
+- Targeted compileall passed for `alpha/basket.py` and `dashboard/routers/alpha.py`.
+- Release evidence check and `git diff --check` passed.
+- Local release bundle rebuilt and verify-only passed with `13` files plus `manifest.json`.
+- Default local release preflight passed: context pack OK, release evidence OK, pytest `855 passed, 1 warning`, compileall passed, and `git diff --check` passed.
+- In-app Browser QA on a temporary local Dashboard at `127.0.0.1:8001` passed for `#research` basket subtab at desktop `1280x900` and mobile `390x844`: fresh full navigation loaded `app.js?v=139`, `app-ui-shell.js?v=50`, `core/app-shell.js?v=39`, `alpha-tools.js?v=14`, `style.css?v=86`, and `/sw.js?v=79`; the basket/draft panel existed, there were no new console errors, and there was no horizontal overflow. Initial hash-only navigation stayed on the browser's previously cached shell, so QA used `?qa=task936` full navigation to verify the current bundle.
+
+Remaining gaps:
+
+- Formal p-value computation, multiple-testing correction, out-of-sample validation, and provider-grade event sample expansion remain future work.
+- Browser QA does not use real provider/event feeds and does not submit a provider query or run any write/execution path.
+- The statistical boundary reduces overclaim risk but does not prove signal efficacy or production trading readiness.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

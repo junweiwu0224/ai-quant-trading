@@ -2314,6 +2314,11 @@ Object.assign(globalThis.StockDetail, {
         return contract && typeof contract === 'object' ? contract : null;
     },
 
+    _backendDiagnosisLocalExplanation(backendEvidence = null) {
+        const explanation = backendEvidence?.local_explanation || backendEvidence?.localExplanation || null;
+        return explanation && typeof explanation === 'object' ? explanation : null;
+    },
+
     _renderDiagnosisPromptContract(contract = null) {
         if (!contract || typeof contract !== 'object') return '';
         const status = contract.status || 'unverified';
@@ -2333,6 +2338,26 @@ Object.assign(globalThis.StockDetail, {
                 <em>${App.escapeHTML(invocationText)} · ${App.escapeHTML(this._qualityLabel(status))} · 引用字段 ${App.escapeHTML(String(citationCount))}</em>
             </div>
             <p class="stock-evidence-muted">${App.escapeHTML(forbiddenText)}</p>
+        `;
+    },
+
+    _renderDiagnosisLocalExplanation(explanation = null) {
+        if (!explanation || typeof explanation !== 'object') return '';
+        const status = explanation.status || 'unverified';
+        const schema = explanation.schema_version || 'stock_diagnosis_local_explanation_v1';
+        const mode = explanation.generation_mode || 'local_deterministic';
+        const noteCount = Array.isArray(explanation.dimension_notes) ? explanation.dimension_notes.length : 0;
+        const gapCount = Array.isArray(explanation.evidence_gaps) ? explanation.evidence_gaps.length : 0;
+        const summary = explanation.summary || '本地解释草案暂缺';
+        const disclaimer = explanation.risk_disclaimer || '本地解释草案不构成交易建议。';
+        return `
+            <div class="stock-evidence-kv">
+                <span>本地解释</span>
+                <strong>${App.escapeHTML(schema)}</strong>
+                <em>${App.escapeHTML(this._qualityLabel(status))} · ${App.escapeHTML(mode)} · 维度 ${App.escapeHTML(String(noteCount))} · 缺口 ${App.escapeHTML(String(gapCount))}</em>
+            </div>
+            <p class="stock-evidence-muted">${App.escapeHTML(summary)}</p>
+            <p class="stock-evidence-muted">${App.escapeHTML(disclaimer)}</p>
         `;
     },
 
@@ -2531,6 +2556,7 @@ Object.assign(globalThis.StockDetail, {
         const diagnosis = this._buildWorkbenchAiDiagnosis(payload);
         const backendEvidence = this._backendDiagnosisEvidence(payload.data || {});
         const promptContract = this._backendDiagnosisPromptContract(backendEvidence) || baseContext?.llm_prompt_contract || null;
+        const localExplanation = this._backendDiagnosisLocalExplanation(backendEvidence) || baseContext?.local_explanation || null;
         return {
             ...(baseContext || {}),
             diagnosis,
@@ -2541,6 +2567,7 @@ Object.assign(globalThis.StockDetail, {
             backend_evidence_schema: backendEvidence?.schema_version || baseContext?.backend_evidence_schema || '',
             backend_evidence_llm_status: backendEvidence?.llm_status || baseContext?.backend_evidence_llm_status || '',
             llm_prompt_contract: promptContract,
+            local_explanation: localExplanation,
             disclaimer: baseContext?.disclaimer || 'AI/Signal 仅展示证据覆盖和状态，不构成交易建议。',
         };
     },
@@ -2715,6 +2742,7 @@ Object.assign(globalThis.StockDetail, {
             ? backendEvidence.summary
             : null;
         const promptContract = this._backendDiagnosisPromptContract(backendEvidence) || aiContext.llm_prompt_contract || null;
+        const localExplanation = this._backendDiagnosisLocalExplanation(backendEvidence) || aiContext.local_explanation || null;
         const tabs = [
             ['orderbook', '盘口'],
             ['profile', '资料'],
@@ -2764,6 +2792,7 @@ Object.assign(globalThis.StockDetail, {
                     ${backendEvidence ? `
                     <div class="stock-evidence-kv"><span>后端证据</span><strong>${App.escapeHTML(backendEvidence.schema_version || 'stock_diagnosis_evidence_v1')}</strong><em>${App.escapeHTML(backendEvidence.llm_status || 'not_invoked')} · ${App.escapeHTML(backendEvidence.decision || 'evidence_only')} · 引用 ${App.escapeHTML(String(backendEvidenceSummary?.citation_count ?? 0))}</em></div>
                     ${this._renderDiagnosisPromptContract(promptContract)}
+                    ${this._renderDiagnosisLocalExplanation(localExplanation)}
                     ` : ''}
                     <div class="stock-ai-diagnosis" aria-label="证据驱动AI诊断">
                         ${this._renderAiDiagnosisRows(aiContext.diagnosis || [])}

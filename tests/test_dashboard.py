@@ -340,6 +340,23 @@ class TestValuationDataHubAPI:
         assert "price" in prompt_contract["citation_fields"]
         assert "forbidden_claims" in prompt_contract["output_contract"]
         assert "raw_provider_payload" not in prompt_contract["allowed_context_fields"]
+        local_explanation = evidence["local_explanation"]
+        assert local_explanation["schema_version"] == "stock_diagnosis_local_explanation_v1"
+        assert local_explanation["generation_mode"] == "local_deterministic"
+        assert local_explanation["status"] == "ready"
+        assert local_explanation["decision"] == "evidence_only"
+        assert local_explanation["llm_status"] == "not_invoked"
+        assert local_explanation["source_contract_schema"] == "stock_diagnosis_prompt_contract_v1"
+        assert "000001 本地解释草案" in local_explanation["summary"]
+        assert any(
+            item["key"] == "technical" and "price" in item["citations"] and "价格 10.0" in item["note"]
+            for item in local_explanation["dimension_notes"]
+        )
+        assert local_explanation["evidence_gaps"]
+        assert "不构成投资建议" in local_explanation["risk_disclaimer"]
+        rendered_explanation = json.dumps(local_explanation, ensure_ascii=False)
+        for forbidden_text in ["推荐买入", "目标价", "上涨概率", "必涨", "交易准备"]:
+            assert forbidden_text not in rendered_explanation
         assert evidence["provider_verified"] is False
         assert data["ai_diagnosis_evidence"] == evidence
         rows = {row["key"]: row for row in evidence["rows"]}
@@ -419,6 +436,10 @@ class TestValuationDataHubAPI:
         assert evidence["llm_prompt_contract"]["status"] == "degraded"
         assert evidence["llm_prompt_contract"]["invocation_allowed"] is False
         assert any("本地降级数据" in item for item in evidence["llm_prompt_contract"]["context"]["risk_controls"])
+        assert evidence["local_explanation"]["status"] == "degraded"
+        assert evidence["local_explanation"]["generation_mode"] == "local_deterministic"
+        assert any("本地降级" in item["note"] for item in evidence["local_explanation"]["dimension_notes"])
+        assert any(item["key"] == "risk" for item in evidence["local_explanation"]["evidence_gaps"])
         assert evidence["summary"]["degraded_count"] >= 1
         rows = {row["key"]: row for row in evidence["rows"]}
         assert rows["risk"]["status"] == "degraded"

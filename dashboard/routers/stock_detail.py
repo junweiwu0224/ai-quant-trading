@@ -192,6 +192,88 @@ def _build_stock_diagnosis_prompt_contract(result: dict, rows: list[dict]) -> di
     return _redact_secret_like(contract)
 
 
+def _build_stock_diagnosis_local_explanation(
+    result: dict,
+    rows: list[dict],
+    prompt_contract: dict,
+) -> dict:
+    code = str(result.get("code") or "").strip()
+    generated_at = str(result.get("updated_at") or "").strip()
+    degraded = bool(result.get("degraded")) or prompt_contract.get("status") == "degraded"
+    ready_rows = [row for row in rows if row.get("status") == "ready"]
+    degraded_rows = [row for row in rows if row.get("status") == "degraded"]
+    gap_rows = [
+        row for row in rows
+        if row.get("status") in {"missing", "degraded", "unverified"}
+    ]
+    status = "degraded" if degraded or degraded_rows else ("ready" if ready_rows else "missing")
+
+    dimension_notes = []
+    for row in rows[:8]:
+        label = row.get("label") or row.get("key") or "诊断维度"
+        row_status = row.get("status") or "unverified"
+        evidence = str(row.get("evidence") or "").strip()
+        missing_reason = str(row.get("missing_reason") or "").strip()
+        citations = [str(item) for item in row.get("citations") or [] if item]
+        citation_text = f"引用字段: {', '.join(citations[:4])}" if citations else "引用字段暂缺"
+        if row_status == "ready" and evidence:
+            note = f"{label}: {evidence}; {citation_text}"
+        elif row_status == "degraded":
+            note = f"{label}: {evidence or missing_reason or '本地降级证据'}; 数据降级，仅作审计线索; {citation_text}"
+        else:
+            note = f"{label}: 证据暂缺或未验证; {missing_reason or '等待后续数据补齐'}; {citation_text}"
+        dimension_notes.append({
+            "key": row.get("key") or "",
+            "label": label,
+            "status": row_status,
+            "note": note,
+            "source": row.get("source") or result.get("source") or "stock_detail_api",
+            "updated_at": row.get("updated_at") or generated_at,
+            "citations": citations,
+            "confidence": row.get("confidence") or "low",
+        })
+
+    evidence_gaps = []
+    for row in gap_rows:
+        evidence_gaps.append({
+            "key": row.get("key") or "",
+            "label": row.get("label") or row.get("key") or "诊断维度",
+            "status": row.get("status") or "unverified",
+            "reason": row.get("missing_reason") or row.get("evidence") or "证据未达到可解释标准",
+            "citations": [str(item) for item in row.get("citations") or [] if item],
+        })
+
+    summary_bits = [
+        f"{code} 本地解释草案",
+        f"{len(ready_rows)} 个维度有可引用证据",
+        f"{len(evidence_gaps)} 个维度需要补证或保持审慎",
+    ]
+    if status == "degraded":
+        summary_bits.append("存在本地降级数据，只能作为证据审计线索")
+    summary = "；".join(summary_bits)
+
+    return _redact_secret_like({
+        "schema_version": "stock_diagnosis_local_explanation_v1",
+        "generation_mode": "local_deterministic",
+        "status": status,
+        "decision": "evidence_only",
+        "llm_status": "not_invoked",
+        "provider_verified": False,
+        "source_contract_schema": prompt_contract.get("schema_version") or "",
+        "generated_at": generated_at,
+        "summary": summary,
+        "dimension_notes": dimension_notes,
+        "evidence_gaps": evidence_gaps,
+        "risk_disclaimer": "本地确定性解释草案，只说明证据覆盖、缺口和反证；不构成投资建议、交易建议、收益承诺或可交易结论。",
+        "limitations": [
+            "未调用外部 LLM、OpenClaw、真实 provider 或交易路径",
+            "缺失、降级、未验证字段不会被补全成确定结论",
+            "解释草案必须受 llm_prompt_contract 的引用字段和 forbidden_claims 约束",
+        ],
+        "forbidden_claims": prompt_contract.get("output_contract", {}).get("forbidden_claims", []),
+    })
+
+
 def _build_stock_diagnosis_evidence(result: dict) -> dict:
     """Build a local, cited evidence snapshot for stock workbench diagnosis.
 
@@ -288,6 +370,7 @@ def _build_stock_diagnosis_evidence(result: dict) -> dict:
     ready_count = sum(1 for row in rows if row["status"] == "ready")
     degraded_count = sum(1 for row in rows if row["status"] == "degraded")
     llm_prompt_contract = _build_stock_diagnosis_prompt_contract(result, rows)
+    local_explanation = _build_stock_diagnosis_local_explanation(result, rows, llm_prompt_contract)
     return {
         "schema_version": "stock_diagnosis_evidence_v1",
         "code": code,
@@ -299,6 +382,7 @@ def _build_stock_diagnosis_evidence(result: dict) -> dict:
         "llm_status": "not_invoked",
         "provider_verified": False,
         "llm_prompt_contract": llm_prompt_contract,
+        "local_explanation": local_explanation,
         "rows": rows,
         "summary": {
             "ready_count": ready_count,

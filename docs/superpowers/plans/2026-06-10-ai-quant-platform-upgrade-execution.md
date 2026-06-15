@@ -2690,6 +2690,44 @@ Results:
 - Frontend contract checks passed: `4 passed, 1 warning`.
 - JS syntax and targeted compileall passed.
 
+## Task 9.43: Stock Diagnosis Local Explanation Draft
+
+Status: delivered. This slice adds a deterministic local explanation draft on top of the cited diagnosis rows and prompt contract, but it still does not call an external LLM or produce trading advice.
+
+Implemented:
+
+- `/api/stock/detail/{code}` now includes `diagnosis_evidence.local_explanation` with schema `stock_diagnosis_local_explanation_v1`.
+- The local explanation is generated only from backend diagnosis rows and the prompt contract, and stays `llm_status=not_invoked`.
+- The local explanation includes summary, per-dimension cited notes, evidence gaps, forbidden-claim inheritance, and a no-advice risk disclaimer.
+- The stock AI rail renders the local explanation summary alongside the prompt contract without exposing raw provider payloads or calling an LLM.
+- Cache versions bumped: `app.js?v=146`, `app-ui-shell.js?v=57`, `stock-detail-core.js?v=30`, `/sw.js?v=86`, and service worker cache `ai-quant-v194`.
+
+Safety boundary:
+
+- Still local, deterministic evidence shaping only. No external LLM, OpenClaw Gateway, provider, Docker, sync, migration, backtest, basket/watchlist write, broker, paper/live, or production config path is invoked.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_includes_source_provenance tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_degrades_to_local_daily_when_realtime_sources_are_unavailable tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_diagnosis_prompt_contract_redacts_secret_like_context -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js && .venv/bin/python -m compileall -q dashboard/routers/stock_detail.py
+.venv/bin/python scripts/verify_context_pack.py
+.venv/bin/python scripts/release_preflight.py
+.venv/bin/python scripts/build_release_bundle.py
+.venv/bin/python scripts/build_release_bundle.py --verify-only
+git diff --check
+```
+
+Results:
+
+- Stock detail API contract tests passed: `3 passed, 1 warning`.
+- Frontend stock AI rail/cache contracts passed: `4 passed, 1 warning`.
+- JS syntax checks, targeted compileall, context pack, and `git diff --check` passed.
+- Default local release preflight passed: `861 passed, 1 warning`, compileall, and diff-check.
+- Local release bundle was rebuilt and verify-only passed.
+- In-app Browser stock smoke passed on `127.0.0.1:8001` for desktop default viewport and mobile `390x844`: cache-busted resources loaded (`app.js?v=146`, `app-ui-shell.js?v=57`, `stock-detail-core.js?v=30`), stock page and evidence rail shell rendered, no page console errors, and no horizontal overflow. Concrete local-explanation rendering is covered by TestClient and Node DOM contracts because browser QA did not obtain a live authenticated stock-detail payload with deterministic fixtures.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**

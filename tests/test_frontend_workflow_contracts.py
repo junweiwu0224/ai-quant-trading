@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=145" in scripts
+    assert "/static/app.js?v=146" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -4495,6 +4495,42 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
                         forbidden_claims: ['buy_sell_recommendation', 'target_price', 'guaranteed_return', 'trading_ready'],
                     },
                 },
+                local_explanation: {
+                    schema_version: 'stock_diagnosis_local_explanation_v1',
+                    generation_mode: 'local_deterministic',
+                    status: 'ready',
+                    decision: 'evidence_only',
+                    llm_status: 'not_invoked',
+                    summary: '000001 本地解释草案；2 个维度有可引用证据；2 个维度需要补证或保持审慎',
+                    risk_disclaimer: '本地确定性解释草案，只说明证据覆盖、缺口和反证；不构成投资建议、交易建议、收益承诺或可交易结论。',
+                    dimension_notes: [
+                        {
+                            key: 'technical',
+                            label: '技术面',
+                            status: 'ready',
+                            note: '技术面: 价格 123.45 · 涨跌幅 1.01%; 引用字段: price, change_pct',
+                            source: 'stock_detail_api',
+                            updated_at: '2026-06-10T09:30:00',
+                            citations: ['price', 'change_pct'],
+                            confidence: 'medium',
+                        },
+                        {
+                            key: 'valuation',
+                            label: '估值',
+                            status: 'ready',
+                            note: '估值: PE 20 · PB 4; 引用字段: pe_ratio, pb_ratio',
+                            source: 'stock_detail_api',
+                            updated_at: '2026-06-10T09:30:00',
+                            citations: ['pe_ratio', 'pb_ratio'],
+                            confidence: 'medium',
+                        },
+                    ],
+                    evidence_gaps: [
+                        { key: 'capital', label: '资金面', status: 'missing', reason: '资金流缺失', citations: ['capital_flow'] },
+                        { key: 'risk', label: '风险', status: 'degraded', reason: '本地降级数据', citations: ['degraded'] },
+                    ],
+                    forbidden_claims: ['buy_sell_recommendation', 'target_price', 'guaranteed_return', 'trading_ready'],
+                },
                 rows: [
                     {
                         key: 'technical',
@@ -4539,6 +4575,10 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         assert.equal(state.aiContext.backend_evidence_llm_status, 'not_invoked');
         assert.equal(state.aiContext.llm_prompt_contract.status, 'ready');
         assert.equal(state.aiContext.llm_prompt_contract.invocation_allowed, false);
+        assert.equal(state.aiContext.local_explanation.schema_version, 'stock_diagnosis_local_explanation_v1');
+        assert.equal(state.aiContext.local_explanation.status, 'ready');
+        assert.match(state.aiContext.local_explanation.summary, /本地解释草案/);
+        assert.match(state.aiContext.local_explanation.risk_disclaimer, /不构成投资建议/);
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'technical').evidence, /后端引用/);
         assert.deepEqual(state.aiContext.diagnosis.find((item) => item.key === 'technical').citations, ['price', 'change_pct']);
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'valuation').evidence, /后端引用：PE 20/);
@@ -4587,6 +4627,11 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         assert.match(railText, /stock_diagnosis_prompt_contract_v1/);
         assert.match(railText, /未调用/);
         assert.match(railText, /禁止输出买卖建议/);
+        assert.match(railText, /本地解释/);
+        assert.match(railText, /stock_diagnosis_local_explanation_v1/);
+        assert.match(railText, /本地确定性解释草案/);
+        assert.match(railText, /维度 2/);
+        assert.match(railText, /缺口 2/);
         assert.match(railText, /引用 7/);
         assert.match(railText, /后端引用：价格 123.45/);
         assert.match(railText, /当前聚焦事件: 资金 · 主力资金净流入/);
@@ -4954,12 +4999,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=145" in scripts
+    assert "/static/app.js?v=146" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=42" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=56" in scripts
+    assert "/static/app-ui-shell.js?v=57" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4979,7 +5024,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=29" in app
+    assert "/static/stock-detail-core.js?v=30" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

@@ -156,7 +156,7 @@ const App = {
         ],
         stock: [
             '/static/stock-detail.js?v=7',
-            '/static/stock-detail-core.js?v=29',
+            '/static/stock-detail-core.js?v=30',
             '/static/stock-detail-drawings.js?v=1',
             '/static/stock-detail-insights.js?v=3',
             '/static/stock-detail-chips.js?v=1',

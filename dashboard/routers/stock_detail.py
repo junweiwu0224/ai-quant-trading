@@ -30,6 +30,39 @@ _DETAIL_QUOTE_STALE_SECONDS = 900
 _DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS = 2.0
 
 _HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com"}
+_SECRET_LIKE_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "cookie",
+    "credential",
+    "headers",
+    "password",
+    "secret",
+    "session",
+    "token",
+}
+
+
+def _redact_secret_like(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            normalized_key = str(key).lower().replace("-", "_")
+            if any(secret_key in normalized_key for secret_key in _SECRET_LIKE_KEYS):
+                redacted[key] = "***"
+            else:
+                redacted[key] = _redact_secret_like(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_secret_like(item) for item in value[:20]]
+    if isinstance(value, str):
+        lower_value = value.lower()
+        if any(secret_key in lower_value for secret_key in ["authorization:", "bearer ", "api_key=", "token=", "password=", "secret="]):
+            return "***"
+        return value[:500]
+    return value
 
 
 def _stock_diag_status(ready: bool, degraded: bool = False) -> str:
@@ -68,6 +101,95 @@ def _has_number(value) -> bool:
         return value is not None and math.isfinite(float(value)) and float(value) != 0
     except (TypeError, ValueError):
         return False
+
+
+def _build_stock_diagnosis_prompt_contract(result: dict, rows: list[dict]) -> dict:
+    code = str(result.get("code") or "").strip()
+    source = str(result.get("source") or "stock_detail_api").strip()
+    generated_at = str(result.get("updated_at") or "").strip()
+    evidence_by_dimension = {}
+    citation_fields: list[str] = []
+    degraded_dimensions: list[str] = []
+    missing_dimensions: list[str] = []
+
+    for row in rows:
+        key = str(row.get("key") or "").strip()
+        if not key:
+            continue
+        citations = [str(item) for item in row.get("citations") or [] if item]
+        citation_fields.extend(citations)
+        if row.get("status") == "degraded":
+            degraded_dimensions.append(key)
+        elif row.get("status") in {"missing", "unverified"}:
+            missing_dimensions.append(key)
+        evidence_by_dimension[key] = {
+            "label": row.get("label") or key,
+            "status": row.get("status") or "unverified",
+            "evidence": row.get("evidence") or "",
+            "missing_reason": row.get("missing_reason") or "",
+            "source": row.get("source") or source,
+            "updated_at": row.get("updated_at") or generated_at,
+            "citations": citations,
+            "confidence": row.get("confidence") or "low",
+        }
+
+    risk_controls = [
+        "只解释证据覆盖、缺口和反证，不输出买入、卖出、目标价、收益承诺或交易准备结论",
+        "缺失、降级、未验证字段必须原样说明，不允许补全或推断成确定结论",
+        "所有结论必须引用 context.evidence_by_dimension 中的维度和 citation_fields",
+    ]
+    if result.get("degraded"):
+        risk_controls.append("本地降级数据：只能作为可视化占位和证据审计线索")
+
+    status = "degraded" if degraded_dimensions or result.get("degraded") else "ready"
+    contract = {
+        "schema_version": "stock_diagnosis_prompt_contract_v1",
+        "status": status,
+        "target_model": "external_llm_not_invoked",
+        "invocation_allowed": False,
+        "prompt_role": "你是 A 股研究工作台的证据审计助手，只能基于给定引用证据解释诊断维度。",
+        "citation_fields": sorted(set(citation_fields)),
+        "missing_dimensions": missing_dimensions,
+        "degraded_dimensions": degraded_dimensions,
+        "allowed_context_fields": [
+            "code",
+            "name",
+            "source",
+            "source_version",
+            "generated_at",
+            "provider_verified",
+            "evidence_by_dimension",
+            "citation_fields",
+            "missing_dimensions",
+            "degraded_dimensions",
+            "risk_controls",
+        ],
+        "context": {
+            "code": code,
+            "name": result.get("name") or "",
+            "source": source,
+            "source_version": result.get("source_version") or "",
+            "generated_at": generated_at,
+            "provider_verified": False,
+            "evidence_by_dimension": evidence_by_dimension,
+            "citation_fields": sorted(set(citation_fields)),
+            "missing_dimensions": missing_dimensions,
+            "degraded_dimensions": degraded_dimensions,
+            "risk_controls": risk_controls,
+        },
+        "output_contract": {
+            "format": "diagnosis_explanation_json",
+            "required_sections": ["summary", "dimension_notes", "evidence_gaps", "risk_disclaimer"],
+            "forbidden_claims": ["buy_sell_recommendation", "target_price", "guaranteed_return", "trading_ready"],
+            "max_dimension_notes": 8,
+        },
+        "redaction": {
+            "policy": "allowlist_context_only",
+            "sensitive_values": "redacted",
+            "excluded_inputs": ["provider_payload", "headers", "cookies", "credentials"],
+        },
+    }
+    return _redact_secret_like(contract)
 
 
 def _build_stock_diagnosis_evidence(result: dict) -> dict:
@@ -165,6 +287,7 @@ def _build_stock_diagnosis_evidence(result: dict) -> dict:
     ]
     ready_count = sum(1 for row in rows if row["status"] == "ready")
     degraded_count = sum(1 for row in rows if row["status"] == "degraded")
+    llm_prompt_contract = _build_stock_diagnosis_prompt_contract(result, rows)
     return {
         "schema_version": "stock_diagnosis_evidence_v1",
         "code": code,
@@ -175,6 +298,7 @@ def _build_stock_diagnosis_evidence(result: dict) -> dict:
         "decision": "evidence_only",
         "llm_status": "not_invoked",
         "provider_verified": False,
+        "llm_prompt_contract": llm_prompt_contract,
         "rows": rows,
         "summary": {
             "ready_count": ready_count,

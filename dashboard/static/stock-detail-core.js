@@ -2309,6 +2309,33 @@ Object.assign(globalThis.StockDetail, {
         return evidence && typeof evidence === 'object' && Array.isArray(evidence.rows) ? evidence : null;
     },
 
+    _backendDiagnosisPromptContract(backendEvidence = null) {
+        const contract = backendEvidence?.llm_prompt_contract || null;
+        return contract && typeof contract === 'object' ? contract : null;
+    },
+
+    _renderDiagnosisPromptContract(contract = null) {
+        if (!contract || typeof contract !== 'object') return '';
+        const status = contract.status || 'unverified';
+        const invocationText = contract.invocation_allowed ? '待确认后调用' : '未调用';
+        const citationCount = Array.isArray(contract.citation_fields)
+            ? contract.citation_fields.length
+            : (Array.isArray(contract.context?.citation_fields) ? contract.context.citation_fields.length : 0);
+        const forbidden = Array.isArray(contract.output_contract?.forbidden_claims)
+            ? contract.output_contract.forbidden_claims.length
+            : 0;
+        const forbiddenText = forbidden ? `禁止输出买卖建议等 ${forbidden} 类声明` : '禁止输出买卖建议';
+        const schema = contract.schema_version || 'stock_diagnosis_prompt_contract_v1';
+        return `
+            <div class="stock-evidence-kv">
+                <span>提示词契约</span>
+                <strong>${App.escapeHTML(schema)}</strong>
+                <em>${App.escapeHTML(invocationText)} · ${App.escapeHTML(this._qualityLabel(status))} · 引用字段 ${App.escapeHTML(String(citationCount))}</em>
+            </div>
+            <p class="stock-evidence-muted">${App.escapeHTML(forbiddenText)}</p>
+        `;
+    },
+
     _mergeBackendDiagnosisRows(frontendRows = [], backendEvidence = null) {
         if (!backendEvidence || !Array.isArray(backendEvidence.rows)) return frontendRows;
         const backendRows = new Map();
@@ -2503,6 +2530,7 @@ Object.assign(globalThis.StockDetail, {
     _buildWorkbenchAiContext(baseContext = {}, payload = {}) {
         const diagnosis = this._buildWorkbenchAiDiagnosis(payload);
         const backendEvidence = this._backendDiagnosisEvidence(payload.data || {});
+        const promptContract = this._backendDiagnosisPromptContract(backendEvidence) || baseContext?.llm_prompt_contract || null;
         return {
             ...(baseContext || {}),
             diagnosis,
@@ -2512,6 +2540,7 @@ Object.assign(globalThis.StockDetail, {
             backend_evidence: backendEvidence || baseContext?.backend_evidence || null,
             backend_evidence_schema: backendEvidence?.schema_version || baseContext?.backend_evidence_schema || '',
             backend_evidence_llm_status: backendEvidence?.llm_status || baseContext?.backend_evidence_llm_status || '',
+            llm_prompt_contract: promptContract,
             disclaimer: baseContext?.disclaimer || 'AI/Signal 仅展示证据覆盖和状态，不构成交易建议。',
         };
     },
@@ -2685,6 +2714,7 @@ Object.assign(globalThis.StockDetail, {
         const backendEvidenceSummary = backendEvidence && backendEvidence.summary
             ? backendEvidence.summary
             : null;
+        const promptContract = this._backendDiagnosisPromptContract(backendEvidence) || aiContext.llm_prompt_contract || null;
         const tabs = [
             ['orderbook', '盘口'],
             ['profile', '资料'],
@@ -2733,6 +2763,7 @@ Object.assign(globalThis.StockDetail, {
                     <div class="stock-evidence-kv"><span>Signal</span><strong>${App.escapeHTML(aiContext.signalCoverage?.label || signalText)}</strong><em>${App.escapeHTML(aiContext.signalCoverage?.reason || signalReason)}</em></div>
                     ${backendEvidence ? `
                     <div class="stock-evidence-kv"><span>后端证据</span><strong>${App.escapeHTML(backendEvidence.schema_version || 'stock_diagnosis_evidence_v1')}</strong><em>${App.escapeHTML(backendEvidence.llm_status || 'not_invoked')} · ${App.escapeHTML(backendEvidence.decision || 'evidence_only')} · 引用 ${App.escapeHTML(String(backendEvidenceSummary?.citation_count ?? 0))}</em></div>
+                    ${this._renderDiagnosisPromptContract(promptContract)}
                     ` : ''}
                     <div class="stock-ai-diagnosis" aria-label="证据驱动AI诊断">
                         ${this._renderAiDiagnosisRows(aiContext.diagnosis || [])}

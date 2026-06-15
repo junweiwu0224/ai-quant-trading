@@ -79,7 +79,7 @@ def test_signal_engine_is_primary_frontend_semantics():
 
     assert "/static/intelligence-signals.js?v=20" in app
     assert "/static/intelligence-qlib.js" not in app
-    assert "/static/app.js?v=144" in scripts
+    assert "/static/app.js?v=145" in scripts
 
     assert 'data-ov-opportunity-scope="signal" aria-pressed="true">AI信号 Top</button>' in template
     assert '<option value="signal">AI 信号 Top</option>' in template
@@ -4486,6 +4486,15 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
                 decision: 'evidence_only',
                 llm_status: 'not_invoked',
                 summary: { citation_count: 7 },
+                llm_prompt_contract: {
+                    schema_version: 'stock_diagnosis_prompt_contract_v1',
+                    status: 'ready',
+                    invocation_allowed: false,
+                    citation_fields: ['price', 'change_pct', 'pe_ratio', 'pb_ratio'],
+                    output_contract: {
+                        forbidden_claims: ['buy_sell_recommendation', 'target_price', 'guaranteed_return', 'trading_ready'],
+                    },
+                },
                 rows: [
                     {
                         key: 'technical',
@@ -4528,6 +4537,8 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'capital').missing_reason, /资金流/);
         assert.equal(state.aiContext.backend_evidence_schema, 'stock_diagnosis_evidence_v1');
         assert.equal(state.aiContext.backend_evidence_llm_status, 'not_invoked');
+        assert.equal(state.aiContext.llm_prompt_contract.status, 'ready');
+        assert.equal(state.aiContext.llm_prompt_contract.invocation_allowed, false);
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'technical').evidence, /后端引用/);
         assert.deepEqual(state.aiContext.diagnosis.find((item) => item.key === 'technical').citations, ['price', 'change_pct']);
         assert.match(state.aiContext.diagnosis.find((item) => item.key === 'valuation').evidence, /后端引用：PE 20/);
@@ -4572,6 +4583,10 @@ def test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state():
         assert.match(railText, /后端证据/);
         assert.match(railText, /stock_diagnosis_evidence_v1/);
         assert.match(railText, /not_invoked/);
+        assert.match(railText, /提示词契约/);
+        assert.match(railText, /stock_diagnosis_prompt_contract_v1/);
+        assert.match(railText, /未调用/);
+        assert.match(railText, /禁止输出买卖建议/);
         assert.match(railText, /引用 7/);
         assert.match(railText, /后端引用：价格 123.45/);
         assert.match(railText, /当前聚焦事件: 资金 · 主力资金净流入/);
@@ -4939,12 +4954,12 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/style.css?v=86" in template
     assert "/static/search.js?v=14" in scripts
     assert "/static/watchlist.js?v=10" in scripts
-    assert "/static/app.js?v=144" in scripts
+    assert "/static/app.js?v=145" in scripts
     assert "/static/app-stock-ops.js?v=12" in scripts
     assert "/static/core/business-adapter.js?v=5" in scripts
     assert "/static/core/app-shell.js?v=42" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=55" in scripts
+    assert "/static/app-ui-shell.js?v=56" in scripts
     assert "/static/app-workbench.js?v=3" in scripts
     assert "/static/openclaw-conversations.js?v=3" in scripts
     assert "/static/openclaw-workbench.js?v=26" in scripts
@@ -4964,7 +4979,7 @@ def test_changed_frontend_assets_are_cache_busted():
     assert "/static/screener-ai.js?v=2" in app
     assert "/static/research-datahub.js?v=25" in app
     assert "/static/research-valuation.js?v=16" in app
-    assert "/static/stock-detail-core.js?v=28" in app
+    assert "/static/stock-detail-core.js?v=29" in app
     assert "/static/stock-detail-research.js?v=2" in app
     assert "/static/stock-detail-timeline.js?v=6" in app
     assert "/static/stock-detail-kline.js?v=5" in app

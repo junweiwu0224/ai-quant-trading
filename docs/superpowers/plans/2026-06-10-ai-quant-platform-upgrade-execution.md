@@ -2653,6 +2653,43 @@ Remaining gaps:
 - The backend now owns cited evidence rows, but no external/backend LLM explanation is invoked yet.
 - Provider-grade diagnosis, real provider freshness/rate-limit evidence, OpenClaw/LLM integration, Docker/staging, production env/auth/decision gates, and broker/paper/live trading gates remain separate future work behind existing explicit-confirmation boundaries.
 
+## Task 9.42: Stock Diagnosis Prompt Contract Bridge
+
+Status: delivered as the next stock-workbench evidence slice after Task 9.41. This still does not call an external LLM; it adds a backend-owned, redacted prompt-contract snapshot so future explanation work has a stable allowlist, forbidden-claim boundary, and citation envelope.
+
+TongHuaShun mechanism learned:
+
+- A mature diagnosis panel makes the evidence contract visible enough that explanation can be audited before a model is ever called.
+- AI Quant should keep the prompt boundary explicit: which context fields are allowed, which claims are forbidden, which inputs are excluded, and whether invocation is even permitted.
+
+Implemented:
+
+- `/api/stock/detail/{code}` now returns `diagnosis_evidence.llm_prompt_contract`.
+- The prompt contract records `schema_version`, `status`, `target_model`, `invocation_allowed`, `citation_fields`, `missing_dimensions`, `degraded_dimensions`, and a redacted allowlist context.
+- Secret-like input values are recursively redacted before serialization, and provider payload/header/cookie/credential inputs are excluded by contract instead of being embedded.
+- `stock-detail-core.js` renders a compact prompt-contract summary in the AI evidence rail without exposing the full prompt text.
+- Frontend contract tests now assert the prompt contract exists, stays `not_invoked`, and advertises the no-buy/no-sell boundary.
+- Cache versions bumped: `app.js?v=145`, `app-ui-shell.js?v=56`, `stock-detail-core.js?v=29`, `/sw.js?v=85`, and service worker cache `ai-quant-v193`.
+
+Safety boundary:
+
+- This slice is still local evidence shaping plus frontend rendering only. It does not call external LLMs, OpenClaw Gateway, native tools, real providers beyond the existing stock-detail data path, Docker, data sync, migrations, backtests, basket/watchlist writes, broker APIs, paper/live orders, production config, or auth paths.
+- The prompt contract is an execution boundary, not an explanation result, investment advice, or trading readiness claim.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_includes_source_provenance tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_detail_degrades_to_local_daily_when_realtime_sources_are_unavailable tests/test_dashboard.py::TestValuationDataHubAPI::test_stock_diagnosis_prompt_contract_redacts_secret_like_context -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py::test_stock_ai_diagnosis_consumes_event_focus_and_evidence_state tests/test_frontend_workflow_contracts.py::test_changed_frontend_assets_are_cache_busted tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled tests/test_research_toolbar_frontend.py::test_research_toolbar_asset_versions_are_bumped_for_browser_cache -q -p no:cacheprovider
+node --check dashboard/static/stock-detail-core.js && node --check dashboard/static/app.js && node --check dashboard/static/app-ui-shell.js && node --check dashboard/static/sw.js && .venv/bin/python -m compileall -q dashboard/routers/stock_detail.py
+```
+
+Results:
+
+- Stock detail API contract tests passed: `3 passed, 1 warning`.
+- Frontend contract checks passed: `4 passed, 1 warning`.
+- JS syntax and targeted compileall passed.
+
 ## Task 7: P2 iWencai Task Router MVP
 
 **Files:**
@@ -2873,7 +2910,7 @@ Recorded from the three read-only TongHuaShun observer agents and one follow-up 
 | iWencai / task router | Unified search accepts market symbols, functions, and natural-language questions, then routes into buckets with visible parsed-condition chips and follow-up actions. | Use `intent -> parsed_conditions -> buckets -> actions -> source_context`; never treat natural language as a table-only query. | Task 7 tests and Task 8 smoke verify chips, buckets, stock open, basket draft, source context. Topic/hotspot provenance was fixed in this gate. Task 7.5 adds top global search intent routing, result buckets, task result rendering, and source-context handoff into iWencai. Task 7.6 adds golden-question and failure-state contracts. Task 9.14 promotes the base iWencai routed schema to the backend while preserving legacy `data/total`. | Backend now owns the base routed schema; richer real-provider field-level evidence, rate-limit/cache states, provider drift handling, and OpenClaw deep orchestration remain follow-up. | Connect backend task outputs to deeper OpenClaw workflows and provider-grade evidence fixtures. |
 | Stock/K-line workbench | One screen keeps left context pool, central K-line, right evidence, bottom events, period/indicator muscle memory. | Treat `StockWorkbenchState` as the state container: selected symbol, source pool, chart state, indicators, related context, event feed, data quality, AI context. | Task 6 tests and Task 8 smoke verify context pool, period, MACD, nonblank chart, source context preservation. Task 6.5 verifies right-rail state completion, missing reasons, rail tab state, and left context pool sync. Task 9 verifies dynamic event aggregation, bottom tab state, selected event, chart focus marker, and desktop/mobile smoke. Task 9.5 verifies chart event overlays, chart-click -> bottom-event reverse selection, capital-flow and 龙虎榜 event aggregation. Task 9.6 verifies evidence-based AI diagnosis consumes `eventFocus`, `eventFeed`, `dataQuality`, and `sourceContext`. Task 9.7 verifies same-day clustering, conservative dedupe, raw-event preservation, and cluster focus into diagnosis. Task 9.8 verifies the same-day event group entry, group-member selection, source-context preservation, and safe draft continuation. Task 9.9 verifies event-group diagnosis weighting, duplicate down-weighting, and richer readonly backtest draft conditions. Task 9.10, Task 9.12, and Task 9.13 verify visible/manual-only basket draft conditions plus structured draft-audit event-study statistics with estimated cost, optional local benchmark/excess, and descriptive t-stat fields. | Frontend event-group diagnosis, draft conditions, and local event-study audit evidence are done; stronger backend-cited LLM diagnosis, provider-grade event samples, formal significance validation, hover/popover preview, drawer-level detail, richer index/peer mappings, and minute-level positioning remain follow-up. | Harden event-study audit into provider-grade sample/benchmark/statistical validation, or harden backend-owned iWencai router semantics depending on product priority. |
 
-Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 9.7, Task 9.8, Task 9.9, Task 9.10, Task 9.12, Task 9.13, Task 9.14, Task 7.5, and Task 7.6 are delivered; the next blocking product-quality gates are provider-grade event-study samples/formal validation, provider-grade iWencai evidence and OpenClaw orchestration, richer sector/index/peer evidence, and backend-cited LLM explanations.
+Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 9.7, Task 9.8, Task 9.9, Task 9.10, Task 9.12, Task 9.13, Task 9.14, Task 7.5, Task 7.6, Task 9.40, Task 9.41, and Task 9.42 are delivered; the next blocking product-quality gates are provider-grade event-study samples/formal validation, provider-grade iWencai evidence and OpenClaw orchestration, richer sector/index/peer evidence, and backend-cited LLM explanations.
 
 ## Task 7.5 Execution: Global Search Task Router
 

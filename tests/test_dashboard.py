@@ -1,4 +1,6 @@
 """可视化面板 API 测试"""
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -326,6 +328,18 @@ class TestValuationDataHubAPI:
         assert evidence["code"] == "000001"
         assert evidence["decision"] == "evidence_only"
         assert evidence["llm_status"] == "not_invoked"
+        prompt_contract = evidence["llm_prompt_contract"]
+        assert prompt_contract["schema_version"] == "stock_diagnosis_prompt_contract_v1"
+        assert prompt_contract["status"] == "ready"
+        assert prompt_contract["invocation_allowed"] is False
+        assert prompt_contract["target_model"] == "external_llm_not_invoked"
+        assert prompt_contract["context"]["code"] == "000001"
+        assert prompt_contract["context"]["name"] == "平安银行"
+        assert "technical" in prompt_contract["context"]["evidence_by_dimension"]
+        assert "risk" in prompt_contract["context"]["evidence_by_dimension"]
+        assert "price" in prompt_contract["citation_fields"]
+        assert "forbidden_claims" in prompt_contract["output_contract"]
+        assert "raw_provider_payload" not in prompt_contract["allowed_context_fields"]
         assert evidence["provider_verified"] is False
         assert data["ai_diagnosis_evidence"] == evidence
         rows = {row["key"]: row for row in evidence["rows"]}
@@ -402,11 +416,40 @@ class TestValuationDataHubAPI:
         assert data["industry"] == "白酒"
         evidence = data["diagnosis_evidence"]
         assert evidence["llm_status"] == "not_invoked"
+        assert evidence["llm_prompt_contract"]["status"] == "degraded"
+        assert evidence["llm_prompt_contract"]["invocation_allowed"] is False
+        assert any("本地降级数据" in item for item in evidence["llm_prompt_contract"]["context"]["risk_controls"])
         assert evidence["summary"]["degraded_count"] >= 1
         rows = {row["key"]: row for row in evidence["rows"]}
         assert rows["risk"]["status"] == "degraded"
         assert "degraded" in rows["risk"]["citations"]
         assert data["latest_local_date"] == "2026-06-05"
+
+    def test_stock_diagnosis_prompt_contract_redacts_secret_like_context(self):
+        from dashboard.routers.stock_detail import _build_stock_diagnosis_evidence
+
+        evidence = _build_stock_diagnosis_evidence({
+            "code": "000001",
+            "name": "平安银行",
+            "source": "stock_detail_api",
+            "source_version": "qa",
+            "updated_at": "2026-06-15T12:00:00+08:00",
+            "price": 10.0,
+            "change_pct": 1.0,
+            "industry": "银行",
+            "concepts": ["金融"],
+            "api_key": "sk-secret-value",
+            "password": "should-not-appear",
+            "description": "Authorization: Bearer leaked-token",
+        })
+
+        rendered = json.dumps(evidence["llm_prompt_contract"], ensure_ascii=False)
+        assert evidence["llm_status"] == "not_invoked"
+        assert evidence["llm_prompt_contract"]["invocation_allowed"] is False
+        assert "sk-secret-value" not in rendered
+        assert "should-not-appear" not in rendered
+        assert "leaked-token" not in rendered
+        assert "raw_provider_payload" not in rendered
 
     def test_stock_detail_uses_short_refresh_budget_before_local_fallback(self, monkeypatch):
         import pandas as pd

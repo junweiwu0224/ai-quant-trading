@@ -3132,7 +3132,7 @@ AI Quant implementation:
 - Every returned item carries `source="local_sector_index_bridge"`, `source_label="本地指数候选"`, `confidence="low"`, `provider_verified=false`, `local_only=true`, and `source_fields`.
 - Empty or unmatched sectors still return explicit missing reasons instead of invented index evidence.
 - The intelligence market sector evidence rail now renders `本地候选 N 个指数`, the candidate label, and `未 provider 验证` disclosure.
-- Cache versions bumped: `app.js?v=147`, `app-ui-shell.js?v=58`, `intelligence-market.js?v=28`, `/sw.js?v=87`, and service worker cache `ai-quant-v195`.
+- Cache versions bumped: `app.js?v=148`, `app-ui-shell.js?v=59`, `intelligence-market.js?v=29`, `/sw.js?v=88`, and service worker cache `ai-quant-v196`.
 
 Safety boundary:
 
@@ -3154,9 +3154,44 @@ Results:
 
 Remaining gaps:
 
-- `news_research` is still a missing-reason placeholder until a local sector-news/research mapping exists.
+- Provider-grade sector-news/research coverage is still not verified; this slice only adds a local candidate bridge from cached market news.
 - Sector/index evidence is still local-candidate only. Provider-grade constituent mapping, benchmark quote freshness/rate-limit evidence, and verified sector benchmark comparison remain future gates.
 - `DataStorage()` initialization can run schema setup on cold/old local databases; this pre-existing read-path behavior remains separate from the related-index bridge.
+
+## Task 3.7 Execution: Sector News/Research Local Candidate Bridge
+
+Status: delivered as the next incremental P1 Market Map slice. This closes the Task 3.5/3.6 follow-up by turning `news_research` from a hard missing placeholder into a conservative local candidate bridge when cached market news matches the sector/constituent context. It still does not claim board-level research coverage or provider verification.
+
+TongHuaShun mechanism learned:
+
+- Sector drilldowns should keep nearby evidence visible. If a board has locally relevant news, the page should surface it beside constituents instead of hiding behind a missing placeholder.
+- AI Quant should preserve the trust boundary: local cache matches can be surfaced as candidates, but they must stay labeled as unverified until a provider-grade mapping exists.
+
+AI Quant implementation:
+
+- `/api/market/sector-members` now fills `evidence_context.news_research` with `status="local_candidate"` when cached market news matches the sector name, sector themes, or constituent stocks.
+- Matched items carry explicit `match_reason`, matched terms/codes/names, `provider_verified=false`, and `local_only=true`.
+- The intelligence market sector evidence rail now renders `本地候选 N 条`, the matched titles, `未 provider 验证`, and the local coverage note.
+- Empty or unmatched sectors still return explicit missing reasons instead of invented research evidence.
+- Cache versions bumped: `app.js?v=148`, `app-ui-shell.js?v=59`, `intelligence-market.js?v=29`, `/sw.js?v=88`, and service worker cache `ai-quant-v196`.
+
+Safety boundary:
+
+- This slice is local API response shaping plus frontend rendering only. It does not call real provider/research services, validate research freshness, run Docker, sync data, call external LLM/OpenClaw, create baskets/watchlists, execute backtests, submit paper/live orders, call broker APIs, change auth, or touch production config.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_api_v2_full.py::TestMarket::test_market_sector_members_returns_local_constituents_with_trust_context tests/test_api_v2_full.py::TestMarket::test_market_sector_members_evidence_uses_full_sector_not_display_limit tests/test_api_v2_full.py::TestMarket::test_market_sector_members_empty_result_is_not_source_unavailable tests/test_api_v2_full.py::TestMarket::test_market_sector_members_exchange_board_related_index_candidate -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_pool_context tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled -q -p no:cacheprovider
+PATH="/Users/junwei/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH" node --check dashboard/static/intelligence-market.js && .venv/bin/python -m compileall -q dashboard/routers/market.py
+```
+
+Results:
+
+- Focused sector-members API contracts passed: `4 passed, 1 warning`.
+- Focused intelligence market frontend/cache contracts passed: `2 passed, 1 warning`.
+- JS syntax and targeted Python compileall passed.
 
 ## Backlog Refinement From Parallel Agents
 

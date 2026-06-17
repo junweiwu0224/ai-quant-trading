@@ -406,8 +406,14 @@
                         leadSignal ? `样本 ${leadSignal.name || leadSignal.code || '--'}` : '',
                     ])}
                 ${renderSectorEvidenceSection('新闻/研报',
-                    newsItems.length ? `已关联 ${formatCount(newsItems.length)} 条` : (newsResearch.missing_reason || '板块级新闻/研报证据尚未接入'),
-                    newsItems.slice(0, 2).map((item) => item.title || item.source || '新闻证据'))}
+                    newsItems.length
+                        ? `${newsResearch.provider_verified === true ? '已验证' : '本地候选'} ${formatCount(newsItems.length)} 条`
+                        : (newsResearch.missing_reason || '板块级新闻/研报证据尚未接入'),
+                    [
+                        ...newsItems.slice(0, 2).map((item) => item.title || item.source || '新闻证据'),
+                        newsResearch.provider_verified === false ? '未 provider 验证' : '',
+                        newsResearch.coverage_note || '',
+                    ])}
                 ${renderSectorEvidenceSection('关联指数',
                     indexItems.length
                         ? `${relatedIndex.provider_verified === true ? '已验证' : '本地候选'} ${formatCount(indexItems.length)} 个指数`

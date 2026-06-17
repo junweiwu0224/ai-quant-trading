@@ -738,6 +738,118 @@ def _build_sector_related_index(
     }
 
 
+def _market_news_cache_snapshot() -> dict[str, Any]:
+    hit, cached = _cache.get("market_news")
+    if hit and isinstance(cached, dict):
+        return cached
+    if isinstance(_last_news, dict):
+        return _last_news
+    return {}
+
+
+def _build_sector_news_research(
+    *,
+    sector_name: str,
+    members: list[dict[str, Any]],
+    news_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not members:
+        return {
+            "status": "missing",
+            "items": [],
+            "provider_verified": False,
+            "local_only": True,
+            "missing_reason": "板块暂无成分股，无法生成本地新闻/研报候选",
+        }
+
+    snapshot = news_snapshot if isinstance(news_snapshot, dict) else _market_news_cache_snapshot()
+    news_items = snapshot.get("news") if isinstance(snapshot, dict) else []
+    if not isinstance(news_items, list) or not news_items:
+        return {
+            "status": "missing",
+            "items": [],
+            "provider_verified": False,
+            "local_only": True,
+            "missing_reason": "本地市场新闻聚合暂无可复用记录",
+        }
+
+    member_codes = {str(item.get("code") or "").strip() for item in members if item.get("code")}
+    member_names = {str(item.get("name") or "").strip() for item in members if item.get("name")}
+    industries = {str(item.get("industry") or "").strip() for item in members if item.get("industry")}
+    sector_terms = {str(sector_name or "").strip(), *industries} - {""}
+    matched: list[dict[str, Any]] = []
+    for item in news_items:
+        if not isinstance(item, dict):
+            continue
+        topics = item.get("topics") if isinstance(item.get("topics"), list) else []
+        stocks = item.get("stocks") if isinstance(item.get("stocks"), list) else []
+        title = str(item.get("title") or "")
+        summary = str(item.get("summary") or "")
+        topic_names = {str(topic.get("name") or "").strip() for topic in topics if isinstance(topic, dict)}
+        stock_codes = {str(stock.get("code") or "").strip() for stock in stocks if isinstance(stock, dict)}
+        stock_names = {str(stock.get("name") or "").strip() for stock in stocks if isinstance(stock, dict)}
+
+        reasons: list[str] = []
+        matched_terms = sorted((topic_names & sector_terms) or {term for term in sector_terms if term and term in f"{title} {summary}"})
+        matched_codes = sorted(member_codes & stock_codes)
+        matched_names = sorted((member_names & stock_names) or {name for name in member_names if name and name in f"{title} {summary}"})
+        if matched_terms:
+            reasons.append("主题/行业命中")
+        if matched_codes or matched_names:
+            reasons.append("成分股命中")
+        if not reasons:
+            continue
+
+        matched.append({
+            "title": title,
+            "summary": summary,
+            "time": item.get("time") or item.get("timestamp") or "",
+            "source": item.get("source") or "市场新闻聚合",
+            "sentiment": item.get("sentiment"),
+            "value_score": item.get("value_score"),
+            "value_reasons": item.get("value_reasons") if isinstance(item.get("value_reasons"), list) else [],
+            "topics": [topic for topic in topics if isinstance(topic, dict) and str(topic.get("name") or "").strip() in matched_terms][:4],
+            "stocks": [stock for stock in stocks if isinstance(stock, dict) and (
+                str(stock.get("code") or "").strip() in matched_codes
+                or str(stock.get("name") or "").strip() in matched_names
+            )][:4],
+            "match_reason": "、".join(reasons),
+            "matched_terms": matched_terms[:6],
+            "matched_codes": matched_codes[:6],
+            "matched_names": matched_names[:6],
+            "provider_verified": False,
+            "local_only": True,
+        })
+
+    if not matched:
+        return {
+            "status": "missing",
+            "items": [],
+            "provider_verified": False,
+            "local_only": True,
+            "missing_reason": "本地市场新闻聚合暂无命中本板块的主题或成分股",
+        }
+
+    matched.sort(
+        key=lambda item: (
+            float(item.get("value_score") or 0),
+            len(item.get("matched_codes") or []) + len(item.get("matched_names") or []),
+            str(item.get("time") or ""),
+        ),
+        reverse=True,
+    )
+    return {
+        "status": "local_candidate",
+        "items": matched[:4],
+        "provider_verified": False,
+        "local_only": True,
+        "source": snapshot.get("source") or "market_news_multi_source",
+        "timestamp": snapshot.get("timestamp") or snapshot.get("generated_at") or "",
+        "coverage_note": "复用本地市场新闻聚合的主题/成分股映射生成候选；未验证板块级研报覆盖、provider 完整性或新闻实时性",
+        "missing_reason": "",
+    }
+
+
 def _build_sector_evidence_context(
     *,
     sector_name: str,
@@ -746,6 +858,7 @@ def _build_sector_evidence_context(
     display_members: list[dict[str, Any]],
     generated_at: str,
     total_pool: int,
+    news_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     changes = [float(item.get("change_pct") or 0) for item in members]
     amounts = [float(item.get("amount") or 0) for item in members if item.get("amount") is not None]
@@ -758,6 +871,11 @@ def _build_sector_evidence_context(
     total_amount = sum(amounts) if amounts else 0
     signal_overlap = _build_sector_signal_overlap(members)
     related_index = _build_sector_related_index(sector_name=sector_name, grouping=grouping, members=members)
+    news_research = _build_sector_news_research(
+        sector_name=sector_name,
+        members=members,
+        news_snapshot=news_snapshot,
+    )
 
     return {
         "sector_name": sector_name,
@@ -785,11 +903,7 @@ def _build_sector_evidence_context(
             "missing_reason": "" if amounts else "本地 stock_daily 暂无成交额字段",
         },
         "signal_overlap": signal_overlap,
-        "news_research": {
-            "status": "missing",
-            "items": [],
-            "missing_reason": "板块级新闻/研报证据尚未接入；当前仅在新闻主题面板做个股/主题映射",
-        },
+        "news_research": news_research,
         "related_index": related_index,
         "next_actions": [
             {"id": "send_screener", "label": "发送到选股器", "requires": "members"},
@@ -799,7 +913,12 @@ def _build_sector_evidence_context(
     }
 
 
-def _build_local_sector_members(name: str, grouping: str = "industry", limit: int = 30) -> dict[str, Any]:
+def _build_local_sector_members(
+    name: str,
+    grouping: str = "industry",
+    limit: int = 30,
+    news_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     sector_name = str(name or "").strip()
     normalized_grouping = "industry" if str(grouping or "").strip() == "industry" else "exchange_board"
     safe_limit = max(1, min(int(limit or 30), 100))
@@ -866,6 +985,7 @@ def _build_local_sector_members(name: str, grouping: str = "industry", limit: in
             display_members=display_members,
             generated_at=generated_at,
             total_pool=total_pool,
+            news_snapshot=news_snapshot,
         ),
         "source_context": {
             "source": "market:sector-heatmap",

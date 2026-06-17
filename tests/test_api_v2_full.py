@@ -1147,6 +1147,7 @@ class TestMarket:
         from dashboard.routers import market as market_router
 
         market_router._cache.delete("sector_members:industry:银行:10")
+        market_router._cache.delete("market_news")
         local_rows = [
             {"code": "000001", "name": "平安银行", "industry": "银行", "change_pct": 2.0, "amount": 1e10, "price": 11.2},
             {"code": "600000", "name": "浦发银行", "industry": "银行", "change_pct": -1.0, "amount": 2e10, "price": 8.5},
@@ -1170,6 +1171,37 @@ class TestMarket:
                 },
             },
         )
+        previous_last_news = market_router._last_news
+        market_router._last_news = {
+            "success": True,
+            "source": "market_news_multi_source",
+            "timestamp": "2026-06-06T09:30:00",
+            "news": [
+                {
+                    "title": "银行板块息差改善带动头部银行估值修复",
+                    "summary": "银行行业净息差企稳，平安银行与浦发银行等头部机构受关注",
+                    "time": "2026-06-06 09:30:00",
+                    "source": "东方财富快讯",
+                    "sentiment": 0.42,
+                    "value_score": 8.5,
+                    "value_reasons": ["关联个股", "关联主题"],
+                    "topics": [{"name": "银行", "match": "industry", "stock_count": 2}],
+                    "stocks": [
+                        {"code": "000001", "name": "平安银行", "industry": "银行"},
+                        {"code": "600000", "name": "浦发银行", "industry": "银行"},
+                    ],
+                },
+                {
+                    "title": "宁德时代带动新能源车产业链订单增长",
+                    "summary": "新能源车和电力设备产业链订单增长",
+                    "time": "2026-06-06 09:05:00",
+                    "source": "东方财富快讯",
+                    "value_score": 9.5,
+                    "topics": [{"name": "新能源车", "match": "keyword", "stock_count": 0}],
+                    "stocks": [{"code": "300750", "name": "宁德时代", "industry": "电池"}],
+                },
+            ],
+        }
 
         try:
             resp = client.get("/api/market/sector-members?name=银行&grouping=industry&limit=10")
@@ -1198,8 +1230,15 @@ class TestMarket:
             assert evidence["signal_overlap"]["count"] == 1
             assert evidence["signal_overlap"]["items"][0]["code"] == "000001"
             assert evidence["signal_overlap"]["provider"] == "local_momentum"
-            assert evidence["news_research"]["status"] == "missing"
-            assert "新闻/研报" in evidence["news_research"]["missing_reason"]
+            assert evidence["news_research"]["status"] == "local_candidate"
+            assert evidence["news_research"]["provider_verified"] is False
+            assert evidence["news_research"]["local_only"] is True
+            assert evidence["news_research"]["items"][0]["title"] == "银行板块息差改善带动头部银行估值修复"
+            assert evidence["news_research"]["items"][0]["match_reason"] == "主题/行业命中、成分股命中"
+            assert evidence["news_research"]["items"][0]["matched_terms"] == ["银行"]
+            assert evidence["news_research"]["items"][0]["matched_codes"] == ["000001", "600000"]
+            assert evidence["news_research"]["items"][0]["provider_verified"] is False
+            assert "未验证板块级研报覆盖" in evidence["news_research"]["coverage_note"]
             assert evidence["related_index"]["status"] == "local_candidate"
             assert evidence["related_index"]["provider_verified"] is False
             assert evidence["related_index"]["local_only"] is True
@@ -1212,6 +1251,8 @@ class TestMarket:
             assert data["source_context"]["sector_name"] == "银行"
         finally:
             market_router._cache.delete("sector_members:industry:银行:10")
+            market_router._cache.delete("market_news")
+            market_router._last_news = previous_last_news
 
     def test_market_sector_members_evidence_uses_full_sector_not_display_limit(self, client, monkeypatch):
         """GET /api/market/sector-members — 证据上下文按全量板块计算，不被 limit 截断"""
@@ -1255,6 +1296,8 @@ class TestMarket:
             assert evidence["liquidity"]["top_amount_member"]["code"] == "600000"
             assert evidence["signal_overlap"]["count"] == 1
             assert evidence["signal_overlap"]["items"][0]["code"] == "600000"
+            assert evidence["news_research"]["status"] == "missing"
+            assert "本地市场新闻聚合" in evidence["news_research"]["missing_reason"]
             assert evidence["related_index"]["status"] == "local_candidate"
             assert evidence["related_index"]["items"][0]["label"] == "金融主题候选（本地标签）"
         finally:
@@ -1283,6 +1326,8 @@ class TestMarket:
             assert "暂无 银行 成分股" in data["coverage_note"]
             assert data["source_context"]["context_type"] == "sector"
             assert data["evidence_context"]["summary"]["member_count"] == 0
+            assert data["evidence_context"]["news_research"]["status"] == "missing"
+            assert "板块暂无成分股" in data["evidence_context"]["news_research"]["missing_reason"]
             assert data["evidence_context"]["signal_overlap"]["missing_reason"] == "板块暂无成分股，无法计算 Signal 重叠"
             assert data["evidence_context"]["news_research"]["status"] == "missing"
             assert data["evidence_context"]["related_index"]["status"] == "missing"

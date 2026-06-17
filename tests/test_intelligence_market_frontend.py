@@ -522,9 +522,20 @@ def test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_
                                 ],
                             },
                             news_research: {
-                                status: 'missing',
-                                items: [],
-                                missing_reason: '板块级新闻/研报证据尚未接入',
+                                status: 'local_candidate',
+                                provider_verified: false,
+                                local_only: true,
+                                coverage_note: '复用本地市场新闻聚合的主题/成分股映射生成候选；未验证板块级研报覆盖、provider 完整性或新闻实时性',
+                                items: [
+                                    {
+                                        title: '银行板块息差改善带动头部银行估值修复',
+                                        source: '东方财富快讯',
+                                        provider_verified: false,
+                                        local_only: true,
+                                        match_reason: '主题/行业命中、成分股命中',
+                                    },
+                                ],
+                                missing_reason: '',
                             },
                             related_index: {
                                 status: 'local_candidate',
@@ -596,7 +607,9 @@ def test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_
             assert.match(heatmap.innerHTML, /Signal 重叠/);
             assert.match(heatmap.innerHTML, /信号重叠 1只 · 验证偏正/);
             assert.match(heatmap.innerHTML, /新闻\/研报/);
-            assert.match(heatmap.innerHTML, /板块级新闻\/研报证据尚未接入/);
+            assert.match(heatmap.innerHTML, /本地候选 1 条/);
+            assert.match(heatmap.innerHTML, /银行板块息差改善带动头部银行估值修复/);
+            assert.match(heatmap.innerHTML, /未验证板块级研报覆盖/);
             assert.match(heatmap.innerHTML, /关联指数/);
             assert.match(heatmap.innerHTML, /本地候选 1 个指数/);
             assert.match(heatmap.innerHTML, /金融主题候选（本地标签）/);
@@ -4139,15 +4152,15 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
     assert "/static/intelligence.js?v=17" in app_js
-    assert "/static/intelligence-market.js?v=28" in app_js
+    assert "/static/intelligence-market.js?v=29" in app_js
     assert "/static/intelligence-iwencai.js?v=15" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=147" in scripts
+    assert "/static/app.js?v=148" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=58" in scripts
-    assert "/sw.js?v=87" in app_ui_shell
-    assert "ai-quant-v195" in service_worker
+    assert "/static/app-ui-shell.js?v=59" in scripts
+    assert "/sw.js?v=88" in app_ui_shell
+    assert "ai-quant-v196" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker

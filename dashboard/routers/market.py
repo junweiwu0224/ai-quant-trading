@@ -595,6 +595,149 @@ def _build_sector_signal_overlap(members: list[dict[str, Any]]) -> dict[str, Any
     return payload
 
 
+_SECTOR_RELATED_INDEX_THEMES = [
+    {
+        "keywords": ("银行", "证券", "券商", "保险", "金融"),
+        "label": "金融主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含银行、证券、保险或金融线索",
+    },
+    {
+        "keywords": ("通信", "光模块", "光通信", "CPO", "算力", "数据中心", "AI服务器"),
+        "label": "通信/TMT主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含通信、光模块、CPO 或算力线索",
+    },
+    {
+        "keywords": ("半导体", "芯片", "集成电路", "电子"),
+        "label": "半导体/电子主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含半导体、芯片或电子线索",
+    },
+    {
+        "keywords": ("新能源", "电池", "锂电", "光伏", "储能", "电力设备"),
+        "label": "新能源主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含新能源、电池、光伏或储能线索",
+    },
+    {
+        "keywords": ("白酒", "食品饮料", "消费"),
+        "label": "消费主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含白酒、食品饮料或消费线索",
+    },
+    {
+        "keywords": ("医药", "医疗", "创新药", "CXO"),
+        "label": "医药主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含医药、医疗或创新药线索",
+    },
+    {
+        "keywords": ("汽车", "整车", "零部件", "智能驾驶"),
+        "label": "汽车主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含汽车、零部件或智能驾驶线索",
+    },
+    {
+        "keywords": ("传媒", "游戏", "影视"),
+        "label": "传媒主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含传媒、游戏或影视线索",
+    },
+    {
+        "keywords": ("计算机", "软件", "人工智能", "AI"),
+        "label": "计算机/AI主题候选（本地标签）",
+        "reason": "板块名称或成分股行业包含计算机、软件或人工智能线索",
+    },
+]
+
+_EXCHANGE_BOARD_INDEX_CANDIDATES = {
+    "创业板": {"name": "创业板指", "code": "399006", "reason": "交易板块名称指向创业板上市板块基准"},
+    "科创板": {"name": "科创50", "code": "000688", "reason": "交易板块名称指向科创板上市板块基准"},
+    "沪主板": {"name": "上证指数", "code": "000001", "reason": "交易板块名称指向上交所主板宽基候选"},
+    "深主板": {"name": "深证成指", "code": "399001", "reason": "交易板块名称指向深交所主板宽基候选"},
+    "北交所": {"name": "北证50", "code": "899050", "reason": "交易板块名称指向北交所宽基候选"},
+}
+
+
+def _unique_text(items: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    values: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        values.append(text)
+    return values
+
+
+def _build_sector_related_index(
+    *,
+    sector_name: str,
+    grouping: str,
+    members: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not members:
+        return {
+            "status": "missing",
+            "items": [],
+            "provider_verified": False,
+            "local_only": True,
+            "missing_reason": "板块暂无成分股，无法生成本地关联指数候选",
+        }
+
+    items: list[dict[str, Any]] = []
+    source_fields = _unique_text(
+        [sector_name]
+        + [item.get("industry") for item in members[:12]]
+        + [item.get("name") for item in members[:6]]
+    )
+    tag_text = " ".join(source_fields)
+
+    if grouping == "exchange_board":
+        board = _EXCHANGE_BOARD_INDEX_CANDIDATES.get(sector_name)
+        if board:
+            items.append({
+                "name": board["name"],
+                "code": board["code"],
+                "label": f'{board["name"]} {board["code"]}',
+                "source": "local_sector_index_bridge",
+                "source_label": "本地指数候选",
+                "reason": board["reason"],
+                "confidence": "low",
+                "provider_verified": False,
+                "local_only": True,
+                "source_fields": [sector_name, "grouping:exchange_board"],
+            })
+
+    for theme in _SECTOR_RELATED_INDEX_THEMES:
+        if any(keyword in tag_text for keyword in theme["keywords"]):
+            items.append({
+                "name": theme["label"],
+                "code": "",
+                "label": theme["label"],
+                "source": "local_sector_index_bridge",
+                "source_label": "本地指数候选",
+                "reason": theme["reason"],
+                "confidence": "low",
+                "provider_verified": False,
+                "local_only": True,
+                "source_fields": source_fields[:8],
+            })
+            break
+
+    if not items:
+        return {
+            "status": "missing",
+            "items": [],
+            "provider_verified": False,
+            "local_only": True,
+            "missing_reason": "本地行业/交易板块标签暂未命中关联指数候选规则",
+        }
+
+    return {
+        "status": "local_candidate",
+        "items": items[:4],
+        "provider_verified": False,
+        "local_only": True,
+        "coverage_note": "基于本地板块名称、交易板块和成分股行业标签生成候选；未验证指数成分、行情新鲜度或 provider 覆盖",
+        "missing_reason": "",
+    }
+
+
 def _build_sector_evidence_context(
     *,
     sector_name: str,
@@ -614,6 +757,7 @@ def _build_sector_evidence_context(
     top_amount_member = max(members, key=lambda item: float(item.get("amount") or 0), default=None)
     total_amount = sum(amounts) if amounts else 0
     signal_overlap = _build_sector_signal_overlap(members)
+    related_index = _build_sector_related_index(sector_name=sector_name, grouping=grouping, members=members)
 
     return {
         "sector_name": sector_name,
@@ -646,11 +790,7 @@ def _build_sector_evidence_context(
             "items": [],
             "missing_reason": "板块级新闻/研报证据尚未接入；当前仅在新闻主题面板做个股/主题映射",
         },
-        "related_index": {
-            "status": "missing",
-            "items": [],
-            "missing_reason": "本地覆盖池暂未维护行业/概念关联指数映射",
-        },
+        "related_index": related_index,
         "next_actions": [
             {"id": "send_screener", "label": "发送到选股器", "requires": "members"},
             {"id": "open_stock", "label": "打开成分股工作台", "requires": "selected_member"},

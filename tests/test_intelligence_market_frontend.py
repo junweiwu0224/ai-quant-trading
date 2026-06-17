@@ -527,9 +527,21 @@ def test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_
                                 missing_reason: '板块级新闻/研报证据尚未接入',
                             },
                             related_index: {
-                                status: 'missing',
-                                items: [],
-                                missing_reason: '本地行业口径暂未映射关联指数',
+                                status: 'local_candidate',
+                                provider_verified: false,
+                                local_only: true,
+                                coverage_note: '基于本地板块名称、交易板块和成分股行业标签生成候选；未验证指数成分、行情新鲜度或 provider 覆盖',
+                                items: [
+                                    {
+                                        name: '金融主题候选（本地标签）',
+                                        code: '',
+                                        label: '金融主题候选（本地标签）',
+                                        provider_verified: false,
+                                        local_only: true,
+                                        source: 'local_sector_index_bridge',
+                                    },
+                                ],
+                                missing_reason: '',
                             },
                             next_actions: [
                                 { id: 'send_screener', label: '发送到选股器' },
@@ -586,7 +598,9 @@ def test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_
             assert.match(heatmap.innerHTML, /新闻\/研报/);
             assert.match(heatmap.innerHTML, /板块级新闻\/研报证据尚未接入/);
             assert.match(heatmap.innerHTML, /关联指数/);
-            assert.match(heatmap.innerHTML, /本地行业口径暂未映射关联指数/);
+            assert.match(heatmap.innerHTML, /本地候选 1 个指数/);
+            assert.match(heatmap.innerHTML, /金融主题候选（本地标签）/);
+            assert.match(heatmap.innerHTML, /未 provider 验证/);
             assert.match(heatmap.innerHTML, /后续动作/);
             assert.match(heatmap.innerHTML, /发送到选股器/);
             assert.doesNotMatch(heatmap.innerHTML, /AI覆盖/);
@@ -4125,15 +4139,15 @@ def test_intelligence_market_assets_are_versioned_and_styled():
     service_worker = Path("dashboard/static/sw.js").read_text(encoding="utf-8")
 
     assert "/static/intelligence.js?v=17" in app_js
-    assert "/static/intelligence-market.js?v=27" in app_js
+    assert "/static/intelligence-market.js?v=28" in app_js
     assert "/static/intelligence-iwencai.js?v=15" in app_js
     assert "/static/intelligence-signals.js?v=20" in app_js
     assert "/static/intelligence-qlib.js" not in app_js
-    assert "/static/app.js?v=146" in scripts
+    assert "/static/app.js?v=147" in scripts
     assert "/static/core/command-palette.js?v=2" in scripts
-    assert "/static/app-ui-shell.js?v=57" in scripts
-    assert "/sw.js?v=86" in app_ui_shell
-    assert "ai-quant-v194" in service_worker
+    assert "/static/app-ui-shell.js?v=58" in scripts
+    assert "/sw.js?v=87" in app_ui_shell
+    assert "ai-quant-v195" in service_worker
     static_assets_body = service_worker.split("const STATIC_ASSETS = [", 1)[1].split("];", 1)[0]
     assert "/static/intelligence-signals.js" not in static_assets_body
     assert "/static/intelligence-qlib.js" not in service_worker

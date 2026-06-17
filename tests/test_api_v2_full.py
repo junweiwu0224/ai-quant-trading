@@ -1200,7 +1200,13 @@ class TestMarket:
             assert evidence["signal_overlap"]["provider"] == "local_momentum"
             assert evidence["news_research"]["status"] == "missing"
             assert "新闻/研报" in evidence["news_research"]["missing_reason"]
-            assert evidence["related_index"]["status"] == "missing"
+            assert evidence["related_index"]["status"] == "local_candidate"
+            assert evidence["related_index"]["provider_verified"] is False
+            assert evidence["related_index"]["local_only"] is True
+            assert "未验证指数成分" in evidence["related_index"]["coverage_note"]
+            assert evidence["related_index"]["items"][0]["label"] == "金融主题候选（本地标签）"
+            assert evidence["related_index"]["items"][0]["source"] == "local_sector_index_bridge"
+            assert evidence["related_index"]["items"][0]["provider_verified"] is False
             assert [item["id"] for item in evidence["next_actions"]] == ["send_screener", "open_stock", "draft_backtest"]
             assert data["source_context"]["context_type"] == "sector"
             assert data["source_context"]["sector_name"] == "银行"
@@ -1249,6 +1255,8 @@ class TestMarket:
             assert evidence["liquidity"]["top_amount_member"]["code"] == "600000"
             assert evidence["signal_overlap"]["count"] == 1
             assert evidence["signal_overlap"]["items"][0]["code"] == "600000"
+            assert evidence["related_index"]["status"] == "local_candidate"
+            assert evidence["related_index"]["items"][0]["label"] == "金融主题候选（本地标签）"
         finally:
             market_router._cache.delete("sector_members:industry:银行:1")
 
@@ -1280,6 +1288,39 @@ class TestMarket:
             assert data["evidence_context"]["related_index"]["status"] == "missing"
         finally:
             market_router._cache.delete("sector_members:industry:银行:10")
+
+    def test_market_sector_members_exchange_board_related_index_candidate(self, client, monkeypatch):
+        """GET /api/market/sector-members — 交易板块生成本地宽基候选，不伪装 provider 验证"""
+        from dashboard.routers import market as market_router
+
+        market_router._cache.delete("sector_members:exchange_board:创业板:10")
+        local_rows = [
+            {"code": "300750", "name": "宁德时代", "industry": "电池", "change_pct": 3.0, "amount": 3e10, "price": 210.0},
+            {"code": "301308", "name": "江波龙", "industry": "半导体", "change_pct": 1.0, "amount": 1e10, "price": 98.0},
+        ]
+        monkeypatch.setattr(market_router, "_local_market_stock_rows", lambda limit=None: local_rows)
+        monkeypatch.setattr(
+            market_router,
+            "build_signal_context",
+            lambda top_limit=500: {"provider": "local_momentum", "items": {}},
+        )
+
+        try:
+            resp = client.get("/api/market/sector-members?name=创业板&grouping=exchange_board&limit=10")
+            data = resp.json()
+
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["grouping"] == "exchange_board"
+            evidence = data["evidence_context"]["related_index"]
+            assert evidence["status"] == "local_candidate"
+            assert evidence["provider_verified"] is False
+            assert evidence["local_only"] is True
+            assert evidence["items"][0]["name"] == "创业板指"
+            assert evidence["items"][0]["code"] == "399006"
+            assert evidence["items"][0]["source_fields"] == ["创业板", "grouping:exchange_board"]
+        finally:
+            market_router._cache.delete("sector_members:exchange_board:创业板:10")
 
     def test_market_northbound_returns_soft_unavailable_state_when_source_fails(self, client, monkeypatch):
         """GET /api/market/northbound — 北向源不可用时不让情报页进入硬失败"""

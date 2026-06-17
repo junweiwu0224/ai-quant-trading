@@ -2944,11 +2944,11 @@ Recorded from the three read-only TongHuaShun observer agents and one follow-up 
 
 | Slice | TongHuaShun mechanism | AI Quant learned | Evidence | Remaining gap | Next iteration |
 | --- | --- | --- | --- | --- | --- |
-| Market map / sector linkage | Universe-first sidebar and market entry map; sector is a first-class research object with constituent table, right evidence rail, related index, short-line events, news/research. | Keep market entries as `universe + explanation variable + source/time/coverage`; preserve sector -> constituent -> stock context. | Task 3 and Task 8 smoke verify market entry metadata and sector member -> stock context. | Sector panel is still mostly constituent table; right evidence model is not deep enough. | Add Task 3.5 `Sector Evidence Context MVP`: funds/volume proxy, news/research or missing reason, related index, Signal overlap, follow-up actions. |
+| Market map / sector linkage | Universe-first sidebar and market entry map; sector is a first-class research object with constituent table, right evidence rail, related index, short-line events, news/research. | Keep market entries as `universe + explanation variable + source/time/coverage`; preserve sector -> constituent -> stock context. | Task 3 and Task 8 smoke verify market entry metadata and sector member -> stock context. Task 3.5 adds sector evidence context. Task 3.6 adds local related-index candidates with provider-unverified disclosure. | Sector panel now has local evidence context and index candidates; provider-grade sector/index constituents, benchmark freshness/rate-limit evidence, and sector news/research remain follow-up. | Add local sector-news/research mapping or provider-grade sector/index evidence fixtures next. |
 | iWencai / task router | Unified search accepts market symbols, functions, and natural-language questions, then routes into buckets with visible parsed-condition chips and follow-up actions. | Use `intent -> parsed_conditions -> buckets -> actions -> source_context`; never treat natural language as a table-only query. | Task 7 tests and Task 8 smoke verify chips, buckets, stock open, basket draft, source context. Topic/hotspot provenance was fixed in this gate. Task 7.5 adds top global search intent routing, result buckets, task result rendering, and source-context handoff into iWencai. Task 7.6 adds golden-question and failure-state contracts. Task 9.14 promotes the base iWencai routed schema to the backend while preserving legacy `data/total`. | Backend now owns the base routed schema; richer real-provider field-level evidence, rate-limit/cache states, provider drift handling, and OpenClaw deep orchestration remain follow-up. | Connect backend task outputs to deeper OpenClaw workflows and provider-grade evidence fixtures. |
 | Stock/K-line workbench | One screen keeps left context pool, central K-line, right evidence, bottom events, period/indicator muscle memory. | Treat `StockWorkbenchState` as the state container: selected symbol, source pool, chart state, indicators, related context, event feed, data quality, AI context. | Task 6 tests and Task 8 smoke verify context pool, period, MACD, nonblank chart, source context preservation. Task 6.5 verifies right-rail state completion, missing reasons, rail tab state, and left context pool sync. Task 9 verifies dynamic event aggregation, bottom tab state, selected event, chart focus marker, and desktop/mobile smoke. Task 9.5 verifies chart event overlays, chart-click -> bottom-event reverse selection, capital-flow and 龙虎榜 event aggregation. Task 9.6 verifies evidence-based AI diagnosis consumes `eventFocus`, `eventFeed`, `dataQuality`, and `sourceContext`. Task 9.7 verifies same-day clustering, conservative dedupe, raw-event preservation, and cluster focus into diagnosis. Task 9.8 verifies the same-day event group entry, group-member selection, source-context preservation, and safe draft continuation. Task 9.9 verifies event-group diagnosis weighting, duplicate down-weighting, and richer readonly backtest draft conditions. Task 9.10, Task 9.12, and Task 9.13 verify visible/manual-only basket draft conditions plus structured draft-audit event-study statistics with estimated cost, optional local benchmark/excess, and descriptive t-stat fields. | Frontend event-group diagnosis, draft conditions, and local event-study audit evidence are done; stronger backend-cited LLM diagnosis, provider-grade event samples, formal significance validation, hover/popover preview, drawer-level detail, richer index/peer mappings, and minute-level positioning remain follow-up. | Harden event-study audit into provider-grade sample/benchmark/statistical validation, or harden backend-owned iWencai router semantics depending on product priority. |
 
-Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 9.7, Task 9.8, Task 9.9, Task 9.10, Task 9.12, Task 9.13, Task 9.14, Task 7.5, Task 7.6, Task 9.40, Task 9.41, and Task 9.42 are delivered; the next blocking product-quality gates are provider-grade event-study samples/formal validation, provider-grade iWencai evidence and OpenClaw orchestration, richer sector/index/peer evidence, and backend-cited LLM explanations.
+Task 8 close condition: tests and smoke pass for the delivered P0/P1/P2 slices, but the whole upgrade is not complete. Task 3.5, Task 3.6, Task 6.5, Task 9, Task 9.5, Task 9.6, Task 9.7, Task 9.8, Task 9.9, Task 9.10, Task 9.12, Task 9.13, Task 9.14, Task 7.5, Task 7.6, Task 9.40, Task 9.41, Task 9.42, and Task 9.43 are delivered; the next blocking product-quality gates are provider-grade event-study samples/formal validation, provider-grade iWencai evidence and OpenClaw orchestration, provider-grade sector/index/news evidence, and backend-cited external LLM explanations.
 
 ## Task 7.5 Execution: Global Search Task Router
 
@@ -3113,8 +3113,50 @@ Results:
 Remaining gaps:
 
 - `news_research` is still a missing-reason placeholder until a local sector-news/research mapping exists.
-- `related_index` is still a missing-reason placeholder until local sector-index mapping exists.
+- `related_index` is now closed by Task 3.6 for local candidate contexts, but provider-grade index constituents/freshness remain a separate future gate.
 - `DataStorage()` initialization can run schema setup on cold/old local databases; this is pre-existing storage behavior and should be addressed by a separate read-path storage hardening slice if strict read-only GET semantics become a release gate.
+
+## Task 3.6 Execution: Sector Related Index Local Bridge
+
+Status: delivered as the next incremental P1 Market Map slice. This closes the Task 3.5 `related_index` placeholder for locally matchable sector/theme/board contexts, but it is still not a provider-grade sector-index constituent or benchmark service.
+
+TongHuaShun mechanism learned:
+
+- A serious sector drilldown keeps a related-index hint next to constituents, diffusion, and follow-up actions, so the user can compare the board against a nearby benchmark without leaving the research object.
+- AI Quant should copy the continuity pattern, not the proprietary mapping: local candidates must be labeled as candidates and must not imply verified index membership, quote freshness, or provider coverage.
+
+AI Quant implementation:
+
+- `/api/market/sector-members` now fills `evidence_context.related_index` with `status="local_candidate"` when local sector/industry/board tags match a conservative rule.
+- Industry-style sectors can emit local theme candidates such as `金融主题候选（本地标签）`; exchange-board sectors can emit broad-index candidates such as `创业板指 399006`.
+- Every returned item carries `source="local_sector_index_bridge"`, `source_label="本地指数候选"`, `confidence="low"`, `provider_verified=false`, `local_only=true`, and `source_fields`.
+- Empty or unmatched sectors still return explicit missing reasons instead of invented index evidence.
+- The intelligence market sector evidence rail now renders `本地候选 N 个指数`, the candidate label, and `未 provider 验证` disclosure.
+- Cache versions bumped: `app.js?v=147`, `app-ui-shell.js?v=58`, `intelligence-market.js?v=28`, `/sw.js?v=87`, and service worker cache `ai-quant-v195`.
+
+Safety boundary:
+
+- This slice is local API response shaping plus frontend rendering only. It does not call real provider/index services, fetch or verify index constituents, validate benchmark quote freshness/rate limits, run Docker, sync data, call external LLM/OpenClaw, create baskets/watchlists, execute backtests, submit paper/live orders, call broker APIs, change auth, or touch production config.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_api_v2_full.py::TestMarket::test_market_sector_members_returns_local_constituents_with_trust_context tests/test_api_v2_full.py::TestMarket::test_market_sector_members_evidence_uses_full_sector_not_display_limit tests/test_api_v2_full.py::TestMarket::test_market_sector_members_empty_result_is_not_source_unavailable tests/test_api_v2_full.py::TestMarket::test_market_sector_members_exchange_board_related_index_candidate -q -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_intelligence_market_frontend.py::test_intelligence_heatmap_click_renders_sector_members_and_opens_stock_with_pool_context tests/test_intelligence_market_frontend.py::test_intelligence_market_assets_are_versioned_and_styled -q -p no:cacheprovider
+PATH="/Users/junwei/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH" node --check dashboard/static/intelligence-market.js && .venv/bin/python -m compileall -q dashboard/routers/market.py
+```
+
+Results:
+
+- Focused sector-members API contracts passed: `4 passed, 1 warning`.
+- Focused intelligence market frontend/cache contracts passed: `2 passed, 1 warning`.
+- JS syntax and targeted Python compileall passed.
+
+Remaining gaps:
+
+- `news_research` is still a missing-reason placeholder until a local sector-news/research mapping exists.
+- Sector/index evidence is still local-candidate only. Provider-grade constituent mapping, benchmark quote freshness/rate-limit evidence, and verified sector benchmark comparison remain future gates.
+- `DataStorage()` initialization can run schema setup on cold/old local databases; this pre-existing read-path behavior remains separate from the related-index bridge.
 
 ## Backlog Refinement From Parallel Agents
 

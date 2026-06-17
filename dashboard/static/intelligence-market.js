@@ -409,8 +409,14 @@
                     newsItems.length ? `已关联 ${formatCount(newsItems.length)} 条` : (newsResearch.missing_reason || '板块级新闻/研报证据尚未接入'),
                     newsItems.slice(0, 2).map((item) => item.title || item.source || '新闻证据'))}
                 ${renderSectorEvidenceSection('关联指数',
-                    indexItems.length ? `已关联 ${formatCount(indexItems.length)} 个指数` : (relatedIndex.missing_reason || '本地暂未维护关联指数映射'),
-                    indexItems.slice(0, 2).map((item) => compactText(item.name, item.code).join(' ')))}
+                    indexItems.length
+                        ? `${relatedIndex.provider_verified === true ? '已验证' : '本地候选'} ${formatCount(indexItems.length)} 个指数`
+                        : (relatedIndex.missing_reason || '本地暂未维护关联指数映射'),
+                    [
+                        ...indexItems.slice(0, 2).map((item) => compactText(item.name, item.code).join(' ')),
+                        relatedIndex.provider_verified === false ? '未 provider 验证' : '',
+                        relatedIndex.coverage_note || '',
+                    ])}
                 ${renderSectorEvidenceSection('后续动作',
                     '保留板块上下文继续研究',
                     compactText('打开成分股', '生成篮子'),

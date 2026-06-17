@@ -7,6 +7,7 @@ This document records the local, non-production release evidence for the AI Quan
 Included in this local delivery slice:
 
 - iWencai/task-router backend-owned status, provider evidence summary, AI-assistant evidence handoff, visible evidence review panel, OpenClaw read-only evidence review/tool handoff, and degraded-state hardening.
+- Market Map sector related-index local evidence bridge, showing sector/theme/broad-index candidates with explicit local-only/provider-unverified disclosure.
 - Stock workbench event-flow, same-day event-group hover preview/detail drawer, local peer/industry related-context evidence, basket/backtest draft, and local event-study audit evidence.
 - Stock workbench local related-index evidence bridge, showing board/theme index candidates with explicit local-only/provider-unverified disclosure.
 - Stock diagnosis backend-cited evidence bridge, exposing local `stock_diagnosis_evidence_v1` rows with citations and `llm_status=not_invoked` for the AI rail.
@@ -34,17 +35,20 @@ Modified files currently in the delivery delta:
 
 ```text
 alpha/basket.py
+dashboard/routers/market.py
 dashboard/routers/stock_detail.py
 dashboard/static/alpha-tools.js
 dashboard/static/app.js
 dashboard/static/app-ui-shell.js
 dashboard/static/core/app-shell.js
+dashboard/static/intelligence-market.js
 dashboard/static/stock-detail-core.js
 dashboard/static/sw.js
 dashboard/templates/partials/scripts.html
 docs/release-evidence/2026-06-12-local-delivery-readiness.md
 docs/superpowers/plans/2026-06-10-ai-quant-platform-upgrade-execution.md
 tests/test_alpha_formula_basket.py
+tests/test_api_v2_full.py
 tests/test_dashboard.py
 tests/test_frontend_workflow_contracts.py
 tests/test_intelligence_market_frontend.py
@@ -157,6 +161,7 @@ Observed results:
 - In-app Browser p-value/BH QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#research` basket subtab at desktop `1280x900` and mobile `390x844` without new page console errors or horizontal overflow. Fresh full navigation loaded `app.js?v=140`, `app-ui-shell.js?v=51`, `core/app-shell.js?v=40`, `alpha-tools.js?v=15`, `style.css?v=86`, and `/sw.js?v=80`. The p/q value display itself is covered by the Node DOM contract because the browser smoke did not submit a provider query or construct a live draft result.
 - In-app Browser local holdout QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#research` basket subtab at desktop `1280x900` and mobile `390x844` with cache-busted resources `app.js?v=141`, `app-ui-shell.js?v=52`, `core/app-shell.js?v=41`, and `alpha-tools.js?v=16`; the basket/draft panel existed, current `task938` page/new-asset logs had no errors, and there was no horizontal overflow. The exact `样本外通过`/holdout status rendering is covered by the Node DOM contract because the browser smoke did not submit a real provider query or run a write/execution path.
 - In-app Browser event-sample bridge QA: temporary local Dashboard at `127.0.0.1:8001` rendered `#research` basket subtab at desktop `1280x900` and mobile `390x844` with cache-busted resources `app.js?v=142` and `core/app-shell.js?v=42`; the basket draft/audit containers existed, current page logs had no errors, and there was no horizontal overflow. The exact `event_samples` flow is covered by the Node DOM contracts because the browser smoke did not trigger a stock event-group action or run a provider/write/execution path.
+- Market sector related-index bridge focused checks passed locally: JS syntax and targeted Python compileall passed; focused sector-members API contracts reported `4 passed, 1 warning`; focused intelligence market frontend/cache contracts reported `2 passed, 1 warning`. `/api/market/sector-members` now returns `related_index.status=local_candidate` for locally matchable sector/theme/board contexts, with `provider_verified=false`, `local_only=true`, and a coverage note that index constituents, quote freshness, and provider coverage are not verified. Cache-busted resources are `app.js?v=147`, `app-ui-shell.js?v=58`, `intelligence-market.js?v=28`, `/sw.js?v=87`, and `ai-quant-v195`.
 - Stock local related-index bridge checks passed locally: JS syntax checks for changed stock/cache bundles passed; focused stock-workbench/cache contracts reported `6 passed, 1 warning`; `git diff --check` passed. The right rail now shows local board/theme index candidates and a "not provider verified" disclosure instead of leaving `relatedContext.indices` as an unconditional missing reason.
 - Stock backend-cited diagnosis evidence checks passed locally: JS syntax and targeted Python compileall passed; focused stock-detail backend evidence checks reported `2 passed, 1 warning`; `TestValuationDataHubAPI` reported `33 passed, 1 warning`; focused stock-workbench/cache frontend contracts reported `12 passed, 75 deselected, 1 warning`; `git diff --check` passed. The detail payload now carries `stock_diagnosis_evidence_v1` rows with citations and `llm_status=not_invoked`, and the AI rail can show the backend evidence schema/citation count without invoking an LLM.
 - Stock diagnosis prompt-contract checks passed locally: JS syntax and targeted Python compileall passed; focused stock-detail backend prompt-contract checks reported `3 passed, 1 warning`; focused stock AI rail/cache contracts reported `4 passed, 1 warning`. The detail payload now carries `diagnosis_evidence.llm_prompt_contract` with schema `stock_diagnosis_prompt_contract_v1`, allowlisted context, citation fields, forbidden output claims, recursive secret-like redaction, and `invocation_allowed=false`; the AI rail shows the contract status without rendering a full prompt or invoking an LLM. Cache-busted resources are `app.js?v=145`, `app-ui-shell.js?v=56`, `stock-detail-core.js?v=29`, `/sw.js?v=85`, and `ai-quant-v193`.
@@ -176,6 +181,7 @@ No command in this evidence set performed:
 - Production deployment or production configuration change.
 - Real provider, external LLM, or OpenClaw integration call.
 - OpenClaw iWencai evidence review, the iWencai-to-review handoff, and the visible iWencai evidence-review panel are local and read-only; they consume caller-provided compact evidence and do not invoke the OpenClaw Gateway, external LLM, provider, watchlist, basket, backtest, paper/live, or broker paths.
+- Market sector related-index evidence is local API response shaping and frontend rendering only; it uses board names and local stock_daily sector/industry tags as candidate context, does not fetch provider index constituents or quotes, and does not verify benchmark freshness, create baskets/watchlists, execute backtests, submit orders, or change trading/auth/production behavior.
 - Stock event-group hover preview/detail drawer is local frontend rendering only; it does not fetch new event data, open external source links, run backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
 - Stock related peer-context and related-index evidence is local frontend state merging only; it consumes existing detail/source-context/valuation peer/industry-comparison responses, derives local board/theme index candidates with explicit provider-unverified disclosure, and does not fetch providers, verify real index constituents, execute backtests, create baskets/watchlists automatically, submit orders, or change trading/auth/production behavior.
 - Stock backend-cited diagnosis evidence is local detail-response shaping only; it exposes citations over existing detail fields and keeps `llm_status=not_invoked`, so it does not call external LLM/OpenClaw/provider services or produce a recommendation/trading-readiness claim.

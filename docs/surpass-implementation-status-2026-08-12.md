@@ -70,3 +70,4 @@ Evidence -> Snapshot/Link -> Signal Ledger -> PromotionPolicy -> Outbox -> Notif
 - P1 多进程 single-flight 尚未解决：新闻刷新锁只覆盖单进程；多 worker 仍可能重复采集并创建多个 snapshot。需要 DB lease/idempotency key 或外部 scheduler owner。
 - P1 原始源记录仍未完整保存：当前 Evidence 主要保存标准化/展示结果；要宣称可复现研究，需额外保存每个源的 raw payload、请求窗口、源版本和解析器版本。
 - P2 目前没有执行真实浏览器页面验收、真实外部 Webhook 联调、真实券商/实盘或生产部署；这些不属于本轮安全范围，因此不能把全量 pytest 解读为生产可用证明。
+- Docker 首次构建暴露了部署依赖问题：`pyqlib>=0.9.0` 没有 Apple Silicon/aarch64 Linux wheel，且仓库实际运行的是轻量 `data/qlib` 兼容层。Dockerfile 已在部署镜像中显式排除该未使用的重量级依赖；本地源码 requirements 保持不变，避免改变现有 Python 开发环境契约。

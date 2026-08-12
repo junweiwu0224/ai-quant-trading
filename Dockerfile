@@ -11,7 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 
 # 先装依赖（利用 Docker 缓存）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# The runtime uses the repository's lightweight ``data/qlib`` compatibility
+# layer; it does not import the heavyweight pyqlib package. pyqlib currently
+# publishes no aarch64 Linux wheel, so keep it out of the deploy image rather
+# than making the whole local stack unbuildable on Apple Silicon.
+RUN grep -v '^pyqlib[<>=!~]' requirements.txt > /tmp/runtime-requirements.txt \
+    && pip install --no-cache-dir -r /tmp/runtime-requirements.txt
 
 # 复制项目代码
 COPY . .

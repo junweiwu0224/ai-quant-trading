@@ -1,20 +1,21 @@
 services:
   openclaw:
-    image: node:24-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.openclaw
     working_dir: /app
     command:
       - sh
       - -lc
       - |
-        npm install -g /app/openclaw-2026.5.20.tgz &&
         mkdir -p /data/openclaw/state /data/openclaw/workspace &&
         cat > /data/openclaw/openclaw.json <<'EOF'
         {
           "gateway": {
             "mode": "local",
             "port": 18789,
-            "bind": "loopback",
-            "auth": { "mode": "none" },
+            "bind": "lan",
+            "auth": { "mode": "token" },
             "http": {
               "endpoints": {
                 "chatCompletions": { "enabled": true },
@@ -29,16 +30,16 @@ services:
           }
         }
         EOF
-        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --auth none --allow-unconfigured
+        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --allow-unconfigured
     ports:
-      - "18789:18789"
+      - "127.0.0.1:18789:18789"
     volumes:
-      - ./openclaw-2026.5.20.tgz:/app/openclaw-2026.5.20.tgz:ro
       - ./data/openclaw:/data/openclaw
       - ./logs/openclaw:/logs/openclaw
     environment:
       - TZ=Asia/Shanghai
       - OPENCLAW_WORKSPACE_DIR=/data/openclaw
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-local-openclaw-token}
     restart: unless-stopped
 
   dashboard:
@@ -61,6 +62,7 @@ services:
       - APP_ENV=${APP_ENV:-development}
       - OPENCLAW_MANAGED=${OPENCLAW_MANAGED:-false}
       - OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-local-openclaw-token}
       - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-http://openclaw:18789}
       - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-http://127.0.0.1:18789}
       - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-0.0.0.0}

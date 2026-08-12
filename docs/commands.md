@@ -33,6 +33,8 @@ docker compose down
 
 `docker compose up -d` 会启动 OpenClaw 和 Dashboard，并挂载 `data/`、`logs/`、`dashboard/templates/`、`dashboard/static/`。执行前确认本地数据和环境变量影响。
 
+Apple Silicon 本地部署会构建 `Dockerfile.openclaw`，其中包含 OpenClaw 的 ARM64 原生依赖构建工具。OpenClaw 仅绑定到 `127.0.0.1:18789`，并启用 token 认证；可通过 `OPENCLAW_GATEWAY_TOKEN` 覆盖默认本地 token。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
+
 ## 测试
 
 ```bash

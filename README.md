@@ -99,6 +99,10 @@ cp .env.example .env
 # Docker 部署
 docker compose up -d
 
+首次在 Apple Silicon（M 系列 Mac）上部署时，Compose 会分别构建 Dashboard 和 OpenClaw 镜像；OpenClaw 镜像包含 ARM64 所需的 `node-gyp` 构建工具。默认仅启动 Dashboard 与 OpenClaw，不会启动 `paper`、`live` 或 `backtest` trading profile。
+
+本地 OpenClaw Gateway 默认使用 token 认证。可在 `.env` 中设置 `OPENCLAW_GATEWAY_TOKEN`；未设置时使用仅适用于本机开发的默认值 `local-openclaw-token`。不要把该默认配置用于公网部署。
+
 # 访问
 open http://localhost:8001
 ```

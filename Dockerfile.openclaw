@@ -1,0 +1,15 @@
+FROM node:24-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+# OpenClaw bundles tree-sitter-bash, whose ARM64 install uses node-gyp.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY openclaw-2026.5.20.tgz .
+
+RUN npm install --global --allow-scripts=tree-sitter-bash,sharp,koffi,protobufjs ./openclaw-2026.5.20.tgz \
+    && npm cache clean --force

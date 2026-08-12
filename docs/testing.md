@@ -4,6 +4,12 @@
 
 ## 测试入口
 
+本次新增的 Evidence、Signal Ledger、Promotion、Outbox、订单意图和审计纵切，可使用不加载仓库级 FastAPI 夹具的定向测试入口验证。
+
+本次纵切的最小命令：
+
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest --noconftest -q tests/test_alert_outbox_contract.py tests/test_alert_outbox_wiring.py tests/test_audit_router_contract.py tests/test_evidence_store.py tests/test_evidence_collector.py tests/test_signal_ledger_and_promotion.py tests/test_notification_outbox.py tests/test_daily_workflow.py tests/test_signal_service_ledger.py tests/test_order_intent.py tests/test_order_intent_store.py tests/test_audit_read_model.py tests/test_strategy_lab_promotion_policy.py tests/test_agentic_strategy_lab.py
+
 - Pytest：`.venv/bin/python -m pytest -q`。
 - 针对性 pytest：`.venv/bin/python -m pytest tests/test_<area>.py -q`。
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。

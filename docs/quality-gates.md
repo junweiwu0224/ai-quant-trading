@@ -8,6 +8,7 @@
 - Git hooks / pre-commit：未启用项目级阻断 hooks；启用前需按本文候选集逐条确认。
 - CI required checks：未在本阶段调整。
 - 本地质量门禁脚本：context pack verifier、pytest、compileall、dashboard data health、frontend render audit、Playwright E2E。
+- 本次纵切的无外部依赖定向门禁：见 docs/testing.md 的最小命令。
 
 ## 门禁分层
 

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from agentic.models import AgenticPaperOrderDraft, PaperStrategyCandidate, PaperStrategyExecution
+from agentic.promotion import PromotionDecision
 from agentic.portfolio_risk import PortfolioRiskGate, PortfolioRiskLimits
 from agentic.repository import AgenticRepository
 from engine.models import Direction, OrderType, PaperOrder
@@ -19,6 +20,17 @@ class PaperStrategyCandidateService:
         promotion = dict(result.get("promotion") or {})
         if promotion.get("promoted") is not True:
             raise ValueError("only promoted candidates can be queued for paper trading")
+        decision_payload = promotion.get("decision")
+        if isinstance(decision_payload, dict):
+            decision = PromotionDecision(
+                target=str(decision_payload.get("target") or ""),
+                approved=bool(decision_payload.get("approved")),
+                policy_version=str(decision_payload.get("policy_version") or ""),
+                failed_gates=tuple(decision_payload.get("failed_gates") or ()),
+                reasons=tuple(decision_payload.get("reasons") or ()),
+            )
+            if decision.target != "strategy_candidate" or not decision.approved:
+                raise ValueError("promotion decision is not approved for strategy candidate")
         gate_checks = result.get("gate_checks")
         _ensure_gate_checks_passed(gate_checks)
         metrics = dict(result.get("metrics") or {})

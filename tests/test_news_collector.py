@@ -4,6 +4,7 @@ import types
 import pandas as pd
 
 from alpha import news_collector
+from data.evidence.store import InMemoryEvidenceStore
 
 
 def test_market_news_falls_back_when_legacy_alerts_missing(monkeypatch):
@@ -28,6 +29,34 @@ def test_market_news_falls_back_when_legacy_alerts_missing(monkeypatch):
     assert data["news"][0]["source"] == "东方财富快讯"
     assert data["news"][0]["url"] == "https://example.test/news/1"
     assert data["sources"] == [{"name": "东方财富快讯", "count": 1}]
+
+
+def test_market_news_evidence_snapshot_is_sealed_and_retains_all_stock_links(monkeypatch):
+    fake_ak = types.SimpleNamespace(
+        stock_info_global_em=lambda: pd.DataFrame(
+            [{
+                "标题": "宁德时代与比亚迪订单增长",
+                "摘要": "新能源车产业链改善",
+                "发布时间": "2026-06-06 22:42:26",
+            }]
+        )
+    )
+    monkeypatch.setitem(__import__("sys").modules, "akshare", fake_ak)
+    monkeypatch.setattr(
+        news_collector,
+        "_load_local_stock_universe",
+        lambda: [
+            {"code": "300750", "name": "宁德时代", "industry": "电力设备"},
+            {"code": "002594", "name": "比亚迪", "industry": "汽车"},
+        ],
+    )
+    store = InMemoryEvidenceStore()
+    result = asyncio.run(news_collector.collect_market_news_evidence(store, max_items=5))
+    snapshot = store.get_snapshot(result["evidence_snapshot_id"])
+    assert snapshot is not None and snapshot.sealed
+    assert snapshot.metadata["collection_status"] == "ok"
+    item = store.list_items(snapshot.id)[0]
+    assert store.list_item_symbols(snapshot.id, item.id) == ["002594", "300750"]
 
 
 def test_market_news_merges_sources_and_deduplicates_titles(monkeypatch):

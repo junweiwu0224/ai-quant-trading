@@ -10,12 +10,16 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 import re
 
 import numpy as np
 from loguru import logger
+
+from data.evidence.collector import EvidenceIngestResult, ingest_records
+from data.evidence.models import EvidenceSource, utc_now
+from data.evidence.store import EvidenceStore
 
 # SnowNLP 可选依赖
 try:
@@ -510,7 +514,7 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
             "summary": "今日市场情绪偏正面..."
         }
     """
-    timestamp = datetime.now().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     errors: list[str] = []
     records: list[dict] = []
 
@@ -518,12 +522,26 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
         import akshare as ak
     except ImportError:
         logger.warning("AKShare 未安装，市场新闻采集不可用")
-        return {"timestamp": timestamp, "news": [], "overall_sentiment": 0, "sources": [], "errors": ["akshare_missing"]}
+        return {
+            "timestamp": timestamp,
+            "news": [],
+            "overall_sentiment": 0,
+            "sources": [],
+            "errors": ["akshare_missing"],
+            "collection_status": "failed",
+        }
 
     loop = asyncio.get_event_loop()
     sources = _build_market_news_sources(ak)
     if not sources:
-        return {"timestamp": timestamp, "news": [], "overall_sentiment": 0, "sources": [], "errors": ["no_news_source"]}
+        return {
+            "timestamp": timestamp,
+            "news": [],
+            "overall_sentiment": 0,
+            "sources": [],
+            "errors": ["no_news_source"],
+            "collection_status": "failed",
+        }
     stock_universe = _load_local_stock_universe()
 
     for source_key, fetcher in sources:
@@ -540,7 +558,9 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
             record = _score_market_news_record(record)
             records.append(record)
 
+    raw_record_count = len(records)
     records = _dedupe_market_news(records)
+    deduped_record_count = len(records)
     records.sort(
         key=lambda item: (
             -(float(item.get("value_score") or 0)),
@@ -567,6 +587,12 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
         for topic in item.get("topics", [])
         if topic.get("name")
     }
+    if records:
+        collection_status = "partial" if errors else "ok"
+    elif errors:
+        collection_status = "failed"
+    else:
+        collection_status = "empty"
     result = {
         "timestamp": timestamp,
         "news": records,
@@ -576,7 +602,110 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
         "linked_stock_count": len(linked_stock_keys),
         "topic_count": len(topic_names),
         "ranking": dict(_MARKET_NEWS_RANKING),
+        "collection_status": collection_status,
+        "raw_record_count": raw_record_count,
+        "deduped_record_count": deduped_record_count,
+        "truncated": deduped_record_count > max(max_items, 0),
     }
     if errors:
         result["partial_errors"] = errors[:3]
     return result
+
+
+async def collect_market_news_evidence(
+    store: EvidenceStore,
+    max_items: int = 30,
+    source: EvidenceSource | None = None,
+) -> dict:
+    """Fetch market news and persist the exact run as an Evidence snapshot.
+
+    The existing summary shape is preserved.  Callers gain snapshot and item
+    identifiers without having to duplicate normalization or deduplication.
+    """
+
+    summary = await fetch_market_news_summary(max_items=max_items)
+    evidence_source = source or EvidenceSource(
+        id="akshare:market-news",
+        name="AKShare market news",
+        kind="market_news",
+        uri="akshare.market_news",
+        trust_tier="external_unverified",
+    )
+    records: list[dict[str, Any]] = []
+    for item in summary.get("news", []):
+        data = dict(item or {})
+        stocks = data.get("stocks") if isinstance(data.get("stocks"), list) else []
+        first_stock = stocks[0] if stocks and isinstance(stocks[0], dict) else {}
+        data["content"] = data.get("summary") or data.get("title") or ""
+        data["observed_at"] = data.get("time") or summary.get("timestamp")
+        data["symbol"] = first_stock.get("code") or first_stock.get("name")
+        data["symbols"] = [
+            stock.get("code") or stock.get("name")
+            for stock in stocks
+            if isinstance(stock, dict) and (stock.get("code") or stock.get("name"))
+        ]
+        records.append(data)
+    ingested: EvidenceIngestResult = ingest_records(
+        store,
+        source=evidence_source,
+        records=records,
+        query="market_news_summary",
+        captured_at=str(summary.get("timestamp") or utc_now()),
+        snapshot_metadata={
+            "collection_status": summary.get("collection_status") or ("partial" if summary.get("partial_errors") else "ok"),
+            "source_errors": list(summary.get("partial_errors") or summary.get("errors") or []),
+            "source_status": list(summary.get("sources") or []),
+            "raw_record_count": int(summary.get("raw_record_count") or len(records)),
+            "deduped_record_count": int(summary.get("deduped_record_count") or len(records)),
+            "display_limit": max_items,
+            "truncated": bool(summary.get("truncated")),
+            "evidence_kind": "displayed_market_news",
+        },
+    )
+    enriched = dict(summary)
+    enriched["collection_snapshot_id"] = ingested.snapshot.id
+    enriched["evidence_snapshot_id"] = ingested.snapshot.id if ingested.snapshot.citable else None
+    enriched["evidence_item_ids"] = [item.id for item in ingested.items]
+    enriched["evidence_count"] = len(ingested.items)
+    return enriched
+
+
+async def collect_stock_news_evidence(
+    code: str,
+    store: EvidenceStore,
+    max_items: int = 20,
+    source: EvidenceSource | None = None,
+) -> dict:
+    """Fetch one stock's news and persist it as a citable Evidence snapshot."""
+
+    news = await fetch_stock_news(code, max_items=max_items)
+    evidence_source = source or EvidenceSource(
+        id="akshare:stock-news:%s" % code,
+        name="AKShare stock news %s" % code,
+        kind="stock_news",
+        uri="akshare.stock_news_em",
+        trust_tier="external_unverified",
+        metadata={"code": code},
+    )
+    records = []
+    for item in news:
+        data = dict(item or {})
+        data["content"] = data.get("summary") or data.get("title") or ""
+        data["observed_at"] = data.get("time") or utc_now()
+        data["symbol"] = code
+        data["symbols"] = [code]
+        records.append(data)
+    ingested = ingest_records(
+        store,
+        source=evidence_source,
+        records=records,
+        query="stock_news:%s" % code,
+    )
+    return {
+        "code": code,
+        "news": news,
+        "collection_snapshot_id": ingested.snapshot.id,
+        "evidence_snapshot_id": ingested.snapshot.id if ingested.snapshot.citable else None,
+        "evidence_item_ids": [item.id for item in ingested.items],
+        "evidence_count": len(ingested.items),
+    }

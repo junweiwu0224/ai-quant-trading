@@ -11,10 +11,17 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 
 from loguru import logger
+
+
+class AlertEventOutbox(Protocol):
+    """Outbox seam used to make alert delivery durable and replayable."""
+
+    def publish(self, event) -> str: ...
 
 
 # ── 规则定义 ──
@@ -96,27 +103,36 @@ _CONDITION_LABELS = {
 class AlertEngine:
     """预警规则引擎"""
 
-    def __init__(self):
+    def __init__(self, outbox: AlertEventOutbox | None = None):
         self._rules: list[AlertRule] = []
         self._cooldown_map: dict[str, float] = {}  # "rule_id:code" -> last_trigger_ts
         self._triggered: list[Alert] = []
+        self._outbox = outbox
+        self._lock = threading.RLock()
 
     def set_rules(self, rules: list[AlertRule]):
         """设置规则列表"""
-        self._rules = [r for r in rules if r.enabled]
+        with self._lock:
+            self._rules = [r for r in rules if r.enabled]
         logger.info(f"预警规则已更新: {len(self._rules)} 条生效")
 
     def add_rule(self, rule: AlertRule):
         """添加单条规则"""
-        self._rules = [r for r in self._rules if r.id != rule.id]
-        if rule.enabled:
-            self._rules.append(rule)
+        with self._lock:
+            self._rules = [r for r in self._rules if r.id != rule.id]
+            if rule.enabled:
+                self._rules.append(rule)
 
     def remove_rule(self, rule_id: int):
         """移除规则"""
-        self._rules = [r for r in self._rules if r.id != rule_id]
+        with self._lock:
+            self._rules = [r for r in self._rules if r.id != rule_id]
 
     def check(self, quotes: dict) -> list[Alert]:
+        with self._lock:
+            return self._check(quotes)
+
+    def _check(self, quotes: dict) -> list[Alert]:
         """检查所有规则，返回触发的预警列表
 
         Args:
@@ -154,8 +170,8 @@ class AlertEngine:
             if now - last_trigger < rule.cooldown:
                 continue
 
-            # 触发预警
-            self._cooldown_map[cd_key] = now
+            # 只有事件成功落入 durable outbox 后才提交冷却状态。
+            # 这样 outbox 短暂不可用时，下一次行情仍可重试，而不会静默丢警报。
             label = _CONDITION_LABELS.get(rule.condition, rule.condition)
             name = getattr(quote, "name", "") if hasattr(quote, "name") else ""
 
@@ -168,12 +184,30 @@ class AlertEngine:
                 current_value=current_val,
                 message=f"{name or rule.code} {label} {rule.threshold}，当前 {current_val:.2f}",
             )
-            alerts.append(alert)
-            self._triggered.append(alert)
+            if self._outbox is not None:
+                from engine.events.models import DomainEvent, utc_now
+
+                try:
+                    self._outbox.publish(
+                        DomainEvent.create(
+                            "market.alert.triggered",
+                            f"{rule.id}:{rule.code}",
+                            {**alert.to_dict(), "webhook_url": rule.webhook_url},
+                            idempotency_key=f"alert:{rule.id}:{rule.code}:{int(now)}",
+                            occurred_at=utc_now(),
+                        )
+                    )
+                except Exception as exc:
+                    logger.error(f"预警事件写入 outbox 失败: {rule.id}:{rule.code} -> {exc}")
+                    continue
 
             # Webhook 推送
-            if rule.webhook_url:
+            if rule.webhook_url and self._outbox is None:
                 self._fire_webhook(rule.webhook_url, alert)
+
+            self._cooldown_map[cd_key] = now
+            alerts.append(alert)
+            self._triggered.append(alert)
 
         if alerts:
             logger.info(f"触发 {len(alerts)} 条预警")
@@ -209,7 +243,8 @@ class AlertEngine:
 
     def clear_history(self):
         """清空触发历史"""
-        self._triggered.clear()
+        with self._lock:
+            self._triggered.clear()
 
     @staticmethod
     def get_condition_labels() -> dict[str, str]:

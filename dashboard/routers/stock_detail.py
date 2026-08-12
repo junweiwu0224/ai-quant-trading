@@ -2076,16 +2076,26 @@ async def get_stock_news(code: str, limit: int = 20):
         return cached
 
     try:
-        from alpha.news_collector import fetch_stock_news, compute_news_sentiment
-        news, sentiment = await asyncio.gather(
-            fetch_stock_news(code, limit),
-            compute_news_sentiment(code, limit),
-        )
+        from alpha.news_collector import collect_stock_news_evidence, compute_news_sentiment
+        from config.settings import DB_DIR
+        from data.evidence.store import SQLiteEvidenceStore
+
+        evidence_store = SQLiteEvidenceStore(DB_DIR / "evidence.db")
+        try:
+            evidence_result, sentiment = await asyncio.gather(
+                collect_stock_news_evidence(code, evidence_store, max_items=limit),
+                compute_news_sentiment(code, limit),
+            )
+        finally:
+            evidence_store.close()
         result = {
             "success": True,
             "code": code,
-            "news": news,
+            "news": evidence_result["news"],
             "sentiment": sentiment,
+            "evidence_snapshot_id": evidence_result["evidence_snapshot_id"],
+            "evidence_item_ids": evidence_result["evidence_item_ids"],
+            "evidence_count": evidence_result["evidence_count"],
         }
         _cache.set(cache_key, result, _TTL_QUOTE)
         return result

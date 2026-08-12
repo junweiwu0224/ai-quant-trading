@@ -118,6 +118,9 @@
         if (data.timestamp) {
             parts.push(`<span class="intel-hotspot-pill">更新 ${safeHTML(data.timestamp)}</span>`);
         }
+        if (data.evidence_snapshot_id) {
+            parts.push('<span class="intel-hotspot-pill">证据快照已固化</span>');
+        }
         const errors = Array.isArray(data.partial_errors) ? data.partial_errors : [];
         if (errors.length > 0) {
             parts.push(`<span class="intel-hotspot-pill warn">数据源异常 ${safeHTML(errors.map(sourceName).join('、'))}</span>`);

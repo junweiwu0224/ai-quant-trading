@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from datetime import datetime
@@ -1254,6 +1255,7 @@ async def get_hotspot():
 
 _TTL_NEWS = 300  # 5 分钟缓存
 _last_news: dict | None = None
+_news_refresh_lock = asyncio.Lock()
 
 
 @router.get("/news")
@@ -1265,51 +1267,78 @@ async def get_market_news():
     if hit:
         return cached
 
-    try:
-        from alpha.news_collector import fetch_market_news_summary
-        data = await fetch_market_news_summary()
-        source_errors = data.get("errors") or data.get("partial_errors") or []
-        source_names = [item.get("name") for item in data.get("sources", []) if isinstance(item, dict)]
-        source_unavailable = not data.get("news") and (not data.get("sources") or bool(source_errors))
-        generated_at = datetime.now().isoformat(timespec="seconds")
-        result = {
-            "success": True,
-            "source": "market_news_multi_source",
-            "generated_at": generated_at,
-            "timestamp": data.get("timestamp") or generated_at,
-            "coverage_note": (
-                f"多源市场新闻聚合：{', '.join(source_names)}"
-                if source_names
-                else "多源市场新闻聚合，当前新闻源无可用记录"
-            ),
-            **data,
-        }
-        if source_unavailable:
-            result.update(
-                {
-                    "source_unavailable": True,
-                    "stale": True,
-                    "stale_reason": str(source_errors[0] if source_errors else "empty_news_source"),
-                }
+    async with _news_refresh_lock:
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            return cached
+        try:
+            from alpha import news_collector
+
+            collect_with_evidence = getattr(news_collector, "collect_market_news_evidence", None)
+            if callable(collect_with_evidence):
+                from config.settings import DB_DIR
+                from data.evidence.store import SQLiteEvidenceStore
+
+                evidence_store = SQLiteEvidenceStore(DB_DIR / "evidence.db")
+                try:
+                    data = await collect_with_evidence(evidence_store)
+                finally:
+                    evidence_store.close()
+            else:
+                # Keep the legacy Adapter usable during staged deployments and
+                # in isolated tests; only the canonical collector promises an
+                # Evidence snapshot reference.
+                data = await news_collector.fetch_market_news_summary()
+            source_errors = data.get("errors") or data.get("partial_errors") or []
+            source_names = [
+                item.get("name")
+                for item in data.get("sources", [])
+                if isinstance(item, dict)
+            ]
+            source_unavailable = not data.get("news") and (
+                not data.get("sources") or bool(source_errors)
             )
-        _cache.set(cache_key, result, _TTL_NEWS)
-        _last_news = result
-        return result
-    except Exception as e:
-        logger.error(f"市场新闻获取失败: {e}")
-        if _last_news:
-            return {**_last_news, "stale": True}
-        return {
-            "success": False,
-            "error": str(e),
-            "source": "market_news_multi_source",
-            "generated_at": (generated_at := datetime.now().isoformat(timespec="seconds")),
-            "timestamp": generated_at,
-            "coverage_note": "多源市场新闻聚合异常，暂无可用缓存",
-            "source_unavailable": True,
-            "stale": True,
-            "stale_reason": "market_news_source_unavailable",
-            "news": [],
-            "sources": [],
-            "overall_sentiment": 0,
-        }
+            generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            result = {
+                "success": True,
+                "source": "market_news_multi_source",
+                "generated_at": generated_at,
+                "timestamp": data.get("timestamp") or generated_at,
+                "coverage_note": (
+                    f"多源市场新闻聚合：{', '.join(source_names)}"
+                    if source_names
+                    else "多源市场新闻聚合，当前新闻源无可用记录"
+                ),
+                **data,
+            }
+            if source_unavailable:
+                result.update(
+                    {
+                        "source_unavailable": True,
+                        "stale": True,
+                        "stale_reason": str(source_errors[0] if source_errors else "empty_news_source"),
+                    }
+                )
+            _cache.set(cache_key, result, _TTL_NEWS)
+            _last_news = result
+            return result
+        except Exception as e:
+            logger.error(f"市场新闻获取失败: {e}")
+            if _last_news:
+                return {**_last_news, "stale": True, "stale_reason": "market_news_source_unavailable"}
+            generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            return {
+                "success": False,
+                "error": str(e),
+                "source": "market_news_multi_source",
+                "generated_at": generated_at,
+                "timestamp": generated_at,
+                "coverage_note": "多源市场新闻聚合异常，暂无可用缓存",
+                "source_unavailable": True,
+                "stale": True,
+                "stale_reason": "market_news_source_unavailable",
+                "collection_status": "failed",
+                "news": [],
+                "sources": [],
+                "overall_sentiment": 0,
+            }

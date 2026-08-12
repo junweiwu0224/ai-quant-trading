@@ -1,5 +1,6 @@
 """FastAPI 可视化面板"""
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -76,9 +77,41 @@ async def lifespan(app: FastAPI):
     from data.scheduler import DataScheduler
     from data.collector.quote_service import get_quote_service
     from dashboard.openclaw_service import openclaw_service_manager
+    from dashboard.routers.realtime_quotes import configure_broadcast_loop
+    from dashboard.routers.realtime_quotes import close_alert_outbox
+    from config.settings import DB_DIR
+    from engine.events.outbox import SQLiteOutbox
+    from engine.notifications.adapters import AlertWebhookNotificationAdapter
+    from engine.notifications.dispatcher import NotificationDispatcher
 
     scheduler = DataScheduler()
     quote_service = get_quote_service(interval=1.0)
+    configure_broadcast_loop(asyncio.get_running_loop())
+    notification_outbox = SQLiteOutbox(DB_DIR / "events.db")
+    notification_dispatcher = NotificationDispatcher(
+        notification_outbox,
+        AlertWebhookNotificationAdapter(),
+        consumer="alert-webhook-worker",
+        event_types=("market.alert.triggered",),
+    )
+    notification_stop = asyncio.Event()
+
+    async def _notification_worker():
+        while not notification_stop.is_set():
+            try:
+                await asyncio.to_thread(
+                    notification_outbox.reclaim_stale,
+                    older_than_seconds=300,
+                )
+                await asyncio.to_thread(notification_dispatcher.dispatch, limit=50)
+            except Exception as exc:
+                logger.warning(f"通知 outbox worker 异常: {exc}")
+            try:
+                await asyncio.wait_for(notification_stop.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+
+    notification_task = asyncio.create_task(_notification_worker(), name="notification-outbox-worker")
 
     try:
         scheduler.start()
@@ -112,6 +145,11 @@ async def lifespan(app: FastAPI):
     await openclaw_service_manager.shutdown()
     quote_service.stop()
     scheduler.stop()
+    notification_stop.set()
+    await notification_task
+    notification_outbox.close()
+    close_alert_outbox()
+    configure_broadcast_loop(None)
 
 
 app = FastAPI(
@@ -166,7 +204,7 @@ async def favicon():
 # ── API 路由 ──
 
 from dashboard.routers import (  # noqa: E402
-    agentic, account, alerts, alpha, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, openclaw, optimization, paper_control,
+    agentic, account, alerts, alpha, audit, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, openclaw, optimization, paper_control,
     paper_trading, portfolio, portfolio_opt, qlib, realtime_quotes, screener, signals, stock_detail, strategy,
     strategy_version, system, valuation, watchlist,
 )
@@ -191,6 +229,7 @@ app.include_router(openclaw.router, prefix="/api/openclaw", tags=["OpenClaw"])
 app.include_router(screener.router, prefix="/api/screener", tags=["条件选股"])
 app.include_router(valuation.router, prefix="/api/valuation", tags=["估值数据中心"])
 app.include_router(datahub.router, prefix="/api/datahub", tags=["数据底座"])
+app.include_router(audit.router, prefix="/api", tags=["审计"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["预警管理"])
 app.include_router(conditional_orders.router, prefix="/api/conditional-orders", tags=["条件单"])
 app.include_router(market.router, prefix="/api/market", tags=["市场雷达"])

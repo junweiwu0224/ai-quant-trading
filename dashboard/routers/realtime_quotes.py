@@ -21,13 +21,34 @@ _ws_lock = asyncio.Lock()
 # 预警引擎（全局单例）
 _alert_engine = None
 _conditional_order_engine = None
+_alert_outbox = None
+_broadcast_loop: asyncio.AbstractEventLoop | None = None
+
+
+def configure_broadcast_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    """Register the application loop used by callbacks from QuoteService threads."""
+
+    global _broadcast_loop
+    _broadcast_loop = loop
+
+
+def close_alert_outbox() -> None:
+    global _alert_outbox, _alert_engine
+    if _alert_outbox is not None:
+        _alert_outbox.close()
+    _alert_outbox = None
+    _alert_engine = None
 
 
 def _get_alert_engine():
-    global _alert_engine
+    global _alert_engine, _alert_outbox
     if _alert_engine is None:
         from engine.alert_engine import AlertEngine
-        _alert_engine = AlertEngine()
+        from engine.events.outbox import SQLiteOutbox
+        from config.settings import DB_DIR
+
+        _alert_outbox = SQLiteOutbox(DB_DIR / "events.db")
+        _alert_engine = AlertEngine(outbox=_alert_outbox)
         _load_alert_rules()
     return _alert_engine
 
@@ -144,23 +165,33 @@ async def _safe_ws_send_text(ws: WebSocket, payload: str) -> bool:
 
 def _sync_broadcast(quotes: dict[str, QuoteData]):
     """同步回调 -> 异步广播（行情 + 预警检查）"""
+    alerts = []
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_broadcast_quotes(quotes))
-        # 检查预警
+        engine = _get_alert_engine()
+        alerts = engine.check(quotes)
+        if alerts:
+            try:
+                _get_conditional_order_engine().handle_alerts(alerts, quotes)
+            except Exception as e:
+                logger.warning(f"条件单执行异常: {e}")
+    except Exception as e:
+        logger.debug(f"预警检查异常: {e}")
+
+    loop = _broadcast_loop
+    if loop is None:
         try:
-            engine = _get_alert_engine()
-            alerts = engine.check(quotes)
-            if alerts:
-                try:
-                    _get_conditional_order_engine().handle_alerts(alerts, quotes)
-                except Exception as e:
-                    logger.warning(f"条件单执行异常: {e}")
-                loop.create_task(_broadcast_alerts(alerts))
-        except Exception as e:
-            logger.debug(f"预警检查异常: {e}")
-    except RuntimeError:
-        pass
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+    if loop is None or not loop.is_running():
+        return
+    loop.call_soon_threadsafe(
+        lambda: asyncio.create_task(_broadcast_quotes(quotes))
+    )
+    if alerts:
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(_broadcast_alerts(alerts))
+        )
 
 
 @router.websocket("/ws/quotes")

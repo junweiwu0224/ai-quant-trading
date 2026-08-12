@@ -115,10 +115,30 @@ class AgenticRepository:
             )
             conn.commit()
 
-    def save_signal(self, signal: TradingSignal) -> None:
+    @staticmethod
+    def _signal_values(signal: TradingSignal) -> tuple:
         normalized_code = normalize_signal_code(signal.code)
-        with get_connection(self.db_path) as conn:
-            conn.execute(
+        return (
+            signal.id,
+            signal.agent_id,
+            signal.source,
+            normalized_code,
+            signal.direction,
+            float(signal.confidence),
+            signal.time_horizon,
+            _to_json(list(signal.entry_reasons)),
+            _to_json(list(signal.risk_notes)),
+            float(signal.suggested_position),
+            signal.stop_loss,
+            signal.take_profit,
+            signal.status,
+            signal.created_at,
+            signal.expires_at,
+            _to_json(signal.metadata or {}),
+        )
+
+    def _save_signal_on_connection(self, conn, signal: TradingSignal) -> None:
+        conn.execute(
                 """
                 INSERT INTO agentic_signals (
                     id, agent_id, source, code, direction, confidence, time_horizon,
@@ -142,26 +162,100 @@ class AgenticRepository:
                     expires_at = excluded.expires_at,
                     metadata = excluded.metadata
                 """,
-                (
-                    signal.id,
-                    signal.agent_id,
-                    signal.source,
-                    normalized_code,
-                    signal.direction,
-                    float(signal.confidence),
-                    signal.time_horizon,
-                    _to_json(list(signal.entry_reasons)),
-                    _to_json(list(signal.risk_notes)),
-                    float(signal.suggested_position),
-                    signal.stop_loss,
-                    signal.take_profit,
-                    signal.status,
-                    signal.created_at,
-                    signal.expires_at,
-                    _to_json(signal.metadata or {}),
-                ),
+                self._signal_values(signal),
             )
+
+    def save_signal(self, signal: TradingSignal) -> None:
+        with get_connection(self.db_path) as conn:
+            self._save_signal_on_connection(conn, signal)
             conn.commit()
+
+    def publish_signal_atomically(
+        self,
+        signal: TradingSignal,
+        *,
+        actor: str = "signal-service",
+        reason: str = "signal published",
+    ) -> None:
+        """Persist the canonical projection and first Ledger event together.
+
+        This is the concrete deep write seam used by ``SignalService``. The
+        legacy two-adapter fallback remains available for test doubles and
+        older repositories, but the production repository no longer leaves a
+        Ledger orphan when projection persistence fails.
+        """
+
+        from agentic.signal_ledger import SignalLedger
+
+        with get_connection(self.db_path) as conn:
+            # Initialize any legacy Ledger tables before claiming the write
+            # transaction; SignalLedger then joins the active transaction.
+            ledger = SignalLedger(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            self._save_signal_on_connection(conn, signal)
+            ledger.append_transition(
+                signal.id,
+                None,
+                signal.status,
+                actor=actor,
+                reason=reason,
+                occurred_at=signal.created_at,
+                metadata={"agent_id": signal.agent_id, "source": signal.source},
+            )
+
+    def transition_signal_atomically(
+        self,
+        updated: TradingSignal,
+        *,
+        expected_status: str,
+        actor: str,
+        reason: str,
+        metadata: dict | None = None,
+    ) -> None:
+        """CAS-update a signal and append its Ledger transition atomically."""
+
+        from agentic.signal_ledger import SignalLedger, SignalLedgerConflict
+
+        with get_connection(self.db_path) as conn:
+            ledger = SignalLedger(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT status FROM agentic_signals WHERE id = ? LIMIT 1",
+                (updated.id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"signal not found: {updated.id}")
+            if row["status"] != expected_status:
+                raise SignalLedgerConflict(
+                    "signal %s expected projection status=%r, current status is %r"
+                    % (updated.id, expected_status, row["status"])
+                )
+
+            ledger.ensure_status(updated.id, expected_status)
+            assignments = """
+                UPDATE agentic_signals SET
+                    agent_id=?, source=?, code=?, direction=?, confidence=?, time_horizon=?,
+                    entry_reasons=?, risk_notes=?, suggested_position=?, stop_loss=?,
+                    take_profit=?, status=?, created_at=?, expires_at=?, metadata=?
+                WHERE id=? AND status=?
+            """
+            values = self._signal_values(updated)
+            updated_count = conn.execute(
+                assignments,
+                (*values[1:], values[0], expected_status),
+            ).rowcount
+            if updated_count != 1:
+                raise SignalLedgerConflict(
+                    "signal %s projection changed during transition" % updated.id
+                )
+            ledger.append_transition(
+                updated.id,
+                expected_status,
+                updated.status,
+                actor=actor,
+                reason=reason,
+                metadata=metadata,
+            )
 
     def get_signal(self, signal_id: str) -> TradingSignal:
         with get_connection(self.db_path, readonly=True) as conn:

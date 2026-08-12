@@ -8,6 +8,7 @@ from agentic.backtest_runner import AgenticBacktestResult, AgenticBacktestRunner
 from agentic.sample_selector import BacktestSample, BacktestSampleSelector
 from agentic.signal_validation import SignalValidationGate, evaluate_signal_validation
 from agentic.strategy_candidates import StrategyCandidate, StrategyCandidateGenerator
+from agentic.promotion import PromotionDecision
 from agentic.strategy_lab import StrategyIterationResult
 
 
@@ -21,6 +22,16 @@ class CandidateBacktestResult:
     gate_checks: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
+        decision = self.promotion.promotion_decision
+        decision_payload = None
+        if decision is not None:
+            decision_payload = {
+                "target": decision.target,
+                "approved": decision.approved,
+                "policy_version": decision.policy_version,
+                "failed_gates": list(decision.failed_gates),
+                "reasons": list(decision.reasons),
+            }
         return {
             "candidate": self.candidate.to_dict(),
             "backtest_request": self.compiled_request,
@@ -30,6 +41,9 @@ class CandidateBacktestResult:
                 "promoted": self.promotion.promoted,
                 "reason": self.promotion.reason,
                 "metrics": dict(self.promotion.metrics),
+                "policy_version": decision.policy_version if decision else None,
+                "failed_gates": list(decision.failed_gates) if decision else [],
+                "decision": decision_payload,
             },
             "gate_checks": list(self.gate_checks),
         }
@@ -150,11 +164,21 @@ def _apply_signal_validation_gate(
         "sample_days": signal_validation.sample_days,
         "passed": False,
     }
+    decision = promotion.promotion_decision
+    if decision is not None:
+        decision = PromotionDecision(
+            target=decision.target,
+            approved=False,
+            policy_version=decision.policy_version,
+            failed_gates=tuple(dict.fromkeys((*decision.failed_gates, "signal_validation"))),
+            reasons=tuple(dict.fromkeys((*decision.reasons, signal_validation.reason))),
+        )
     return StrategyIterationResult(
         promotion.dsl,
         metrics,
         False,
         signal_validation.reason,
+        decision,
     )
 
 

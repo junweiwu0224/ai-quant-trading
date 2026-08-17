@@ -20,6 +20,15 @@ export * from './market'
 // Research API
 export * from './research'
 
+// Paper trading API
+export * from './paper'
+
+// Portfolio optimization API
+export * from './portfolio'
+
+// Risk monitoring API
+export * from './risk'
+
 // Re-export commonly used types for convenience
 export type {
   Decision,

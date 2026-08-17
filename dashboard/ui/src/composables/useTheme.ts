@@ -1,4 +1,4 @@
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -27,18 +27,24 @@ export function useTheme() {
   };
 
   onMounted(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    if (saved) {
-      theme.value = saved;
-      applyTheme(saved);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && ['light', 'dark', 'system'].includes(saved)) {
+      theme.value = saved as Theme;
+      applyTheme(saved as Theme);
     }
 
     // 监听系统主题变化
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    mediaQuery.addEventListener('change', () => {
+    const handler = () => {
       if (theme.value === 'system') {
         applyTheme('system');
       }
+    };
+    mediaQuery.addEventListener('change', handler);
+
+    // 清理事件监听器
+    onBeforeUnmount(() => {
+      mediaQuery.removeEventListener('change', handler);
     });
   });
 

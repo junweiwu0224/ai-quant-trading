@@ -1,5 +1,13 @@
 import { createRouter, createWebHistory, type LocationQuery, type LocationQueryRaw, type RouteLocationGeneric, type RouteLocationRaw } from 'vue-router'
 
+// LIVE TRADING DISABLED
+// Routes that involve broker connections or live trading
+const BROKER_RELATED_ROUTES = [
+  '/app/more/conditional-orders',
+  '/app/more/broker-live',
+  '/app/more/paper',
+]
+
 export const legacyHashRoutes: Record<string, string> = {
   overview: '/app/decision',
   intelligence: '/app/intelligence',
@@ -140,6 +148,13 @@ router.beforeEach((to) => {
 
   const legacyRedirect = resolveLegacyHashRedirect(to)
   if (legacyRedirect) return legacyRedirect
+
+  // LIVE TRADING DISABLED
+  // Mark broker-related routes for the guard component
+  if (BROKER_RELATED_ROUTES.includes(to.path)) {
+    // The BrokerDisableGuard component will handle showing the warning
+    // on first visit to these pages
+  }
 
   document.title = `${String(to.meta.title || 'AI Quant')} · 决策工作台`
 })

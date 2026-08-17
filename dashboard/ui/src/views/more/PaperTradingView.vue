@@ -3,9 +3,11 @@ import { ref, onMounted, computed } from 'vue'
 import BaseCard from '../../components/base/BaseCard.vue'
 import BaseButton from '../../components/base/BaseButton.vue'
 import BaseInput from '../../components/base/BaseInput.vue'
+import BrokerDisableGuard from '../../components/guards/BrokerDisableGuard.vue'
 import { TrendingUp, RefreshCw, TrendingDown } from 'lucide-vue-next'
 import { getPaperAccount, getPaperHoldings, getPaperTrades } from '../../api/paper'
 import type { PaperAccount, PaperHolding, PaperTrade } from '../../api/paper'
+import { LIVE_TRADING_ENABLED } from '../../config/features'
 
 const title = '模拟盘交易'
 const description = '完整的模拟交易环境，用于验证策略和训练交易技能'
@@ -16,6 +18,9 @@ const error = ref<string | null>(null)
 const account = ref<PaperAccount | null>(null)
 const holdings = ref<PaperHolding[]>([])
 const trades = ref<PaperTrade[]>([])
+
+// LIVE TRADING DISABLED
+const isLiveTradingDisabled = computed(() => !LIVE_TRADING_ENABLED)
 
 // Trade form
 const tradeForm = ref({
@@ -80,6 +85,8 @@ onMounted(() => {
 </script>
 
 <template>
+  <BrokerDisableGuard />
+
   <div class="page-container">
     <!-- Disclaimer Banner -->
     <div class="disclaimer">

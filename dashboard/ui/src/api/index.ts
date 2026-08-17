@@ -38,6 +38,12 @@ export * from './strategy'
 // Agent operations API
 export * from './agent'
 
+// Conditional orders API (LIVE TRADING DISABLED)
+export * from './orders'
+
+// AI Runtime API
+export * from './aiRuntime'
+
 // Re-export commonly used types for convenience
 export type {
   Decision,

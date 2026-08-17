@@ -3,6 +3,10 @@ import { onMounted, ref } from 'vue'
 import { ArrowLeft, LockKeyhole, RefreshCw, ShieldOff } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
+import BrokerDisableGuard from '../components/guards/BrokerDisableGuard.vue'
+
+// LIVE TRADING DISABLED
+// This view is read-only and shows mock/sanitized data only
 
 const config = ref<Record<string, any> | null>(null)
 const types = ref<Array<Record<string, any>>>([])
@@ -29,6 +33,8 @@ onMounted(load)
 </script>
 
 <template>
+  <BrokerDisableGuard />
+
   <section>
     <div class="page-head"><div><RouterLink to="/app/more" class="muted small"><ArrowLeft :size="14" />返回更多工具</RouterLink><h1>Broker 与实盘设置</h1><p>只展示经过脱敏的账户配置和网关能力。当前阶段禁止真实下单、撤单和凭证变更，页面没有绕过安全边界的按钮。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" />刷新</button></div>
     <div v-if="message" class="error-box" role="alert">{{ message }}</div>

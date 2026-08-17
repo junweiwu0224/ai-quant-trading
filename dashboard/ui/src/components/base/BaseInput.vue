@@ -3,7 +3,7 @@ import { computed, useAttrs } from 'vue'
 
 export interface BaseInputProps {
   modelValue?: string | number
-  type?: 'text' | 'number' | 'email' | 'password' | 'search' | 'tel' | 'url'
+  type?: 'text' | 'number' | 'email' | 'password' | 'search' | 'tel' | 'url' | 'date'
   placeholder?: string
   disabled?: boolean
   error?: string | boolean

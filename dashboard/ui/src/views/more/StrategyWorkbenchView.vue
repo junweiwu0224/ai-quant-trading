@@ -1,17 +1,121 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import BaseCard from '../../components/base/BaseCard.vue'
-import { Code2 } from 'lucide-vue-next'
+import BaseButton from '../../components/base/BaseButton.vue'
+import BaseTag from '../../components/base/BaseTag.vue'
+import BaseInput from '../../components/base/BaseInput.vue'
+import { Code2, RefreshCw, Play, FileCode } from 'lucide-vue-next'
+import { getStrategies } from '../../api/strategy'
+import type { Strategy } from '../../api/strategy'
 
 const title = '策略工作台'
 const description = '策略开发、回测与版本管理的集成环境'
-const features = [
-  '策略代码编辑与语法高亮',
-  '实时代码校验与错误提示',
-  '策略版本管理与回滚',
-  '参数优化与网格搜索',
-  'Ensemble 策略组合',
-  '回测历史与性能对比'
-]
+
+// State
+const loading = ref(false)
+const error = ref<string | null>(null)
+const strategies = ref<Strategy[]>([])
+const selectedStrategy = ref<Strategy | null>(null)
+
+// Backtest config
+const backtestConfig = ref({
+  startDate: '2023-01-01',
+  endDate: '2024-08-17',
+  initialCapital: 1000000,
+  commissionRate: 0.0003,
+  slippageRate: 0.0001
+})
+
+// Mock results state
+const showResults = ref(false)
+
+// Methods
+async function loadData() {
+  loading.value = true
+  error.value = null
+
+  try {
+    const strategiesData = await getStrategies()
+    strategies.value = strategiesData
+
+    // Auto-select first strategy
+    if (strategiesData.length > 0 && !selectedStrategy.value) {
+      selectStrategy(strategiesData[0])
+    }
+  } catch (err) {
+    console.error('Failed to load strategies:', err)
+    error.value = '加载策略数据失败，请稍后重试'
+  } finally {
+    loading.value = false
+  }
+}
+
+function selectStrategy(strategy: Strategy) {
+  selectedStrategy.value = strategy
+  showResults.value = false
+}
+
+function getTypeLabel(type: string): string {
+  const labelMap: Record<string, string> = {
+    momentum: '动量',
+    mean_reversion: '均值回归',
+    arbitrage: '套利',
+    ml_based: '机器学习',
+    custom: '自定义'
+  }
+  return labelMap[type] || type
+}
+
+function getTypeVariant(type: string): 'success' | 'warning' | 'info' | 'default' {
+  const variantMap: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
+    momentum: 'success',
+    mean_reversion: 'info',
+    arbitrage: 'warning',
+    ml_based: 'info',
+    custom: 'default'
+  }
+  return variantMap[type] || 'default'
+}
+
+function getStatusVariant(status: string): 'success' | 'warning' | 'default' {
+  const variantMap: Record<string, 'success' | 'warning' | 'default'> = {
+    active: 'success',
+    draft: 'warning',
+    archived: 'default'
+  }
+  return variantMap[status] || 'default'
+}
+
+function getStatusLabel(status: string): string {
+  const labelMap: Record<string, string> = {
+    active: '运行中',
+    draft: '草稿',
+    archived: '已归档'
+  }
+  return labelMap[status] || status
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function formatNumber(num: number): string {
+  return num.toLocaleString('zh-CN')
+}
+
+function handleRunBacktest() {
+  alert('回测执行功能开发中\n\n提示：将支持参数优化、Walk-Forward验证等高级功能')
+}
+
+onMounted(() => {
+  loadData()
+})
 </script>
 
 <template>
@@ -21,34 +125,209 @@ const features = [
         <h1>{{ title }}</h1>
         <p>{{ description }}</p>
       </div>
-      <Code2 :size="22" class="faint" />
+      <div class="head-actions">
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :loading="loading"
+          @click="loadData"
+        >
+          <RefreshCw :size="16" />
+          刷新
+        </BaseButton>
+      </div>
     </div>
 
-    <BaseCard padding="lg">
-      <div class="placeholder-content">
-        <div class="status-badge migration">功能迁移中</div>
+    <!-- Error State -->
+    <div v-if="error" class="error-banner">
+      {{ error }}
+    </div>
 
-        <div class="placeholder-body">
-          <h2>计划功能</h2>
-          <ul class="feature-list">
-            <li v-for="feature in features" :key="feature">{{ feature }}</li>
-          </ul>
+    <!-- Loading State -->
+    <div v-if="loading && strategies.length === 0" class="loading-state">
+      <div class="spinner"></div>
+      <p>加载中...</p>
+    </div>
 
-          <div class="migration-note">
-            <p><strong>迁移说明：</strong></p>
-            <p>此功能正在从旧版系统迁移至新的 Vue 3 架构。迁移完成后，将提供更流畅的用户体验和更强的扩展性。</p>
-            <p>当前可通过"更多工具"页面的功能覆盖矩阵访问旧版入口。</p>
+    <!-- Main Content -->
+    <div v-else-if="strategies.length > 0" class="content-layout">
+      <!-- Left Sidebar: Strategy List -->
+      <aside class="sidebar">
+        <BaseCard padding="md">
+          <h2 class="section-title">策略列表</h2>
+          <div class="strategy-list">
+            <div
+              v-for="strategy in strategies"
+              :key="strategy.id"
+              class="strategy-item"
+              :class="{ selected: selectedStrategy?.id === strategy.id }"
+              @click="selectStrategy(strategy)"
+            >
+              <div class="strategy-header">
+                <FileCode :size="16" class="strategy-icon" />
+                <span class="strategy-name">{{ strategy.name }}</span>
+              </div>
+              <div class="strategy-meta">
+                <BaseTag :variant="getTypeVariant(strategy.type)" size="sm">
+                  {{ getTypeLabel(strategy.type) }}
+                </BaseTag>
+                <BaseTag :variant="getStatusVariant(strategy.status)" size="sm">
+                  {{ getStatusLabel(strategy.status) }}
+                </BaseTag>
+              </div>
+              <div class="strategy-date">
+                更新: {{ formatDateTime(strategy.updated_at) }}
+              </div>
+            </div>
           </div>
+        </BaseCard>
+      </aside>
+
+      <!-- Main Area -->
+      <div class="main-area">
+        <div v-if="selectedStrategy" class="main-content">
+          <!-- Code Editor Area -->
+          <BaseCard padding="lg" class="editor-card">
+            <div class="editor-header">
+              <div>
+                <h2 class="section-title">{{ selectedStrategy.name }}</h2>
+                <p class="editor-description">{{ selectedStrategy.description }}</p>
+              </div>
+              <div class="editor-actions">
+                <BaseTag :variant="getStatusVariant(selectedStrategy.status)">
+                  {{ getStatusLabel(selectedStrategy.status) }}
+                </BaseTag>
+              </div>
+            </div>
+
+            <div class="code-editor">
+              <div class="code-editor-toolbar">
+                <span class="toolbar-label">
+                  <Code2 :size="14" />
+                  Python Strategy Code
+                </span>
+                <span class="toolbar-hint">只读模式 - 完整编辑器功能开发中</span>
+              </div>
+              <pre class="code-content">{{ selectedStrategy.code }}</pre>
+            </div>
+          </BaseCard>
+
+          <!-- Backtest Config Panel -->
+          <BaseCard padding="lg" class="config-card">
+            <h2 class="section-title">回测配置</h2>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>起始日期</label>
+                <BaseInput
+                  v-model="backtestConfig.startDate"
+                  type="date"
+                  size="md"
+                />
+              </div>
+              <div class="config-item">
+                <label>结束日期</label>
+                <BaseInput
+                  v-model="backtestConfig.endDate"
+                  type="date"
+                  size="md"
+                />
+              </div>
+              <div class="config-item">
+                <label>初始资金</label>
+                <BaseInput
+                  v-model="backtestConfig.initialCapital"
+                  type="number"
+                  size="md"
+                  placeholder="1000000"
+                />
+              </div>
+              <div class="config-item">
+                <label>手续费率</label>
+                <BaseInput
+                  v-model="backtestConfig.commissionRate"
+                  type="number"
+                  step="0.0001"
+                  size="md"
+                  placeholder="0.0003"
+                />
+              </div>
+              <div class="config-item">
+                <label>滑点率</label>
+                <BaseInput
+                  v-model="backtestConfig.slippageRate"
+                  type="number"
+                  step="0.0001"
+                  size="md"
+                  placeholder="0.0001"
+                />
+              </div>
+            </div>
+
+            <div class="config-actions">
+              <BaseButton
+                variant="primary"
+                size="md"
+                :disabled="true"
+                @click="handleRunBacktest"
+              >
+                <Play :size="16" />
+                运行回测（功能开发中）
+              </BaseButton>
+            </div>
+          </BaseCard>
+
+          <!-- Results Dashboard -->
+          <BaseCard padding="lg" class="results-card">
+            <h2 class="section-title">回测结果</h2>
+
+            <div class="results-placeholder">
+              <div class="placeholder-chart">
+                <div class="chart-icon">📈</div>
+                <p>权益曲线图表区域</p>
+                <span class="placeholder-hint">运行回测后显示策略表现曲线</span>
+              </div>
+
+              <div class="metrics-preview">
+                <div class="metric-card">
+                  <div class="metric-label">累计收益率</div>
+                  <div class="metric-value placeholder-value">--</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-label">年化收益率</div>
+                  <div class="metric-value placeholder-value">--</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-label">Sharpe比率</div>
+                  <div class="metric-value placeholder-value">--</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-label">最大回撤</div>
+                  <div class="metric-value placeholder-value">--</div>
+                </div>
+              </div>
+            </div>
+          </BaseCard>
+        </div>
+
+        <!-- No Selection State -->
+        <div v-else class="no-selection">
+          <FileCode :size="48" class="no-selection-icon" />
+          <p>请从左侧选择一个策略</p>
         </div>
       </div>
-    </BaseCard>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else class="empty-state">
+      暂无策略数据
+    </div>
   </div>
 </template>
 
 <style scoped>
 .page-container {
   padding: var(--spacing-xl);
-  max-width: 1200px;
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -72,77 +351,311 @@ const features = [
   margin: 0;
 }
 
-.faint {
-  color: var(--color-ink-faint);
+.head-actions {
+  display: flex;
+  gap: var(--spacing-sm);
 }
 
-.placeholder-content {
-  text-align: left;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+.error-banner {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-md);
   margin-bottom: var(--spacing-lg);
 }
 
-.status-badge.migration {
-  background-color: var(--color-warn-bg);
-  color: var(--color-warn);
-  border: 1px solid var(--color-warn);
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-3xl);
+  color: var(--color-ink-soft);
 }
 
-.placeholder-body h2 {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-line);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: spin 0.8s linear infinite;
   margin-bottom: var(--spacing-md);
 }
 
-.feature-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 var(--spacing-xl) 0;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-.feature-list li {
+.content-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: var(--spacing-lg);
+}
+
+/* Sidebar */
+.sidebar {
+  position: sticky;
+  top: var(--spacing-lg);
+  align-self: start;
+}
+
+.section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
+  margin: 0 0 var(--spacing-lg) 0;
+}
+
+.strategy-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.strategy-item {
   padding: var(--spacing-md);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-smooth);
+}
+
+.strategy-item:hover {
+  background-color: var(--color-surface-muted);
+  border-color: var(--color-ink-faint);
+}
+
+.strategy-item.selected {
+  background-color: var(--color-accent-bg);
+  border-color: var(--color-accent);
+}
+
+.strategy-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
+}
+
+.strategy-icon {
+  color: var(--color-ink-soft);
+}
+
+.strategy-name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink);
+}
+
+.strategy-meta {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
+}
+
+.strategy-date {
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-soft);
+}
+
+/* Main Area */
+.main-area {
+  min-height: 600px;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+/* Code Editor */
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-lg);
+}
+
+.editor-description {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-soft);
+  margin: var(--spacing-xs) 0 0 0;
+}
+
+.editor-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.code-editor {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.code-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-surface-strong);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.toolbar-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink);
+}
+
+.toolbar-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-ink-soft);
+}
+
+.code-content {
+  margin: 0;
+  padding: var(--spacing-lg);
+  background-color: var(--color-surface);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-ink);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Config Panel */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.config-item label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink);
+}
+
+.config-actions {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+/* Results */
+.results-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.placeholder-chart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-3xl);
+  background-color: var(--color-surface-muted);
+  border: 2px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.chart-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-md);
+}
+
+.placeholder-chart p {
+  font-size: var(--font-size-base);
+  color: var(--color-ink-soft);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.placeholder-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-faint);
+}
+
+.metrics-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.metric-card {
+  padding: var(--spacing-lg);
   background-color: var(--color-surface-muted);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
+  text-align: center;
+}
+
+.metric-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-soft);
+  margin-bottom: var(--spacing-sm);
+}
+
+.metric-value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-ink);
-  position: relative;
-  padding-left: var(--spacing-xl);
 }
 
-.feature-list li::before {
-  content: '•';
-  position: absolute;
-  left: var(--spacing-md);
-  color: var(--color-accent);
-  font-weight: bold;
+.metric-value.placeholder-value {
+  color: var(--color-ink-faint);
 }
 
-.migration-note {
-  padding: var(--spacing-lg);
-  background-color: var(--color-info-bg);
-  border-left: 3px solid var(--color-info);
-  border-radius: var(--radius-md);
+/* No Selection */
+.no-selection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-3xl);
+  color: var(--color-ink-soft);
+  text-align: center;
 }
 
-.migration-note p {
-  margin: 0 0 var(--spacing-sm) 0;
+.no-selection-icon {
+  color: var(--color-ink-faint);
+  margin-bottom: var(--spacing-md);
+}
+
+.no-selection p {
   font-size: var(--font-size-base);
-  color: var(--color-ink);
-  line-height: var(--line-height-relaxed);
+  margin: 0;
 }
 
-.migration-note p:last-child {
-  margin-bottom: 0;
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-3xl);
+  color: var(--color-ink-soft);
+  font-size: var(--font-size-base);
+}
+
+@media (max-width: 1200px) {
+  .content-layout {
+    grid-template-columns: 280px 1fr;
+  }
+
+  .config-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
@@ -150,8 +663,20 @@ const features = [
     padding: var(--spacing-lg);
   }
 
-  .page-head h1 {
-    font-size: var(--font-size-xl);
+  .content-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+  }
+
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-preview {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -29,6 +29,15 @@ export * from './portfolio'
 // Risk monitoring API
 export * from './risk'
 
+// Alpha factors API
+export * from './alpha'
+
+// Strategy workbench API
+export * from './strategy'
+
+// Agent operations API
+export * from './agent'
+
 // Re-export commonly used types for convenience
 export type {
   Decision,

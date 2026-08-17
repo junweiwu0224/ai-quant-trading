@@ -40,12 +40,10 @@ const formattedCapital = computed(() => {
 // Handlers
 const handleSaveDraft = () => {
   // Placeholder - functionality in development
-  console.log('Save draft clicked')
 }
 
 const handleRunBacktest = () => {
   // Placeholder - functionality in development
-  console.log('Run backtest clicked')
 }
 </script>
 

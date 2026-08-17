@@ -145,7 +145,6 @@ export function useWebSocket() {
     error.value = null
     reconnectAttempts = 0
     startPingInterval()
-    console.log('WebSocket connected')
   }
 
   /**
@@ -160,12 +159,10 @@ export function useWebSocket() {
     }
 
     state.value = 'disconnected'
-    console.log('WebSocket closed:', event.code, event.reason)
 
     // Attempt to reconnect
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       const delay = getReconnectDelay()
-      console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`)
 
       reconnectTimer = setTimeout(() => {
         reconnectAttempts++

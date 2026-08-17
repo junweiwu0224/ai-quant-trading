@@ -53,13 +53,14 @@ export function generateSampleTokenData() {
     }
   }
 
-  console.log(`Generated ${tokenUsage.usageHistory.value.length} sample token usage records`)
-  console.log(`Total tokens: ${tokenUsage.totalTokens.value}`)
-  console.log(`Total cost: ¥${tokenUsage.totalCost.value.toFixed(4)}`)
+  return {
+    recordsGenerated: tokenUsage.usageHistory.value.length,
+    totalTokens: tokenUsage.totalTokens.value,
+    totalCost: tokenUsage.totalCost.value
+  }
 }
 
 export function clearTokenData() {
   const tokenUsage = useTokenUsage()
   tokenUsage.reset()
-  console.log('Token usage data cleared')
 }

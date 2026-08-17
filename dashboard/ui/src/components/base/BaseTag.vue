@@ -103,12 +103,12 @@ const handleClose = () => {
 }
 
 .base-tag--up {
-  background-color: var(--color-danger-bg);
+  background-color: var(--color-success-bg);
   color: var(--color-up);
 }
 
 .base-tag--down {
-  background-color: var(--color-success-bg);
+  background-color: var(--color-danger-bg);
   color: var(--color-down);
 }
 

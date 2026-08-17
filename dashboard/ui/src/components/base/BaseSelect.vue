@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 
 export interface SelectOption {
   label: string
@@ -66,10 +66,18 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-// Close dropdown when clicking outside
-if (typeof window !== 'undefined') {
-  document.addEventListener('click', handleClickOutside)
-}
+// Close dropdown when clicking outside - properly manage lifecycle
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    document.addEventListener('click', handleClickOutside)
+  }
+})
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    document.removeEventListener('click', handleClickOutside)
+  }
+})
 </script>
 
 <template>

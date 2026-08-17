@@ -138,7 +138,7 @@ const handleClick = (event: MouseEvent) => {
 }
 
 .base-button--danger:hover:not(.base-button--disabled) {
-  background-color: #a02c2c;
+  background-color: var(--color-danger-strong);
   box-shadow: var(--shadow-sm);
 }
 

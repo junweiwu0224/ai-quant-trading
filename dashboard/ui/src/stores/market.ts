@@ -149,32 +149,27 @@ export const useMarketStore = defineStore('market', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.getMarketData(market, symbol)
-      // const data = response.data
+      const { getStockQuote } = await import('../api/market')
+      const quote = await getStockQuote(symbol, market)
 
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 400))
-
-      // Mock data for development
-      const mockData: MarketData = {
-        symbol,
-        name: symbol.includes('600519') ? '贵州茅台' : symbol,
-        price: 1850.50,
-        change: 25.30,
-        changePct: 1.39,
-        volume: 1250000,
-        amount: 2312500000,
-        open: 1825.20,
-        high: 1865.00,
-        low: 1820.00,
-        preClose: 1825.20,
-        timestamp: new Date().toISOString(),
+      const data: MarketData = {
+        symbol: quote.code || symbol,
+        name: quote.name || symbol,
+        price: quote.price,
+        change: quote.change ?? 0,
+        changePct: quote.change_pct ?? 0,
+        volume: quote.volume ?? 0,
+        amount: quote.amount,
+        open: 0, // Not provided by quote endpoint
+        high: 0,
+        low: 0,
+        preClose: 0,
+        timestamp: new Date(quote.timestamp * 1000).toISOString(),
         market
       }
 
-      marketData.value.set(symbol, mockData)
-      return mockData
+      marketData.value.set(symbol, data)
+      return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载市场数据失败'
       throw err
@@ -187,30 +182,40 @@ export const useMarketStore = defineStore('market', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.getMultipleMarketData(market, symbols)
-      // const dataList = response.data
+      const { getStockQuote } = await import('../api/market')
 
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 600))
+      // Fetch quotes in parallel
+      const results = await Promise.allSettled(
+        symbols.map(symbol => getStockQuote(symbol, market))
+      )
 
-      const results: MarketData[] = []
-      for (const symbol of symbols) {
-        const mockData: MarketData = {
-          symbol,
-          name: symbol,
-          price: Math.random() * 1000 + 100,
-          change: Math.random() * 10 - 5,
-          changePct: Math.random() * 5 - 2.5,
-          volume: Math.floor(Math.random() * 10000000),
-          timestamp: new Date().toISOString(),
-          market
+      const marketDataList: MarketData[] = []
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]
+        const symbol = symbols[i]
+
+        if (result.status === 'fulfilled') {
+          const quote = result.value
+          const data: MarketData = {
+            symbol: quote.code || symbol,
+            name: quote.name || symbol,
+            price: quote.price,
+            change: quote.change ?? 0,
+            changePct: quote.change_pct ?? 0,
+            volume: quote.volume ?? 0,
+            amount: quote.amount,
+            timestamp: new Date(quote.timestamp * 1000).toISOString(),
+            market
+          }
+          marketData.value.set(symbol, data)
+          marketDataList.push(data)
+        } else {
+          console.warn(`Failed to fetch data for ${symbol}:`, result.reason)
         }
-        marketData.value.set(symbol, mockData)
-        results.push(mockData)
       }
 
-      return results
+      return marketDataList
     } catch (err) {
       error.value = err instanceof Error ? err.message : '批量加载市场数据失败'
       throw err

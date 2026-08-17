@@ -751,11 +751,16 @@ export const api = {
   logout() {
     return request<{ success?: boolean }>('/api/account/logout', { method: 'POST', body: JSON.stringify({}) })
   },
-  get<T>(path: string) {
-    return request<T>(path)
+  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>) {
+    const url = params ? withQuery(path, params) : path
+    return request<T>(url)
   },
-  post<T>(path: string, body: unknown) {
-    return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+  post<T>(path: string, body: unknown, headers?: Record<string, string>) {
+    return request<T>(path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: headers ? { ...headers, 'Content-Type': 'application/json' } : undefined
+    })
   },
   waitDecisionCommand<T>(commandId: string, timeoutMs = 15000): Promise<DecisionCommand<T>> {
     const startedAt = Date.now()
@@ -771,11 +776,18 @@ export const api = {
     }
     return poll()
   },
-  delete<T>(path: string) {
-    return request<T>(path, { method: 'DELETE' })
+  delete<T>(path: string, headers?: Record<string, string>) {
+    return request<T>(path, {
+      method: 'DELETE',
+      headers: headers ? { ...headers, 'Content-Type': 'application/json' } : undefined
+    })
   },
-  put<T>(path: string, body: unknown) {
-    return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+  put<T>(path: string, body: unknown, headers?: Record<string, string>) {
+    return request<T>(path, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+      headers: headers ? { ...headers, 'Content-Type': 'application/json' } : undefined
+    })
   },
   health() {
     return request<DataHealth>('/api/datahub/health?fast=true')

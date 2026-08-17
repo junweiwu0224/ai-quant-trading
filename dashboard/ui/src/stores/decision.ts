@@ -21,6 +21,7 @@ export interface DecisionFilters {
   market?: string
   type?: 'buy' | 'sell' | 'hold'
   status?: string
+  portfolio_id?: string
 }
 
 export const useDecisionStore = defineStore('decision', () => {
@@ -55,38 +56,42 @@ export const useDecisionStore = defineStore('decision', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.getDecisions(filters)
-      // decisions.value = response.data
+      const { getReports } = await import('../api/decisions')
 
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Fetch reports (which contain decisions)
+      const response = await getReports(filters?.portfolio_id, 50)
 
-      // Mock data for development
-      const mockDecisions: Decision[] = [
-        {
-          id: '1',
-          symbol: '600519.SH',
-          market: 'CN',
-          type: 'buy',
-          confidence: 0.85,
-          reasoning: ['Strong fundamentals', 'Technical breakout', 'Positive momentum'],
-          createdAt: new Date().toISOString(),
-          price: 1850.50,
-          targetPrice: 2000,
-          status: 'pending'
+      // Transform reports to decision format
+      // Note: The backend uses reports, not standalone decisions
+      // This is a placeholder transformation - adjust based on actual report structure
+      const transformedDecisions: Decision[] = response.items.map((report) => {
+        const body = report.body || {}
+        return {
+          id: report.id,
+          symbol: String(body.symbol || ''),
+          market: String(body.market || 'CN'),
+          type: String(body.decision_type || 'hold') as 'buy' | 'sell' | 'hold',
+          confidence: Number(body.confidence || 0),
+          reasoning: Array.isArray(body.reasoning) ? body.reasoning : [],
+          createdAt: report.created_at,
+          status: 'executed' as const,
+          metadata: body
         }
-      ]
+      })
 
-      let filtered = mockDecisions
+      // Apply filters
+      let filtered = transformedDecisions
       if (filters?.symbol) {
-        filtered = filtered.filter(d => d.symbol === filters.symbol)
+        filtered = filtered.filter(d => d.symbol.includes(filters.symbol!))
       }
       if (filters?.market) {
         filtered = filtered.filter(d => d.market === filters.market)
       }
       if (filters?.type) {
         filtered = filtered.filter(d => d.type === filters.type)
+      }
+      if (filters?.status) {
+        filtered = filtered.filter(d => d.status === filters.status)
       }
 
       decisions.value = filtered
@@ -102,19 +107,24 @@ export const useDecisionStore = defineStore('decision', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.getDecision(id)
-      // currentDecision.value = response.data
+      const { getReportById } = await import('../api/decisions')
 
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 300))
+      const report = await getReportById(id)
+      const body = report.body || {}
 
-      const found = decisions.value.find(d => d.id === id)
-      if (found) {
-        currentDecision.value = found
-      } else {
-        throw new Error('决策未找到')
+      const decision: Decision = {
+        id: report.id,
+        symbol: String(body.symbol || ''),
+        market: String(body.market || 'CN'),
+        type: String(body.decision_type || 'hold') as 'buy' | 'sell' | 'hold',
+        confidence: Number(body.confidence || 0),
+        reasoning: Array.isArray(body.reasoning) ? body.reasoning : [],
+        createdAt: report.created_at,
+        status: 'executed' as const,
+        metadata: body
       }
+
+      currentDecision.value = decision
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载决策详情失败'
       currentDecision.value = null
@@ -123,23 +133,26 @@ export const useDecisionStore = defineStore('decision', () => {
     }
   }
 
+  // TODO(Task11-Fix): createDecision is CLIENT-SIDE ONLY and does not persist to backend.
+  // The backend does not have a direct "create decision" endpoint.
+  // Backend workflow: Decisions are generated through portfolio analysis and saved as reports.
+  // Expected workflow alternatives:
+  //   1. POST /api/portfolio/analysis - Triggers decision generation via agentic workflow
+  //   2. GET /api/decisions/reports - Retrieves decisions as reports (already implemented in fetchDecisions)
+  // Current behavior: Generates local ID, stores in memory only, marks as 'pending'
+  // Migration: When direct decision creation is needed, implement backend endpoint or use portfolio analysis workflow
   async function createDecision(data: Omit<Decision, 'id' | 'createdAt'>) {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.createDecision(data)
-      // const newDecision = response.data
-
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500))
-
       const newDecision: Decision = {
         ...data,
         id: Math.random().toString(36).substring(7),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        status: 'pending'
       }
 
+      // Store locally until backend workflow is triggered
       decisions.value = [newDecision, ...decisions.value]
       currentDecision.value = newDecision
 
@@ -156,19 +169,20 @@ export const useDecisionStore = defineStore('decision', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // const response = await api.updateDecision(id, data)
-      // const updatedDecision = response.data
-
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 400))
+      // Note: Backend reports are immutable
+      // Updates are only allowed for locally-created pending decisions
 
       const index = decisions.value.findIndex(d => d.id === id)
       if (index === -1) {
         throw new Error('决策未找到')
       }
 
-      const updatedDecision = { ...decisions.value[index], ...data }
+      const existing = decisions.value[index]
+      if (existing.status !== 'pending') {
+        throw new Error('只能更新待处理的决策')
+      }
+
+      const updatedDecision = { ...existing, ...data }
       decisions.value = [
         ...decisions.value.slice(0, index),
         updatedDecision,
@@ -192,11 +206,13 @@ export const useDecisionStore = defineStore('decision', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: Replace with actual API call in Task 11
-      // await api.deleteDecision(id)
+      // Note: Backend reports are immutable and cannot be deleted
+      // Only allow deletion of locally-created pending decisions
 
-      // Placeholder: simulate API call
-      await new Promise(resolve => setTimeout(resolve, 300))
+      const existing = decisions.value.find(d => d.id === id)
+      if (existing && existing.status !== 'pending') {
+        throw new Error('无法删除已执行的决策')
+      }
 
       decisions.value = decisions.value.filter(d => d.id !== id)
 

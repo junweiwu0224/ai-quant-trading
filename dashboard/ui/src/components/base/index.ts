@@ -1,0 +1,13 @@
+export { default as BaseButton } from './BaseButton.vue'
+export { default as BaseCard } from './BaseCard.vue'
+export { default as BaseInput } from './BaseInput.vue'
+export { default as BaseSelect } from './BaseSelect.vue'
+export { default as BaseTabs } from './BaseTabs.vue'
+export { default as BaseTag } from './BaseTag.vue'
+
+export type { BaseButtonProps } from './BaseButton.vue'
+export type { BaseCardProps } from './BaseCard.vue'
+export type { BaseInputProps } from './BaseInput.vue'
+export type { BaseSelectProps, SelectOption } from './BaseSelect.vue'
+export type { BaseTabsProps, Tab } from './BaseTabs.vue'
+export type { BaseTagProps } from './BaseTag.vue'

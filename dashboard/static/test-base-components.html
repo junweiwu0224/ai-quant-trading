@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Base Components Test</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js"
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/ui/dist/assets/index.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script type="module">
+    import { createApp, ref } from 'vue'
+    import BaseButton from '/ui/src/components/base/BaseButton.vue'
+    import BaseCard from '/ui/src/components/base/BaseCard.vue'
+    import BaseInput from '/ui/src/components/base/BaseInput.vue'
+    import BaseSelect from '/ui/src/components/base/BaseSelect.vue'
+    import BaseTabs from '/ui/src/components/base/BaseTabs.vue'
+    import BaseTag from '/ui/src/components/base/BaseTag.vue'
+
+    const App = {
+      components: {
+        BaseButton,
+        BaseCard,
+        BaseInput,
+        BaseSelect,
+        BaseTabs,
+        BaseTag
+      },
+      setup() {
+        const clickCount = ref(0)
+        const inputValue = ref('')
+        const selectValue = ref('')
+        const activeTab = ref('first')
+        const showClosableTag = ref(true)
+        const isDark = ref(false)
+
+        const selectOptions = [
+          { label: 'Option 1', value: '1' },
+          { label: 'Option 2', value: '2' },
+          { label: 'Disabled Option', value: '3', disabled: true }
+        ]
+
+        const tabs = [
+          { id: 'first', label: 'First Tab' },
+          { id: 'second', label: 'Second Tab' },
+          { id: 'third', label: 'Tab with Badge', badge: 3 },
+          { id: 'disabled', label: 'Disabled Tab', disabled: true }
+        ]
+
+        const handleClick = () => {
+          clickCount.value++
+        }
+
+        const toggleTheme = () => {
+          isDark.value = !isDark.value
+          document.documentElement.classList.toggle('theme-dark')
+        }
+
+        const handleTagClose = () => {
+          showClosableTag.value = false
+        }
+
+        return {
+          clickCount,
+          inputValue,
+          selectValue,
+          activeTab,
+          showClosableTag,
+          isDark,
+          selectOptions,
+          tabs,
+          handleClick,
+          toggleTheme,
+          handleTagClose
+        }
+      },
+      template: `
+        <div class="test-container" style="padding: 32px;">
+          <button @click="toggleTheme" data-test="theme-toggle">Toggle Theme</button>
+
+          <section style="margin-top: 32px;">
+            <h2>Buttons</h2>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <BaseButton variant="primary" data-test="button-primary">Primary</BaseButton>
+              <BaseButton variant="secondary" data-test="button-secondary">Secondary</BaseButton>
+              <BaseButton variant="ghost" data-test="button-ghost">Ghost</BaseButton>
+              <BaseButton variant="danger" data-test="button-danger">Danger</BaseButton>
+              <BaseButton size="sm" data-test="button-small">Small</BaseButton>
+              <BaseButton size="md" data-test="button-medium">Medium</BaseButton>
+              <BaseButton size="lg" data-test="button-large">Large</BaseButton>
+              <BaseButton @click="handleClick" data-test="button-clickable">Click Me</BaseButton>
+              <BaseButton disabled data-test="button-disabled">Disabled</BaseButton>
+              <BaseButton loading data-test="button-loading">Loading</BaseButton>
+            </div>
+            <div data-test="click-counter">{{ clickCount }}</div>
+          </section>
+
+          <section style="margin-top: 32px;">
+            <h2>Cards</h2>
+            <div style="display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+              <BaseCard data-test="card-default">Default Card</BaseCard>
+              <BaseCard elevated data-test="card-elevated">Elevated Card</BaseCard>
+              <BaseCard hoverable data-test="card-hoverable">Hoverable Card</BaseCard>
+              <BaseCard padding="sm" data-test="card-padding-sm">Small Padding</BaseCard>
+              <BaseCard padding="md" data-test="card-padding-md">Medium Padding</BaseCard>
+              <BaseCard padding="lg" data-test="card-padding-lg">Large Padding</BaseCard>
+            </div>
+          </section>
+
+          <section style="margin-top: 32px;">
+            <h2>Inputs</h2>
+            <div style="display: flex; flex-direction: column; gap: 16px; max-width: 400px;">
+              <BaseInput v-model="inputValue" placeholder="Basic input" data-test="input-basic" />
+              <BaseInput size="sm" placeholder="Small" data-test="input-small" />
+              <BaseInput size="md" placeholder="Medium" data-test="input-medium" />
+              <BaseInput size="lg" placeholder="Large" data-test="input-large" />
+              <BaseInput error="This field has an error" data-test="input-error" />
+              <div data-test="input-error-message" class="base-input__error" v-if="true">This field has an error</div>
+              <BaseInput disabled placeholder="Disabled" data-test="input-disabled" />
+            </div>
+          </section>
+
+          <section style="margin-top: 32px;">
+            <h2>Select</h2>
+            <div style="display: flex; flex-direction: column; gap: 16px; max-width: 400px;">
+              <BaseSelect v-model="selectValue" :options="selectOptions" data-test="select-basic" />
+              <BaseSelect v-model="selectValue" :options="selectOptions" data-test="select-with-disabled" />
+            </div>
+          </section>
+
+          <section style="margin-top: 32px;">
+            <h2>Tabs</h2>
+            <BaseTabs v-model="activeTab" :tabs="tabs" data-test="tabs-nav">
+              <div v-if="activeTab === 'first'">First tab content</div>
+              <div v-if="activeTab === 'second'">Second tab content</div>
+              <div v-if="activeTab === 'third'">Third tab content</div>
+            </BaseTabs>
+            <button v-for="tab in tabs" :key="tab.id" :data-test="'tab-' + tab.id" style="display: none;">{{ tab.label }}</button>
+          </section>
+
+          <section style="margin-top: 32px;">
+            <h2>Tags</h2>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <BaseTag data-test="tag-default">Default</BaseTag>
+              <BaseTag variant="success" data-test="tag-success">Success</BaseTag>
+              <BaseTag variant="warning" data-test="tag-warning">Warning</BaseTag>
+              <BaseTag variant="danger" data-test="tag-danger">Danger</BaseTag>
+              <BaseTag variant="up" data-test="tag-up">Up</BaseTag>
+              <BaseTag variant="down" data-test="tag-down">Down</BaseTag>
+              <BaseTag v-if="showClosableTag" closable @close="handleTagClose" data-test="tag-closable">Closable</BaseTag>
+            </div>
+          </section>
+        </div>
+      `
+    }
+
+    createApp(App).mount('#app')
+  </script>
+</body>
+</html>

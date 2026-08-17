@@ -9,6 +9,7 @@ import EvidenceChain from '../components/research/EvidenceChain.vue'
 import DecisionCard from '../components/research/DecisionCard.vue'
 import BacktestDraft from '../components/research/BacktestDraft.vue'
 import BacktestPreview from '../components/research/BacktestPreview.vue'
+import DataQualityBadge from '../components/market/DataQualityBadge.vue'
 
 const route = useRoute()
 
@@ -31,6 +32,7 @@ const activeTab = ref('kline-tech')
       <div class="research-meta">
         <span class="meta-badge">{{ market }}</span>
         <span class="meta-symbol">{{ symbol }}</span>
+        <DataQualityBadge :market="market" :symbol="symbol" />
       </div>
     </div>
 

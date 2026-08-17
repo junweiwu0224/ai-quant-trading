@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, Layers3 } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
+import MarketStatusCard from '../components/market/MarketStatusCard.vue'
 
 type Tool = {
   key: string
@@ -86,6 +87,13 @@ const mobileLabels: Record<Tool['mobile'], string> = {
             </div>
           </article>
         </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <div class="panel-head"><div><h2>全球市场数据能力</h2><p>六市场框架状态与数据能力概览。</p></div></div>
+      <div class="panel-body">
+        <MarketStatusCard />
       </div>
     </section>
 

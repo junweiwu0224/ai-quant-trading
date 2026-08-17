@@ -18,6 +18,36 @@ export async function getDataHealth(fast: boolean = false): Promise<DataHealth> 
   return api.get<DataHealth>('/api/datahub/health', { fast: fast ? 'true' : 'false' })
 }
 
+export interface MarketCapability {
+  code: MarketCode
+  name_zh: string
+  name_en: string
+  status: 'active' | 'limited' | 'unavailable'
+  capabilities: string[]
+  provider: string | null
+  reason: string | null
+  trading_hours: {
+    open: string
+    close: string
+    lunch_start: string | null
+    lunch_end: string | null
+  }
+  timezone: string
+  currency: string
+}
+
+export interface MarketsResponse {
+  success: boolean
+  markets: MarketCapability[]
+  total: number
+  active_count: number
+  generated_at: string
+}
+
+export async function getMarketCapabilities(): Promise<MarketsResponse> {
+  return api.get<MarketsResponse>('/api/market/markets')
+}
+
 // ==================== Decision Matrix ====================
 
 export interface DecisionMatrixParams {

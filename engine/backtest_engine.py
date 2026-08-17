@@ -2,7 +2,7 @@
 import math
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import pandas as pd
 from loguru import logger
@@ -12,6 +12,15 @@ from risk.position import PositionManager
 from risk.stoploss import StopLossManager
 from risk.monitor import RiskAlert, RiskMonitor
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
+from engine.execution_model import (
+    DEFAULT_A_SHARE_EXECUTION_CONTRACT,
+    ExecutionCostModelVersion,
+    ExecutionDataContract,
+    resolve_execution_contract,
+    resolve_execution_cost_model,
+)
+from data.markets import get_market_adapter
+from engine.market_rules import MarketRule, get_market_rule
 
 
 @dataclass
@@ -28,6 +37,12 @@ class BacktestConfig:
     max_drawdown_pct: float = 0.15
     max_single_position_pct: float = 0.20
     daily_loss_pct: float = 0.03
+    cost_model_version: str = "generic-assumption-v1"
+    execution_cost_model: ExecutionCostModelVersion | Mapping[str, Any] | None = None
+    execution_contract: ExecutionDataContract | Mapping[str, Any] | None = None
+    market: str = "CN"
+    market_rule: MarketRule | None = None
+    trading_calendar: Any = None
 
 
 @dataclass
@@ -64,6 +79,8 @@ class BacktestResult:
     per_stock_pnl: list = field(default_factory=list)
     holding_period_stats: dict = field(default_factory=dict)
     turnover_rate: float = 0.0
+    execution_contract: dict = field(default_factory=dict)
+    coverage: dict = field(default_factory=dict)
 
     def summary(self) -> dict:
         return {
@@ -90,6 +107,24 @@ class BacktestEngine:
         risk_monitor: Optional[RiskMonitor] = None,
     ):
         self._config = config or BacktestConfig()
+        self._market_rule = self._config.market_rule or get_market_rule(self._config.market)
+        self._trading_calendar = self._config.trading_calendar or self._market_rule.calendar
+        configured_cost = self._config.execution_cost_model
+        if configured_cost is None:
+            configured_cost = {
+                "version": self._config.cost_model_version,
+                "commission_rate": self._config.commission_rate,
+                "stamp_tax_rate": self._config.stamp_tax_rate,
+                "buy_slippage": self._config.slippage,
+                "sell_slippage": self._config.slippage,
+                "min_commission": 5.0,
+            }
+        self._execution_cost = resolve_execution_cost_model(configured_cost)
+        adapter = get_market_adapter(self._config.market)
+        self._execution_contract = resolve_execution_contract(
+            self._config.execution_contract or adapter.execution_contract(cost_model=self._execution_cost),
+            cost_model=self._execution_cost,
+        )
         self._storage = DataStorage()
         self._industry_map: dict[str, str] = {}
         if self._config.enable_risk:
@@ -139,6 +174,30 @@ class BacktestEngine:
         else:
             return 0.25
 
+    def _is_trading_day(self, when: date) -> bool:
+        try:
+            return bool(self._trading_calendar.is_trading_day(when))
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _bar_block_reason(self, bar: Bar, side: str | None = None) -> str | None:
+        return self._market_rule.execution_block_reason(
+            bar.code,
+            side,
+            open_price=bar.open,
+            close_price=bar.close,
+            volume=bar.volume,
+            pre_close=getattr(self, "_previous_close_by_code", {}).get(bar.code),
+        )
+
+    @staticmethod
+    def _valid_close(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return number if math.isfinite(number) and number > 0 else None
+
     def run(
         self,
         strategy: BaseStrategy,
@@ -172,7 +231,7 @@ class BacktestEngine:
             return BacktestResult(error="数据库中没有足够的历史数据，请选择更晚的开始日期")
 
         # 合并所有日期并排序
-        all_dates = sorted({bar.date for bars in bars_by_code.values() for bar in bars})
+        all_dates = sorted({bar.date for bars in bars_by_code.values() for bar in bars if self._is_trading_day(bar.date)})
 
         # 分离预热期和正式回测期
         warmup_dates = [d for d in all_dates if d < start]
@@ -192,6 +251,7 @@ class BacktestEngine:
 
         portfolio = Portfolio(cash=self._config.initial_cash)
         strategy.init(portfolio)
+        last_close_by_code: dict[str, float] = {}
 
         # 预热期：只运行策略的 on_bar() 方法，不记录权益曲线
         for current_date in warmup_dates:
@@ -204,8 +264,11 @@ class BacktestEngine:
 
             # 推送预热期K线
             for bar in daily_bars.values():
-                if bar.volume > 0 and bar.open > 0:
+                if self._bar_block_reason(bar) is None:
                     strategy.on_bar(bar)
+                close = self._valid_close(bar.close)
+                if close is not None:
+                    last_close_by_code[bar.code] = close
 
         # 正式回测期：运行完整的回测逻辑
         for current_date in backtest_dates:
@@ -217,10 +280,15 @@ class BacktestEngine:
                         break
 
             # 1. 先处理上一日挂单
+            self._previous_close_by_code = dict(last_close_by_code)
             self._match_orders(strategy, portfolio, daily_bars)
 
             # 计算当日价格和权益
-            prices = {code: bar.close for code, bar in daily_bars.items()}
+            prices = {
+                code: self._valid_close(bar.close) or last_close_by_code.get(code, 0.0)
+                for code, bar in daily_bars.items()
+            }
+            prices.update({code: price for code, price in last_close_by_code.items() if code not in prices})
             equity = portfolio.get_total_equity(prices)
 
             # 2. 风控：止损检查
@@ -242,7 +310,7 @@ class BacktestEngine:
             # 5. 推送当日K线（过滤停牌/零成交量）
             if not skip_trading:
                 for bar in daily_bars.values():
-                    if bar.volume > 0 and bar.open > 0:
+                    if self._bar_block_reason(bar) is None:
                         strategy.on_bar(bar)
 
             # 6. 风控：仓位检查 — 过滤不合规的挂单
@@ -256,6 +324,11 @@ class BacktestEngine:
             # 记录权益曲线
             equity = portfolio.get_total_equity(prices)
             portfolio.equity_curve.append({"date": current_date, "equity": equity})
+
+            for code, bar in daily_bars.items():
+                close = self._valid_close(bar.close)
+                if close is not None:
+                    last_close_by_code[code] = close
 
             # 进度回调
             if progress_callback:
@@ -275,6 +348,7 @@ class BacktestEngine:
         # 生成报告
         result = self._generate_report(portfolio, benchmark_curve)
         result.warmup_days = len(warmup_dates)
+        result.coverage = self._coverage(bars_by_code, backtest_dates)
         logger.info(f"回测完成: 总收益 {result.total_return:.2%}, 最大回撤 {result.max_drawdown:.2%}")
         return result
 
@@ -304,6 +378,25 @@ class BacktestEngine:
             ]
             result[code] = bars
         return result
+
+    def _coverage(self, bars_by_code: dict[str, list[Bar]], backtest_dates: list[date]) -> dict[str, Any]:
+        expected_days = len(backtest_dates)
+        expected_set = set(backtest_dates)
+        per_symbol: dict[str, dict[str, Any]] = {}
+        for code, bars in bars_by_code.items():
+            observed = len({bar.date for bar in bars if bar.date in expected_set})
+            per_symbol[code] = {
+                "observed_trading_days": observed,
+                "expected_trading_days": expected_days,
+                "coverage_pct": round(observed / expected_days * 100, 2) if expected_days else 0.0,
+            }
+        return {
+            "calendar": self._execution_contract.calendar_name,
+            "calendar_source": self._execution_contract.calendar_source,
+            "expected_trading_days": expected_days,
+            "observed_trading_days": len(backtest_dates),
+            "per_symbol": per_symbol,
+        }
 
     def _load_benchmark(self, benchmark_code: str, start_date: str, end_date: str) -> list[dict]:
         """加载基准指数数据"""
@@ -413,19 +506,27 @@ class BacktestEngine:
     def _match_orders(self, strategy: BaseStrategy, portfolio: Portfolio, daily_bars: dict[str, Bar]):
         """撮合挂单（以当日开盘价 + 滑点模拟）"""
         pending = strategy.get_pending_orders()
+        deferred = []
         for order in pending:
             bar = daily_bars.get(order.code)
             if bar is None:
+                deferred.append(order)
+                continue
+
+            block_reason = self._bar_block_reason(bar, "buy" if order.direction == Direction.LONG else "sell")
+            if block_reason is not None:
+                deferred.append(order)
                 continue
 
             # 用开盘价 + 滑点计算成交价
             if order.direction == Direction.LONG:
-                fill_price = bar.open * (1 + self._config.slippage)
-                cost = fill_price * order.volume
-                commission = max(cost * self._config.commission_rate, 5.0)
+                fill = self._execution_cost.buy_fill(bar.open, order.volume)
+                fill_price = fill.fill_price
+                cost = fill.gross
+                commission = fill.commission
 
-                if portfolio.cash >= cost + commission:
-                    portfolio.cash -= cost + commission
+                if portfolio.cash >= cost + commission + fill.transfer_fee:
+                    portfolio.cash -= cost + commission + fill.transfer_fee
                     old_vol = portfolio.positions.get(order.code, 0)
                     old_avg = portfolio.avg_prices.get(order.code, 0.0)
                     new_vol = old_vol + order.volume
@@ -456,15 +557,16 @@ class BacktestEngine:
                     order.status = "cancelled"
                     continue
 
-                fill_price = bar.open * (1 - self._config.slippage)
-                revenue = fill_price * actual_vol
-                commission = max(revenue * self._config.commission_rate, 5.0)
-                stamp_tax = revenue * self._config.stamp_tax_rate
+                fill = self._execution_cost.sell_fill(bar.open, actual_vol)
+                fill_price = fill.fill_price
+                revenue = fill.gross
+                commission = fill.commission
+                stamp_tax = fill.stamp_tax
 
                 entry_price = portfolio.avg_prices.get(order.code, fill_price)
                 entry_date = portfolio.entry_dates.get(order.code)
 
-                portfolio.cash += revenue - commission - stamp_tax
+                portfolio.cash += revenue - commission - stamp_tax - fill.transfer_fee
                 portfolio.positions[order.code] = current_pos - actual_vol
                 if portfolio.positions[order.code] == 0:
                     del portfolio.positions[order.code]
@@ -475,6 +577,8 @@ class BacktestEngine:
                 if actual_vol < order.volume:
                     order.status = "partial"
                     logger.warning(f"[{order.code}] 部分成交: 请求 {order.volume}, 实际 {actual_vol}")
+                    order.volume -= actual_vol
+                    deferred.append(order)
                 else:
                     order.status = "filled"
 
@@ -489,6 +593,11 @@ class BacktestEngine:
                     entry_date=entry_date,
                 )
                 strategy.record_trade(trade)
+
+        # ``get_pending_orders`` drains the strategy queue.  Re-queue only
+        # orders that could not legally trade so missing quotes, halts and
+        # directional limit locks naturally defer to a later bar.
+        strategy._pending_orders.extend(deferred)
 
     def _generate_report(
         self, portfolio: Portfolio, benchmark_curve: list[dict] | None = None
@@ -507,8 +616,9 @@ class BacktestEngine:
         total_return = (final - initial) / initial
 
         # 年化收益率
-        days = (dates[-1] - dates[0]).days
-        annual_return = (1 + total_return) ** (365 / max(days, 1)) - 1 if days > 0 else 0.0
+        trading_days = max(len(equities) - 1, 1)
+        annual_days = max(1, self._execution_contract.annualization_days)
+        annual_return = (1 + total_return) ** (annual_days / trading_days) - 1 if total_return > -1 else -1.0
 
         # 最大回撤
         peak = equities[0]
@@ -534,7 +644,7 @@ class BacktestEngine:
         if daily_returns:
             avg_ret = sum(daily_returns) / len(daily_returns)
             std_ret = (sum((r - avg_ret) ** 2 for r in daily_returns) / len(daily_returns)) ** 0.5
-            sharpe = (avg_ret / std_ret * (252 ** 0.5)) if std_ret > 0 else 0.0
+            sharpe = (avg_ret / std_ret * (annual_days ** 0.5)) if std_ret > 0 else 0.0
 
         # Sortino比率（只考虑下行波动率）
         sortino = 0.0
@@ -543,7 +653,7 @@ class BacktestEngine:
             downside = [r for r in daily_returns if r < 0]
             if downside:
                 downside_std = (sum(r ** 2 for r in downside) / len(downside)) ** 0.5
-                sortino = (avg_ret / downside_std * (252 ** 0.5)) if downside_std > 0 else 0.0
+                sortino = (avg_ret / downside_std * (annual_days ** 0.5)) if downside_std > 0 else 0.0
 
         # Calmar比率（年化收益 / 最大回撤）
         calmar = annual_return / max_dd if max_dd > 0 else 0.0
@@ -574,14 +684,14 @@ class BacktestEngine:
                 beta = cov / var_bm if var_bm > 0 else 0.0
 
                 # Alpha = Rp - [Rf + β(Rm - Rf)]，Rf取年化3%
-                rf_daily = 0.03 / 252
-                alpha = (avg_port - rf_daily - beta * (avg_bm - rf_daily)) * 252
+                rf_daily = 0.03 / annual_days
+                alpha = (avg_port - rf_daily - beta * (avg_bm - rf_daily)) * annual_days
 
                 # 信息比率 = 超额收益均值 / 跟踪误差
                 excess = [p - b for p, b in zip(port_ret, bm_ret)]
                 avg_excess = sum(excess) / min_len
                 tracking_error = (sum((e - avg_excess) ** 2 for e in excess) / min_len) ** 0.5
-                info_ratio = (avg_excess / tracking_error * (252 ** 0.5)) if tracking_error > 0 else 0.0
+                info_ratio = (avg_excess / tracking_error * (annual_days ** 0.5)) if tracking_error > 0 else 0.0
 
         # 胜率和盈亏比
         trades = portfolio.trades
@@ -655,6 +765,7 @@ class BacktestEngine:
             per_stock_pnl=extra["per_stock_pnl"],
             holding_period_stats=extra["holding_period_stats"],
             turnover_rate=extra["turnover_rate"],
+            execution_contract=self._execution_contract.as_dict(),
         )
 
 

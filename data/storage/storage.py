@@ -2,6 +2,7 @@
 import hashlib
 import math
 import json
+import os
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -172,6 +173,28 @@ def _normalize_ledger_code(code: str) -> str:
 
 
 STOCK_INFO_CLEANUP_CONFIRMATION = "MERGE_AND_DELETE_STOCK_INFO_DUPLICATES"
+ALERT_TEST_WORKSPACE_ID = "default"
+ALERT_LEGACY_UNASSIGNED_WORKSPACE_ID = "__legacy_unassigned__"
+
+
+def _resolve_alert_workspace_id(workspace_id: str | None) -> str:
+    """Resolve an alert workspace, allowing the legacy test fixture only in tests."""
+
+    value = str(workspace_id or "").strip()
+    if value:
+        return value
+    if os.getenv("APP_ENV", "development").lower() == "test":
+        return ALERT_TEST_WORKSPACE_ID
+    raise ValueError("workspace_id is required")
+
+
+def _alert_workspace_values(workspace_id: str | None) -> tuple[str, ...]:
+    resolved = _resolve_alert_workspace_id(workspace_id)
+    # Existing APP_ENV=test fixtures may have been written before workspace
+    # isolation existed. Keep those rows visible only in the test workspace.
+    if resolved == ALERT_TEST_WORKSPACE_ID and os.getenv("APP_ENV", "development").lower() == "test":
+        return (resolved, "")
+    return (resolved,)
 
 
 class StockDaily(Base):
@@ -293,6 +316,7 @@ class AlertRule(Base):
     name = Column(String(100), default="")
     cooldown = Column(Integer, default=300)  # 冷却秒数
     webhook_url = Column(String(500), default="")  # Webhook 推送地址
+    workspace_id = Column(String(128), nullable=False, index=True, default=ALERT_TEST_WORKSPACE_ID)
     created_at = Column(String(30))
 
 
@@ -395,7 +419,7 @@ class DataStorage:
         try:
             cursor = conn.cursor()
 
-            # alert_rules.webhook_url
+            # alert_rules.webhook_url + workspace_id
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert_rules'")
             if cursor.fetchone():
                 cursor.execute("PRAGMA table_info(alert_rules)")
@@ -403,6 +427,28 @@ class DataStorage:
                 if "webhook_url" not in cols:
                     cursor.execute("ALTER TABLE alert_rules ADD COLUMN webhook_url TEXT DEFAULT ''")
                     logger.info("迁移: alert_rules 添加 webhook_url 列")
+                if "workspace_id" not in cols:
+                    cursor.execute("ALTER TABLE alert_rules ADD COLUMN workspace_id TEXT DEFAULT ''")
+                    logger.info("迁移: alert_rules 添加 workspace_id 列")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_alert_rules_workspace_id "
+                    "ON alert_rules(workspace_id)"
+                )
+                if os.getenv("APP_ENV", "development").lower() == "test":
+                    cursor.execute(
+                        "UPDATE alert_rules SET workspace_id = ? "
+                        "WHERE workspace_id IS NULL OR TRIM(workspace_id) = ''",
+                        (ALERT_TEST_WORKSPACE_ID,),
+                    )
+                else:
+                    # A legacy rule has no trustworthy owner. Keep it in an
+                    # explicit quarantine rather than assigning it to a real
+                    # workspace; an operator must migrate selected rule IDs.
+                    cursor.execute(
+                        "UPDATE alert_rules SET workspace_id = ? "
+                        "WHERE workspace_id IS NULL OR TRIM(workspace_id) = ''",
+                        (ALERT_LEGACY_UNASSIGNED_WORKSPACE_ID,),
+                    )
 
             # stock_daily.adj_factor
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_daily'")
@@ -2121,11 +2167,23 @@ class DataStorage:
 
     # ── 预警规则 CRUD ──
 
-    def get_alert_rules(self, enabled_only: bool = False) -> list[dict]:
-        """获取所有预警规则"""
+    def get_alert_rules(
+        self,
+        enabled_only: bool | str = False,
+        *,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        """获取当前 workspace 的预警规则"""
+        if isinstance(enabled_only, str):
+            if workspace_id is not None:
+                raise ValueError("workspace_id was provided twice")
+            workspace_id = enabled_only
+            enabled_only = False
         session = self._get_session()
         try:
-            query = session.query(AlertRule)
+            query = session.query(AlertRule).filter(
+                AlertRule.workspace_id.in_(_alert_workspace_values(workspace_id))
+            )
             if enabled_only:
                 query = query.filter(AlertRule.enabled == 1)
             rows = query.order_by(AlertRule.id.desc()).all()
@@ -2135,6 +2193,7 @@ class DataStorage:
                     "threshold": r.threshold, "enabled": bool(r.enabled),
                     "name": r.name or "", "cooldown": r.cooldown,
                     "webhook_url": r.webhook_url or "",
+                    "workspace_id": r.workspace_id or "",
                     "created_at": r.created_at or "",
                 }
                 for r in rows
@@ -2142,8 +2201,63 @@ class DataStorage:
         finally:
             session.close()
 
+    def get_alert_workspace_ids(self, enabled_only: bool = False) -> list[str]:
+        """Return workspace IDs that have alert rules for realtime evaluation."""
+
+        session = self._get_session()
+        try:
+            query = session.query(AlertRule.workspace_id).distinct()
+            if enabled_only:
+                query = query.filter(AlertRule.enabled == 1)
+            workspace_ids: set[str] = set()
+            for (raw_workspace_id,) in query.all():
+                value = str(raw_workspace_id or "").strip()
+                if value and value != ALERT_LEGACY_UNASSIGNED_WORKSPACE_ID:
+                    workspace_ids.add(value)
+                elif os.getenv("APP_ENV", "development").lower() == "test":
+                    workspace_ids.add(ALERT_TEST_WORKSPACE_ID)
+            return sorted(workspace_ids)
+        finally:
+            session.close()
+
+    def migrate_legacy_alert_rules(
+        self,
+        rule_ids: list[int] | tuple[int, ...],
+        *,
+        workspace_id: str,
+    ) -> int:
+        """Explicitly assign quarantined legacy rules to one workspace.
+
+        The caller must name both the exact rule IDs and the destination. No
+        implicit user or default-workspace assignment is performed in
+        production.
+        """
+
+        destination = str(workspace_id or "").strip()
+        if not destination or destination == ALERT_LEGACY_UNASSIGNED_WORKSPACE_ID:
+            raise ValueError("workspace_id is required for legacy alert migration")
+        normalized_ids = sorted({int(rule_id) for rule_id in rule_ids if int(rule_id) > 0})
+        if not normalized_ids:
+            return 0
+        session = self._get_session()
+        try:
+            updated = (
+                session.query(AlertRule)
+                .filter(AlertRule.id.in_(normalized_ids))
+                .filter(AlertRule.workspace_id == ALERT_LEGACY_UNASSIGNED_WORKSPACE_ID)
+                .update({AlertRule.workspace_id: destination}, synchronize_session=False)
+            )
+            session.commit()
+            return int(updated or 0)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def add_alert_rule(self, code: str, condition: str, threshold: float,
-                       name: str = "", cooldown: int = 300, webhook_url: str = "") -> int:
+                       name: str = "", cooldown: int = 300, webhook_url: str = "",
+                       *, workspace_id: str | None = None) -> int:
         """添加预警规则，返回 ID"""
         from config.datetime_utils import now_beijing_iso
         session = self._get_session()
@@ -2151,6 +2265,7 @@ class DataStorage:
             rule = AlertRule(
                 code=code, condition=condition, threshold=threshold,
                 enabled=1, name=name, cooldown=cooldown, webhook_url=webhook_url,
+                workspace_id=_resolve_alert_workspace_id(workspace_id),
                 created_at=now_beijing_iso(),
             )
             session.add(rule)
@@ -2163,11 +2278,21 @@ class DataStorage:
         finally:
             session.close()
 
-    def update_alert_rule(self, rule_id: int, **kwargs) -> bool:
-        """更新预警规则"""
+    def update_alert_rule(
+        self,
+        rule_id: int,
+        workspace_id: str | None = None,
+        **kwargs,
+    ) -> bool:
+        """更新当前 workspace 的预警规则"""
         session = self._get_session()
         try:
-            rule = session.query(AlertRule).filter(AlertRule.id == rule_id).first()
+            rule = (
+                session.query(AlertRule)
+                .filter(AlertRule.id == rule_id)
+                .filter(AlertRule.workspace_id.in_(_alert_workspace_values(workspace_id)))
+                .first()
+            )
             if not rule:
                 return False
             for key, val in kwargs.items():
@@ -2182,11 +2307,16 @@ class DataStorage:
         finally:
             session.close()
 
-    def delete_alert_rule(self, rule_id: int) -> bool:
-        """删除预警规则"""
+    def delete_alert_rule(self, rule_id: int, workspace_id: str | None = None) -> bool:
+        """删除当前 workspace 的预警规则"""
         session = self._get_session()
         try:
-            count = session.query(AlertRule).filter(AlertRule.id == rule_id).delete()
+            count = (
+                session.query(AlertRule)
+                .filter(AlertRule.id == rule_id)
+                .filter(AlertRule.workspace_id.in_(_alert_workspace_values(workspace_id)))
+                .delete()
+            )
             session.commit()
             return count > 0
         except Exception as e:

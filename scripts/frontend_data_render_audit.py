@@ -1,4 +1,4 @@
-"""Static risk scan for dashboard frontend data rendering."""
+"""Static risk scan for Vue/TypeScript dashboard data rendering."""
 from __future__ import annotations
 
 import argparse
@@ -44,6 +44,7 @@ NEW_STATEMENT_START = re.compile(
     r"^(?:const|let|var|function|if|for|while|switch|try|catch|class|return|throw|import|export)\b"
 )
 CONTINUATION_START = re.compile(r"^(?:[.`)\]}]|&&|\|\||[+*/%,?:])")
+SOURCE_SUFFIXES = {".js", ".ts", ".vue"}
 
 
 def _is_comment_or_blank(line: str) -> bool:
@@ -216,14 +217,18 @@ def scan_js_text(text: str, file_path: Path) -> list[RenderRisk]:
 
 
 def scan_static_tree(root: Path) -> list[RenderRisk]:
+    """Scan frontend source files while keeping the historical API name."""
+
     root = Path(root)
     if not root.exists():
         raise FileNotFoundError(f"Static audit root does not exist: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"Static audit root is not a directory: {root}")
     risks: list[RenderRisk] = []
-    for path in sorted(root.rglob("*.js")):
-        if "node_modules" in path.parts:
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
+            continue
+        if {"node_modules", "dist"}.intersection(path.parts):
             continue
         relative_path = path.relative_to(root)
         risks.extend(
@@ -252,8 +257,8 @@ def build_report(root: Path) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Audit frontend rendering risk patterns.")
-    parser.add_argument("--root", default="dashboard/static")
+    parser = argparse.ArgumentParser(description="Audit Vue/TypeScript frontend rendering risk patterns.")
+    parser.add_argument("--root", default="dashboard/ui/src")
     parser.add_argument(
         "--output",
         default="test-results/data-display-audit/frontend-static-report.json",

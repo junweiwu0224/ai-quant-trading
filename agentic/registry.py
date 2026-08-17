@@ -48,10 +48,10 @@ class AgentRegistry:
                     ["read_market", "publish_risk_signal"],
                 ),
                 AgentProfile(
-                    "openclaw_research_agent",
-                    "OpenClaw Research Agent",
+                    "ai_research_agent",
+                    "AI Research Agent",
                     "research",
-                    "Synthesizes structured research conclusions.",
+                    "Synthesizes structured research conclusions through the AI Runtime.",
                     ["read_market", "publish_signal", "create_research_job"],
                 ),
             ]

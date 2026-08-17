@@ -8,12 +8,12 @@
 
 - 多个独立 pytest 文件失败，根因可能不同。
 - 后端 API、前端契约、样式/E2E 分属不同文件且边界清楚。
-- 不同数据域的只读影响分析，例如 Signal、OpenClaw、Portfolio、Alpha。
+- 不同数据域的只读影响分析，例如 Signal、AI Runtime、Portfolio、Alpha。
 - 已有 Superpowers 实施计划，任务之间不会修改同一文件或同一状态。
 
 不要并行：
 
-- 同一 `dashboard/static/style.css` 或同一 JS bundle 的竞争性修改。
+- 同一 Vue view、公共 `styles.css` 或同一 API contract 的竞争性修改。
 - 同一 API contract、同一数据库 schema、同一数据迁移链。
 - Signal/Qlib 语义迁移这种需要整体一致性的架构判断。
 - 实盘、交易、权限、凭证、生产配置、外部服务写操作。
@@ -28,11 +28,9 @@
 
 前端可以按页面/数据域拆分，但不要让多个 subagents 同时修改公共加载入口：
 
-- Overview 机会池/雷达/告警：`dashboard/static/overview.js`、`dashboard/static/overview-radar.js`、`dashboard/static/alerts.js`，配套 `tests/test_overview_opportunity_frontend.py` 和 `tests/test_frontend_workflow_contracts.py` 的相关用例。若同时编辑，需要进一步按文件独占拆分。
-- OpenClaw workbench 局部 UI：`dashboard/static/openclaw-workbench.js`、`dashboard/static/openclaw-conversations.js`，配套 `tests/test_openclaw_entry_frontend.py`、相关 frontend contract 和 `tests/e2e/openclaw.spec.cjs` 只读参考。
-- Intelligence/研究页：`dashboard/static/intelligence-market.js`、`dashboard/static/intelligence-iwencai.js`、`dashboard/static/intelligence-qlib.js`，配套 `tests/test_intelligence_market_frontend.py`。
-- Agentic signals/strategy lab：`dashboard/static/agentic-signals.js` 和 `dashboard/templates/index.html` 中 agentic 专属区域，配套 `tests/test_agentic_frontend.py`。如果涉及公共模板大段改动，改为主 agent 串行集成。
-- Stock detail 局部：`dashboard/static/stock-detail-*.js`，配套 stock detail 相关 frontend contract。不要并行修改 `App.openStockDetail` 公共入口。
+- 决策/报告/验证/研究：`dashboard/ui/src/views/DecisionView.vue`、`ReportsView.vue`、`ValidationView.vue`、`ResearchView.vue`，配套 `tests/test_vue_*_contract.py` 和 `dashboard/ui/src/*.spec.ts`。
+- Agent/AI 工作台：`dashboard/ui/src/views/AgentOpsView.vue`、`dashboard/routers/ai.py`、`ai_runtime/*`，配套 `tests/test_ai_*.py`、`tests/test_ai_runtime.py` 和 Vue 契约测试。
+- 更多工具：`dashboard/ui/src/views/MoreView.vue` 与各工具 view；必须保持导航矩阵和安全禁用状态一致。
 
 后端/API/data 可以按独立业务域拆分，但共享状态和生命周期必须由主 agent 串行控制：
 
@@ -44,14 +42,13 @@
 
 不适合并行的共享区域：
 
-- 前端公共运行时/导航/加载链：`dashboard/static/app.js`、`dashboard/static/core/app-shell.js`、`dashboard/static/app-bootstrap.js`、`dashboard/templates/partials/scripts.html`。
-- Service worker/cache busting：`dashboard/static/sw.js`、`scripts.html`、bundle 版本号和加载顺序必须统一处理。
-- 全局共享对象和跨页动作：`window.App`、`App.fetchJSON`、`App.switchTab`、`App.emit/on`、`PollManager`、`GlobalStockStore`、`OpenClawWorkbench`、`Watchlist`、`PaperTrading`。
-- 竞争性 CSS/模板编辑：同一 `dashboard/static/style.css`、同一 `dashboard/templates/index.html` 中相邻 tab、共享 toolbar、共享 id 或 `data-*` action。
+- 前端公共运行时/导航/加载链：`dashboard/ui/src/App.vue`、`router.ts`、`stores/app.ts`、`styles.css`、`dashboard/static/sw.js`。
+- Service worker/cache busting：`dashboard/static/sw.js`、`dashboard/ui/src/main.ts` 和 Vite hashed asset 路径必须统一处理。
+- 全局共享状态和跨页动作：Pinia workspace store、Vue Router、`api/client.ts`、AI task/report 状态和各 view 的安全边界。
 - 共享市场数据 DB/schema/storage：`data/storage/storage.py`、`data/storage/tick_storage.py`、`data/sync/*` 和依赖 `DataStorage` 返回结构的 routers。
 - Dashboard app lifecycle / TestClient health：`dashboard/app.py`、`tests/conftest.py`、`scripts/dashboard_data_health.py`、`tests/test_dashboard_data_health.py`。
 - Paper trading / conditional orders / risk / migration chain：`engine/models.py`、`engine/migrate.py`、`engine/order_manager.py`、`engine/risk_manager.py`、`engine/conditional_order.py`、`dashboard/routers/paper_trading.py`、`dashboard/routers/conditional_orders.py`。
-- Live/broker/external services：`engine/live_engine.py`、`engine/broker.py`、`engine/brokers/*`、OpenClaw/LLM routers/tools。
+- Live/broker/external services：`engine/live_engine.py`、`engine/broker.py`、`engine/brokers/*`、AI Runtime/LLM routers/providers。
 - 跨 router 合同测试：`tests/test_api_v2_full.py`、`tests/test_dashboard.py` 可以只读参考，最终由主 agent 集成验证，不作为多个 subagents 的共同编辑区。
 
 ## Prompt 要求
@@ -69,14 +66,14 @@
 
 前端 prompt 额外要求：
 
-- 明确 owned files，默认禁止改 `dashboard/templates/partials/scripts.html`、`dashboard/static/app.js`、`dashboard/static/core/app-shell.js`、`dashboard/static/app-bootstrap.js`、`dashboard/static/sw.js`，除非该 agent 独占公共入口。
-- 返回新增或依赖的 `window.*`、`App.*`、DOM id、`data-*` action、bundle 版本号和需要主 agent 统一验证的测试。
-- 不得假设脚本是 ES module；本仓库依赖 `defer` 顺序和全局 `App`。
+- 明确 owned files，默认禁止改 `dashboard/ui/src/App.vue`、`router.ts`、`stores/app.ts`、`styles.css` 和 `dashboard/static/sw.js`，除非该 agent 独占公共入口。
+- 返回新增或依赖的 route、Pinia state、API endpoint、权限/资格字段和需要主 agent 统一验证的测试。
+- Vue view 必须保持键盘可达、移动触控目标、loading/empty/error 状态和确定性/AI 边界文案。
 
 后端 prompt 额外要求：
 
 - 默认禁止改 `dashboard/app.py`、`tests/conftest.py`、`data/storage/storage.py`、`engine/migrate.py` 和共享 API contract 测试，除非 prompt 明确列入 ownership。
-- 不得启动长期服务、Docker、数据同步、迁移、外部 API/LLM/OpenClaw/券商调用。
+- 不得启动长期服务、Docker、数据同步、迁移、外部 API/LLM/provider/券商调用。
 - 测试必须使用 `tmp_path`、monkeypatch 或 fake provider，避免写真实 `data/db/`、`data/paper_trading.db` 或凭证配置。
 
 ## 集成检查
@@ -96,7 +93,9 @@
 前端契约集中集：
 
 ```bash
-.venv/bin/python -m pytest tests/test_frontend_workflow_contracts.py tests/test_auth_frontend.py tests/test_overview_opportunity_frontend.py tests/test_openclaw_entry_frontend.py tests/test_intelligence_market_frontend.py tests/test_research_toolbar_frontend.py tests/test_agentic_frontend.py -q
+npm run ui:test
+npm run ui:build
+.venv/bin/python -m pytest tests/test_vue_*_contract.py -q
 ```
 
 后端/API/data 常用集：

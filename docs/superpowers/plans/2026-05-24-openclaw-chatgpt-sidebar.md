@@ -1,5 +1,8 @@
 # OpenClaw ChatGPT Sidebar Implementation Plan
 
+> 状态：**Superseded / retired（2026-08-17）**。这是历史 UI 方案；当前 Dashboard 使用
+> Vue-only AI/Agent 工作区和 first-party AI Runtime，不恢复 OpenClaw sidebar 或其服务依赖。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the OpenClaw page into a To C chat experience with a collapsed right conversation rail, a real stop button beside the composer, and OpenClaw-only conversation history.

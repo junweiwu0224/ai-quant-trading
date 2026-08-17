@@ -30,6 +30,21 @@ class DataScheduler:
         self._provider = provider or AStockDataAdapter()
         self._scheduler = BackgroundScheduler()
 
+    @staticmethod
+    def _feature_enabled(key: str, default: bool = True) -> bool:
+        """Read a process-wide safe fallback for scheduler-only features.
+
+        The scheduler currently has no authenticated workspace context. Keep
+        the global job opt-out explicit while workspace-scoped runs remain
+        controlled by their API/UI settings.
+        """
+        import os
+
+        raw = os.getenv(key, "")
+        if not raw:
+            return default
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
     def _fetch_daily(self, code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         try:
             df = asyncio.run(self._provider.get_kline(code, frequency=9, start=0, offset=800))
@@ -111,6 +126,82 @@ class DataScheduler:
         except Exception as exc:
             logger.error(f"AI 信号覆盖池同步失败: {exc}")
 
+    def run_daily_research(self):
+        """Run the optional daily intelligence workflow per workspace.
+
+        Collection and notification remain inside their existing evidence and
+        Outbox seams. A provider outage is recorded by the workflow and does
+        not stop the ordinary market-data jobs.
+        """
+        if not self._feature_enabled("DAILY_RESEARCH_ENABLED", True):
+            logger.info("每日投研已通过 DAILY_RESEARCH_ENABLED 关闭")
+            return None
+        try:
+            import asyncio
+            from agentic.daily_run import DailyResearchRunService
+            from agentic.repository import DEFAULT_WORKSPACE_ID, AgenticRepository, normalize_workspace_id
+            from config.settings import DB_DIR
+            from data.evidence.store import SQLiteEvidenceStore
+            from engine.events.outbox import SQLiteOutbox
+
+            list_workspaces = getattr(self._storage, "get_all_watchlist_codes", None)
+            if callable(list_workspaces):
+                raw_workspaces = list_workspaces()
+            else:
+                # Keep older storage doubles and pre-workspace deployments
+                # usable, but route this compatibility path to the explicit
+                # default workspace instead of a shared global repository.
+                raw_workspaces = [("", self._storage.get_watchlist())]
+
+            workspace_watchlists: dict[str, list[str]] = {}
+            for raw_workspace_id, codes in raw_workspaces or []:
+                normalized_workspace_id = normalize_workspace_id(
+                    raw_workspace_id or DEFAULT_WORKSPACE_ID
+                )
+                unique_codes = list(dict.fromkeys(str(code).strip() for code in (codes or []) if str(code).strip()))
+                if unique_codes:
+                    workspace_watchlists.setdefault(normalized_workspace_id, [])
+                    workspace_watchlists[normalized_workspace_id].extend(unique_codes)
+
+            for workspace_id, codes in workspace_watchlists.items():
+                workspace_watchlists[workspace_id] = list(dict.fromkeys(codes))
+
+            if not workspace_watchlists:
+                logger.info("自选股为空，跳过每日投研")
+                return None
+
+            results = []
+            for workspace_id, watchlist in sorted(workspace_watchlists.items()):
+                service = DailyResearchRunService(
+                    SQLiteEvidenceStore(DB_DIR / "evidence.db"),
+                    AgenticRepository.for_workspace(workspace_id, base_dir=DB_DIR),
+                    SQLiteOutbox(DB_DIR / "events.db"),
+                    workspace_id=workspace_id,
+                    owner=f"daily-research:{workspace_id}",
+                )
+                legacy_key = "daily:%s:%s" % (today_beijing_compact(), ",".join(sorted(watchlist)))
+                run_key = (
+                    legacy_key
+                    if workspace_id == DEFAULT_WORKSPACE_ID
+                    else f"workspace:{workspace_id}:{legacy_key}"
+                )
+                try:
+                    result = asyncio.run(service.run(watchlist=watchlist, run_key=run_key))
+                    results.append(result)
+                    logger.info(
+                        "每日投研完成: workspace=%s run_key=%s reports=%s",
+                        workspace_id,
+                        run_key,
+                        result.brief.report_count,
+                    )
+                finally:
+                    service.evidence_store.close()
+                    service.outbox.close()
+            return results
+        except Exception as exc:
+            logger.error(f"每日投研失败（不影响行情同步）: {exc}")
+            return None
+
     def start(self):
         """启动后台定时调度（非阻塞）"""
         if self._scheduler.running:
@@ -126,6 +217,12 @@ class DataScheduler:
             trigger=CronTrigger(hour=SYNC_HOUR, minute=(SYNC_MINUTE + 10) % 60, day_of_week="mon-fri"),
             id="qlib_daily_sync",
             name="每日 AI 信号覆盖池同步",
+        )
+        self._scheduler.add_job(
+            self.run_daily_research,
+            trigger=CronTrigger(hour=SYNC_HOUR, minute=(SYNC_MINUTE + 20) % 60, day_of_week="mon-fri"),
+            id="daily_research",
+            name="每日情报投研与日报",
         )
         self._scheduler.start()
         logger.info(f"后台调度器已启动，每个交易日 {SYNC_HOUR}:{SYNC_MINUTE:02d} 同步自选股和 AI 信号覆盖池")

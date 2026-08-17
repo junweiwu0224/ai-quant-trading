@@ -41,6 +41,7 @@ class OrderManager:
         price: Optional[float] = None,
         strategy_name: Optional[str] = None,
         signal_reason: Optional[str] = None,
+        operation_id: Optional[str] = None,
     ) -> PaperOrder:
         """创建订单"""
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
@@ -61,7 +62,7 @@ class OrderManager:
         )
 
         # 保存到数据库
-        self._save_order(order)
+        self._save_order(order, operation_id=operation_id)
 
         logger.info(
             f"[订单创建] {order_id} {direction.value} {code} "
@@ -69,6 +70,100 @@ class OrderManager:
         )
 
         return order
+
+    def create_orders_in_transaction(
+        self,
+        conn,
+        orders: list[PaperOrder],
+        *,
+        operation_id: Optional[str] = None,
+        operation_request_hash: Optional[str] = None,
+    ) -> list[PaperOrder]:
+        """Persist paper orders on a caller-owned transaction."""
+
+        if not orders:
+            return []
+        for order in orders:
+            self._validate_order(order.code, order.direction, order.order_type, order.volume, order.price)
+            conn.execute(
+                """INSERT INTO paper_orders
+                (order_id, code, direction, order_type, price, volume, status,
+                 filled_price, filled_volume, commission, stamp_tax, slippage,
+                 strategy_name, signal_reason, operation_id, operation_request_hash,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    order.order_id, order.code, order.direction.value,
+                    order.order_type.value, order.price, order.volume,
+                    order.status.value, order.filled_price, order.filled_volume,
+                    order.commission, order.stamp_tax, order.slippage,
+                    order.strategy_name, order.signal_reason, operation_id, operation_request_hash,
+                    order.created_at.isoformat(), order.updated_at.isoformat(),
+                ),
+            )
+        return orders
+
+    def create_orders_idempotently(
+        self,
+        orders: list[PaperOrder],
+        *,
+        operation_id: str,
+        operation_request_hash: Optional[str] = None,
+    ) -> list[PaperOrder]:
+        """Create or recover a paper-order batch by its durable operation id.
+
+        The paper database is deliberately a separate adapter from Agentic DB.
+        This method is the recovery seam for the case where paper orders commit
+        first and the Agentic execution projection has to be repaired later.
+        """
+
+        operation_id = str(operation_id or "").strip()
+        if not operation_id:
+            raise ValueError("operation_id is required")
+        conn = self._get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT * FROM paper_orders WHERE operation_id = ? ORDER BY created_at ASC, order_id ASC",
+                (operation_id,),
+            ).fetchall()
+            if rows:
+                if operation_request_hash:
+                    for row in rows:
+                        stored_hash = row["operation_request_hash"]
+                        if stored_hash and stored_hash != operation_request_hash:
+                            raise ValueError("operation_id was already used for different paper-order facts")
+                return [self._row_to_order(row) for row in rows]
+
+            persisted = self.create_orders_in_transaction(
+                conn,
+                orders,
+                operation_id=operation_id,
+                operation_request_hash=operation_request_hash,
+            )
+            conn.commit()
+            return persisted
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_orders_by_operation(self, operation_id: str) -> list[PaperOrder]:
+        operation_id = str(operation_id or "").strip()
+        if not operation_id:
+            raise ValueError("operation_id is required")
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM paper_orders WHERE operation_id = ? ORDER BY created_at ASC, order_id ASC",
+                (operation_id,),
+            ).fetchall()
+            if not rows:
+                raise KeyError("paper orders not found for operation: %s" % operation_id)
+            return [self._row_to_order(row) for row in rows]
+        finally:
+            conn.close()
 
     def cancel_order(self, order_id: str) -> PaperOrder:
         """撤销订单（原子操作，防止 TOCTOU 竞态）"""
@@ -317,7 +412,7 @@ class OrderManager:
             self._update_order(order)
             return None
 
-    def _save_order(self, order: PaperOrder):
+    def _save_order(self, order: PaperOrder, *, operation_id: Optional[str] = None, operation_request_hash: Optional[str] = None):
         """保存订单到数据库"""
         conn = self._get_conn()
         try:
@@ -325,14 +420,15 @@ class OrderManager:
                 """INSERT INTO paper_orders
                 (order_id, code, direction, order_type, price, volume, status,
                  filled_price, filled_volume, commission, stamp_tax, slippage,
-                 strategy_name, signal_reason, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 strategy_name, signal_reason, operation_id, operation_request_hash,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     order.order_id, order.code, order.direction.value,
                     order.order_type.value, order.price, order.volume,
                     order.status.value, order.filled_price, order.filled_volume,
                     order.commission, order.stamp_tax, order.slippage,
-                    order.strategy_name, order.signal_reason,
+                    order.strategy_name, order.signal_reason, operation_id, operation_request_hash,
                     order.created_at.isoformat(), order.updated_at.isoformat(),
                 )
             )

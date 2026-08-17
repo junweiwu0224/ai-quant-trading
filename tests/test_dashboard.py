@@ -13,7 +13,9 @@ class TestPages:
     def test_index(self):
         res = client.get("/")
         assert res.status_code == 200
-        assert "AI 量化交易系统" in res.text
+        assert "AI Quant 决策工作台" in res.text
+        assert '<div id="app"></div>' in res.text
+        assert "/app/assets/" in res.text
 
     def test_old_routes_removed(self):
         """旧的多页面路由应返回 404"""

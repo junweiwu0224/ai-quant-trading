@@ -6,7 +6,7 @@
 
 ## 背景
 
-系统原来把机会池、数据中枢、情报页、估值和部分 OpenClaw 工具都直接绑定到
+系统原来把机会池、数据中枢、情报页和估值都直接绑定到
 `Qlib` 命名和预测缓存。当前实现实际并不是完整 pyqlib 训练栈，而是本地
 `stock_daily` 生成的轻量动量分数；继续把它称为 Qlib 会误导用户，也会让未验证
 信号在决策链路里被过度背书。
@@ -21,7 +21,7 @@ Qlib 外壳。
 - 新增 `data/signals/` 作为运行时 AI 信号边界。
 - 新增 `/api/signals/top`、`/api/signals/health`、`/api/signals/validation`、`/api/signals/consistency`。
 - 现有 `/api/qlib/*` 保留为 legacy adapter，继续返回旧字段，避免历史前端和策略断裂。
-- DataHub、估值、情报页和 OpenClaw 新入口优先使用 Signal Engine 语义。
+- DataHub、估值、情报页、Agent 和 AI Runtime 新入口优先使用 Signal Engine 语义。
 - 未完成历史验证的信号必须降权，并在风险标签中显示 `AI未验证`。
 
 ## 主要取舍
@@ -40,7 +40,7 @@ Qlib 外壳。
 
 ## 影响
 
-- 正面影响：机会池、市场情报、估值和 OpenClaw 工具的用户语义更真实；未验证信号不会再被当成强预测。
+- 正面影响：机会池、市场情报、估值、Agent 和 AI Runtime 的用户语义更真实；未验证信号不会再被当成强预测。
 - 负面影响 / 风险：旧 `qlib_*` 字段仍可能被新代码误用；未来清理时要保留 API 兼容或提供迁移期。
 - 需要同步修改的地方：Agentic 策略候选、模拟盘策略名称、旧 `/api/qlib/train` 训练入口和历史文档。
 

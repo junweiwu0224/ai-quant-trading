@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.egg-info/
 dist/
+!dashboard/ui/dist/
+!dashboard/ui/dist/**
 build/
 *.egg
 .eggs/
@@ -62,7 +64,7 @@ data/qlib/models/
 data/qlib/predictions_cache.json
 data/qlib/sync_status.json
 data/sync/*_status.json
-data/openclaw/
+data/backups/
 models/
 
 # Claude local workspace artifacts

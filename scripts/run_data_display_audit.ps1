@@ -84,7 +84,7 @@ function Invoke-BrowserAudit {
       "test",
       "--config=playwright.config.cjs",
       "--output=test-results/playwright-data-health",
-      "tests/e2e/data-display-health.spec.cjs"
+      "tests/e2e/vue-workspace-health.spec.cjs"
     ) `
     -WorkingDirectory $Root `
     -RedirectStandardOutput $browserLog `
@@ -109,7 +109,7 @@ function Invoke-BrowserAudit {
   if ($null -eq $exitCode) {
     $reportPath = Join-Path $ReportDir "browser-report.json"
     $report = Read-JsonReport -Path $reportPath
-    if ($report -and -not $report.runError -and @($report.hardFindings).Count -eq 0) {
+    if ($report -and -not $report.runError -and @($report.routes).Count -gt 0 -and @($report.consoleErrors).Count -eq 0 -and @($report.pageErrors).Count -eq 0 -and @($report.routes | ForEach-Object { $_.hardMatches }).Count -eq 0) {
       $exitCode = 0
     } else {
       $exitCode = 1

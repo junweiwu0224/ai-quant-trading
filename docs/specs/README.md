@@ -7,7 +7,7 @@
 ## 使用时机
 
 - 大型产品功能或新功能区域。
-- 跨模块长期能力，例如 Agentic 平台、Signal Engine 演进、OpenClaw 权限体系。
+- 跨模块长期能力，例如 Agentic 平台、Signal Engine 演进、AI Runtime 权限体系。
 - 大范围重构、迁移、安全敏感改造。
 - 用户明确要求 spec/spec-kit。
 
@@ -16,6 +16,11 @@
 ```text
 YYYY-MM-DD-topic.md
 ```
+
+当前规格：
+
+- [决策与自动报告平台重构](2026-08-14-decision-platform-refactor.md)（Accepted）
+- [DSA 能力选择性吸收](2026-08-13-dsa-capability-absorption.md)（Superseded，保留历史基线）
 
 ## 流程
 

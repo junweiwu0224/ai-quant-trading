@@ -1,4 +1,4 @@
-"""User, workspace, permission, audit, and OpenClaw metadata storage."""
+"""User, workspace, permission, audit, and Agent metadata storage."""
 from __future__ import annotations
 
 import hashlib
@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from config.settings import ACCOUNT_DB_PATH
+from config.settings import ACCOUNT_DB_PATH, parse_bool
 from utils.db import get_connection
 
 
@@ -37,12 +37,18 @@ DEFAULT_PERMISSIONS = {
 ADMIN_PERMISSIONS = {key: True for key in DEFAULT_PERMISSIONS}
 DEFAULT_WORKSPACE_SETTINGS = {
     "native_panel_mode": "iframe",
+    "daily_research_enabled": True,
+    "screening_enabled": True,
+    "daily_brief_notifications_enabled": False,
+    # Decision automation stays explicitly off until the combination has a
+    # verified preview, validated history, healthy data, and tested targets.
+    "decision_worker_enabled": False,
+    "decision_auto_push_enabled": False,
     "tool_confirmations": {
         "write_paper_trade": True,
         "manage_skills": True,
         "write_watchlist": True,
     },
-    "openclaw_setup_completed": False,
 }
 
 
@@ -174,7 +180,6 @@ class AccountStore:
                     user_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     slug TEXT NOT NULL UNIQUE,
-                    openclaw_workspace_id TEXT NOT NULL,
                     settings_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -226,7 +231,7 @@ class AccountStore:
                     UNIQUE (workspace_id, trade_date)
                 );
 
-                CREATE TABLE IF NOT EXISTS openclaw_skill_records (
+                CREATE TABLE IF NOT EXISTS agent_skill_records (
                     id TEXT PRIMARY KEY,
                     workspace_id TEXT NOT NULL,
                     name TEXT NOT NULL,
@@ -261,8 +266,11 @@ class AccountStore:
                     ON research_memories(workspace_id, updated_at DESC);
                 """
             )
+            self._migrate_workspace_schema(conn)
+            self._migrate_agent_skill_schema(conn)
             self._migrate_invite_schema(conn)
             self._migrate_skill_request_schema(conn)
+            self._clean_workspace_settings(conn)
             conn.commit()
             self._bootstrap_invite_code(conn)
         finally:
@@ -270,6 +278,64 @@ class AccountStore:
 
     def _table_columns(self, conn, table: str) -> set[str]:
         return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+    def _migrate_workspace_schema(self, conn) -> None:
+        """Remove retired provider-specific workspace identifiers in place."""
+
+        columns = self._table_columns(conn, "user_workspaces")
+        retired_columns = {name for name in columns if name.endswith("_workspace_id")}
+        if not retired_columns:
+            return
+        conn.execute("DROP TABLE IF EXISTS user_workspaces_new")
+        conn.execute(
+            """CREATE TABLE user_workspaces_new (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO user_workspaces_new
+            (id, user_id, name, slug, settings_json, created_at, updated_at)
+            SELECT id, user_id, name, slug, settings_json, created_at, updated_at
+            FROM user_workspaces"""
+        )
+        conn.execute("DROP TABLE user_workspaces")
+        conn.execute("ALTER TABLE user_workspaces_new RENAME TO user_workspaces")
+
+    def _migrate_agent_skill_schema(self, conn) -> None:
+        """Preserve historical skill records while removing retired table names."""
+
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        retired_tables = sorted(
+            name for name in tables
+            if name.endswith("_skill_records") and name != "agent_skill_records"
+        )
+        for table in retired_tables:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+                continue
+            conn.execute(
+                f"""INSERT OR IGNORE INTO agent_skill_records
+                (id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at)
+                SELECT id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at
+                FROM \"{table}\""""
+            )
+            conn.execute(f'DROP TABLE "{table}"')
+
+    def _clean_workspace_settings(self, conn) -> None:
+        for row in conn.execute("SELECT id, settings_json FROM user_workspaces").fetchall():
+            settings = self._normalize_workspace_settings(safe_json_loads(row["settings_json"], {}))
+            conn.execute(
+                "UPDATE user_workspaces SET settings_json = ? WHERE id = ?",
+                (json.dumps(settings, ensure_ascii=False), row["id"]),
+            )
 
     def _migrate_invite_schema(self, conn) -> None:
         invite_columns = self._table_columns(conn, "invite_codes")
@@ -425,7 +491,6 @@ class AccountStore:
             "user_id": row["user_id"],
             "name": row["name"],
             "slug": row["slug"],
-            "openclaw_workspace_id": row["openclaw_workspace_id"],
             "settings": settings,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -433,19 +498,31 @@ class AccountStore:
 
     def _normalize_workspace_settings(self, settings: dict[str, Any] | None) -> dict[str, Any]:
         source = dict(settings or {})
+        for key in tuple(source):
+            if key == "vue_app_default" or key.endswith("_setup_completed"):
+                source.pop(key, None)
         merged = {
             **DEFAULT_WORKSPACE_SETTINGS,
             **source,
         }
+        source_confirmations = source.get("tool_confirmations")
+        if not isinstance(source_confirmations, dict):
+            source_confirmations = {}
         confirmations = {
             **DEFAULT_WORKSPACE_SETTINGS["tool_confirmations"],
-            **(merged.get("tool_confirmations") or {}),
+            **source_confirmations,
         }
+        for key, default in DEFAULT_WORKSPACE_SETTINGS["tool_confirmations"].items():
+            confirmations[key] = parse_bool(source_confirmations[key]) if key in source_confirmations else default
         merged["tool_confirmations"] = confirmations
-        if "openclaw_setup_completed" in source:
-            merged["openclaw_setup_completed"] = bool(source.get("openclaw_setup_completed"))
-        else:
-            merged["openclaw_setup_completed"] = bool(source)
+        for key in (
+            "daily_research_enabled",
+            "screening_enabled",
+            "daily_brief_notifications_enabled",
+            "decision_worker_enabled",
+            "decision_auto_push_enabled",
+        ):
+            merged[key] = parse_bool(source[key]) if key in source else DEFAULT_WORKSPACE_SETTINGS[key]
         return merged
 
     def _user_count(self, conn) -> int:
@@ -455,17 +532,15 @@ class AccountStore:
         workspace_id = str(uuid.uuid4())
         slug = f"{re.sub(r'[^a-z0-9-]+', '-', username.lower()).strip('-')}-{workspace_id[:8]}"
         now = iso_now()
-        openclaw_workspace_id = f"ocw_{workspace_id.replace('-', '')[:20]}"
         conn.execute(
             """INSERT INTO user_workspaces
-            (id, user_id, name, slug, openclaw_workspace_id, settings_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, user_id, name, slug, settings_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 workspace_id,
                 user_id,
-                "我的龙虾工作区",
+                "我的量化工作区",
                 slug,
-                openclaw_workspace_id,
                 json.dumps(self._normalize_workspace_settings(DEFAULT_WORKSPACE_SETTINGS), ensure_ascii=False),
                 now,
                 now,
@@ -865,7 +940,7 @@ class AccountStore:
                 """INSERT OR REPLACE INTO workspace_permissions
                 (workspace_id, permission_key, allowed, updated_at)
                 VALUES (?, ?, ?, ?)""",
-                (workspace_id, key, int(bool(allowed)), iso_now()),
+                (workspace_id, key, int(parse_bool(allowed)), iso_now()),
             )
             conn.commit()
             return self.get_permissions(workspace_id)
@@ -913,32 +988,6 @@ class AccountStore:
             return self._row_to_workspace(row)
         finally:
             conn.close()
-
-    def get_workspace_by_openclaw_workspace_id(self, openclaw_workspace_id: str) -> dict | None:
-        conn = self._conn()
-        try:
-            row = conn.execute(
-                "SELECT * FROM user_workspaces WHERE openclaw_workspace_id = ?",
-                (openclaw_workspace_id,),
-            ).fetchone()
-            return self._row_to_workspace(row)
-        finally:
-            conn.close()
-
-    def get_user_bundle_by_openclaw_workspace_id(self, openclaw_workspace_id: str) -> dict | None:
-        workspace = self.get_workspace_by_openclaw_workspace_id(openclaw_workspace_id)
-        if not workspace:
-            return None
-        user = self.get_user_by_id(workspace["user_id"])
-        if not user or user.get("disabled"):
-            return None
-        if user["role"] == "admin":
-            self._ensure_admin_permissions(workspace["id"])
-        return {
-            "user": user,
-            "workspace": workspace,
-            "permissions": self.get_permissions(workspace["id"]),
-        }
 
     def record_audit(
         self,
@@ -1172,7 +1221,7 @@ class AccountStore:
         conn = self._conn()
         try:
             conn.execute(
-                """INSERT INTO openclaw_skill_records
+                """INSERT INTO agent_skill_records
                 (id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(workspace_id, name) DO UPDATE SET
@@ -1202,7 +1251,7 @@ class AccountStore:
         conn = self._conn()
         try:
             row = conn.execute(
-                "SELECT * FROM openclaw_skill_records WHERE workspace_id = ? AND name = ?",
+                "SELECT * FROM agent_skill_records WHERE workspace_id = ? AND name = ?",
                 (workspace_id, name),
             ).fetchone()
             if not row:
@@ -1217,7 +1266,7 @@ class AccountStore:
         conn = self._conn()
         try:
             rows = conn.execute(
-                "SELECT * FROM openclaw_skill_records WHERE workspace_id = ? ORDER BY updated_at DESC",
+                "SELECT * FROM agent_skill_records WHERE workspace_id = ? ORDER BY updated_at DESC",
                 (workspace_id,),
             ).fetchall()
             result = []

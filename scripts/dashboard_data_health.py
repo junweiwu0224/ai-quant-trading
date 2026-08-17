@@ -98,7 +98,6 @@ _AUDIT_ACCOUNT = {
         "user_id": "dashboard-data-health-audit",
         "name": "Dashboard Data Health Audit",
         "slug": "dashboard-data-health-audit",
-        "openclaw_workspace_id": "ocw_dashboard_data_health_audit",
         "settings": {},
         "created_at": "1970-01-01T00:00:00+00:00",
         "updated_at": "1970-01-01T00:00:00+00:00",

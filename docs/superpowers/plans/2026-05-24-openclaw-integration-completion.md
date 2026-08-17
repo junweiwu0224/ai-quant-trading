@@ -1,5 +1,10 @@
 # OpenClaw Integration Completion Plan
 
+> 状态：**Superseded / retired（2026-08-17）**。这是历史实施记录，不再是当前任务计划；
+> OpenClaw runtime、sidecar、路由、工具桥和页面已移除。当前实现请参阅
+> `docs/specs/2026-08-14-decision-platform-refactor.md` 与
+> `docs/specs/2026-08-17-vue-feature-equivalence-matrix.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish the OpenClaw integration so invite-based auth, per-user workspaces, service startup, tool bridging, memory/report/skill storage, and the OpenClaw UI all work end-to-end.

@@ -1,0 +1,1 @@
+import{p as a}from"./index-Cq_Cq5zj.js";async function r(t=!1){return a.get("/api/datahub/health",{fast:t?"true":"false"})}async function s(){return a.get("/api/market/markets")}export{s as a,r as g};

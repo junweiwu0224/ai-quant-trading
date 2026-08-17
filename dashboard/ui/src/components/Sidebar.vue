@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Bell, Boxes, ChevronRight, FileText, FlaskConical, BarChart3, LayoutDashboard, Settings, X, Moon, Sun } from 'lucide-vue-next'
+import { Bell, Boxes, ChevronRight, FileText, FlaskConical, BarChart3, LayoutDashboard, Settings, X, Moon, Sun, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 import { useTheme } from '../composables/useTheme'
+import { useTokenUsage } from '../composables/useTokenUsage'
 
 defineProps<{
   open: boolean
@@ -11,10 +12,12 @@ defineProps<{
 
 const emit = defineEmits<{
   close: []
+  'open-token-panel': []
 }>()
 
 const store = useAppStore()
 const { isDark, toggleTheme } = useTheme()
+const tokenUsage = useTokenUsage()
 
 const nav = [
   { to: '/app/decision', label: '决策中心', icon: LayoutDashboard },
@@ -27,8 +30,24 @@ const nav = [
 
 const themeIcon = computed(() => isDark.value ? Sun : Moon)
 
+// Today's token count for badge
+const todayTokens = computed(() => {
+  const records = tokenUsage.getTodayUsage()
+  return records.reduce((sum, r) => sum + r.inputTokens + r.outputTokens, 0)
+})
+
+const formatTokenCount = (count: number) => {
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`
+  return count.toString()
+}
+
 function handleNavClick() {
   emit('close')
+}
+
+function handleTokenPanelClick() {
+  emit('open-token-panel')
 }
 </script>
 
@@ -63,6 +82,11 @@ function handleNavClick() {
     <div class="nav-section-title">工作区</div>
 
     <nav class="secondary-nav" aria-label="工作区导航">
+      <button class="nav-link nav-button" @click="handleTokenPanelClick">
+        <Sparkles :size="18" />
+        <span>Token 用量</span>
+        <span v-if="todayTokens > 0" class="token-badge">{{ formatTokenCount(todayTokens) }}</span>
+      </button>
       <RouterLink to="/app/settings" class="nav-link" @click="handleNavClick">
         <Settings :size="18" />
         <span>设置</span>
@@ -251,6 +275,29 @@ function handleNavClick() {
 
 .legacy-link:hover {
   color: var(--color-text-secondary);
+}
+
+.nav-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+  position: relative;
+}
+
+.token-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  background: var(--color-accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  min-width: 20px;
+  text-align: center;
 }
 
 .icon-button {

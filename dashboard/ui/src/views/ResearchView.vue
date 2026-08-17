@@ -7,6 +7,8 @@ import KLineChart from '../components/research/KLineChart.vue'
 import TechnicalIndicators from '../components/research/TechnicalIndicators.vue'
 import EvidenceChain from '../components/research/EvidenceChain.vue'
 import DecisionCard from '../components/research/DecisionCard.vue'
+import BacktestDraft from '../components/research/BacktestDraft.vue'
+import BacktestPreview from '../components/research/BacktestPreview.vue'
 
 const route = useRoute()
 
@@ -51,9 +53,9 @@ const activeTab = ref('kline-tech')
 
       <!-- 回测草案 Tab -->
       <div v-else-if="activeTab === 'backtest'" class="tab-content">
-        <div class="empty-state">
-          <p class="empty-state-title">开发中...</p>
-          <p class="empty-state-text">回测草案模块即将上线</p>
+        <div class="backtest-layout">
+          <BacktestDraft :market="market" :symbol="symbol" />
+          <BacktestPreview :market="market" :symbol="symbol" />
         </div>
       </div>
     </BaseTabs>
@@ -136,6 +138,13 @@ const activeTab = ref('kline-tech')
   gap: var(--spacing-xl);
 }
 
+.backtest-layout {
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: var(--spacing-lg);
+  align-items: start;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -187,6 +196,10 @@ const activeTab = ref('kline-tech')
 
   .evidence-layout {
     gap: var(--spacing-lg);
+  }
+
+  .backtest-layout {
+    grid-template-columns: 1fr;
   }
 
   .empty-state {

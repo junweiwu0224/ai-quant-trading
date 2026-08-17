@@ -5,6 +5,8 @@ import BaseTabs from '../components/base/BaseTabs.vue'
 import type { Tab } from '../components/base/BaseTabs.vue'
 import KLineChart from '../components/research/KLineChart.vue'
 import TechnicalIndicators from '../components/research/TechnicalIndicators.vue'
+import EvidenceChain from '../components/research/EvidenceChain.vue'
+import DecisionCard from '../components/research/DecisionCard.vue'
 
 const route = useRoute()
 
@@ -41,9 +43,9 @@ const activeTab = ref('kline-tech')
 
       <!-- 证据与决策 Tab -->
       <div v-else-if="activeTab === 'evidence'" class="tab-content">
-        <div class="empty-state">
-          <p class="empty-state-title">开发中...</p>
-          <p class="empty-state-text">证据与决策模块即将上线</p>
+        <div class="evidence-layout">
+          <EvidenceChain :market="market" :symbol="symbol" />
+          <DecisionCard :market="market" :symbol="symbol" />
         </div>
       </div>
 
@@ -128,6 +130,12 @@ const activeTab = ref('kline-tech')
   gap: var(--spacing-lg);
 }
 
+.evidence-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -175,6 +183,10 @@ const activeTab = ref('kline-tech')
 
   .research-layout {
     gap: var(--spacing-md);
+  }
+
+  .evidence-layout {
+    gap: var(--spacing-lg);
   }
 
   .empty-state {

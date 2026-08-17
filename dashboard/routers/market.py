@@ -1,6 +1,7 @@
 """市场雷达 API
 
 端点：
+- GET /api/markets            — 市场能力清单（六市场状态与数据能力）
 - GET /api/market/radar       — 综合雷达（涨跌幅/振幅/换手率/量比 TOP 10）
 - GET /api/market/breadth     — 全市场涨跌广度（本地 stock_daily 覆盖池）
 - GET /api/market/sectors     — 板块轮动排名
@@ -14,11 +15,13 @@ from datetime import timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter
 from loguru import logger
+from pydantic import BaseModel
 
+from config.settings import MARKETS
 from data.collector.cache import TTLCache
 from data.collector.http_client import fetch_json
 from data.signals.engine import build_signal_context
@@ -30,7 +33,32 @@ _TTL_RADAR = 30   # 30 秒缓存
 _TTL_BREADTH = 60
 _TTL_SECTOR = 60
 _TTL_NORTH = 120
+_TTL_MARKETS = 300  # 5 分钟缓存
 _MIN_LOCAL_INDUSTRY_COVERAGE = 0.5
+
+
+# ── Market Capability Models ──
+
+class TradingHours(BaseModel):
+    """交易时间"""
+    open: str
+    close: str
+    lunch_start: str | None = None
+    lunch_end: str | None = None
+
+
+class MarketCapability(BaseModel):
+    """市场能力声明"""
+    code: Literal["CN", "HK", "US", "JP", "KR", "TW"]
+    name_zh: str
+    name_en: str
+    status: Literal["active", "limited", "unavailable"]
+    capabilities: list[str]  # 日线/分时/盘口/实时/历史
+    provider: str | None
+    reason: str | None = None  # 未接入原因
+    trading_hours: TradingHours
+    timezone: str
+    currency: str
 
 # 上一次成功数据（休市时回退用）
 _last_radar: dict | None = None
@@ -341,6 +369,55 @@ def _build_market_breadth_result() -> dict[str, Any]:
         "coverage_note": "基于本地 stock_daily 全量覆盖池的最新/上一交易日涨跌统计",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+# ── Market Capability Endpoints ──
+
+@router.get("/markets")
+async def get_markets():
+    """获取所有市场能力清单（六市场状态与数据能力声明）"""
+    cache_key = "markets_capability"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        markets_list = []
+        for market_code, config in MARKETS.items():
+            capability = MarketCapability(
+                code=config["code"],
+                name_zh=config["name_zh"],
+                name_en=config["name_en"],
+                status=config["status"],
+                capabilities=config.get("capabilities", []),
+                provider=config.get("provider"),
+                reason=config.get("reason"),
+                trading_hours=TradingHours(**config["trading_hours"]),
+                timezone=config["timezone"],
+                currency=config["currency"],
+            )
+            markets_list.append(capability.model_dump())
+
+        result = {
+            "success": True,
+            "markets": markets_list,
+            "total": len(markets_list),
+            "active_count": len([m for m in markets_list if m["status"] == "active"]),
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+
+        _cache.set(cache_key, result, _TTL_MARKETS)
+        return result
+    except Exception as e:
+        logger.error(f"获取市场能力清单失败: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "markets": [],
+            "total": 0,
+            "active_count": 0,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+        }
 
 
 @router.get("/breadth")

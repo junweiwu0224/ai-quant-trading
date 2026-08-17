@@ -101,3 +101,102 @@ QLIB_SERVICE_URL = os.getenv("QLIB_SERVICE_URL", "http://localhost:8002")
 QLIB_PRED_CACHE = PROJECT_ROOT / "data" / "qlib" / "predictions_cache.json"
 QLIB_SYNC_STATUS = PROJECT_ROOT / "data" / "qlib" / "sync_status.json"
 FULL_STOCK_DAILY_SYNC_STATUS = PROJECT_ROOT / "data" / "sync" / "full_stock_daily_status.json"
+
+# ── 多市场配置 ──
+MARKETS = {
+    "CN": {
+        "code": "CN",
+        "name_zh": "A股",
+        "name_en": "China A-shares",
+        "status": "active",
+        "capabilities": ["日线", "实时"],
+        "provider": "akshare",
+        "trading_hours": {
+            "open": "09:30",
+            "close": "15:00",
+            "lunch_start": "11:30",
+            "lunch_end": "13:00",
+        },
+        "timezone": "Asia/Shanghai",
+        "currency": "CNY",
+    },
+    "HK": {
+        "code": "HK",
+        "name_zh": "港股",
+        "name_en": "Hong Kong",
+        "status": "unavailable",
+        "capabilities": [],
+        "provider": None,
+        "reason": "数据源未接入",
+        "trading_hours": {
+            "open": "09:30",
+            "close": "16:00",
+            "lunch_start": "12:00",
+            "lunch_end": "13:00",
+        },
+        "timezone": "Asia/Hong_Kong",
+        "currency": "HKD",
+    },
+    "US": {
+        "code": "US",
+        "name_zh": "美股",
+        "name_en": "US Stocks",
+        "status": "unavailable",
+        "capabilities": [],
+        "provider": None,
+        "reason": "数据源未接入",
+        "trading_hours": {
+            "open": "09:30",
+            "close": "16:00",
+        },
+        "timezone": "America/New_York",
+        "currency": "USD",
+    },
+    "JP": {
+        "code": "JP",
+        "name_zh": "日股",
+        "name_en": "Japan",
+        "status": "unavailable",
+        "capabilities": [],
+        "provider": None,
+        "reason": "数据源未接入",
+        "trading_hours": {
+            "open": "09:00",
+            "close": "15:00",
+            "lunch_start": "11:30",
+            "lunch_end": "12:30",
+        },
+        "timezone": "Asia/Tokyo",
+        "currency": "JPY",
+    },
+    "KR": {
+        "code": "KR",
+        "name_zh": "韩股",
+        "name_en": "South Korea",
+        "status": "unavailable",
+        "capabilities": [],
+        "provider": None,
+        "reason": "数据源未接入",
+        "trading_hours": {
+            "open": "09:00",
+            "close": "15:30",
+        },
+        "timezone": "Asia/Seoul",
+        "currency": "KRW",
+    },
+    "TW": {
+        "code": "TW",
+        "name_zh": "台股",
+        "name_en": "Taiwan",
+        "status": "unavailable",
+        "capabilities": [],
+        "provider": None,
+        "reason": "数据源未接入",
+        "trading_hours": {
+            "open": "09:00",
+            "close": "13:30",
+        },
+        "timezone": "Asia/Taipei",
+        "currency": "TWD",
+    },
+}

@@ -782,8 +782,50 @@ async def datahub_health(
         except Exception:
             valuation_covered = 0
 
+    # ── 多市场健康状态 ──
+    from config.settings import MARKETS
+
+    markets_health = {}
+    for market_code, config in MARKETS.items():
+        if market_code == "CN":
+            # CN 市场详细健康检查
+            cn_status = "healthy"
+            if stock_count == 0:
+                cn_status = "degraded"
+            elif stock_daily.get("total", 0) == 0:
+                cn_status = "unavailable"
+
+            # 计算覆盖率
+            coverage = 0.0
+            if stock_daily.get("total", 0) > 0:
+                coverage = stock_daily.get("covered", 0) / stock_daily["total"]
+
+            markets_health[market_code] = {
+                "status": cn_status,
+                "provider": config.get("provider"),
+                "last_update": datetime.now().isoformat(timespec="seconds"),
+                "coverage": round(coverage, 2),
+                "capabilities": config.get("capabilities", []),
+                "stock_count": stock_count,
+            }
+        else:
+            # 其他市场未接入
+            markets_health[market_code] = {
+                "status": "unavailable",
+                "reason": config.get("reason", "数据源未接入"),
+            }
+
+    # 整体健康状态
+    overall_status = "healthy"
+    if markets_health.get("CN", {}).get("status") != "healthy":
+        overall_status = "degraded"
+    if all(m.get("status") == "unavailable" for m in markets_health.values()):
+        overall_status = "unavailable"
+
     return {
         "success": True,
+        "status": overall_status,
+        "markets": markets_health,
         "stock_count": stock_count,
         "stock_daily": stock_daily,
         "stock_info_integrity": stock_info_integrity,

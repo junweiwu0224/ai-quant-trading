@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { ArrowLeft, Layers3 } from 'lucide-vue-next'
+import { ArrowLeft, Layers3, TrendingUp, PieChart, Shield, GitBranch, Sparkles, Code2, Bot, Settings } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import MarketStatusCard from '../components/market/MarketStatusCard.vue'
+import BaseCard from '../components/base/BaseCard.vue'
+
+type SubPage = {
+  key: string
+  name: string
+  description: string
+  route: string
+  icon: any
+  status: 'migration' | 'active'
+}
 
 type Tool = {
   key: string
@@ -15,6 +25,17 @@ type Tool = {
   capability: 'read-only' | 'manual-confirmation' | 'disabled'
   mobile: 'responsive' | 'wide-workspace'
 }
+
+const subPages: SubPage[] = [
+  { key: 'paper', name: '模拟盘交易', description: '完整的模拟交易环境，用于验证策略和训练交易技能', route: '/app/more/paper', icon: TrendingUp, status: 'migration' },
+  { key: 'portfolio', name: '持仓优化', description: '基于现代投资组合理论的持仓分析与优化建议', route: '/app/more/portfolio', icon: PieChart, status: 'migration' },
+  { key: 'risk', name: '风险监控', description: '实时风险指标监控与预警系统', route: '/app/more/risk', icon: Shield, status: 'migration' },
+  { key: 'conditional-orders', name: '条件单', description: '智能条件单设置与执行监控', route: '/app/more/conditional-orders', icon: GitBranch, status: 'migration' },
+  { key: 'alpha', name: 'Alpha 因子', description: '因子研究、回测与组合优化平台', route: '/app/more/alpha', icon: Sparkles, status: 'migration' },
+  { key: 'strategy', name: '策略工作台', description: '策略开发、回测与版本管理的集成环境', route: '/app/more/strategy', icon: Code2, status: 'migration' },
+  { key: 'agent-ops', name: 'Agent 运维', description: 'AI Agent 监控、任务管理与运维工具', route: '/app/more/agent-ops', icon: Bot, status: 'migration' },
+  { key: 'ai-runtime', name: 'AI Runtime 配置', description: 'AI 模型、Provider 与 Token 使用管理', route: '/app/more/ai-runtime', icon: Settings, status: 'migration' },
+]
 
 const tools: Tool[] = [
   { key: 'market-radar', name: '市场雷达与机会池', description: '在决策中心读取市场雷达、自选池和数据健康，统一显示来源和当前状态。', group: '行情', api: '/api/market/radar?fast=true', route: '/app/decision', historicalPath: '/#overview', status: 'native-workflow', capability: 'read-only', mobile: 'responsive' },
@@ -64,6 +85,36 @@ const mobileLabels: Record<Tool['mobile'], string> = {
 
     <section class="panel">
       <div class="panel-head">
+        <div><h2>高级功能模块</h2><p>专业交易与研究工具的快速访问入口。</p></div>
+        <span class="tag good">{{ subPages.length }} 个模块</span>
+      </div>
+      <div class="panel-body">
+        <div class="subpage-grid">
+          <RouterLink v-for="page in subPages" :key="page.key" :to="page.route" class="subpage-card-link">
+            <BaseCard hoverable padding="lg">
+              <div class="subpage-card">
+                <div class="subpage-icon">
+                  <component :is="page.icon" :size="24" />
+                </div>
+                <div class="subpage-content">
+                  <div class="subpage-header">
+                    <h3>{{ page.name }}</h3>
+                    <span v-if="page.status === 'migration'" class="status-badge migration">迁移中</span>
+                  </div>
+                  <p>{{ page.description }}</p>
+                </div>
+                <div class="subpage-arrow">
+                  <ArrowLeft :size="16" style="transform:rotate(180deg)" />
+                </div>
+              </div>
+            </BaseCard>
+          </RouterLink>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <div class="panel-head">
         <div><h2>功能覆盖矩阵</h2><p>每项能力都直达一个可用的 Vue 工作流，并保留接口映射、桌面/移动状态和明确的读写安全说明。</p></div>
         <span class="tag good">{{ tools.length }} 个 Vue 工作流</span>
       </div>
@@ -103,3 +154,109 @@ const mobileLabels: Record<Tool['mobile'], string> = {
     </section>
   </section>
 </template>
+
+<style scoped>
+.subpage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.subpage-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.subpage-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-lg);
+  min-height: 100px;
+}
+
+.subpage-icon {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-accent-pale);
+  color: var(--color-accent);
+  border-radius: var(--radius-lg);
+}
+
+.subpage-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.subpage-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.subpage-header h3 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.subpage-content p {
+  font-size: var(--font-size-sm);
+  color: var(--color-ink-soft);
+  line-height: var(--line-height-relaxed);
+  margin: 0;
+}
+
+.subpage-arrow {
+  flex-shrink: 0;
+  color: var(--color-ink-faint);
+  opacity: 0;
+  transition: all var(--duration-normal) var(--ease-smooth);
+}
+
+.subpage-card-link:hover .subpage-arrow {
+  opacity: 1;
+  transform: translateX(4px);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.status-badge.migration {
+  background-color: var(--color-warn-bg);
+  color: var(--color-warn);
+  border: 1px solid var(--color-warn);
+}
+
+@media (max-width: 768px) {
+  .subpage-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+
+  .subpage-card {
+    gap: var(--spacing-md);
+  }
+
+  .subpage-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .subpage-header h3 {
+    font-size: var(--font-size-base);
+  }
+}
+</style>

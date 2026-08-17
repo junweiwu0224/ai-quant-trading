@@ -1,35 +1,11 @@
-/* AI Quant Service Worker — 离线缓存 + 资源预缓存 */
+/* AI Quant Service Worker — Vue shell offline cache */
 
-const CACHE_NAME = 'ai-quant-v161';
+const CACHE_NAME = 'ai-quant-vue-v1';
 const STATIC_ASSETS = [
-    '/static/style.css',
-    '/static/paper-trading.css',
+    '/app/decision',
     '/static/manifest.json',
     '/static/icons/icon-192.svg',
     '/static/icons/icon-512.svg',
-    '/static/core/global-this-shim.js',
-    '/static/core/poll-manager.js',
-    '/static/core/intent-bus.js',
-    '/static/core/global-stock-store.js',
-    '/static/core/action-registry.js',
-    '/static/core/degraded-mode.js',
-    '/static/core/right-rail-controller.js',
-    '/static/core/panel-lifecycle.js',
-    '/static/core/business-adapter.js',
-    '/static/core/api-client.js',
-    '/static/core/stock-search-service.js',
-    '/static/core/stock-actions.js',
-    '/static/core/local-mcp.js',
-    '/static/core/command-palette.js',
-    '/static/utils.js',
-    '/static/search.js',
-    '/static/watchlist.js',
-    '/static/realtime.js',
-    '/static/charts.js',
-    '/static/app.js',
-    '/static/app-stock-ops.js',
-    '/static/app-ui-shell.js',
-    '/static/app-bootstrap.js',
 ];
 
 const CDN_ASSETS = [
@@ -69,7 +45,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // WebSocket 请求直接放行
+    // WebSocket 请求直接放行。
     if (url.protocol === 'ws:' || url.protocol === 'wss:') return;
 
     // API 请求：network-first（离线时返回缓存）
@@ -78,14 +54,14 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 版本化静态资源：network-first，避免开发/升级后继续吃旧缓存
-    if (url.pathname.startsWith('/static/') && url.search) {
-        event.respondWith(networkFirst(event.request));
+    // Small PWA assets remain available after the first successful visit.
+    if (url.pathname === '/static/manifest.json' || url.pathname.startsWith('/static/icons/')) {
+        event.respondWith(cacheFirst(event.request));
         return;
     }
 
-    // 静态资源：cache-first
-    if (url.pathname.startsWith('/static/')) {
+    // Vite emits immutable, hashed assets under this path.
+    if (url.pathname.startsWith('/app/assets/')) {
         event.respondWith(cacheFirst(event.request));
         return;
     }

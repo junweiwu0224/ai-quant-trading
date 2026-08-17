@@ -1,5 +1,7 @@
+import pytest
+
 from agentic.models import PaperStrategyCandidate, PaperStrategyExecution
-from agentic.paper_strategy_candidates import PaperStrategyCandidateService
+from agentic.paper_strategy_candidates import PaperOrderRecoveryRequired, PaperStrategyCandidateService
 from agentic.repository import AgenticRepository
 from agentic.strategy_candidates import StrategyCandidateGenerator
 from engine.order_manager import OrderManager
@@ -147,12 +149,29 @@ def test_paper_strategy_candidate_service_confirms_candidate_without_ordering(tm
         sample={"codes": ["000001"], "start_date": "2024-01-01", "end_date": "2024-03-31", "trading_days": 60},
     )
 
-    confirmed = service.confirm(record.id)
+    confirmed = service.confirm(record.id, operation_id="candidate-confirm-1", confirmed_by="user-1")
 
     assert confirmed.id == record.id
     assert confirmed.status == "paper_active"
     assert confirmed.requires_confirmation is False
     assert repo.list_paper_strategy_candidates()[0].status == "paper_active"
+
+
+def test_paper_strategy_candidate_confirmation_replays_and_rejects_fact_conflicts(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"]})
+
+    first = service.confirm(record.id, operation_id="candidate-replay-1", confirmed_by="user-1")
+    replay = service.confirm(record.id, operation_id="candidate-replay-1", confirmed_by="user-1")
+    assert replay == first
+
+    try:
+        service.confirm(record.id, operation_id="candidate-replay-1", confirmed_by="user-2")
+    except Exception as exc:
+        assert "different command facts" in str(exc)
+    else:
+        raise AssertionError("candidate operation id must not be reused with changed facts")
 
 
 def test_paper_strategy_candidate_service_rejects_persisted_candidate_without_signal_validation_on_confirm(tmp_path):
@@ -258,6 +277,42 @@ def test_paper_strategy_execution_confirm_passes_risk_gate(tmp_path):
     assert confirmed.status == "paper_intent_confirmed"
     assert confirmed.requires_confirmation is False
     assert "risk gate passed" in confirmed.reason
+
+
+def test_paper_strategy_execution_confirmation_replays_and_rejects_fact_conflicts(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    service = PaperStrategyCandidateService(repo)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+    facts = {"cash_pct": 0.05}
+    first = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context=facts,
+        operation_id="execution-confirm-replay-1",
+        confirmed_by="user-1",
+    )
+    replay = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context=facts,
+        operation_id="execution-confirm-replay-1",
+        confirmed_by="user-1",
+    )
+    assert replay == first
+    try:
+        service.confirm_execution(
+            execution.id,
+            portfolio={"total_equity": 100000, "positions": {}},
+            risk_context={"cash_pct": 0.06},
+            operation_id="execution-confirm-replay-1",
+            confirmed_by="user-1",
+        )
+    except Exception as exc:
+        assert "different command facts" in str(exc)
+    else:
+        raise AssertionError("execution operation id must not be reused with changed facts")
 
 
 def test_paper_strategy_execution_confirm_rejects_linked_candidate_without_signal_validation(tmp_path):
@@ -415,3 +470,42 @@ def test_real_paper_orders_require_confirmed_execution(tmp_path):
         assert "paper_intent_confirmed" in str(exc)
     else:
         raise AssertionError("unconfirmed execution should not submit real orders")
+
+
+def test_real_paper_order_write_can_recover_after_agentic_projection_failure(tmp_path, monkeypatch):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    order_manager = OrderManager(str(tmp_path / "paper_trading.db"))
+    service = PaperStrategyCandidateService(repo, order_manager=order_manager)
+    record = service.enqueue(_promoted_result(), sample={"codes": ["000001"], "trading_days": 60})
+    service.confirm(record.id)
+    execution = service.run_active(record.id)
+    confirmed = service.confirm_execution(
+        execution.id,
+        portfolio={"total_equity": 100000, "positions": {}},
+        risk_context={"cash_pct": 0.05},
+    )
+    operation_id = "paper-order-recovery-1"
+    original_record = repo.record_paper_strategy_execution_operation
+    calls = {"count": 0}
+
+    def fail_once(*args, **kwargs):
+        if calls["count"] == 0:
+            calls["count"] += 1
+            raise RuntimeError("agentic projection unavailable")
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(repo, "record_paper_strategy_execution_operation", fail_once)
+    with pytest.raises(PaperOrderRecoveryRequired) as raised:
+        service.submit_confirmed_execution_orders(confirmed.id, operation_id=operation_id)
+    assert raised.value.operation_id == operation_id
+    assert order_manager.get_orders(page_size=10)["total"] == 1
+    assert repo.get_paper_strategy_execution(confirmed.id).status == "paper_intent_confirmed"
+
+    monkeypatch.setattr(repo, "record_paper_strategy_execution_operation", original_record)
+    recovered = service.submit_confirmed_execution_orders(confirmed.id, operation_id=operation_id)
+
+    assert len(recovered) == 1
+    assert repo.get_paper_strategy_execution(confirmed.id).status == "paper_orders_submitted"
+    operation = repo.get_operation(operation_id)
+    assert operation.result["recovered"] is True
+    assert order_manager.get_orders(page_size=10)["total"] == 1

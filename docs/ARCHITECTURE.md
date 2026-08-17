@@ -39,11 +39,11 @@ quant-trading-system/
 │   ├── position/            # 仓位管理
 │   ├── stoploss/            # 止损规则（固定/跟踪/ATR/回撤）
 │   └── monitor/             # 风险监控
-├── dashboard/               # 可视化层（FastAPI + Jinja2 SPA）
+├── dashboard/               # 可视化层（FastAPI + Vue 3 SPA）
 │   ├── app.py               # FastAPI 入口（含 lifespan 调度器）
 │   ├── routers/             # API 路由（17 组，120+ 端点）
-│   ├── templates/           # HTML 模板
-│   └── static/              # 前端资源（35 个 JS/CSS 模块）
+│   ├── ui/                  # Vue 3/TypeScript/Vite 应用
+│   └── static/              # PWA manifest、图标和 Service Worker
 ├── engine/                  # 引擎集成层
 │   ├── backtest_engine.py   # 回测引擎
 │   ├── paper_engine.py      # 模拟盘引擎
@@ -199,14 +199,14 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 
 ### 3.6 可视化层 (dashboard/)
 
-**职责：** Web 界面，SPA 架构，8 个功能 Tab + 多个子页面。
+**职责：** Web 界面，Vue SPA 架构，决策、报告、研究和高级工具工作流。
 
-**技术栈：** FastAPI + Jinja2 + Vanilla JS + Chart.js v4 + KlineCharts v9
+**技术栈：** FastAPI + Vue 3 + TypeScript + Vite + Pinia + Vue Router + lucide-vue-next
 
-**设计系统：** 暖灰色系设计
-- 主色 `#8b8680`，CSS 变量驱动，支持亮色/深色双主题
-- 侧边栏 240px / 折叠 68px，响应式断点 768px/1024px/480px
-- 玻璃态模态框、骨架屏加载
+**设计系统：** 克制的青绿色决策工作台
+- `dashboard/ui/src/styles.css` 统一维护浅色/深色 token、语义状态色和焦点样式
+- 桌面左侧导航、移动底部导航，所有核心按钮和表单控件保持 44px 触控尺寸
+- 报告使用独立阅读布局，研究和验证使用固定尺寸 SVG/表格区域，避免布局漂移
 
 **Tab 页面：**
 
@@ -303,8 +303,8 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | 数据库 | SQLite + SQLAlchemy |
 | AI/ML | LightGBM, XGBoost, Optuna, SHAP |
 | NLP | SnowNLP, OpenAI-compatible LLM |
-| Web 框架 | FastAPI + Jinja2 |
-| 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
+| Web 框架 | FastAPI 同源托管 Vue 3 |
+| 前端 | TypeScript + Vite + Pinia + Vue Router + lucide-vue-next |
 | 任务调度 | APScheduler |
 | 容器化 | Docker + docker-compose |
 | 反向代理 | Nginx + Cloudflare CDN |
@@ -467,3 +467,67 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 ---
 
 *文档版本: v4.0 | 日期: 2026-05-09*
+
+## 9. 决策与自动报告平台（2026-08-14）
+
+决策平台叠加在既有数据、策略、回测和模拟盘之上，不复制第二套交易引擎。其核心闭环为：
+
+```text
+workspace/watchlist -> decision portfolio -> frozen snapshot
+                   -> deterministic decision -> immutable report
+                   -> outbox -> worker-owned channel delivery
+```
+
+### 9.1 运行所有权
+
+- `dashboard/app.py` 是控制面；默认不启动调度器和通知 consumer。
+- `scripts/run_worker.py` 启动独立 `DecisionWorker`，通过 `worker_leases.db` 取得单一 lease，
+  负责定时准备、发送、完成 bar 轮询和 decision/report outbox 投递。
+- Dashboard 的旧 `DataScheduler` 和 legacy 通知 consumer 只在
+  `DASHBOARD_BACKGROUND_WORKER=true` 且 `WORKER_OWNERSHIP=dashboard-legacy` 时启动，
+  并共享同一 ownership lease；默认控制面不会启动它们。
+- `decision/store.py` 使用独立 `decisions.db` 保存组合、版本、快照、运行、决策、报告、目标、
+  路由、投递尝试和分享链接。配置变更创建新版本，已引用报告不回写。
+- `DECISION_WORKER_ENABLED`、`DECISION_EXTERNAL_DELIVERY_ENABLED` 和 workspace 的 Vue 默认入口
+  都默认关闭；Worker 丢失 lease 或进入 draining 时不继续执行外部副作用。
+
+### 9.2 复现和推送资格
+
+- `DecisionRuntime` 只从冻结 snapshot 计算确定性动作；上一动作也在 snapshot 封存；AI commentary
+  是附加解释，不进入动作、状态机或 fingerprint。
+- 报告 fingerprint 包含输入/版本 hash、市场能力、策略权重、数据质量 envelope、验证/资格摘要、
+  证据和逐成员决策；`replay_report()` 不重新抓取行情，恢复 replay 使用同一冻结投影。
+- 自动推送必须同时满足成功预览、walk-forward 硬门槛、当前数据健康、市场 adapter/provider
+  qualification 和每个目标的受控测试。手动分析不被这些门禁锁死。
+- 通知渠道 adapter 当前覆盖企业微信机器人、PushPlus、飞书群机器人和 QQ 官方机器人；当前实现
+  只接受 `env://变量名` 受保护引用，真实 endpoint/secret 不进入数据库、日志或报告；未启用外部
+  投递时不会伪造成功。公开分享页只投影脱敏后的 AI 补充件和投递状态。
+
+### 9.3 多市场与恢复
+
+- `data/markets.py` / `decision/market.py` 由 adapter 声明交易时区、日历、日线/盘中粒度、费用、
+  公司行动和 provider 状态。市场在 UI 中可见不等于已具备自动推送资格；无合格盘中 provider
+  的市场只能手动日线研究。
+- `backup/manager.py` 使用 SQLite online backup、写屏障、manifest/hash 和内容寻址附件；
+  `scripts/restore_decisions.py` 只在隔离目录恢复，并可按 decision id replay。恢复不连接 provider、
+  通知、LLM 或交易接口。
+
+### 9.4 前端迁移
+
+`dashboard/ui/` 是 Vue 3/TypeScript/Vite/Pinia/Router 的同源应用，承载决策、报告、单股研究、
+验证、通知、设置和 `/app/more/*` 高级工具矩阵。旧 Jinja/Vanilla 壳已退役，旧 query/hash 链接由
+Vue Router 和 FastAPI 保留兼容映射。该节描述的是当前决策平台边界，不能替代对真实 provider、
+Webhook、Docker、cloudflared 和券商的联调证据。
+
+### 9.5 AI/Agent Runtime 与跨进程状态
+
+- `ai_runtime/` 负责冻结上下文、Agent/LLM 任务、SSE 事件、结构化研究报告、会话和 provider
+  降级；它只产生 `authoritative=false`、`decision_effect=none` 的研究 artifact。
+- `dashboard/routers/ai.py` 是控制面 API；生产任务由 `scripts/run_ai_worker.py` 启动的独立
+  `ai-worker` 获取 lease 执行。Dashboard 不因查询状态而拥有 AI 任务执行权，`AI_INLINE_EXECUTION`
+  只用于开发环境的显式本地运行。
+- `data/db/ai_runtime.db` 中的 `ai_provider_runtime` 是 Dashboard 与 `ai-worker` 共享的、脱敏的
+  provider readiness 投影，保存最近状态、错误码、检查时间和有限的尝试记录。密钥、prompt、响应正文
+  和 endpoint secret 不写入该投影。
+- provider 的“已配置”与“已验证”严格分离；没有真实成功调用时只能显示
+  `configured_unverified`，失败显示 `configured_recent_failure`，均不获得确定性决策或自动推送资格。

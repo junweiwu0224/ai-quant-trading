@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import os
 import time
 import threading
 from dataclasses import dataclass, field
@@ -22,6 +23,20 @@ class AlertEventOutbox(Protocol):
     """Outbox seam used to make alert delivery durable and replayable."""
 
     def publish(self, event) -> str: ...
+
+
+ALERT_TEST_WORKSPACE_ID = "default"
+
+
+def _resolve_workspace_id(workspace_id: str | None) -> str:
+    """Resolve an engine workspace and fail closed outside test compatibility."""
+
+    value = str(workspace_id or "").strip()
+    if value:
+        return value
+    if os.getenv("APP_ENV", "development").lower() == "test":
+        return ALERT_TEST_WORKSPACE_ID
+    raise ValueError("workspace_id is required")
 
 
 # ── 规则定义 ──
@@ -38,6 +53,7 @@ class AlertRule:
     name: str = ""
     cooldown: int = 300  # 冷却秒数，默认 5 分钟
     webhook_url: str = ""  # Webhook 推送地址
+    workspace_id: str = ALERT_TEST_WORKSPACE_ID
 
 
 @dataclass
@@ -51,6 +67,7 @@ class Alert:
     current_value: float
     message: str
     timestamp: float = field(default_factory=time.time)
+    workspace_id: str = ALERT_TEST_WORKSPACE_ID
 
     def to_dict(self) -> dict:
         return {
@@ -62,6 +79,7 @@ class Alert:
             "current_value": round(self.current_value, 2),
             "message": self.message,
             "timestamp": self.timestamp,
+            "workspace_id": self.workspace_id,
         }
 
 
@@ -103,9 +121,15 @@ _CONDITION_LABELS = {
 class AlertEngine:
     """预警规则引擎"""
 
-    def __init__(self, outbox: AlertEventOutbox | None = None):
+    def __init__(
+        self,
+        outbox: AlertEventOutbox | None = None,
+        *,
+        workspace_id: str | None = None,
+    ):
+        self.workspace_id = _resolve_workspace_id(workspace_id)
         self._rules: list[AlertRule] = []
-        self._cooldown_map: dict[str, float] = {}  # "rule_id:code" -> last_trigger_ts
+        self._cooldown_map: dict[str, float] = {}  # "workspace:rule_id:code" -> last_trigger_ts
         self._triggered: list[Alert] = []
         self._outbox = outbox
         self._lock = threading.RLock()
@@ -113,14 +137,17 @@ class AlertEngine:
     def set_rules(self, rules: list[AlertRule]):
         """设置规则列表"""
         with self._lock:
-            self._rules = [r for r in rules if r.enabled]
+            self._rules = [
+                r for r in rules
+                if r.enabled and self._rule_workspace_id(r) == self.workspace_id
+            ]
         logger.info(f"预警规则已更新: {len(self._rules)} 条生效")
 
     def add_rule(self, rule: AlertRule):
         """添加单条规则"""
         with self._lock:
             self._rules = [r for r in self._rules if r.id != rule.id]
-            if rule.enabled:
+            if rule.enabled and self._rule_workspace_id(rule) == self.workspace_id:
                 self._rules.append(rule)
 
     def remove_rule(self, rule_id: int):
@@ -165,7 +192,7 @@ class AlertEngine:
                 continue
 
             # 冷却检查
-            cd_key = f"{rule.id}:{rule.code}"
+            cd_key = f"{self.workspace_id}:{rule.id}:{rule.code}"
             last_trigger = self._cooldown_map.get(cd_key, 0)
             if now - last_trigger < rule.cooldown:
                 continue
@@ -183,6 +210,7 @@ class AlertEngine:
                 threshold=rule.threshold,
                 current_value=current_val,
                 message=f"{name or rule.code} {label} {rule.threshold}，当前 {current_val:.2f}",
+                workspace_id=self.workspace_id,
             )
             if self._outbox is not None:
                 from engine.events.models import DomainEvent, utc_now
@@ -191,9 +219,11 @@ class AlertEngine:
                     self._outbox.publish(
                         DomainEvent.create(
                             "market.alert.triggered",
-                            f"{rule.id}:{rule.code}",
+                            f"{self.workspace_id}:{rule.id}:{rule.code}",
                             {**alert.to_dict(), "webhook_url": rule.webhook_url},
-                            idempotency_key=f"alert:{rule.id}:{rule.code}:{int(now)}",
+                            idempotency_key=(
+                                f"alert:{self.workspace_id}:{rule.id}:{rule.code}:{int(now)}"
+                            ),
                             occurred_at=utc_now(),
                         )
                     )
@@ -216,7 +246,16 @@ class AlertEngine:
 
     def get_recent_alerts(self, limit: int = 50) -> list[dict]:
         """获取最近触发的预警"""
-        return [a.to_dict() for a in self._triggered[-limit:]]
+        with self._lock:
+            return [a.to_dict() for a in self._triggered[-limit:]]
+
+    def _rule_workspace_id(self, rule: AlertRule) -> str:
+        raw_workspace_id = str(getattr(rule, "workspace_id", "") or "").strip()
+        if raw_workspace_id:
+            return raw_workspace_id
+        if os.getenv("APP_ENV", "development").lower() == "test":
+            return ALERT_TEST_WORKSPACE_ID
+        return ""
 
     @staticmethod
     def _fire_webhook(url: str, alert: Alert):

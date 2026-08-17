@@ -82,6 +82,29 @@ def test_repository_saves_and_gets_research_jobs(tmp_path):
     assert restored.code == "605066"
 
 
+def test_repository_persists_daily_brief_read_model(tmp_path):
+    from agentic.daily_workflow import DailyBrief
+
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    brief = DailyBrief(
+        snapshot_id="snapshot-1",
+        captured_at="2026-08-13T08:00:00Z",
+        watchlist=("600000",),
+        evidence_count=2,
+        promotions=(),
+        event_id="event-1",
+        research_jobs=("research-1",),
+        report_count=1,
+        markdown="# brief",
+        run_key="daily:2026-08-13:600000",
+    )
+
+    repo.save_daily_brief(brief)
+
+    assert repo.get_daily_brief(brief.run_key)["markdown"] == "# brief"
+    assert repo.list_daily_briefs(trade_date="2026-08-13")[0]["event_id"] == "event-1"
+
+
 def test_repository_saves_and_lists_paper_strategy_candidates(tmp_path):
     from agentic.models import PaperStrategyCandidate
 
@@ -121,3 +144,33 @@ def test_repository_saves_and_gets_candidate_backtest_results(tmp_path):
     assert result_id.startswith("candidate_result_")
     assert restored_result == result
     assert restored_sample == sample
+
+
+def test_repository_reads_screening_run_and_candidate_history_actions(tmp_path):
+    repo = AgenticRepository(tmp_path / "agentic.db")
+    candidate = {
+        "code": "600000.SH",
+        "candidate_id": "screen_1:600000",
+        "rank": 1,
+        "source_context": {"source": "fixture", "run_id": "screen_1"},
+        "next_actions": [{"id": "research", "code": "600000", "label": "发起研究"}],
+    }
+    repo.save_screening_run(
+        {
+            "run_id": "screen_1",
+            "strategy_namespace": "screening",
+            "strategy_name": "fixture",
+            "status": "completed",
+            "source": "fixture",
+            "source_health": {"status": "ok"},
+            "candidates": [candidate],
+            "total": 1,
+        }
+    )
+
+    restored = repo.get_screening_run("screen_1")
+    history = repo.list_screening_candidate_history("600000", limit=5)
+
+    assert restored["candidates"][0]["source_context"]["run_id"] == "screen_1"
+    assert history[0]["strategy_name"] == "fixture"
+    assert repo.list_screening_candidate_actions("screen_1", "600000.SH")[0]["id"] == "research"

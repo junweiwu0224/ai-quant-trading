@@ -55,12 +55,47 @@ watch(() => store.market, (market) => {
 </script>
 
 <template>
-  <RouterView v-if=”standalone || authRoute” />
-  <AuthView v-else-if=”!store.authLoading && !store.authenticated” />
-  <main v-else-if=”store.authLoading” class=”auth-loading”>
-    <div class=”loading-orb” aria-hidden=”true” />
+  <RouterView v-if="standalone || authRoute" />
+  <AuthView v-else-if="!store.authLoading && !store.authenticated" />
+  <main v-else-if="store.authLoading" class="auth-loading">
+    <div class="loading-orb" aria-hidden="true" />
     <strong>正在准备工作区…</strong>
     <span>读取会话与工作区状态</span>
   </main>
   <AppShell v-else />
 </template>
+
+<style scoped>
+.auth-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: var(--spacing-4);
+  background: var(--color-bg-primary);
+}
+
+.loading-orb {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-loading strong {
+  font-size: 16px;
+  color: var(--color-text-primary);
+}
+
+.auth-loading span {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+</style>

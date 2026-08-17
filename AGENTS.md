@@ -5,7 +5,7 @@
 ## 项目快照
 
 - 项目目标：A 股量化交易系统，覆盖数据采集、因子研究、策略回测、模拟交易、AI/Agent 策略研发和 Web Dashboard。
-- 主要技术栈：Python 3.11、FastAPI、Jinja2、Vanilla JS、Chart.js、KlineCharts、SQLite/SQLAlchemy、APScheduler、pytest、Playwright、Docker Compose。
+- 主要技术栈：Python 3.11、FastAPI、Vue 3、TypeScript、Vite、Pinia、Vue Router、SQLite/SQLAlchemy、APScheduler、pytest、Playwright、Docker Compose。
 - 主要入口：`dashboard/app.py`、`scripts/run_dashboard.py`、`docker-compose.yml`、`README.md`。
 - 架构文档：`docs/ARCHITECTURE.md`。
 - Superpowers 计划：`docs/superpowers/plans/`。
@@ -17,16 +17,18 @@
 
 - 安装依赖：`python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt`。
 - 本地开发：`.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service`。
-- Docker 启动：`docker compose up -d`。
+- Docker 全量部署（默认）：`DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false AI_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`；不要把只启动默认服务的 `docker compose up -d` 当作完整部署。
 - 后端/API/核心测试：`.venv/bin/python -m pytest -q`。
 - 语法检查：`.venv/bin/python -m compileall -q .`。
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
+- Vue 构建和前端契约：`npm run ui:build`、`.venv/bin/python -m pytest tests/test_vue_*_contract.py -q`。
+- Worker/备份恢复：显式设置 `DECISION_WORKER_ENABLED=true` 后运行 `scripts/run_worker.py`；恢复前先运行 `scripts/restore_decisions.py --verify-only`。
 - E2E：先启动 Dashboard，再运行 `scripts/e2e-local.sh all` 或 `npm run e2e:docker`。
 - `npm test` 当前是占位脚本，会直接失败；不要把它当作项目验证命令。
 
 ## 仓库地图
 
-- `dashboard/`：FastAPI 应用、API routers、Jinja2 模板、前端静态资源。
+- `dashboard/`：FastAPI 应用、API routers、Vue 3 工作台和 PWA 静态资源。
 - `data/`：数据采集、行情服务、存储、调度、Qlib/Signal 兼容层。
 - `alpha/`：因子、模型、选股、LLM 策略和 Alpha 研究工具。
 - `agentic/`：Agent 驱动的信号、策略实验、回测晋级和模拟盘桥接。
@@ -40,9 +42,9 @@
 ## 项目级工作规则
 
 - 修改前先阅读相关模块、`docs/ARCHITECTURE.md` 和对应测试，不要只按文件名猜测。
-- 前端是 Vanilla JS 多模块结构，修改页面逻辑时同步检查 `dashboard/templates/partials/scripts.html`、`dashboard/static/sw.js` 和相关测试。
+- 前端是 `dashboard/ui/` 下的 Vue 多模块结构，修改页面逻辑时同步检查对应 view、`dashboard/ui/src/router.ts`、`dashboard/static/sw.js` 和 Vue 契约测试。
 - API 改动优先保持旧字段兼容；尤其是 `qlib_*` legacy 字段和新的 Signal Engine 语义并存区域。
-- 涉及数据源、行情、交易、模拟盘、权限、OpenClaw、LLM 或实盘接口时，先明确安全边界和验证方式。
+- 涉及数据源、行情、交易、模拟盘、权限、AI Runtime/LLM 或实盘接口时，先明确安全边界和验证方式。
 - 不要提交或展示 `.env`、API key、券商凭证、真实交易账号、生产数据和本地数据库内容。
 - 运行会写数据库、同步外部数据、启动交易/实盘、调用外部 LLM 或下单相关脚本前，先确认影响范围。
 
@@ -57,14 +59,14 @@
 - 前端渲染/契约：运行对应 `tests/test_*frontend*.py` 或 `.venv/bin/python scripts/frontend_data_render_audit.py`。
 - 真实浏览器流程：先启动 Dashboard，再跑 `scripts/e2e-local.sh smoke`、`scripts/e2e-local.sh data-health` 或 `scripts/e2e-local.sh all`。
 - 本地 Dashboard/dev server、E2E server 或任何需要监听 `localhost`/`127.0.0.1` 端口的 QA 命令，默认使用外部/非沙箱执行启动；页面验证仍优先使用 Codex in-app Browser。启动前检查 `8001` 端口和旧进程健康状态，验证后停止临时服务，除非用户明确要求保留。
-- Docker/部署：`docker compose up -d` 会启动服务并写本地数据目录，执行前确认。
+- Docker/部署：按 `docs/commands.md` 的全量本地命令启动 `ai`、`trading` profile，并会写本地数据目录；`cloudflared` 只有配置 tunnel token 且明确确认外部暴露范围后才单独启动。
 
 ## Hooks 和质量门禁
 
 - 项目门禁文档：`docs/quality-gates.md`。
 - 当前不默认启用阻断型 hooks；先按文档手动选择验证。
 - 适合前移的快速门禁：`.venv/bin/python scripts/verify_context_pack.py`、`.venv/bin/python -m compileall -q .`、针对性 pytest、前端静态渲染扫描。
-- 不适合自动 hook：`docker compose up`、真实数据同步、E2E、外部 LLM/OpenClaw 调用、交易/实盘脚本、数据库迁移或清理。
+- 不适合自动 hook：`docker compose up`、真实数据同步、E2E、外部 LLM 调用、交易/实盘脚本、数据库迁移或清理。
 
 ## Subagents
 
@@ -83,10 +85,10 @@
 
 敏感区域：
 
-- `.env`、`.env.local`、`data/broker_config.json`、`data/db/`、`logs/`、`models/`、`data/openclaw/`。
-- `docker-compose.yml` 中的 LLM/OpenClaw/API key 环境变量。
+- `.env`、`.env.local`、`data/broker_config.json`、`data/db/`、`logs/`、`models/`、AI Runtime 的 provider 配置。
+- `docker-compose.yml` 中的 LLM/API key 环境变量。
 - `engine/live_engine.py`、`engine/broker.py`、`scripts/run_live.py` 和实盘/券商相关配置。
-- 自定义策略执行、OpenClaw 工具桥接、LLM 调用和 WebSocket/API key 认证。
+- 自定义策略执行、AI Runtime/LLM 调用和 WebSocket/API key 认证。
 
 ## 文档和知识沉淀
 

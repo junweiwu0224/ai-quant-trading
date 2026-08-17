@@ -1,5 +1,20 @@
 # OpenClaw Integration Plan
 
+> Status: **Superseded / retired** (2026-08-17). This historical plan is no longer an
+> implementation contract. The OpenClaw runtime, sidecar, package, routes, tools,
+> generated local state and frontend have been removed from the application.
+>
+> Replacement: the Vue-only dashboard and first-party AI Runtime described in
+> `docs/specs/2026-08-14-decision-platform-refactor.md`,
+> `docs/specs/2026-08-17-vue-feature-equivalence-matrix.md`, and
+> `docs/decisions/0005-vue-dashboard-migration.md`. AI/Agent/LLM outputs remain
+> review-only (`authoritative=false`, `decision_effect=none`); deterministic
+> decision, risk, notification eligibility and paper/live boundaries remain outside
+> the AI layer.
+
+The sections below are preserved as historical design evidence only. Do not use
+their completion claims or commands as current deployment instructions.
+
 ## Product Direction
 
 The system will integrate a full OpenClaw service, not a reduced version. OpenClaw acts as the assistant engine and orchestration layer, while this quant platform remains the source of truth for market data, watchlists, paper trading, reports, permissions, and audit records.

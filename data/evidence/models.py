@@ -31,6 +31,7 @@ class EvidenceItem:
     url: Optional[str] = None
     symbol: Optional[str] = None
     fingerprint: Optional[str] = None
+    raw_payload: Any = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -42,6 +43,11 @@ class EvidenceSnapshot:
     record_ids: Tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
     sealed: bool = False
+
+    @property
+    def collection_key(self) -> Optional[str]:
+        value = self.metadata.get("collection_key")
+        return str(value) if value else None
 
     @property
     def citable(self) -> bool:

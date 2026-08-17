@@ -36,6 +36,8 @@ def ingest_records(
     observed_at_key: str = "observed_at",
     url_key: str = "url",
     snapshot_metadata: Optional[Mapping[str, Any]] = None,
+    raw_payload: Any = None,
+    raw_payload_key: Optional[str] = None,
 ) -> EvidenceIngestResult:
     """Persist one collector run and return its exact snapshot."""
 
@@ -49,6 +51,10 @@ def ingest_records(
     metadata.setdefault(
         "snapshot_kind",
         "collection_run",
+    )
+    metadata.setdefault(
+        "collection_request",
+        {"query": query, "captured_at": timestamp},
     )
     metadata.setdefault(
         "evidence_status",
@@ -66,6 +72,10 @@ def ingest_records(
     store.save_snapshot(snapshot)
     items: list[EvidenceItem] = []
     for data in materialized_records:
+        normalized_metadata = dict(data)
+        record_raw_payload = raw_payload
+        if raw_payload_key:
+            record_raw_payload = normalized_metadata.pop(raw_payload_key, raw_payload)
         item = EvidenceItem(
             id="evidence_%s" % uuid.uuid4().hex[:16],
             source_id=source.id,
@@ -75,7 +85,8 @@ def ingest_records(
             url=None if data.get(url_key) is None else str(data.get(url_key)),
             symbol=None if data.get(symbol_key) is None else str(data.get(symbol_key)),
             fingerprint=_fingerprint(data),
-            metadata=data,
+            raw_payload=record_raw_payload,
+            metadata=normalized_metadata,
         )
         stored = store.save_item(item)
         store.link(EvidenceLink(snapshot_id=snapshot.id, item_id=stored.id, symbol=stored.symbol))

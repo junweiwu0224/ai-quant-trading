@@ -187,6 +187,23 @@ def test_scan_static_tree_returns_sorted_risks(tmp_path):
     assert [risk.file for risk in risks] == ["a.js", "b.js"]
 
 
+def test_scan_static_tree_includes_vue_and_typescript_sources(tmp_path):
+    vue = tmp_path / "views" / "ResearchView.vue"
+    typescript = tmp_path / "api.ts"
+    stylesheet = tmp_path / "styles.css"
+    ignored = tmp_path / "dist" / "bundle.js"
+    vue.parent.mkdir()
+    ignored.parent.mkdir()
+    vue.write_text("<template>{{ value.toFixed(2) }}</template>", encoding="utf-8")
+    typescript.write_text("const label = value || '--';", encoding="utf-8")
+    stylesheet.write_text(".value { color: red; }", encoding="utf-8")
+    ignored.write_text("value.toFixed(2);", encoding="utf-8")
+
+    risks = scan_static_tree(tmp_path)
+
+    assert [risk.file for risk in risks] == ["api.ts", "views/ResearchView.vue"]
+
+
 def test_scan_static_tree_raises_when_root_is_missing(tmp_path):
     missing = tmp_path / "missing"
 

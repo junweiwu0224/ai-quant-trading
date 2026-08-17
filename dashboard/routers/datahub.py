@@ -585,7 +585,7 @@ def _score_decision(item: dict[str, Any], qlib: dict[str, Any] | None) -> dict[s
         if peg is not None or growth is not None:
             evidence_actions.append("打开估值详情")
         if qlib_rank:
-            evidence_actions.append("问龙虾生成交易计划")
+            evidence_actions.append("提交 AI 研究任务")
         actions = evidence_actions
     elif not signal_validated and qlib_rank:
         review_actions = ["继续观察", "补齐缺失数据"]
@@ -626,7 +626,7 @@ def _build_next_actions(
         actions.append("加入自选跟踪")
         actions.append("补看同业估值")
         if qlib_rank:
-            actions.append("问龙虾生成交易计划")
+            actions.append("提交 AI 研究任务")
     elif score >= 45:
         actions.append("继续观察")
         actions.append("补齐缺失数据")

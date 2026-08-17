@@ -31,6 +31,49 @@ def test_evidence_snapshot_is_reproducible(factory):
     assert store.query(EvidenceQuery(symbol="600000.SH"))[0].id == item.id
 
 
+def test_ingest_records_preserves_raw_payload_and_collection_metadata(tmp_path):
+    from data.evidence.collector import ingest_records
+
+    store = SQLiteEvidenceStore(tmp_path / "evidence.db")
+    raw = {"provider_headline": "原始标题", "provider_id": 42}
+    result = ingest_records(
+        store,
+        source=EvidenceSource(id="fixture", name="Fixture", kind="test"),
+        records=[{"title": "标准标题", "content": "标准内容", "raw_payload": raw}],
+        query="fixture",
+        snapshot_metadata={
+            "provider_version": "v1",
+            "parser_version": "parser-v1",
+            "collection_key": "fixture:window-1",
+            "request_window": {"start": "2026-08-13T00:00:00Z", "end": "2026-08-13T00:05:00Z"},
+        },
+        raw_payload_key="raw_payload",
+    )
+
+    stored = store.list_items(result.snapshot.id)[0]
+    assert stored.raw_payload == raw
+    assert stored.metadata["title"] == "标准标题"
+    assert "raw_payload" not in stored.metadata
+    assert result.snapshot.metadata["provider_version"] == "v1"
+    assert result.snapshot.metadata["parser_version"] == "parser-v1"
+
+
+def test_collection_lease_is_single_flight_and_reuses_completed_snapshot(tmp_path):
+    store_a = SQLiteEvidenceStore(tmp_path / "evidence.db")
+    store_b = SQLiteEvidenceStore(tmp_path / "evidence.db")
+
+    first = store_a.acquire_collection_lease("news:window-1", "worker-a")
+    second = store_b.acquire_collection_lease("news:window-1", "worker-b")
+    assert first["reused"] is False
+    assert second["reused"] is True
+    assert second["completed_snapshot_id"] is None
+
+    store_a.complete_collection_lease("news:window-1", "worker-a", "snapshot_1")
+    replay = store_b.acquire_collection_lease("news:window-1", "worker-b")
+    assert replay["reused"] is True
+    assert replay["completed_snapshot_id"] == "snapshot_1"
+
+
 def test_sqlite_store_deduplicates_fingerprints():
     store = SQLiteEvidenceStore(sqlite3.connect(":memory:"))
     first = EvidenceItem("a", "source", "Title", "Body", "2026-08-12T00:00:00Z", fingerprint="same")

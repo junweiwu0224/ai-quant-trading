@@ -93,22 +93,23 @@ class SignalLedger:
     def __init__(self, database: Union[str, Path, sqlite3.Connection], *, readonly: bool = False) -> None:
         self._owns_connection = not isinstance(database, sqlite3.Connection)
         self.readonly = readonly
+        self.db_path: Path | None = None if isinstance(database, sqlite3.Connection) else Path(database)
         empty_readonly = False
         if isinstance(database, sqlite3.Connection):
             self.connection = database
         elif readonly:
             path = Path(database)
             if path.exists():
-                self.connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+                self.connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0, check_same_thread=False)
             else:
                 # A missing audit database is an empty read model, not a
                 # reason to create a production file during a GET request.
-                self.connection = sqlite3.connect(":memory:", timeout=5.0)
+                self.connection = sqlite3.connect(":memory:", timeout=5.0, check_same_thread=False)
                 empty_readonly = True
         else:
             path = Path(database)
             path.parent.mkdir(parents=True, exist_ok=True)
-            self.connection = sqlite3.connect(str(path), timeout=5.0)
+            self.connection = sqlite3.connect(str(path), timeout=5.0, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA busy_timeout=5000")
         if not readonly or empty_readonly:
@@ -340,6 +341,25 @@ class SignalLedger:
         recorded_at: Optional[str] = None,
     ) -> SignalProvenance:
         self._assert_writable()
+        existing = self.connection.execute(
+            """
+            SELECT * FROM signal_provenance
+            WHERE signal_id = ? AND source_type = ? AND source_id = ?
+              AND COALESCE(evidence_snapshot_id, '') = COALESCE(?, '')
+            ORDER BY recorded_at, provenance_id LIMIT 1
+            """,
+            (signal_id, source_type, source_id, evidence_snapshot_id),
+        ).fetchone()
+        if existing is not None:
+            return SignalProvenance(
+                provenance_id=existing["provenance_id"],
+                signal_id=existing["signal_id"],
+                source_type=existing["source_type"],
+                source_id=existing["source_id"],
+                evidence_snapshot_id=existing["evidence_snapshot_id"],
+                recorded_at=existing["recorded_at"],
+                details=_load(existing["details_json"]),
+            )
         provenance = SignalProvenance(
             provenance_id=uuid.uuid4().hex,
             signal_id=signal_id,
@@ -386,6 +406,11 @@ class SignalLedger:
             )
             for row in rows
         ]
+
+    def list_provenance(self, signal_id: str) -> List[SignalProvenance]:
+        """Read-only alias used by research/audit consumers."""
+
+        return self.provenance(signal_id)
 
     def record_outcome(
         self,
@@ -443,6 +468,24 @@ class SignalLedger:
             max_drawdown=row["max_drawdown"],
             metadata=_load(row["metadata_json"]),
         )
+
+    def outcomes(self, signal_id: str) -> List[SignalOutcome]:
+        rows = self.connection.execute(
+            "SELECT * FROM signal_outcomes WHERE signal_id = ? ORDER BY observed_at, outcome_id",
+            (signal_id,),
+        ).fetchall()
+        return [
+            SignalOutcome(
+                outcome_id=row["outcome_id"],
+                signal_id=row["signal_id"],
+                observed_at=row["observed_at"],
+                status=row["status"],
+                realized_return=row["realized_return"],
+                max_drawdown=row["max_drawdown"],
+                metadata=_load(row["metadata_json"]),
+            )
+            for row in rows
+        ]
 
     def close(self) -> None:
         if self._owns_connection:

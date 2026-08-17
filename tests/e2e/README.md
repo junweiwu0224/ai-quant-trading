@@ -1,6 +1,9 @@
-# E2E Browser Smoke Tests
+# Vue E2E Browser Smoke Tests
 
-This directory contains Playwright smoke tests for the dashboard V2.1 browser flows.
+This directory contains Playwright smoke tests for the Vue-only dashboard. The route matrix
+replaces the retired Jinja/Vanilla V2.1 shell tests while keeping their user-visible coverage:
+desktop/mobile navigation, stock research, validation, reports, simulated trading, AI/Agent
+workflows, responsive overflow, bad-value detection, and deterministic safety boundaries.
 
 ## Prerequisites
 
@@ -61,3 +64,8 @@ npm run e2e
 ## Current host note
 
 On the current Ubuntu 26.04 host, Playwright's browser download reports unsupported platform and the Snap Chromium crashes under headless automation. If these tests fail with `Target page, context or browser has been closed`, use a non-Snap Chrome/Chromium binary or run the tests in an official Playwright Docker image.
+
+`npm run e2e`, `npm run e2e:vue` and `npm run e2e:data-health` only run current Vue flows.
+The old `v2-smoke.spec.cjs` and `data-display-health.spec.cjs` fixtures were retired after
+their coverage was mapped to `vue-migration.spec.cjs` and `vue-workspace-health.spec.cjs`;
+they depended on the deleted `window.App`, offcanvas and Vanilla panel lifecycle.

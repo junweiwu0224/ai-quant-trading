@@ -5,14 +5,14 @@
 ## 什么时候读这个文件
 
 - 第一次处理本仓库中的中大型任务。
-- 涉及 Dashboard、Signal/Qlib、OpenClaw、Agentic、模拟盘、前端视觉验证或数据源。
+- 涉及 Dashboard、Signal/Qlib、AI Runtime、Agentic、模拟盘、前端视觉验证或数据源。
 - 之前在本仓库出现过误判、漏测、错误修改或重复踩坑。
 
 ## 高价值工作流
 
 - 后端/API 修改：先定位 router 和对应 `tests/test_*.py`，再跑针对性 pytest。
 - Context pack 修改：先跑 `.venv/bin/python scripts/verify_context_pack.py`，再视情况补 `rg` 路径检查。
-- 前端修改：同时检查 JS 模块、模板 script 顺序、service worker 缓存清单和前端契约测试。
+- 前端修改：同时检查 Vue view/router/store、Service Worker 缓存清单、TypeScript 单测和 Vue 契约测试。
 - Signal/Qlib 修改：先读 `docs/decisions/0001-signal-engine-v2.md`，避免把 legacy Qlib 字段当成新语义。
 - 数据展示问题：优先使用 `scripts/dashboard_data_health.py` 和 `scripts/frontend_data_render_audit.py` 收集证据。
 - E2E：先启动 Dashboard，再用 `scripts/e2e-local.sh smoke|data-health|all`；不要直接跑占位 `npm test`。
@@ -20,9 +20,9 @@
 ## 搜索和定位技巧
 
 - 找 API：`rg "APIRouter|@router|/api/" dashboard/routers dashboard/app.py`
-- 找前端入口：`rg "script|static" dashboard/templates/partials/scripts.html dashboard/static`
+- 找前端入口：`rg --files dashboard/ui/src && rg "createRouter|createPinia|serviceWorker" dashboard/ui dashboard/app.py`
 - 找 Signal/Qlib：`rg "signal|qlib" data dashboard tests docs`
-- 找 OpenClaw：`rg "openclaw|OpenClaw" dashboard data tests docs .env.example docker-compose.yml`
+- 找 AI Runtime：`rg "ai_runtime|/api/ai|ProviderChannel|AI_LLM" ai_runtime dashboard tests docs .env.example docker-compose.yml`
 - 找测试：`find tests -maxdepth 1 -type f -name 'test_*.py' | sort`
 - 找 Superpowers 计划：`find docs/superpowers/plans -type f | sort`
 
@@ -44,7 +44,7 @@
   - 相关文件：`docs/ARCHITECTURE.md`。
 
 - 坑：Signal Engine v2 与 legacy Qlib 字段并存。
-  - 触发场景：机会池、DataHub、估值、OpenClaw 或 AI 信号相关修改。
+  - 触发场景：机会池、DataHub、估值、AI Runtime 或 AI 信号相关修改。
   - 正确处理：保留兼容字段，新增语义优先使用 Signal Engine。
   - 相关文件：`docs/decisions/0001-signal-engine-v2.md`。
 

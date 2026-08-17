@@ -1,4 +1,4 @@
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -7,12 +7,17 @@ const STORAGE_KEY = 'quant-theme';
 export function useTheme() {
   const theme = ref<Theme>('light');
 
+  const isDark = computed(() => {
+    return theme.value === 'dark' ||
+      (theme.value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  });
+
   const applyTheme = (newTheme: Theme) => {
-    const isDark = newTheme === 'dark' ||
+    const dark = newTheme === 'dark' ||
       (newTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-    document.body.classList.toggle('theme-dark', isDark);
-    document.body.classList.toggle('theme-light', !isDark);
+    document.body.classList.toggle('theme-dark', dark);
+    document.body.classList.toggle('theme-light', !dark);
   };
 
   const setTheme = (newTheme: Theme) => {
@@ -50,6 +55,7 @@ export function useTheme() {
 
   return {
     theme,
+    isDark,
     setTheme,
     toggleTheme
   };

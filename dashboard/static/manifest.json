@@ -1,12 +1,12 @@
 {
-    "name": "AI 量化交易系统",
+    "name": "AI Quant 决策工作台",
     "short_name": "AI Quant",
-    "description": "AI驱动的A股量化交易系统 — 回测、模拟盘、风控一体化",
-    "start_url": "/",
+    "description": "可复现的量化研究、验证、报告与 AI 解释工作台",
+    "start_url": "/app/decision",
     "display": "standalone",
     "orientation": "any",
-    "background_color": "#1a1916",
-    "theme_color": "#e6a817",
+    "background_color": "#f4f6f7",
+    "theme_color": "#147d87",
     "categories": ["finance", "business"],
     "icons": [
         {
@@ -25,18 +25,18 @@
     "screenshots": [],
     "shortcuts": [
         {
-            "name": "总览",
-            "url": "/#overview",
+            "name": "决策中心",
+            "url": "/app/decision",
             "icons": []
         },
         {
-            "name": "模拟盘",
-            "url": "/#paper",
+            "name": "报告",
+            "url": "/app/reports",
             "icons": []
         },
         {
-            "name": "回测",
-            "url": "/#backtest",
+            "name": "单股研究",
+            "url": "/app/research/CN/600519",
             "icons": []
         }
     ]

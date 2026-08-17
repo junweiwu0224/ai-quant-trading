@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "A 股量化交易与回测系统架构",
+    "output": "docs/quant-trading-system-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1600, 900]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "研究者 / 交易员",
+      "sublabel": "策略与结果使用者",
+      "pos": [40, 90],
+      "size": [170, 76]
+    },
+    {
+      "id": "dashboard",
+      "type": "frontend",
+      "label": "Dashboard 控制面",
+      "sublabel": "Vue 3 + FastAPI",
+      "pos": [290, 90],
+      "size": [220, 76]
+    },
+    {
+      "id": "decision_worker",
+      "type": "backend",
+      "label": "Decision Worker",
+      "sublabel": "冻结决策 / 报告 / Outbox",
+      "pos": [600, 90],
+      "size": [230, 76]
+    },
+    {
+      "id": "market_sources",
+      "type": "external",
+      "label": "A 股数据源",
+      "sublabel": "AKShare / 行情 Provider",
+      "pos": [40, 380],
+      "size": [190, 84]
+    },
+    {
+      "id": "ingestion",
+      "type": "backend",
+      "label": "采集与调度",
+      "sublabel": "清洗 / 同步 / APScheduler",
+      "pos": [290, 380],
+      "size": [190, 84]
+    },
+    {
+      "id": "storage",
+      "type": "database",
+      "label": "SQLite 数据层",
+      "sublabel": "行情 / 策略 / Agentic / 决策",
+      "pos": [540, 380],
+      "size": [220, 84]
+    },
+    {
+      "id": "research_strategy",
+      "type": "backend",
+      "label": "因子与策略研究",
+      "sublabel": "Feature Pipeline / Strategy / LLM",
+      "pos": [820, 380],
+      "size": [210, 84]
+    },
+    {
+      "id": "backtest",
+      "type": "backend",
+      "label": "回测执行引擎",
+      "sublabel": "BacktestEngine / TickEngine",
+      "pos": [1080, 380],
+      "size": [210, 84]
+    },
+    {
+      "id": "risk",
+      "type": "backend",
+      "label": "风控与成本模型",
+      "sublabel": "仓位 / 止损 / 滑点 / 费用",
+      "pos": [1340, 380],
+      "size": [190, 84]
+    },
+    {
+      "id": "validation",
+      "type": "backend",
+      "label": "信号验证与晋级",
+      "sublabel": "Evidence / Ledger / Promotion",
+      "pos": [1080, 650],
+      "size": [210, 84]
+    },
+    {
+      "id": "paper",
+      "type": "backend",
+      "label": "模拟盘执行",
+      "sublabel": "Paper Engine / 虚拟订单",
+      "pos": [1340, 650],
+      "size": [190, 84]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Dashboard 控制面与可复现决策",
+      "wraps": ["dashboard", "decision_worker"],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "本地量化交易运行时",
+      "wraps": ["ingestion", "storage", "research_strategy", "backtest", "risk", "validation", "paper"],
+      "pad": 26
+    }
+  ],
+  "connections": [
+    { "from": "operator", "to": "dashboard", "label": "研究 / 回测 / 模拟盘", "variant": "emphasis", "labelDy": -38 },
+    { "from": "market_sources", "to": "ingestion", "label": "行情 / 财务 / 宏观", "variant": "emphasis", "labelDy": -38 },
+    { "from": "ingestion", "to": "storage", "label": "清洗、标准化、入库", "variant": "emphasis", "labelDy": -38 },
+    { "from": "storage", "to": "research_strategy", "label": "历史行情 / 因子输入", "labelDy": -38 },
+    { "from": "research_strategy", "to": "backtest", "label": "策略 / 信号", "variant": "emphasis", "labelDy": -38 },
+    { "from": "backtest", "to": "risk", "label": "绩效 / 持仓检查", "variant": "emphasis", "labelDy": -38 },
+    { "from": "backtest", "to": "validation", "label": "回测门禁输入", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "risk", "to": "paper", "label": "仓位与止损约束", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "validation", "to": "paper", "label": "通过后进入模拟盘", "variant": "emphasis", "labelDy": -52 },
+    { "from": "paper", "to": "storage", "label": "订单 / 持仓 / 权益", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[1435, 800], [650, 800]], "labelSegment": 0 },
+    { "from": "storage", "to": "decision_worker", "label": "冻结快照 / 证据", "variant": "dashed", "fromSide": "top", "toSide": "bottom", "route": "orthogonal-v" },
+    { "from": "decision_worker", "to": "dashboard", "label": "报告 / 状态", "variant": "emphasis", "labelDy": -38 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "回测主链路",
+      "items": [
+        "行情先落入本地 SQLite，再由因子与策略驱动日线或分钟级回测",
+        "成本、滑点、基准和风险配置随回测请求进入执行引擎",
+        "结果包含净值、交易、持仓、风险指标和可持久化记录"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "AI 晋级闭环",
+      "items": [
+        "Agentic 将策略 DSL 和信号编译为统一回测请求",
+        "SignalLedger 记录状态、证据来源与实际结果",
+        "PromotionPolicy 决定候选与模拟盘资格，实盘仍未接入真实券商"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "运行边界",
+      "items": [
+        "Dashboard 是控制面；独立 Decision Worker 负责可复现决策、报告和 Outbox",
+        "Paper Engine 只执行虚拟订单，不等同于真实下单",
+        "外部 Provider、LLM 和交易网关属于需要单独验证的边界"
+      ]
+    }
+  ]
+}

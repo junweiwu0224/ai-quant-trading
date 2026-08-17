@@ -40,10 +40,18 @@ def init_database(db_path: str = None):
                 slippage REAL DEFAULT 0,
                 strategy_name TEXT,
                 signal_reason TEXT,
+                operation_id TEXT,
+                operation_request_hash TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("PRAGMA table_info(paper_orders)")
+        order_columns = {row[1] for row in cursor.fetchall()}
+        if "operation_id" not in order_columns:
+            cursor.execute("ALTER TABLE paper_orders ADD COLUMN operation_id TEXT")
+        if "operation_request_hash" not in order_columns:
+            cursor.execute("ALTER TABLE paper_orders ADD COLUMN operation_request_hash TEXT")
 
         # 持仓表
         cursor.execute("""
@@ -178,6 +186,7 @@ def init_database(db_path: str = None):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_code ON paper_orders(code)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON paper_orders(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_created ON paper_orders(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_operation_id ON paper_orders(operation_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_code ON paper_trades(code)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_created ON paper_trades(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_equity_timestamp ON paper_equity_curve(timestamp)")

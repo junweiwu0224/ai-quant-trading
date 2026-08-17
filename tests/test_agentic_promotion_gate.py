@@ -17,7 +17,22 @@ def test_signal_can_move_to_paper_pending_after_manual_confirmation(tmp_path):
         stop_loss=0.05,
     )
 
-    updated = service.mark_paper_pending(signal.id, confirmed_by="user_1")
+    from agentic.promotion import PromotionContext, PromotionPolicy
+
+    context = PromotionContext(
+        evidence_count=1,
+        provenance_complete=True,
+        backtest_passed=True,
+        risk_approved=True,
+        signal_validation_passed=True,
+    )
+    service.approve_paper_pending(signal.id, context, operation_id="op-gate-1")
+    updated = service.confirm_paper_pending(
+        signal.id,
+        confirmed_by="user_1",
+        approval_operation_id="op-gate-1",
+        operation_id="op-confirm-1",
+    )
 
     assert updated.status == "paper_pending"
     assert updated.metadata["confirmed_by"] == "user_1"

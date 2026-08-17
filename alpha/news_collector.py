@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Callable
 import re
+import uuid
 
 import numpy as np
 from loguru import logger
@@ -187,6 +188,10 @@ def _normalize_market_news_row(row: Any, source_key: str) -> dict | None:
     url = _first_present(row, _URL_FIELDS)
     sentiment_text = f"{title} {content}".strip()
     sentiment = _analyze_text(sentiment_text)
+    try:
+        raw_payload = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+    except (TypeError, ValueError):
+        raw_payload = {"value": str(row)}
 
     return {
         "title": title,
@@ -196,6 +201,7 @@ def _normalize_market_news_row(row: Any, source_key: str) -> dict | None:
         "source": _STOCK_NEWS_SOURCE_LABELS.get(source_key, source_key),
         "source_key": source_key,
         "sentiment": round(sentiment, 4),
+        "raw_payload": raw_payload,
     }
 
 
@@ -612,16 +618,76 @@ async def fetch_market_news_summary(max_items: int = 30) -> dict:
     return result
 
 
+def _market_news_collection_key(max_items: int) -> str:
+    now = datetime.now(timezone.utc)
+    window_minute = (now.minute // 5) * 5
+    return f"market_news:{max_items}:{now.strftime('%Y-%m-%dT%H')}:{window_minute:02d}"
+
+
+def _reused_market_news_evidence(
+    store: EvidenceStore,
+    snapshot_id: str,
+    collection_key: str,
+) -> dict:
+    snapshot = store.get_snapshot(snapshot_id)
+    if snapshot is None:
+        raise KeyError("evidence snapshot not found: %s" % snapshot_id)
+    records: list[dict] = []
+    for item in store.list_items(snapshot_id):
+        record = dict(item.metadata or {})
+        record.setdefault("title", item.title)
+        record.setdefault("summary", item.content)
+        record.setdefault("time", item.observed_at)
+        record.setdefault("url", item.url)
+        records.append(record)
+    return {
+        "news": records,
+        "collection_status": "reused",
+        "collection_key": collection_key,
+        "collection_snapshot_id": snapshot.id,
+        "evidence_snapshot_id": snapshot.id if snapshot.citable else None,
+        "evidence_item_ids": list(snapshot.record_ids),
+        "evidence_count": len(snapshot.record_ids),
+        "single_flight_reused": True,
+    }
+
+
 async def collect_market_news_evidence(
     store: EvidenceStore,
     max_items: int = 30,
     source: EvidenceSource | None = None,
+    *,
+    collection_key: str | None = None,
+    owner: str | None = None,
+    lease_seconds: int = 300,
 ) -> dict:
     """Fetch market news and persist the exact run as an Evidence snapshot.
 
     The existing summary shape is preserved.  Callers gain snapshot and item
     identifiers without having to duplicate normalization or deduplication.
     """
+
+    collection_key = collection_key or _market_news_collection_key(max_items)
+    owner = owner or f"news-worker-{uuid.uuid4().hex}"
+    acquire_lease = getattr(store, "acquire_collection_lease", None)
+    complete_lease = getattr(store, "complete_collection_lease", None)
+    lease_enabled = callable(acquire_lease) and callable(complete_lease)
+    if lease_enabled:
+        lease = acquire_lease(collection_key, owner, lease_seconds=lease_seconds)
+        completed_snapshot_id = lease.get("completed_snapshot_id") if lease else None
+        if completed_snapshot_id:
+            return _reused_market_news_evidence(store, completed_snapshot_id, collection_key)
+        if lease and lease.get("reused"):
+            return {
+                "news": [],
+                "collection_status": "in_progress",
+                "collection_key": collection_key,
+                "collection_snapshot_id": None,
+                "evidence_snapshot_id": None,
+                "evidence_item_ids": [],
+                "evidence_count": 0,
+                "single_flight_reused": True,
+            }
 
     summary = await fetch_market_news_summary(max_items=max_items)
     evidence_source = source or EvidenceSource(
@@ -651,7 +717,12 @@ async def collect_market_news_evidence(
         records=records,
         query="market_news_summary",
         captured_at=str(summary.get("timestamp") or utc_now()),
+        raw_payload_key="raw_payload",
         snapshot_metadata={
+            "collection_key": collection_key,
+            "collection_request": {"max_items": max_items},
+            "provider_version": "akshare-unknown",
+            "parser_version": "market-news-normalizer-v1",
             "collection_status": summary.get("collection_status") or ("partial" if summary.get("partial_errors") else "ok"),
             "source_errors": list(summary.get("partial_errors") or summary.get("errors") or []),
             "source_status": list(summary.get("sources") or []),
@@ -662,7 +733,10 @@ async def collect_market_news_evidence(
             "evidence_kind": "displayed_market_news",
         },
     )
+    if lease_enabled:
+        complete_lease(collection_key, owner, ingested.snapshot.id)
     enriched = dict(summary)
+    enriched["collection_key"] = collection_key
     enriched["collection_snapshot_id"] = ingested.snapshot.id
     enriched["evidence_snapshot_id"] = ingested.snapshot.id if ingested.snapshot.citable else None
     enriched["evidence_item_ids"] = [item.id for item in ingested.items]
@@ -675,8 +749,48 @@ async def collect_stock_news_evidence(
     store: EvidenceStore,
     max_items: int = 20,
     source: EvidenceSource | None = None,
+    *,
+    collection_key: str | None = None,
+    owner: str | None = None,
+    lease_seconds: int = 300,
 ) -> dict:
     """Fetch one stock's news and persist it as a citable Evidence snapshot."""
+
+    collection_key = collection_key or f"stock_news:{code}:{max_items}"
+    owner = owner or f"stock-news-worker-{uuid.uuid4().hex}"
+    acquire_lease = getattr(store, "acquire_collection_lease", None)
+    complete_lease = getattr(store, "complete_collection_lease", None)
+    lease_enabled = callable(acquire_lease) and callable(complete_lease)
+    if lease_enabled:
+        lease = acquire_lease(collection_key, owner, lease_seconds=lease_seconds)
+        completed_snapshot_id = lease.get("completed_snapshot_id") if lease else None
+        if completed_snapshot_id:
+            snapshot = store.get_snapshot(completed_snapshot_id)
+            if snapshot is not None:
+                items = store.list_items(snapshot.id)
+                return {
+                    "code": code,
+                    "news": [dict(item.metadata or {}, title=item.title, time=item.observed_at, url=item.url) for item in items],
+                    "collection_status": "reused",
+                    "collection_key": collection_key,
+                    "collection_snapshot_id": snapshot.id,
+                    "evidence_snapshot_id": snapshot.id if snapshot.citable else None,
+                    "evidence_item_ids": [item.id for item in items],
+                    "evidence_count": len(items),
+                    "single_flight_reused": True,
+                }
+        if lease and lease.get("reused"):
+            return {
+                "code": code,
+                "news": [],
+                "collection_status": "in_progress",
+                "collection_key": collection_key,
+                "collection_snapshot_id": None,
+                "evidence_snapshot_id": None,
+                "evidence_item_ids": [],
+                "evidence_count": 0,
+                "single_flight_reused": True,
+            }
 
     news = await fetch_stock_news(code, max_items=max_items)
     evidence_source = source or EvidenceSource(
@@ -700,7 +814,15 @@ async def collect_stock_news_evidence(
         source=evidence_source,
         records=records,
         query="stock_news:%s" % code,
+        snapshot_metadata={
+            "collection_key": collection_key,
+            "collection_request": {"code": code, "max_items": max_items},
+            "collection_status": "ok" if news else "empty",
+            "evidence_kind": "displayed_stock_news",
+        },
     )
+    if lease_enabled:
+        complete_lease(collection_key, owner, ingested.snapshot.id)
     return {
         "code": code,
         "news": news,
@@ -708,4 +830,5 @@ async def collect_stock_news_evidence(
         "evidence_snapshot_id": ingested.snapshot.id if ingested.snapshot.citable else None,
         "evidence_item_ids": [item.id for item in ingested.items],
         "evidence_count": len(ingested.items),
+        "collection_key": collection_key,
     }

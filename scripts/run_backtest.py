@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import click
 from config.logging import setup_logging
+from config.datetime_utils import today_beijing_compact
 from engine.backtest_engine import BacktestEngine, BacktestConfig
 from strategy.dual_ma import DualMAStrategy
 from strategy.bollinger import BollingerStrategy

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Protocol, Union
 
@@ -48,6 +49,14 @@ class EvidenceStore(Protocol):
     def list_sources(self) -> List[EvidenceSource]: ...
 
     def seal(self, snapshot_id: str) -> EvidenceSnapshot: ...
+
+    def acquire_collection_lease(
+        self, collection_key: str, owner: str, *, lease_seconds: int = 300
+    ) -> Optional[dict]: ...
+
+    def complete_collection_lease(
+        self, collection_key: str, owner: str, snapshot_id: str
+    ) -> None: ...
 
 
 class SQLiteEvidenceStore:
@@ -105,7 +114,8 @@ class SQLiteEvidenceStore:
                 url TEXT,
                 symbol TEXT,
                 fingerprint TEXT UNIQUE,
-                metadata_json TEXT NOT NULL
+                metadata_json TEXT NOT NULL,
+                raw_payload_json TEXT
             );
             CREATE TABLE IF NOT EXISTS evidence_snapshots (
                 snapshot_id TEXT PRIMARY KEY,
@@ -131,6 +141,13 @@ class SQLiteEvidenceStore:
                 FOREIGN KEY (snapshot_id) REFERENCES evidence_snapshots(snapshot_id),
                 FOREIGN KEY (item_id) REFERENCES evidence_items(item_id)
             );
+            CREATE TABLE IF NOT EXISTS evidence_collection_leases (
+                collection_key TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                completed_snapshot_id TEXT
+            );
             CREATE INDEX IF NOT EXISTS idx_evidence_items_symbol ON evidence_items(symbol);
             CREATE INDEX IF NOT EXISTS idx_evidence_items_observed ON evidence_items(observed_at);
             CREATE INDEX IF NOT EXISTS idx_evidence_links_snapshot ON evidence_links(snapshot_id);
@@ -144,6 +161,14 @@ class SQLiteEvidenceStore:
         if "sealed" not in columns:
             self.connection.execute(
                 "ALTER TABLE evidence_snapshots ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0"
+            )
+        item_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(evidence_items)").fetchall()
+        }
+        if "raw_payload_json" not in item_columns:
+            self.connection.execute(
+                "ALTER TABLE evidence_items ADD COLUMN raw_payload_json TEXT"
             )
         self.connection.execute(
             """
@@ -172,6 +197,8 @@ class SQLiteEvidenceStore:
 
     @staticmethod
     def _item_from_row(row: sqlite3.Row) -> EvidenceItem:
+        row_keys = row.keys()
+        raw_payload_json = row["raw_payload_json"] if "raw_payload_json" in row_keys else None
         return EvidenceItem(
             id=row["item_id"],
             source_id=row["source_id"],
@@ -181,56 +208,38 @@ class SQLiteEvidenceStore:
             url=row["url"],
             symbol=row["symbol"],
             fingerprint=row["fingerprint"],
+            raw_payload=None if raw_payload_json is None else json.loads(raw_payload_json),
             metadata=_load(row["metadata_json"]),
         )
 
     def save_item(self, item: EvidenceItem) -> EvidenceItem:
         self._assert_writable()
+        lookup_column = "fingerprint" if item.fingerprint else "item_id"
+        lookup_value = item.fingerprint or item.id
         with self.connection:
-            if item.fingerprint:
-                self.connection.execute(
-                    """
-                    INSERT OR IGNORE INTO evidence_items(
-                        item_id, source_id, title, content, observed_at, url, symbol, fingerprint, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item.id,
-                        item.source_id,
-                        item.title,
-                        item.content,
-                        item.observed_at,
-                        item.url,
-                        item.symbol,
-                        item.fingerprint,
-                        _dump(dict(item.metadata)),
-                    ),
-                )
-                row = self.connection.execute(
-                    "SELECT * FROM evidence_items WHERE fingerprint = ?", (item.fingerprint,)
-                ).fetchone()
-            else:
-                self.connection.execute(
-                    """
-                    INSERT OR IGNORE INTO evidence_items(
-                        item_id, source_id, title, content, observed_at, url, symbol, fingerprint, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item.id,
-                        item.source_id,
-                        item.title,
-                        item.content,
-                        item.observed_at,
-                        item.url,
-                        item.symbol,
-                        item.fingerprint,
-                        _dump(dict(item.metadata)),
-                    ),
-                )
-                row = self.connection.execute(
-                    "SELECT * FROM evidence_items WHERE item_id = ?", (item.id,)
-                ).fetchone()
+            self.connection.execute(
+                """
+                INSERT OR IGNORE INTO evidence_items(
+                    item_id, source_id, title, content, observed_at, url, symbol,
+                    fingerprint, metadata_json, raw_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    item.source_id,
+                    item.title,
+                    item.content,
+                    item.observed_at,
+                    item.url,
+                    item.symbol,
+                    item.fingerprint,
+                    _dump(dict(item.metadata)),
+                    None if item.raw_payload is None else _dump(item.raw_payload),
+                ),
+            )
+            row = self.connection.execute(
+                f"SELECT * FROM evidence_items WHERE {lookup_column} = ?", (lookup_value,)
+            ).fetchone()
         if row is None:
             raise RuntimeError("evidence item was not persisted")
         return self._item_from_row(row)
@@ -340,6 +349,74 @@ class SQLiteEvidenceStore:
             raise KeyError("evidence snapshot not found: %s" % snapshot_id)
         return self.get_snapshot(snapshot_id)  # type: ignore[return-value]
 
+    @staticmethod
+    def _lease_times(lease_seconds: int) -> tuple[str, str]:
+        now = datetime.now(timezone.utc)
+        fmt = lambda value: value.isoformat(timespec="seconds").replace("+00:00", "Z")
+        return fmt(now), fmt(now + timedelta(seconds=lease_seconds))
+
+    def acquire_collection_lease(
+        self, collection_key: str, owner: str, *, lease_seconds: int = 300
+    ) -> Optional[dict]:
+        self._assert_writable()
+        key = str(collection_key or "").strip()
+        owner = str(owner or "").strip()
+        if not key or not owner:
+            raise ValueError("collection_key and owner are required")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        now_text, expires_text = self._lease_times(lease_seconds)
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.connection.execute(
+                "SELECT collection_key, owner, acquired_at, expires_at, completed_snapshot_id "
+                "FROM evidence_collection_leases WHERE collection_key = ?",
+                (key,),
+            ).fetchone()
+            if row is not None:
+                payload = {
+                    "collection_key": row["collection_key"],
+                    "owner": row["owner"],
+                    "acquired_at": row["acquired_at"],
+                    "expires_at": row["expires_at"],
+                    "completed_snapshot_id": row["completed_snapshot_id"],
+                    "reused": True,
+                }
+                if row["completed_snapshot_id"] or str(row["expires_at"]) > now_text:
+                    self.connection.commit()
+                    return payload
+                self.connection.execute(
+                    "UPDATE evidence_collection_leases SET owner = ?, acquired_at = ?, expires_at = ?, completed_snapshot_id = NULL WHERE collection_key = ?",
+                    (owner, now_text, expires_text, key),
+                )
+            else:
+                self.connection.execute(
+                    "INSERT INTO evidence_collection_leases(collection_key, owner, acquired_at, expires_at, completed_snapshot_id) VALUES (?, ?, ?, ?, NULL)",
+                    (key, owner, now_text, expires_text),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "collection_key": key,
+            "owner": owner,
+            "acquired_at": now_text,
+            "expires_at": expires_text,
+            "completed_snapshot_id": None,
+            "reused": False,
+        }
+
+    def complete_collection_lease(self, collection_key: str, owner: str, snapshot_id: str) -> None:
+        self._assert_writable()
+        with self.connection:
+            updated = self.connection.execute(
+                "UPDATE evidence_collection_leases SET completed_snapshot_id = ? WHERE collection_key = ? AND owner = ?",
+                (snapshot_id, collection_key, owner),
+            ).rowcount
+        if updated != 1:
+            raise ValueError("collection lease is not owned by this collector")
+
     def list_items(self, snapshot_id: str) -> List[EvidenceItem]:
         rows = self.connection.execute(
             """
@@ -407,6 +484,7 @@ class InMemoryEvidenceStore:
         self.snapshots: Dict[str, EvidenceSnapshot] = {}
         self.links: List[EvidenceLink] = []
         self.item_symbols: set[tuple[str, str, str]] = set()
+        self.leases: Dict[str, dict] = {}
 
     def save_source(self, source: EvidenceSource) -> EvidenceSource:
         self.sources[source.id] = source
@@ -480,6 +558,35 @@ class InMemoryEvidenceStore:
         )
         self.snapshots[snapshot_id] = sealed
         return self.get_snapshot(snapshot_id)  # type: ignore[return-value]
+
+    def acquire_collection_lease(
+        self, collection_key: str, owner: str, *, lease_seconds: int = 300
+    ) -> Optional[dict]:
+        key = str(collection_key or "").strip()
+        owner = str(owner or "").strip()
+        if not key or not owner:
+            raise ValueError("collection_key and owner are required")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        now_text, expires_text = SQLiteEvidenceStore._lease_times(lease_seconds)
+        existing = self.leases.get(key)
+        if existing and (existing.get("completed_snapshot_id") or existing["expires_at"] > now_text):
+            return {**existing, "reused": True}
+        lease = {
+            "collection_key": key,
+            "owner": owner,
+            "acquired_at": now_text,
+            "expires_at": expires_text,
+            "completed_snapshot_id": None,
+        }
+        self.leases[key] = lease
+        return {**lease, "reused": False}
+
+    def complete_collection_lease(self, collection_key: str, owner: str, snapshot_id: str) -> None:
+        lease = self.leases.get(collection_key)
+        if lease is None or lease["owner"] != owner:
+            raise ValueError("collection lease is not owned by this collector")
+        lease["completed_snapshot_id"] = snapshot_id
 
     def list_items(self, snapshot_id: str) -> List[EvidenceItem]:
         ids = {link.item_id for link in self.links if link.snapshot_id == snapshot_id}

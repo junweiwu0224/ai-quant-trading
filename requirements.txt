@@ -9,7 +9,9 @@ sqlalchemy>=2.0
 # AI/ML
 scikit-learn>=1.3.0
 lightgbm>=4.0.0
-xgboost>=2.0.0
+# XGBoost 3.2 currently pulls a 131 MB ARM64 NCCL runtime; keep the
+# CPU-compatible wheel line for reproducible Apple Silicon deployments.
+xgboost>=2.0.0,<3.2.0
 optuna>=3.4.0
 shap>=0.43.0
 pandas>=2.0.0
@@ -22,7 +24,7 @@ uvicorn[standard]>=0.24.0
 websockets>=12.0
 jinja2>=3.1.0
 pydantic>=2.0
-httpx
+httpx>=0.25.0,<0.26.0
 
 # Scheduler
 apscheduler>=3.10.0
@@ -40,3 +42,7 @@ reportlab>=4.0.0
 
 # LLM
 openai>=1.30.0
+# Optional multi-vendor backend used by the AI Runtime (Gemini, Anthropic,
+# DeepSeek and other LiteLLM model routes).  Keep the image build reproducible;
+# the provider is still loaded lazily and does not make external calls by default.
+litellm==1.80.10

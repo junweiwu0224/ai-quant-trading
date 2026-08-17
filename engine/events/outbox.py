@@ -189,6 +189,20 @@ class SQLiteOutbox:
             ).fetchone()
             return None if row is None else self._message_from_row(row)
 
+    def get_by_idempotency_key(self, idempotency_key: str) -> Optional[OutboxMessage]:
+        """Return the immutable event already stored for an idempotency key."""
+
+        key = str(idempotency_key or "").strip()
+        if not key:
+            return None
+        with self._lock:
+            if not self._schema_available:
+                return None
+            row = self.connection.execute(
+                "SELECT * FROM outbox_events WHERE idempotency_key = ?", (key,)
+            ).fetchone()
+            return None if row is None else self._message_from_row(row)
+
     def claim(
         self,
         *,
@@ -332,6 +346,56 @@ class SQLiteOutbox:
             if updated != 1:
                 raise RuntimeError("outbox event is not owned by consumer: %s" % event_id)
 
+    def defer(
+        self,
+        event_id: str,
+        *,
+        consumer: str,
+        claim_token: str,
+        reason: str,
+        retry_after: Optional[float] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """Return a policy-blocked message to pending without dead-lettering it.
+
+        A blocked route, disabled external transport, or temporarily lost
+        eligibility is not a delivery failure.  It must remain recoverable
+        after configuration or data health is repaired, and therefore must not
+        consume the finite retry budget used for transport failures.
+        """
+
+        self._assert_writable()
+        if not claim_token:
+            raise ValueError("claim_token is required")
+        delay = 60.0 if retry_after is None else max(1.0, min(86_400.0, float(retry_after)))
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT 1 FROM outbox_events WHERE event_id=? AND status='in_flight' AND locked_by=? AND claim_token=?",
+                (event_id, consumer, claim_token),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("outbox event is not owned by consumer: %s" % event_id)
+            next_at = _iso((now or _now()) + timedelta(seconds=delay))
+            had_transaction = self.connection.in_transaction
+            try:
+                updated = self.connection.execute(
+                    """
+                    UPDATE outbox_events
+                    SET status='pending', available_at=?, locked_by=NULL,
+                        locked_at=NULL, claim_token=NULL, last_error=?
+                    WHERE event_id=? AND status='in_flight' AND locked_by=? AND claim_token=?
+                    """,
+                    (next_at, str(reason or "deferred")[:2000], event_id, consumer, claim_token),
+                ).rowcount
+                if not had_transaction:
+                    self.connection.commit()
+            except Exception:
+                if not had_transaction:
+                    self.connection.rollback()
+                raise
+            if updated != 1:
+                raise RuntimeError("outbox event is not owned by consumer: %s" % event_id)
+
     def reclaim_stale(
         self,
         *,
@@ -373,7 +437,7 @@ class InMemoryOutboxStore(SQLiteOutbox):
     """SQLite-backed in-memory Adapter with the same outbox Interface."""
 
     def __init__(self) -> None:
-        super().__init__(sqlite3.connect(":memory:"))
+        super().__init__(sqlite3.connect(":memory:", check_same_thread=False))
 
 
 SQLiteOutboxStore = SQLiteOutbox

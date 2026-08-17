@@ -7,6 +7,7 @@ import pytest
 from engine.events.models import DomainEvent
 from engine.events.outbox import SQLiteOutbox
 from engine.notifications.adapters import InMemoryNotificationAdapter
+from engine.notifications.adapters import DailyBriefNotificationAdapter
 from engine.notifications.dispatcher import NotificationDispatcher
 
 
@@ -22,6 +23,19 @@ def test_outbox_is_idempotent_and_dispatches_once():
     assert len(adapter.events) == 1
     assert outbox.get(first_id).status == "delivered"
     assert NotificationDispatcher(outbox, adapter, consumer="test").dispatch() == []
+
+
+def test_outbox_can_read_the_immutable_event_by_idempotency_key():
+    outbox = SQLiteOutbox(sqlite3.connect(":memory:"))
+    event = DomainEvent.create("test.lookup", "aggregate-lookup", {"report_url": "/report/token"}, idempotency_key="lookup-key")
+
+    assert outbox.get_by_idempotency_key("missing") is None
+    event_id = outbox.publish(event)
+
+    stored = outbox.get_by_idempotency_key("lookup-key")
+    assert stored is not None
+    assert stored.event.event_id == event_id
+    assert stored.event.payload["report_url"] == "/report/token"
 
 
 def test_injected_connection_lifecycle_and_caller_transaction_are_preserved():
@@ -217,6 +231,13 @@ def test_dispatcher_can_filter_event_types():
     ).dispatch()
     assert [event.event_type for event in adapter.events] == ["market.alert.triggered"]
     assert outbox.get(other.event_id).status == "pending"
+
+
+def test_daily_brief_adapter_blocks_local_event_without_external_webhook():
+    event = DomainEvent.create("daily.brief.ready", "brief-1", {"markdown": "# brief"})
+    result = DailyBriefNotificationAdapter().send(event)
+    assert not result.delivered
+    assert result.details["blocked"] == "daily_brief_webhook_not_configured"
 
 
 def test_retry_after_from_adapter_controls_next_attempt_time():

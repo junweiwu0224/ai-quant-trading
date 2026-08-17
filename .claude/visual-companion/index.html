@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Quant Trading 设计选择</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  background: #f5f5f5;
+  color: #1a1a1a;
+  line-height: 1.6;
+}
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1a1a1a;
+}
+.subtitle {
+  font-size: 15px;
+  color: #666;
+  margin-bottom: 40px;
+}
+.section {
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 32px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.section h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: #1a1a1a;
+}
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  margin-top: 24px;
+}
+.option {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #fafafa;
+}
+.option:hover {
+  border-color: #16a34a;
+  background: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.1);
+}
+.option.selected {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+.option-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #1a1a1a;
+}
+.option-desc {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+.mockup {
+  margin-top: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.mockup-header {
+  height: 48px;
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+}
+.mockup-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+}
+.mockup-body {
+  padding: 20px;
+  min-height: 240px;
+  display: flex;
+  gap: 16px;
+}
+.mockup-sidebar {
+  width: 200px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  color: #666;
+}
+.mockup-main {
+  flex: 1;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mockup-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  color: #666;
+}
+.tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 12px;
+}
+.tag-rec {
+  background: #dcfce7;
+  color: #166534;
+}
+.tag-alt {
+  background: #fef3c7;
+  color: #92400e;
+}
+.actions {
+  margin-top: 40px;
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+}
+button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: #16a34a;
+  color: white;
+}
+.btn-primary:hover {
+  background: #15803d;
+}
+.btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+.btn-secondary:hover {
+  background: #e5e7eb;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AI Quant Trading 设计选择</h1>
+  <p class="subtitle">为研究 + Paper 生产化选择布局、风格和交互方式</p>
+
+  <div class="section">
+    <h2>1. 主工作台布局</h2>
+    <p style="color: #666; margin-bottom: 16px;">决策中心、研究、验证和报告的整体信息架构</p>
+    <div class="option-grid">
+      <div class="option" data-choice="layout" data-value="sidebar-main">
+        <div class="option-title">侧栏 + 主区域</div>
+        <div class="option-desc">左侧导航、中间主内容、右侧可选辅助面板；桌面优先，适合多层级浏览</div>
+        <div class="mockup">
+          <div class="mockup-header">
+            <div class="mockup-dot"></div>
+            <div class="mockup-dot"></div>
+            <div class="mockup-dot"></div>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              决策中心<br>研究<br>验证<br>报告<br>通知<br>设置<br>更多
+            </div>
+            <div class="mockup-main">
+              <div class="mockup-card">主内容区：图表、表格、研究面板</div>
+              <div class="mockup-card">数据状态与证据链</div>
+            </div>
+          </div>
+        </div>
+        <span class="tag tag-rec">推荐</span>
+      </div>
+
+      <div class="option" data-choice="layout" data-value="header-grid">
+        <div class="option-title">顶栏 + 网格</div>
+        <div class="option-desc">顶部 Tab 导航、下方卡片网格；移动优先，适合仪表盘与快速浏览</div>
+        <div class="mockup">
+          <div class="mockup-header">
+            <div style="color: rgba(255,255,255,0.9); font-size: 13px; display: flex; gap: 16px;">
+              <span>决策</span><span>研究</span><span>验证</span><span>报告</span><span>更多</span>
+            </div>
+          </div>
+          <div class="mockup-body" style="flex-direction: column;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="mockup-card">组合 A</div>
+              <div class="mockup-card">组合 B</div>
+              <div class="mockup-card">数据状态</div>
+              <div class="mockup-card">最近报告</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="option" data-choice="layout" data-value="dual-pane">
+        <div class="option-title">双栏工作台</div>
+        <div class="option-desc">左栏研究流程、右栏 AI 助手与上下文；适合深度研究与对话协作</div>
+        <div class="mockup">
+          <div class="mockup-header">
+            <div class="mockup-dot"></div>
+            <div class="mockup-dot"></div>
+            <div class="mockup-dot"></div>
+          </div>
+          <div class="mockup-body">
+            <div style="flex: 1.5; background: #fafafa; border-radius: 6px; padding: 16px;">
+              <div class="mockup-card">研究与决策主流程</div>
+              <div class="mockup-card" style="margin-top: 12px;">图表与证据</div>
+            </div>
+            <div style="flex: 1; background: #f8f9fa; border-radius: 6px; padding: 16px;">
+              <div class="mockup-card">AI 对话</div>
+              <div class="mockup-card" style="margin-top: 12px;">Token 用量</div>
+              <div class="mockup-card" style="margin-top: 12px;">工具调用</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>2. 单股研究页层级</h2>
+    <p style="color: #666; margin-bottom: 16px;">K 线、证据、指标、因子与决策的组织方式</p>
+    <div class="option-grid">
+      <div class="option" data-choice="research" data-value="tabs-panel">
+        <div class="option-title">Tab + 面板</div>
+        <div class="option-desc">顶部 Tab 切换视图（K线/证据/回测），每个 Tab 内固定布局；简洁但层级深</div>
+        <span class="tag tag-rec">推荐</span>
+      </div>
+
+      <div class="option" data-choice="research" data-value="scrollable">
+        <div class="option-title">可滚动长页</div>
+        <div class="option-desc">K 线、证据、因子、决策纵向排列，一次看全；适合移动端与报告式阅读</div>
+      </div>
+
+      <div class="option" data-choice="research" data-value="split-view">
+        <div class="option-title">分屏视图</div>
+        <div class="option-desc">上方固定 K 线、下方可切换证据/因子/回测；类通达信，桌面高效</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>3. 视觉风格与动态</h2>
+    <p style="color: #666; margin-bottom: 16px;">色彩、间距、动效与"去 AI 感"取向</p>
+    <div class="option-grid">
+      <div class="option" data-choice="visual" data-value="compact-pro">
+        <div class="option-title">紧凑专业</div>
+        <div class="option-desc">高信息密度、较小间距、微动效、深浅主题；类 Bloomberg Terminal、通达信</div>
+        <span class="tag tag-rec">推荐</span>
+      </div>
+
+      <div class="option" data-choice="visual" data-value="spacious-modern">
+        <div class="option-title">宽松现代</div>
+        <div class="option-desc">大间距、圆角卡片、流畅过渡动效、浅色优先；类 Notion、Linear</div>
+      </div>
+
+      <div class="option" data-choice="visual" data-value="minimal-fast">
+        <div class="option-title">极简快速</div>
+        <div class="option-desc">无装饰、零动效、纯色块、系统字体；最快渲染、最低资源占用</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>4. AI 工作台呈现</h2>
+    <p style="color: #666; margin-bottom: 16px;">证据决策工作台的具体呈现方式</p>
+    <div class="option-grid">
+      <div class="option" data-choice="ai-workbench" data-value="context-chain">
+        <div class="option-title">上下文证据链</div>
+        <div class="option-desc">冻结输入 → 策略贡献 → 确定性动作 → AI 解释（可选）；时间线展示，AI 只读</div>
+        <span class="tag tag-rec">推荐</span>
+      </div>
+
+      <div class="option" data-choice="ai-workbench" data-value="role-cards">
+        <div class="option-title">角色化卡片</div>
+        <div class="option-desc">每个策略一张卡片、展示角色/权重/信心/数据质量；综合分数与 AI 解释在底部</div>
+      </div>
+
+      <div class="option" data-choice="ai-workbench" data-value="inspector">
+        <div class="option-title">检查器面板</div>
+        <div class="option-desc">左侧决策列表、右侧检查器展开选中项的证据、贡献、来源与 AI 注释</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-secondary" onclick="window.close()">稍后决定</button>
+    <button class="btn-primary" onclick="confirmChoices()">确认选择</button>
+  </div>
+</div>
+
+<script>
+const choices = {
+  layout: null,
+  research: null,
+  visual: null,
+  'ai-workbench': null
+};
+
+document.querySelectorAll('.option').forEach(opt => {
+  opt.addEventListener('click', function() {
+    const category = this.dataset.choice;
+    const value = this.dataset.value;
+
+    // Clear other selections in same category
+    document.querySelectorAll(`.option[data-choice="${category}"]`).forEach(o => {
+      o.classList.remove('selected');
+    });
+
+    this.classList.add('selected');
+    choices[category] = value;
+  });
+});
+
+function confirmChoices() {
+  const missing = Object.entries(choices).filter(([k, v]) => !v).map(([k]) => k);
+  if (missing.length > 0) {
+    alert('请在每个分类中选择一个选项：' + missing.join(', '));
+    return;
+  }
+
+  // Format as readable summary
+  const summary = `
+布局: ${choices.layout}
+研究页: ${choices.research}
+视觉风格: ${choices.visual}
+AI工作台: ${choices['ai-workbench']}
+  `.trim();
+
+  alert('已确认选择（请复制此内容回到对话）：\n\n' + summary);
+}
+</script>
+</body>
+</html>

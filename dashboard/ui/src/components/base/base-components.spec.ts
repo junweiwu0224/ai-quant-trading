@@ -21,7 +21,7 @@ describe('BaseButton', () => {
   })
 
   it('renders different variants', () => {
-    const variants = ['primary', 'secondary', 'ghost', 'danger']
+    const variants = ['primary', 'secondary', 'ghost', 'danger'] as const
     variants.forEach(variant => {
       const wrapper = mount(BaseButton, {
         props: { variant }
@@ -31,7 +31,7 @@ describe('BaseButton', () => {
   })
 
   it('renders different sizes', () => {
-    const sizes = ['sm', 'md', 'lg']
+    const sizes = ['sm', 'md', 'lg'] as const
     sizes.forEach(size => {
       const wrapper = mount(BaseButton, {
         props: { size }
@@ -77,7 +77,7 @@ describe('BaseCard', () => {
   })
 
   it('renders different padding sizes', () => {
-    const paddings = ['sm', 'md', 'lg']
+    const paddings = ['sm', 'md', 'lg'] as const
     paddings.forEach(padding => {
       const wrapper = mount(BaseCard, {
         props: { padding }
@@ -139,7 +139,7 @@ describe('BaseInput', () => {
   })
 
   it('renders different sizes', () => {
-    const sizes = ['sm', 'md', 'lg']
+    const sizes = ['sm', 'md', 'lg'] as const
     sizes.forEach(size => {
       const wrapper = mount(BaseInput, {
         props: { size }
@@ -254,7 +254,7 @@ describe('BaseTag', () => {
   })
 
   it('renders different variants', () => {
-    const variants = ['default', 'success', 'warning', 'danger', 'info', 'up', 'down']
+    const variants = ['default', 'success', 'warning', 'danger', 'info', 'up', 'down'] as const
     variants.forEach(variant => {
       const wrapper = mount(BaseTag, {
         props: { variant }
@@ -264,7 +264,7 @@ describe('BaseTag', () => {
   })
 
   it('renders different sizes', () => {
-    const sizes = ['sm', 'md', 'lg']
+    const sizes = ['sm', 'md', 'lg'] as const
     sizes.forEach(size => {
       const wrapper = mount(BaseTag, {
         props: { size }

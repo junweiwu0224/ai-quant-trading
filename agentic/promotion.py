@@ -20,6 +20,21 @@ class PromotionContext:
     min_trades: int = 0
     sharpe: Optional[float] = None
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "evidence_count": self.evidence_count,
+            "provenance_complete": self.provenance_complete,
+            "backtest_passed": self.backtest_passed,
+            "risk_approved": self.risk_approved,
+            "paper_observations": self.paper_observations,
+            "paper_return": self.paper_return,
+            "max_drawdown": self.max_drawdown,
+            "manual_approval": self.manual_approval,
+            "signal_validation_passed": self.signal_validation_passed,
+            "min_trades": self.min_trades,
+            "sharpe": self.sharpe,
+        }
+
 
 @dataclass(frozen=True)
 class PromotionDecision:
@@ -28,6 +43,26 @@ class PromotionDecision:
     policy_version: str
     failed_gates: Tuple[str, ...] = ()
     reasons: Tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the stable, auditable representation used by commands."""
+        return {
+            "target": self.target,
+            "approved": self.approved,
+            "policy_version": self.policy_version,
+            "failed_gates": list(self.failed_gates),
+            "reasons": list(self.reasons),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "PromotionDecision":
+        return cls(
+            target=str(payload.get("target") or ""),
+            approved=bool(payload.get("approved")),
+            policy_version=str(payload.get("policy_version") or ""),
+            failed_gates=tuple(str(item) for item in (payload.get("failed_gates") or [])),
+            reasons=tuple(str(item) for item in (payload.get("reasons") or [])),
+        )
 
 
 class PromotionPolicy:

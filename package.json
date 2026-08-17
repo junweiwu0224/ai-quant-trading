@@ -9,16 +9,18 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "e2e": "playwright test --config=playwright.config.cjs tests/e2e/v2-smoke.spec.cjs tests/e2e/openclaw.spec.cjs",
-    "e2e:data-health": "playwright test --config=playwright.config.cjs tests/e2e/data-display-health.spec.cjs",
+    "ui:dev": "npm run dev --prefix dashboard/ui",
+    "ui:build": "npm run build --prefix dashboard/ui",
+    "ui:test": "npm run test --prefix dashboard/ui",
+    "e2e": "playwright test --config=playwright.config.cjs tests/e2e/vue-migration.spec.cjs tests/e2e/vue-workspace-health.spec.cjs",
+    "e2e:vue": "playwright test --config=playwright.config.cjs tests/e2e/vue-migration.spec.cjs tests/e2e/vue-workspace-health.spec.cjs",
+    "e2e:data-health": "playwright test --config=playwright.config.cjs tests/e2e/vue-workspace-health.spec.cjs",
     "e2e:docker": "bash scripts/e2e.sh"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "openclaw": "2026.5.20"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@playwright/test": "1.60.0"
   }

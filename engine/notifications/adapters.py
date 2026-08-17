@@ -113,8 +113,8 @@ class WebhookNotificationAdapter:
 class AlertWebhookNotificationAdapter:
     """Route alert events to the rule-specific webhook in their payload.
 
-    Alerts without a configured webhook are still acknowledged: the durable
-    event remains the audit record, while no external delivery is requested.
+    Alerts without a configured webhook are explicitly blocked.  A durable
+    event is not proof that an external consumer received anything.
     """
 
     def send(self, event: DomainEvent) -> DeliveryResult:
@@ -122,8 +122,10 @@ class AlertWebhookNotificationAdapter:
         if not url:
             return DeliveryResult(
                 event_id=event.event_id,
-                delivered=True,
-                details={"skipped": "no_webhook_configured"},
+                delivered=False,
+                retryable=False,
+                error="alert webhook is not configured",
+                details={"blocked": "no_webhook_configured"},
             )
         result = WebhookNotificationAdapter(url).send(event)
         if result.event_id == event.event_id:
@@ -139,3 +141,26 @@ class AlertWebhookNotificationAdapter:
             retry_after=result.retry_after,
             details=result.details,
         )
+
+
+class DailyBriefNotificationAdapter:
+    """Route daily brief events to an explicit configured webhook.
+
+    No URL is a permanent configuration block, never a successful delivery.
+    """
+
+    def __init__(self, url: str = "", *, timeout: float = 5.0, transport=None) -> None:
+        self.url = str(url or "").strip()
+        self.timeout = timeout
+        self.transport = transport
+
+    def send(self, event: DomainEvent) -> DeliveryResult:
+        if not self.url:
+            return DeliveryResult(
+                event_id=event.event_id,
+                delivered=False,
+                retryable=False,
+                error="daily brief webhook is not configured",
+                details={"blocked": "daily_brief_webhook_not_configured"},
+            )
+        return WebhookNotificationAdapter(self.url, timeout=self.timeout, transport=self.transport).send(event)

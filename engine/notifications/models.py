@@ -35,6 +35,14 @@ class PermanentDeliveryError(DeliveryFailure):
     pass
 
 
+class AmbiguousDeliveryError(DeliveryFailure):
+    """The provider request may have been accepted, but its outcome is unknown.
+
+    Callers must persist this state for operator review instead of retrying it
+    automatically, because a second request could create a duplicate message.
+    """
+
+
 @dataclass(frozen=True)
 class DeliveryResult:
     event_id: Optional[str] = None

@@ -1,73 +1,84 @@
 services:
-  openclaw:
+  dashboard:
     build:
       context: .
-      dockerfile: Dockerfile.openclaw
-    working_dir: /app
-    command:
-      - sh
-      - -lc
-      - |
-        mkdir -p /data/openclaw/state /data/openclaw/workspace &&
-        cat > /data/openclaw/openclaw.json <<'EOF'
-        {
-          "gateway": {
-            "mode": "local",
-            "port": 18789,
-            "bind": "lan",
-            "auth": { "mode": "token" },
-            "http": {
-              "endpoints": {
-                "chatCompletions": { "enabled": true },
-                "responses": { "enabled": true }
-              }
-            }
-          },
-          "agents": {
-            "defaults": {
-              "workspace": "/data/openclaw/workspace"
-            }
-          }
-        }
-        EOF
-        OPENCLAW_CONFIG_PATH=/data/openclaw/openclaw.json OPENCLAW_STATE_DIR=/data/openclaw/state openclaw gateway run --port 18789 --allow-unconfigured
-    ports:
-      - "127.0.0.1:18789:18789"
-    volumes:
-      - ./data/openclaw:/data/openclaw
-      - ./logs/openclaw:/logs/openclaw
-    environment:
-      - TZ=Asia/Shanghai
-      - OPENCLAW_WORKSPACE_DIR=/data/openclaw
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-local-openclaw-token}
-    restart: unless-stopped
-
-  dashboard:
-    build: .
+      args:
+        INSTALL_OPTIONAL_AI: ${INSTALL_OPTIONAL_AI:-false}
     ports:
       - "8001:8001"
       - "8002:8002"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./dashboard/templates:/app/dashboard/templates
-      - ./dashboard/static:/app/dashboard/static
     environment:
       - LOG_LEVEL=INFO
       - TZ=Asia/Shanghai
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - AI_WORKER_ENABLED=${AI_WORKER_ENABLED:-false}
+      - AI_INLINE_EXECUTION=false
       - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
       - APP_ENV=${APP_ENV:-development}
-      - OPENCLAW_MANAGED=${OPENCLAW_MANAGED:-false}
-      - OPENCLAW_AUTO_START=${OPENCLAW_AUTO_START:-false}
-      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-local-openclaw-token}
-      - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-http://openclaw:18789}
-      - OPENCLAW_WEB_URL=${OPENCLAW_WEB_URL:-http://127.0.0.1:18789}
       - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-0.0.0.0}
+      - DASHBOARD_BACKGROUND_WORKER=false
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      args:
+        INSTALL_OPTIONAL_AI: ${INSTALL_OPTIONAL_AI:-false}
+    command: ["python", "scripts/run_worker.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+      - TZ=Asia/Shanghai
+      - DECISION_WORKER_ENABLED=${DECISION_WORKER_ENABLED:-false}
+      - DECISION_EXTERNAL_DELIVERY_ENABLED=${DECISION_EXTERNAL_DELIVERY_ENABLED:-false}
+      - DECISION_REPORT_BASE_URL=${DECISION_REPORT_BASE_URL:-}
+      - DECISION_BACKUP_DIR=/app/data/backups/daily
+      - DECISION_RECOVERY_DRILL_DIR=/app/data/backups/monthly-recovery
+      - DECISION_ARTIFACT_DIRS=/app/data/decision-artifacts
+      - DASHBOARD_BACKGROUND_WORKER=false
+      - DAILY_BRIEF_WEBHOOK_URL=${DAILY_BRIEF_WEBHOOK_URL:-}
+      - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
+    restart: unless-stopped
+
+  ai-worker:
+    build:
+      context: .
+      args:
+        INSTALL_OPTIONAL_AI: "true"
+    command: ["python", "scripts/run_ai_worker.py"]
+    profiles:
+      - ai
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+      - TZ=Asia/Shanghai
+      - AI_WORKER_ENABLED=${AI_WORKER_ENABLED:-false}
+      - AI_WORKER_LEASE_TTL_SECONDS=${AI_WORKER_LEASE_TTL_SECONDS:-30}
+      - AI_WORKER_POLL_INTERVAL_SECONDS=${AI_WORKER_POLL_INTERVAL_SECONDS:-2}
+      - AI_WORKER_BATCH_SIZE=${AI_WORKER_BATCH_SIZE:-4}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - DASHBOARD_BACKGROUND_WORKER=false
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "run"]
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN:-}
+    profiles: ["tunnel"]
     depends_on:
-      - openclaw
+      - dashboard
     restart: unless-stopped
 
   paper:

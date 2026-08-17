@@ -24,14 +24,14 @@ Evidence -> Snapshot/Link -> Signal Ledger -> PromotionPolicy -> Outbox -> Notif
 
 - 没有宣称真实券商下单、实盘成交或稳定的外部通知已完成。
 - Dashboard 已注册只读 /api/audit 路由，市场新闻已写入 EvidenceStore；审计未知 signal/evidence 返回 404；仍待浏览器验收页面展示和应用完整依赖环境。
-- 尚未把所有旧的 Signal/Strategy Candidate 晋级逻辑替换成 PromotionPolicy；迁移期间必须保留只读兼容 Adapter，避免出现两套写模型。
+- 尚未把所有旧的 Strategy Candidate 晋级逻辑完全替换成 PromotionPolicy；SignalService 的 paper signal 晋级已拆成“策略门禁批准”和“人工确认”两步，四类 Paper Strategy 写操作已统一接收 operation id、记录请求事实、支持幂等重放与 409 冲突提示，订单写入与 Agentic 状态同步失败也有可恢复协议。仍保留旧 Fake/兼容 Adapter 的参数回退，迁移期间避免出现两套写模型。
 - 没有接入真实通知凭证，也没有在测试中访问外网。
 - Outbox 仍是至少一次投递语义；provider 可能在网络超时后已收到请求，因此 exactly-once 通知和跨表一致性事务尚未宣称完成。应用 worker 已接线，但真实外部 Webhook 未在本轮调用。SQLite Outbox 现在明确传入连接由调用方拥有：初始化与普通写入不隐式提交外部事务，claim 在检测到外部活动事务时拒绝嵌套；路径构造器支持无副作用只读模式。跨线程使用传入连接仍要求调用方创建 `check_same_thread=False` 连接，文件路径 Adapter 自行管理 worker 连接。
 
 ## 对抗性验收问题
 
 1. 如果删掉 EvidenceStore，证据去重、快照复现和信号引用逻辑会散落到多个调用方，因此它通过 deletion test。
-2. 如果删掉 PromotionPolicy，普通 Signal、Paper Candidate 和 OpenClaw 会重新出现各自判断晋级的分叉，因此门禁需要继续收敛。
+2. 如果删掉 PromotionPolicy，普通 Signal、Paper Candidate 和 AI/Agent 候选会重新出现各自判断晋级的分叉，因此门禁需要继续收敛。
 3. Outbox 不把广播成功误认为事件已可靠送达；只有 Adapter 成功后才 ack，失败会重试或进入 dead-letter。
 4. 模拟组件没有被包装成实盘能力；真实交易仍受人工确认和券商 Adapter 门禁约束。
 
@@ -63,11 +63,33 @@ Evidence -> Snapshot/Link -> Signal Ledger -> PromotionPolicy -> Outbox -> Notif
 - `git diff --check`、`.venv/bin/python -m compileall -q .`：通过。
 - 安装的依赖和 `.venv/` 均被 `.gitignore` 忽略；未修改 requirements 或 lock 文件。
 
+## 2026-08-13 继续实施：命令幂等与证据可复现性
+
+- `agentic.operations` 新增稳定的 `operation_id`、请求事实哈希和冲突模型；`AgenticRepository` 持久化命令记录，SignalService 的 paper gate 与人工确认支持完成后重放，并拒绝同一 operation id 的跨信号/改事实复用。
+- paper gate 不再直接改信号状态：先保存 `PromotionDecision`，再由带 `approval_operation_id` 的人工确认命令进入 `paper_pending`；生产 SQLite projection、Signal Ledger transition 和确认 operation 在同一事务提交，故障时一起回滚。
+- 新闻 Evidence item 额外保存标准化记录对应的 `raw_payload`；snapshot 保存 provider/parser/request window、采集状态、源错误、原始/去重数量与截断信息。SQLite 与内存 Evidence Adapter 都增加 collection lease，按 collection key 做跨进程 single-flight，并能复用已完成 snapshot。
+- 本轮验证：operation/evidence/news 定向测试 `24 passed`；全量 pytest `809 passed in 91.71s`；context pack verifier、compileall 和 `git diff --check` 均通过。一次误用 `--noconftest` 导致 API fixture 缺失的探针失败不计入门禁，随后使用项目默认配置复测通过。
+
+## 2026-08-13 前端与 Paper Strategy 收口
+
+- 四类 Paper Strategy 写操作（候选确认、交易意图执行、组合风控确认、订单草案/纸上订单写入）统一传递稳定 `operation_id`；前端会显示“已完成 / 已恢复 / 不会重复创建”，同一 operation id 改变候选、操作者、风险参数或数量时返回 409，并显示“操作冲突：同一个 operation id 对应的请求事实已改变”。
+- 订单跨 Paper DB 与 Agentic DB 的恢复路径已验收：订单已写入而 Agentic projection 更新失败时返回 503 `recoverable=true`，用原 operation id 重试只补状态，不重复创建订单；前端明确显示“订单已写入，但 Agentic 状态更新失败，可恢复”。
+- Agentic 页面新增候选、执行、风控、草案、纸上订单五步状态和操作审计详情，审计记录展示命令、聚合对象、时间、请求 JSON；订单草案和纸上订单前端按 ID 去重，避免重放后重复显示。Service Worker cache 升至 `ai-quant-v162`，注册 query 升至 `sw.js?v=60`，Agentic bundle 为 `agentic-signals.js?v=21`。
+- 本轮验证：Agentic API/operation/paper strategy/frontend + cache 定向测试 `145 passed`；全量 pytest `820 passed in 89.68s`；`compileall`、`verify_context_pack.py`、`git diff --check`、Node 语法检查通过。静态 frontend audit 仍报告仓库既有全局风险（`877` 条，主要为既有 CSS/页面数据模式），未发现本轮 Agentic 新增阻断项。
+- 真实浏览器验收：本地 Docker Dashboard `http://127.0.0.1:8001` 已登录测试账户并打开研发 → Agent 信号；确认按需加载入口、五步流程、模拟盘推进区、历史/审计折叠区、无数据空状态可见；确认页面实际请求 `/static/agentic-signals.js?v=21`，根路径 `sw.js?v=60` 返回 `ai-quant-v162`。当前 `data/db/agentic.db` 中候选/执行/草案/operation 均为 0，因此真实浏览器尚未覆盖有数据写操作、重放、冲突和可恢复提示，不能把本次空数据验收描述为完整端到端写流程。
+
 ## 本轮对抗性审查新增结论
 
-- P0 双写一致性已在生产 `AgenticRepository` seam 内收口：投影、Ledger event 在同一 SQLite 事务中提交或回滚；故障注入已验证无孤儿。仍未完成的是命令级 `operation_id` 幂等/重放语义，以及所有外部/旧写路径的迁移。
-- P1 晋级仍可通过 `decision=None` 绕过 PromotionPolicy；这是历史兼容行为，当前未强制收紧，以免无迁移的 API 破坏既有调用。要超越对标系统，下一阶段应拆成明确的“策略门禁批准”和“人工确认命令”，两者都留下 operation id 与审计结果。
-- P1 多进程 single-flight 尚未解决：新闻刷新锁只覆盖单进程；多 worker 仍可能重复采集并创建多个 snapshot。需要 DB lease/idempotency key 或外部 scheduler owner。
-- P1 原始源记录仍未完整保存：当前 Evidence 主要保存标准化/展示结果；要宣称可复现研究，需额外保存每个源的 raw payload、请求窗口、源版本和解析器版本。
-- P2 目前没有执行真实浏览器页面验收、真实外部 Webhook 联调、真实券商/实盘或生产部署；这些不属于本轮安全范围，因此不能把全量 pytest 解读为生产可用证明。
+- P0 双写一致性已在生产 `AgenticRepository` seam 内收口：投影、Ledger event 和确认 operation 在同一 SQLite 事务中提交或回滚；仍未完成的是所有外部/旧写路径的迁移。
+- P1 晋级的 signal path 已强制走两阶段 PromotionPolicy + 人工确认；Paper Strategy 的候选加入、候选确认、交易意图、组合风控、订单草案和纸上订单命令均具备 operation id 幂等/冲突保护与请求审计；仍需用隔离浏览器样本完成有数据写路径的真实 UI 证明，并继续收紧旧兼容 Adapter。
+- P1 新闻 collection lease 已覆盖同一 collection key 的多进程 single-flight；仍需在生产调度器层验证 lease 过期后的恢复与长期 owner 管理。
+- P1 原始源记录已对当前新闻标准化结果保存 `raw_payload`，并记录请求窗口、provider/parser 版本；其他数据源和完整 HTTP 响应/请求头仍未纳入统一 raw archive。
+- P2 已完成 Agentic 空数据页面的真实浏览器验收，但有数据写路径的浏览器闭环、真实外部 Webhook 联调、真实券商/实盘或生产部署仍未完成；这些不属于本轮安全范围，因此不能把全量 pytest 解读为生产可用证明。
 - Docker 首次构建暴露了部署依赖问题：`pyqlib>=0.9.0` 没有 Apple Silicon/aarch64 Linux wheel，且仓库实际运行的是轻量 `data/qlib` 兼容层。Dockerfile 已在部署镜像中显式排除该未使用的重量级依赖；本地源码 requirements 保持不变，避免改变现有 Python 开发环境契约。
+
+## 2026-08-17 AI Runtime 跨进程状态收口
+
+- `ai_runtime.db` 新增 `ai_provider_runtime` 脱敏投影；Dashboard 和独立 `ai-worker` 通过同一 SQLite 文件共享 provider 的最近状态、错误码、检查时间和最多 12 条尝试记录。
+- `ProviderRouter` 仍把“已配置”与“已验证”分开；共享投影只改善可观测性，不改变 AI 的 `authoritative=false`、`decision_effect=none` 边界，也不授予自动推送或交易权限。
+- 新增跨进程 Router 重建测试，验证 worker 写入成功状态后，新的 Dashboard Router 可读到 `verified` 和尝试记录；provider/AI Runtime/Worker/API 定向回归本轮 `28 passed`。
+- 当前完整交付门禁仍以本轮最终结果为准：全量 pytest、Docker 全量 profile 重建、Docker E2E，以及 Chrome 桌面/移动核心工作流必须完成后，才能更新 Vue-only 发布结论。

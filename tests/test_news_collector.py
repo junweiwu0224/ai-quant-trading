@@ -280,3 +280,52 @@ def test_load_local_stock_universe_uses_storage_stock_list(monkeypatch):
         {"code": "300750", "name": "宁德时代", "industry": "电力设备"},
         {"code": "688012", "name": "中微公司", "industry": "半导体"},
     ]
+
+
+def test_market_news_evidence_reuses_completed_collection_window(monkeypatch):
+    calls = 0
+
+    async def fake_fetch(max_items=30):
+        nonlocal calls
+        calls += 1
+        return {
+            "news": [
+                {
+                    "title": "Fixture news",
+                    "summary": "Fixture summary",
+                    "time": "2026-08-13 09:00:00",
+                    "url": "https://example.test/news/1",
+                    "source": "fixture",
+                    "source_key": "fixture",
+                    "sentiment": 0.1,
+                    "raw_payload": {"provider_id": "news-1"},
+                }
+            ],
+            "timestamp": "2026-08-13T09:00:00Z",
+            "collection_status": "ok",
+            "partial_errors": [],
+        }
+
+    monkeypatch.setattr(news_collector, "fetch_market_news_summary", fake_fetch)
+    store = InMemoryEvidenceStore()
+    first = asyncio.run(
+        news_collector.collect_market_news_evidence(
+            store,
+            max_items=5,
+            collection_key="news:fixture-window",
+            owner="worker-a",
+        )
+    )
+    second = asyncio.run(
+        news_collector.collect_market_news_evidence(
+            store,
+            max_items=5,
+            collection_key="news:fixture-window",
+            owner="worker-b",
+        )
+    )
+
+    assert calls == 1
+    assert second["collection_status"] == "reused"
+    assert second["collection_snapshot_id"] == first["collection_snapshot_id"]
+    assert second["evidence_snapshot_id"] == first["evidence_snapshot_id"]

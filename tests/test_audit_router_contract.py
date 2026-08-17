@@ -6,7 +6,8 @@ def test_audit_router_is_registered_and_market_news_exposes_evidence_reference()
     app_source = (root / "dashboard" / "app.py").read_text()
     market_source = (root / "dashboard" / "routers" / "market.py").read_text()
     audit_source = (root / "dashboard" / "routers" / "audit.py").read_text()
-    assert "agentic, account, alerts, alpha, audit," in app_source
+    assert "from dashboard.routers import" in app_source
+    assert "agentic, account, ai, alerts, alpha, audit" in app_source
     assert 'app.include_router(audit.router, prefix="/api", tags=["审计"])' in app_source
     assert 'router = APIRouter(prefix="/audit", tags=["audit"])' in audit_source
     assert '@router.get("/signals/{signal_id}")' in audit_source

@@ -26,14 +26,43 @@ http://127.0.0.1:8001
 
 ## Docker
 
+### 全量本地部署（默认）
+
+本项目中“部署”默认指全量本地 Docker 栈，不是只启动 Dashboard。该命令会构建并启动 Dashboard、独立决策 Worker、AI Worker、paper 模拟盘、live 模拟模式和 backtest 任务：
+
 ```bash
-docker compose up -d
-docker compose down
+DECISION_WORKER_ENABLED=true \
+DECISION_EXTERNAL_DELIVERY_ENABLED=false \
+AI_WORKER_ENABLED=true \
+docker compose --profile ai --profile trading up -d --build
 ```
 
-`docker compose up -d` 会启动 OpenClaw 和 Dashboard，并挂载 `data/`、`logs/`、`dashboard/templates/`、`dashboard/static/`。执行前确认本地数据和环境变量影响。
+`live` 服务使用 Compose 中未传 `--live` 的模拟券商模式；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 AI Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
 
-Apple Silicon 本地部署会构建 `Dockerfile.openclaw`，其中包含 OpenClaw 的 ARM64 原生依赖构建工具。OpenClaw 仅绑定到 `127.0.0.1:18789`，并启用 token 认证；可通过 `OPENCLAW_GATEWAY_TOKEN` 覆盖默认本地 token。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
+`cloudflared` 不属于默认本地全量栈，因为它会改变网络暴露边界。只有在 `.env` 配置 `CLOUDFLARED_TUNNEL_TOKEN` 并明确确认外部暴露范围后，才单独执行：
+
+```bash
+docker compose --profile tunnel up -d cloudflared
+```
+
+停止本地全量栈：
+
+```bash
+docker compose --profile ai --profile trading down
+```
+
+部署会挂载 `data/` 和 `logs/` 并写入本地运行数据；执行前确认影响范围。若只需要 Dashboard 控制面做静态开发，才使用不带 profile 的 `docker compose up -d dashboard`，这不称为完整部署。
+
+默认 Dashboard/Worker 镜像使用当前 Docker 平台，并排除测试依赖、`pyqlib` 和按需的 LiteLLM；BuildKit 会缓存 npm/pip 包。需要启用多厂商 LiteLLM 后端时构建可选 profile：
+
+```bash
+docker compose build dashboard
+docker compose --profile ai build ai-worker
+```
+
+跨平台构建时显式设置 Docker 平台，例如 `DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose build dashboard`；不要把 amd64 模拟运行作为 Apple Silicon 的默认部署平台。
+
+AI Runtime 使用显式 provider 配置和受保护的 secret reference；没有配置时保持未就绪，不会把 AI 输出写入确定性动作或自动推送资格。Dashboard 与 `ai-worker` 通过 `data/db/ai_runtime.db` 共享脱敏 provider readiness 和有限尝试记录。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
 
 ## 测试
 
@@ -44,6 +73,13 @@ Apple Silicon 本地部署会构建 `Dockerfile.openclaw`，其中包含 OpenCla
 ```
 
 `pyproject.toml` 设置了 `testpaths = ["tests"]`，并定义 `unit`、`integration` markers。
+
+Vue 独立工程使用自己的 lockfile；根目录命令只做转发：
+
+```bash
+npm run ui:build
+npm run ui:test
+```
 
 ## Context pack 验证
 
@@ -69,7 +105,7 @@ Apple Silicon 本地部署会构建 `Dockerfile.openclaw`，其中包含 OpenCla
 .venv/bin/python scripts/frontend_data_render_audit.py
 ```
 
-`dashboard_data_health.py` 使用 FastAPI TestClient 扫描 API 返回值，不连接外部服务，但会触发应用 lifespan：初始化本地数据库、短暂启动/停止调度器和行情服务，并写入 `test-results/data-display-audit/api-report.json`。`frontend_data_render_audit.py` 静态扫描前端渲染风险，并写入 `test-results/data-display-audit/frontend-static-report.json`。
+`dashboard_data_health.py` 使用 FastAPI TestClient 扫描 API 返回值，不连接外部服务，但会触发应用 lifespan：初始化本地数据库、短暂启动/停止调度器和行情服务，并写入 `test-results/data-display-audit/api-report.json`。`frontend_data_render_audit.py` 默认扫描 `dashboard/ui/src` 下的 Vue/TypeScript/JavaScript 渲染风险，并写入 `test-results/data-display-audit/frontend-static-report.json`。
 
 ## E2E
 
@@ -95,6 +131,41 @@ npm run e2e:docker
 
 `package.json` 中 `npm run e2e` 和 `npm run e2e:data-health` 依赖 Playwright 配置；`npm test` 当前是占位脚本，会直接失败。
 
+## 决策 Worker 与备份
+
+```bash
+export DECISION_WORKER_ENABLED=true
+export DECISION_BACKUP_DIR=/path/to/daily-backups
+export DECISION_ARTIFACT_DIRS=/path/to/decision-artifacts:/path/to/another-artifacts
+.venv/bin/python scripts/run_worker.py --once
+.venv/bin/python scripts/run_worker.py
+.venv/bin/python scripts/backup_decisions.py --output-dir /path/to/backup --database /path/to/decisions.db
+.venv/bin/python scripts/backup_decisions.py --output-dir /path/to/backup --database /path/to/decisions.db --artifact-dir /path/to/decision-artifacts
+.venv/bin/python scripts/restore_decisions.py --backup-dir /path/to/backup --target-dir /path/to/restore --verify-only
+.venv/bin/python scripts/restore_decisions.py --backup-dir /path/to/backup --target-dir /path/to/restore
+.venv/bin/python scripts/restore_decisions.py --backup-dir /path/to/backup --target-dir /path/to/restore --replay-decision-id <decision-id>
+```
+
+`run_worker.py` 默认只读退出；必须显式设置 `DECISION_WORKER_ENABLED=true` 才会运行。Worker
+从进程环境读取 `DECISION_BACKUP_DIR`（默认 `data/backups/daily`）和
+`DECISION_ARTIFACT_DIRS`。后者是使用当前系统路径分隔符（macOS/Linux 为 `:`）分隔的附件目录列表；
+每个目录必须已经存在，备份输出目录不能位于附件目录中。独立 Worker 在每天上海时间 02:00 的安全点
+备份本地决策、事件、lease 和行情数据库以及这些附件目录；同一天已有 manifest 时复用已有备份。
+manifest 的 `metadata.artifact_dirs_configured` 记录实际读取的配置，`artifacts` 记录每个附件目录的文件、
+大小和 SHA-256。Dashboard 控制面不拥有决策调度或报告投递。
+
+显式备份脚本可重复指定 `--artifact-dir`。恢复命令先用 `--verify-only` 校验 manifest、SQLite 和附件
+hash，此模式不会创建目标目录；去掉该参数才会将 SQLite 和附件恢复到不存在或为空的隔离目录。备份和
+恢复均使用本地显式路径，不连接 provider、通知、LLM 或交易接口。
+
+Dashboard 兼容模式不会隐式接管后台任务。只有同时设置
+`DASHBOARD_BACKGROUND_WORKER=true` 与 `WORKER_OWNERSHIP=dashboard-legacy` 才会启动旧调度器和
+legacy 通知 consumer；默认配置由独立 Worker 负责决策、报告和相关 outbox。
+
+独立 Worker 和 AI Worker 的入口会处理 Docker `SIGTERM`/`SIGINT`，先进入 draining，再由
+`close()` 释放自身 lease；正常重建不需要等待旧 lease 的 TTL 回收。若进程被强制 kill 或机器
+断电，仍需等待 TTL 或使用隔离恢复流程，不能把此机制当作断电保护。
+
 ## 数据和运维脚本
 
 ```bash
@@ -118,5 +189,5 @@ npm run e2e:docker
 
 ## 待确认
 
-- 是否有项目标准 lint/format 命令。
-- 是否需要把常用 pytest 子集沉淀为脚本或 Makefile target。
+- 是否有项目标准 lint/format 命令；当前没有额外 lint/format 门禁。
+- 真实 provider、真实渠道、cloudflared 和 Docker 部署仍需单独确认外部影响范围。

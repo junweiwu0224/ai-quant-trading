@@ -30,11 +30,11 @@
 | **风控模块** | 单票仓位上限、行业集中度、最大回撤止损、日亏损限额、ATR 止损、跟踪止损 |
 | **模拟盘** | PaperEngine 模拟盘、市价/限价/止损/止盈单、实时行情接入、Dashboard 控制面板 |
 | **持仓管理** | 持仓监控、风险指标（VaR/Sharpe/Sortino/Calmar）、行业分布、相关性矩阵、导出 |
-| **LLM 集成** | OpenAI 兼容大模型、自然语言策略生成、AI 结果解读、流式对话 |
+| **AI Runtime** | OpenAI-compatible/LiteLLM/本地 CLI provider、结构化研究分析、Agent 工作流、流式对话 |
 | **多股对比** | 最多 5 只股票归一化收益率对比，支持缩放/滚动/区间标注 |
 | **画线工具** | 趋势线/水平线/斐波那契回撤线，保存/加载/删除 |
 | **多周期切换** | 1m/5m/15m/30m/60m/日/周/月 K 线 |
-| **Web 面板** | FastAPI + Jinja2 SPA，5+1 导航（监控/情报/研发/交易/模拟+AI助手），130+ API 端点，Command Palette/隐私模式/实验快照 |
+| **Web 面板** | FastAPI 同源托管 Vue 3 + TypeScript 工作台，决策/报告/验证/单股研究/通知/Agent/Alpha/模拟盘/风控/设置工作流，130+ API 端点 |
 | **深色模式** | 亮色/深色双主题，localStorage 持久化 |
 | **响应式布局** | 桌面/平板/手机自适应，侧边栏自动折叠 |
 
@@ -81,8 +81,8 @@
 | 数据库 | SQLite |
 | AI/ML | LightGBM, XGBoost, Optuna, SHAP |
 | NLP | SnowNLP, OpenAI-compatible LLM |
-| Web 框架 | FastAPI + Jinja2 |
-| 前端 | Vanilla JS + Chart.js v4 + KlineCharts v9 |
+| Web 框架 | FastAPI + Vue 3 + TypeScript |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + lucide-vue-next |
 | 任务调度 | APScheduler |
 | 容器化 | Docker + docker-compose |
 
@@ -97,12 +97,17 @@ cd ai-quant-trading
 cp .env.example .env
 
 # Docker 部署
-docker compose up -d
+DECISION_WORKER_ENABLED=true \
+DECISION_EXTERNAL_DELIVERY_ENABLED=false \
+AI_WORKER_ENABLED=true \
+docker compose --profile ai --profile trading up -d --build
+```
 
-首次在 Apple Silicon（M 系列 Mac）上部署时，Compose 会分别构建 Dashboard 和 OpenClaw 镜像；OpenClaw 镜像包含 ARM64 所需的 `node-gyp` 构建工具。默认仅启动 Dashboard 与 OpenClaw，不会启动 `paper`、`live` 或 `backtest` trading profile。
+默认启动完整本地栈：Dashboard、独立 Worker、AI Worker、paper 模拟盘、live 模拟模式和 backtest 任务。`cloudflared` 会改变外部网络暴露边界，必须配置 tunnel token 后单独启用。
 
-本地 OpenClaw Gateway 默认使用 token 认证。可在 `.env` 中设置 `OPENCLAW_GATEWAY_TOKEN`；未设置时使用仅适用于本机开发的默认值 `local-openclaw-token`。不要把该默认配置用于公网部署。
+AI Runtime 只生成结构化研究解释和报告补充件，不拥有确定性决策、风控、验证或自动推送资格。LLM 凭证只能通过环境变量或受保护的 `env://` 引用提供。
 
+```bash
 # 访问
 open http://localhost:8001
 ```
@@ -141,10 +146,10 @@ quant-trading-system/
 │   ├── nl_strategy.py       # 自然语言策略生成
 │   └── factor_scheduler.py  # 因子动态更新调度器
 ├── risk/                    # 风控层（仓位/止损/监控）
-├── dashboard/               # Web 面板（FastAPI + 前端）
+├── dashboard/               # Web 面板（FastAPI + Vue 同源托管）
 │   ├── routers/             # API 路由（17 组，120+ 端点）
-│   ├── static/              # 前端 JS/CSS（35+ 模块，含信号聚合/三态切换/离线指示等）
-│   └── templates/           # HTML 模板
+│   ├── ui/                  # Vue 3 + TypeScript + Vite 应用
+│   └── static/              # PWA manifest、图标和 Service Worker
 ├── engine/                  # 引擎集成（回测/模拟盘/实盘/预警/报告）
 ├── config/                  # 配置
 └── docs/                    # 文档（架构设计）

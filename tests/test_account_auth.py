@@ -44,7 +44,7 @@ def test_register_bootstraps_workspace_session_and_audit(client, isolated_accoun
     body = resp.json()
     assert body["authenticated"] is True
     assert body["user"]["username"] == "alice"
-    assert body["workspace"]["openclaw_workspace_id"].startswith("ocw_")
+    assert not any(key.endswith("_workspace_id") for key in body["workspace"])
     assert body["permissions"]["chat"] is True
     assert "quant_session=" in resp.headers["set-cookie"]
 

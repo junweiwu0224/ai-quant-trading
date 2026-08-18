@@ -9,7 +9,19 @@ def read_ui(path: str) -> str:
     return (UI / path).read_text(encoding="utf-8")
 
 
-def test_decision_reloads_and_discards_stale_market_results() -> None:
+def test_auth_history_route_uses_vue_shell_and_request_preserves_json_headers() -> None:
+    app_source = (ROOT / "dashboard/app.py").read_text(encoding="utf-8")
+    client = read_ui("api/client.ts")
+
+    assert '@app.get("/auth")' in app_source
+    assert "return _vue_shell_response()" in app_source
+    assert "const headers = new Headers({" in client
+    assert "new Headers(init?.headers).forEach" in client
+    assert "...init," in client
+    assert "credentials: 'include'" in client
+    assert "headers," in client
+
+
     source = read_ui("views/DecisionView.vue")
 
     assert "watch(() => app.market" in source
@@ -19,20 +31,20 @@ def test_decision_reloads_and_discards_stale_market_results() -> None:
     assert "sequence !== loadSequence || requestedMarket !== app.market" in source
 
 
-def test_research_gates_a_share_legacy_requests_on_the_route_capability() -> None:
+def test_research_loads_real_data_and_discards_stale_requests() -> None:
     source = read_ui("views/ResearchView.vue")
-    client = read_ui("api/client.ts")
+    client = read_ui("api/research.ts")
 
-    assert "api.decisionResearch(requestedMarket, requestedSymbol)" in source
-    assert "const canLoadLegacyResearch = computed(() => market.value === 'CN' && capabilityMatchesRoute.value)" in source
-    assert "if (!canLoadLegacyResearch.value)" in source
-    assert "已停止调用 A 股数据接口" in source
-    assert "clearResearchData()" in source
-    assert "marketPath(" in client
-    assert "api.stockQuote(requestedSymbol, requestedMarket)" in source
-    assert "api.stockKline(requestedSymbol, period.value, count.value, requestedMarket)" in source
-    assert "api.stockQuote(symbol.value)" not in source
-    assert "api.stockKline(symbol.value, period.value, count.value)" not in source
+    assert "getKLineData(market.value as any, symbol.value, 'daily', 120, controller.signal)" in source
+    assert "getTechnicalIndicators(market.value as any, symbol.value, controller.signal)" in source
+    assert "getEvidence(market.value as any, symbol.value, controller.signal)" in source
+    assert "controller?.abort()" in source
+    assert "activeKey = key" in source
+    assert "if (!isCurrent(key)) return" in source
+    assert "response.klines" in client
+    assert "fixed" not in source
+    assert "65" not in read_ui("components/research/DecisionCard.vue")
+    assert "数据加载中..." not in read_ui("components/research/EvidenceChain.vue")
 
 
 def test_reports_expose_share_link_lifecycle_and_revoke_entry() -> None:

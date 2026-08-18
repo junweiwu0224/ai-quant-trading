@@ -14,9 +14,14 @@
 
 html {
   overflow-x: hidden;
+  color-scheme: light;
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
@@ -218,7 +223,10 @@ hr {
   background: var(--color-ink-faint);
 }
 
-/* ========== 移动端适配 ========== */
+body.drawer-open {
+  overflow: hidden;
+}
+
 @media (max-width: 768px) {
   body {
     font-size: 14px;

@@ -73,6 +73,60 @@ class TestMarketCapabilityEndpoint:
         assert response2.status_code == 200
         assert response1.json()["generated_at"] == response2.json()["generated_at"]
 
+    def test_canonical_capabilities_expose_manual_research_provider(self, client):
+        response = client.get("/api/market/capabilities")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source"] == "data.markets.MARKET_ADAPTERS"
+        assert {item["code"] for item in data["markets"]} == {"CN", "HK", "US", "JP", "KR", "TW"}
+        for code in ["HK", "US", "JP", "KR", "TW"]:
+            market = next(item for item in data["markets"] if item["code"] == code)
+            assert market["manual_research"] is True
+            assert market["data_state"] == "configured"
+            assert market["provider"] == "Yahoo Finance"
+            assert market["scheduled_daily_report"] is False
+            assert market["intraday_auto_push"] is False
+
+    def test_legacy_markets_share_canonical_provider_metadata(self, client):
+        legacy = client.get("/api/market/markets").json()
+        canonical = client.get("/api/market/capabilities").json()
+        legacy_by_code = {item["code"]: item for item in legacy["markets"]}
+        canonical_by_code = {item["code"]: item for item in canonical["markets"]}
+        for code in ("CN", "HK", "US", "JP", "KR", "TW"):
+            assert legacy_by_code[code]["provider_details"] == canonical_by_code[code]["provider_details"]
+            assert legacy_by_code[code]["data_state"] == canonical_by_code[code]["data_state"]
+
+    @pytest.mark.parametrize(
+        ("path", "collection"),
+        [
+            ("/api/market/breadth?market=HK", None),
+            ("/api/market/radar?market=US&fast=true", "items"),
+            ("/api/market/sectors?market=JP&fast=true", "sectors"),
+            ("/api/market/heatmap?market=KR&fast=true", "sectors"),
+            ("/api/market/hotspot?market=TW", "hotspots"),
+            ("/api/market/news?market=HK", "news"),
+        ],
+    )
+    def test_non_cn_market_intelligence_never_reuses_cn_feed(self, client, path, collection):
+        response = client.get(path)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["market"] in {"HK", "US", "JP", "KR", "TW"}
+        assert payload["source"] in {"market_capability", "yahoo_finance", "yahoo_finance_search", "yahoo_finance_chart", "yahoo_finance_rss"}
+        assert payload["data_state"] in {"not_integrated", "manual_research", "unavailable"}
+        assert payload["manual_research_only"] is True
+        assert payload["authoritative"] is False
+        if collection:
+            assert isinstance(payload[collection], list)
+            for item in payload[collection]:
+                assert item.get("proxy") is True or payload.get("proxy_type") in {"sector_etf", "ticker_news", "universe_search"}
+
+    def test_unknown_market_is_rejected_instead_of_being_reported_unavailable(self, client):
+        response = client.get("/api/market/breadth?market=ZZ")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "无效市场: ZZ"
+
 
 class TestDataHubHealthEndpoint:
     """Test enhanced /api/datahub/health endpoint."""
@@ -122,6 +176,26 @@ class TestDataHubHealthEndpoint:
             market_health = data["markets"][code]
             assert market_health["status"] == "unavailable"
             assert "reason" in market_health
+
+    def test_configured_manual_markets_are_not_reported_as_zero_coverage(self, client):
+        data = client.get("/api/datahub/health?fast=true").json()
+        for code in ("HK", "US", "JP", "KR", "TW"):
+            health = data["markets"][code]
+            assert health["research_status"] == "manual_research"
+            assert health["data_state"] == "configured"
+            assert health["coverage_pct"] is None
+            assert health["stale"] is False
+
+    def test_cn_runtime_health_requires_actual_daily_coverage(self):
+        from dashboard.routers.datahub import _cn_market_runtime_state
+
+        status, coverage = _cn_market_runtime_state(2, {"stock_count": 2, "daily_covered": 0})
+        assert status == "degraded"
+        assert coverage == 0.0
+
+        status, coverage = _cn_market_runtime_state(2, {"stock_count": 2, "daily_covered": 1})
+        assert status == "healthy"
+        assert coverage == 0.5
 
     def test_health_fast_mode(self, client):
         """Health endpoint should support fast mode."""

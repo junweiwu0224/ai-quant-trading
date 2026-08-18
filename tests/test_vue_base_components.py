@@ -1,10 +1,24 @@
 """
 Test suite for Vue base components
 Tests component rendering, theme support, and accessibility
+
+These are optional browser tests. The default Python test suite only collects
+and runs tests that do not require a browser installation; set
+``RUN_PLAYWRIGHT_TESTS=1`` to opt into this suite after installing Playwright
+and its browsers.
 """
 
+import os
+
 import pytest
-from playwright.sync_api import Page, expect
+
+pytestmark = pytest.mark.e2e
+if os.environ.get("RUN_PLAYWRIGHT_TESTS", "").lower() not in {"1", "true", "yes", "on"}:
+    pytest.skip("Playwright E2E tests are opt-in; set RUN_PLAYWRIGHT_TESTS=1", allow_module_level=True)
+
+playwright = pytest.importorskip("playwright.sync_api", reason="install the optional Playwright Python package")
+Page = playwright.Page
+expect = playwright.expect
 import time
 
 

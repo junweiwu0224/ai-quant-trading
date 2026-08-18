@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 import uuid
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,10 +68,12 @@ class AIRuntimeRepository:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS ai_channels (
-                    id TEXT PRIMARY KEY,
+                    id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
                     config_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (workspace_id, id)
                 );
                 CREATE TABLE IF NOT EXISTS ai_provider_runtime (
                     provider_id TEXT PRIMARY KEY,
@@ -98,6 +101,9 @@ class AIRuntimeRepository:
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     completed_at TEXT,
+                    lease_owner TEXT,
+                    lease_token TEXT,
+                    lease_expires_at REAL,
                     UNIQUE(workspace_id, idempotency_key)
                 );
                 CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status, created_at);
@@ -139,6 +145,25 @@ class AIRuntimeRepository:
                 );
                 """
             )
+            channel_columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_channels)").fetchall()}
+            if "workspace_id" not in channel_columns:
+                conn.execute("ALTER TABLE ai_channels RENAME TO ai_channels_legacy")
+                conn.execute("""CREATE TABLE ai_channels (
+                    id TEXT NOT NULL, workspace_id TEXT NOT NULL DEFAULT 'default',
+                    config_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    PRIMARY KEY (workspace_id, id)
+                )""")
+                conn.execute("""INSERT INTO ai_channels(id,workspace_id,config_json,created_at,updated_at)
+                    SELECT id,'default',config_json,created_at,updated_at FROM ai_channels_legacy""")
+                conn.execute("DROP TABLE ai_channels_legacy")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_tasks)").fetchall()}
+            for name, definition in {
+                "lease_owner": "TEXT",
+                "lease_token": "TEXT",
+                "lease_expires_at": "REAL",
+            }.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE ai_tasks ADD COLUMN {name} {definition}")
 
     def close(self) -> None:
         with self._lock:
@@ -146,18 +171,19 @@ class AIRuntimeRepository:
                 self._memory_connection.close()
                 self._memory_connection = None
 
-    def save_channel(self, config: dict[str, Any]) -> dict[str, Any]:
+    def save_channel(self, config: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
         timestamp = now_iso()
+        workspace_id = str(workspace_id or "default")
         with self._connection() as conn:
             conn.execute(
-                "INSERT INTO ai_channels(id,config_json,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json, updated_at=excluded.updated_at",
-                (config["id"], encode(config), timestamp, timestamp),
+                "INSERT INTO ai_channels(id,workspace_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,id) DO UPDATE SET config_json=excluded.config_json, updated_at=excluded.updated_at",
+                (config["id"], workspace_id, encode(config), timestamp, timestamp),
             )
         return config
 
-    def list_channels(self) -> list[dict[str, Any]]:
+    def list_channels(self, workspace_id: str = "default") -> list[dict[str, Any]]:
         with self._connection() as conn:
-            rows = conn.execute("SELECT config_json FROM ai_channels ORDER BY json_extract(config_json, '$.priority'), id").fetchall()
+            rows = conn.execute("SELECT config_json FROM ai_channels WHERE workspace_id = ? ORDER BY json_extract(config_json, '$.priority'), id", (str(workspace_id or "default"),)).fetchall()
         return [decode(row[0], {}) for row in rows]
 
     def get_provider_runtime(self, provider_id: str) -> dict[str, Any] | None:
@@ -270,16 +296,42 @@ class AIRuntimeRepository:
             rows = conn.execute(sql, params).fetchall()
         return [self._task_row(row) or {} for row in rows]
 
-    def claim_tasks(self, owner_id: str, *, limit: int = 10) -> list[dict[str, Any]]:
+    def claim_tasks(self, owner_id: str, *, limit: int = 10, lease_ttl_seconds: float = 60.0) -> list[dict[str, Any]]:
+        now = time.time()
+        expiry = now + max(1.0, float(lease_ttl_seconds))
         with self._connection() as conn:
-            rows = conn.execute("SELECT id FROM ai_tasks WHERE status='queued' AND cancel_requested=0 ORDER BY created_at LIMIT ?", (max(1, min(int(limit), 100)),)).fetchall()
+            rows = conn.execute(
+                "SELECT id FROM ai_tasks WHERE cancel_requested=0 AND (status='queued' OR (status IN ('running','cancel_requested') AND lease_expires_at IS NOT NULL AND lease_expires_at<=?)) ORDER BY created_at LIMIT ?",
+                (now, max(1, min(int(limit), 100))),
+            ).fetchall()
             claimed: list[dict[str, Any]] = []
             for row in rows:
-                updated = conn.execute("UPDATE ai_tasks SET status='running', owner_id=?, attempts=attempts+1, started_at=? WHERE id=? AND status='queued'", (owner_id, now_iso(), row[0])).rowcount
+                token = uuid.uuid4().hex
+                updated = conn.execute(
+                    "UPDATE ai_tasks SET status='running', owner_id=?, lease_owner=?, lease_token=?, lease_expires_at=?, attempts=attempts+1, started_at=COALESCE(started_at, ?), completed_at=NULL WHERE id=? AND cancel_requested=0 AND (status='queued' OR (status IN ('running','cancel_requested') AND lease_expires_at IS NOT NULL AND lease_expires_at<=?))",
+                    (owner_id, owner_id, token, expiry, now_iso(), row[0], now),
+                ).rowcount
                 if updated:
-                    self._insert_event(conn, row[0], "task_started", {"owner_id": owner_id})
+                    self._insert_event(conn, row[0], "task_started", {"owner_id": owner_id, "reclaimed": True if conn.execute("SELECT attempts FROM ai_tasks WHERE id=?", (row[0],)).fetchone()[0] > 1 else False})
                     claimed.append(self._task_row(conn.execute("SELECT * FROM ai_tasks WHERE id=?", (row[0],)).fetchone()) or {})
         return claimed
+
+    def heartbeat_task(self, task_id: str, *, owner_id: str, lease_token: str, lease_ttl_seconds: float = 60.0) -> bool:
+        updated = 0
+        with self._connection() as conn:
+            updated = conn.execute(
+                "UPDATE ai_tasks SET lease_expires_at=? WHERE id=? AND status='running' AND lease_owner=? AND lease_token=? AND lease_expires_at>?",
+                (time.time() + max(1.0, float(lease_ttl_seconds)), task_id, owner_id, lease_token, time.time()),
+            ).rowcount
+        return updated == 1
+
+    def reclaim_expired_tasks(self, *, limit: int = 100) -> int:
+        now = time.time()
+        with self._connection() as conn:
+            rows = conn.execute("SELECT id FROM ai_tasks WHERE status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at<=? LIMIT ?", (now, max(1, min(int(limit), 500)))).fetchall()
+            for row in rows:
+                self._insert_event(conn, row[0], "task_lease_expired", {})
+            return len(rows)
 
     def start_task(self, task_id: str, *, owner_id: str | None = None) -> dict[str, Any] | None:
         """Atomically transition a queued task to running for inline execution."""
@@ -312,11 +364,17 @@ class AIRuntimeRepository:
                 self._insert_event(conn, task_id, "task_cancel_requested", {"status": "cancel_requested"})
         return self.get_task(task_id, workspace_id)
 
-    def complete_task(self, task_id: str, *, status: str, report_id: str | None = None, error: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    def complete_task(self, task_id: str, *, status: str, report_id: str | None = None, error: dict[str, Any] | None = None, owner_id: str | None = None, lease_token: str | None = None) -> dict[str, Any] | None:
         with self._connection() as conn:
-            conn.execute("UPDATE ai_tasks SET status=?, report_id=?, error_json=?, completed_at=? WHERE id=?", (status, report_id, encode(error or {}), now_iso(), task_id))
-            event_type = "task_completed" if status in {"completed", "degraded"} else "task_cancelled" if status == "cancelled" else "task_failed"
-            self._insert_event(conn, task_id, event_type, {"status": status, "report_id": report_id, "error": error or {}})
+            where = "id=?"
+            params: list[Any] = [status, report_id, encode(error or {}), now_iso(), task_id]
+            if owner_id and lease_token:
+                where += " AND lease_owner=? AND lease_token=?"
+                params.extend([owner_id, lease_token])
+            updated = conn.execute(f"UPDATE ai_tasks SET status=?, report_id=?, error_json=?, completed_at=?, lease_expires_at=NULL WHERE {where}", params).rowcount
+            if updated:
+                event_type = "task_completed" if status in {"completed", "degraded"} else "task_cancelled" if status == "cancelled" else "task_failed"
+                self._insert_event(conn, task_id, event_type, {"status": status, "report_id": report_id, "error": error or {}})
         return self.get_task(task_id)
 
     def append_event(self, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -334,7 +392,7 @@ class AIRuntimeRepository:
             conn.execute("INSERT INTO ai_reports(id,task_id,workspace_id,status,body_json,context_hash,provenance_json,usage_json,diagnostics_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (report_id, task_id, workspace_id, status, encode(body), context_hash, encode(provenance), encode(usage), encode(diagnostics), now_iso()))
         return self.get_report(report_id, workspace_id) or {}
 
-    def save_report_if_active(self, *, task_id: str, workspace_id: str, status: str, body: dict[str, Any], context_hash: str, provenance: dict[str, Any], usage: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def save_report_if_active(self, *, task_id: str, workspace_id: str, status: str, body: dict[str, Any], context_hash: str, provenance: dict[str, Any], usage: dict[str, Any], diagnostics: list[dict[str, Any]], owner_id: str | None = None, lease_token: str | None = None) -> dict[str, Any] | None:
         """Persist a report only while the task is still cancellable/running.
 
         Cancellation is cooperative, so the final insert and task ownership
@@ -345,8 +403,8 @@ class AIRuntimeRepository:
         report_id = uuid.uuid4().hex
         timestamp = now_iso()
         with self._connection() as conn:
-            active = conn.execute("SELECT status,cancel_requested FROM ai_tasks WHERE id=? AND workspace_id=?", (task_id, workspace_id)).fetchone()
-            if active is None or active[0] != "running" or bool(active[1]):
+            active = conn.execute("SELECT status,cancel_requested,lease_owner,lease_token,lease_expires_at FROM ai_tasks WHERE id=? AND workspace_id=?", (task_id, workspace_id)).fetchone()
+            if active is None or active[0] != "running" or bool(active[1]) or (owner_id and (active[2] != owner_id or active[3] != lease_token or (active[4] is not None and active[4] <= time.time()))):
                 return None
             conn.execute(
                 "INSERT INTO ai_reports(id,task_id,workspace_id,status,body_json,context_hash,provenance_json,usage_json,diagnostics_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",

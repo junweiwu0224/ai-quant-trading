@@ -2,34 +2,42 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 export type MarketCode = 'CN' | 'HK' | 'US' | 'JP' | 'KR' | 'TW'
+type NullableNumber = number | null
 
 export interface MarketData {
   symbol: string
   name: string
-  price: number
-  change: number
-  changePct: number
-  volume: number
-  amount?: number
-  open?: number
-  high?: number
-  low?: number
-  preClose?: number
-  timestamp: string
+  price: NullableNumber
+  change: NullableNumber
+  changePct: NullableNumber
+  volume: NullableNumber
+  amount?: NullableNumber
+  open?: NullableNumber
+  high?: NullableNumber
+  low?: NullableNumber
+  preClose?: NullableNumber
+  timestamp: string | null
   market: MarketCode
 }
 
 export interface Quote {
   symbol: string
-  price: number
-  change: number
-  changePct: number
-  timestamp: string
-  volume?: number
-  bid?: number
-  ask?: number
-  bidSize?: number
-  askSize?: number
+  name?: string
+  price: NullableNumber
+  change: NullableNumber
+  changePct: NullableNumber
+  timestamp: string | null
+  volume?: NullableNumber
+  amount?: NullableNumber
+  bid?: NullableNumber
+  ask?: NullableNumber
+  bidSize?: NullableNumber
+  askSize?: NullableNumber
+  open?: NullableNumber
+  high?: NullableNumber
+  low?: NullableNumber
+  preClose?: NullableNumber
+  market: MarketCode
 }
 
 export interface MarketInfo {
@@ -108,8 +116,8 @@ export const useMarketStore = defineStore('market', () => {
   const currentStock = computed(() => {
     if (!selectedSymbol.value) return null
 
-    const data = marketData.value.get(selectedSymbol.value)
-    const quote = quotes.value.get(selectedSymbol.value)
+    const data = marketData.value.get(cacheKey(selectedMarket.value, selectedSymbol.value))
+    const quote = quotes.value.get(cacheKey(selectedMarket.value, selectedSymbol.value))
 
     return {
       symbol: selectedSymbol.value,
@@ -122,11 +130,11 @@ export const useMarketStore = defineStore('market', () => {
   })
 
   const hasData = computed(() => {
-    return (symbol: string) => marketData.value.has(symbol)
+    return (symbol: string, market: MarketCode = selectedMarket.value) => marketData.value.has(cacheKey(market, symbol))
   })
 
   const hasQuote = computed(() => {
-    return (symbol: string) => quotes.value.has(symbol)
+    return (symbol: string, market: MarketCode = selectedMarket.value) => quotes.value.has(cacheKey(market, symbol))
   })
 
   const marketDataList = computed(() => {
@@ -134,6 +142,52 @@ export const useMarketStore = defineStore('market', () => {
       data => data.market === selectedMarket.value
     )
   })
+
+  function cacheKey(market: MarketCode, symbol: string): string {
+    return `${market}:${symbol.trim().toUpperCase()}`
+  }
+
+  function nullableNumber(value: unknown): NullableNumber {
+    if (value === null || value === undefined || value === '') return null
+    const number = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(number) ? number : null
+  }
+
+  function normalizedTimestamp(value: unknown): string | null {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'number' || (typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()))) {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) return null
+      const milliseconds = Math.abs(numeric) < 100_000_000_000 ? numeric * 1000 : numeric
+      const date = new Date(milliseconds)
+      return Number.isNaN(date.getTime()) ? null : date.toISOString()
+    }
+    const date = new Date(String(value))
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+
+  function normalizeQuote(raw: unknown, symbol: string, market: MarketCode): Quote {
+    const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+    return {
+      symbol: String(value.code || value.symbol || symbol),
+      name: typeof value.name === 'string' && value.name.trim() ? value.name : undefined,
+      price: nullableNumber(value.price),
+      change: nullableNumber(value.change),
+      changePct: nullableNumber(value.change_pct ?? value.changePct),
+      timestamp: normalizedTimestamp(value.timestamp ?? value.updated_at ?? value.as_of),
+      volume: nullableNumber(value.volume),
+      amount: nullableNumber(value.amount),
+      bid: nullableNumber(value.bid),
+      ask: nullableNumber(value.ask),
+      bidSize: nullableNumber(value.bid_size ?? value.bidSize),
+      askSize: nullableNumber(value.ask_size ?? value.askSize),
+      open: nullableNumber(value.open),
+      high: nullableNumber(value.high),
+      low: nullableNumber(value.low),
+      preClose: nullableNumber(value.pre_close ?? value.preClose),
+      market
+    }
+  }
 
   function setMarket(market: MarketCode) {
     selectedMarket.value = market
@@ -150,25 +204,25 @@ export const useMarketStore = defineStore('market', () => {
     error.value = null
     try {
       const { getStockQuote } = await import('../api/market')
-      const quote = await getStockQuote(symbol, market)
+      const quote = normalizeQuote(await getStockQuote(symbol, market), symbol, market)
 
       const data: MarketData = {
-        symbol: quote.code || symbol,
+        symbol: quote.symbol,
         name: quote.name || symbol,
         price: quote.price,
-        change: quote.change ?? 0,
-        changePct: quote.change_pct ?? 0,
-        volume: quote.volume ?? 0,
-        amount: quote.amount,
-        open: 0, // Not provided by quote endpoint
-        high: 0,
-        low: 0,
-        preClose: 0,
-        timestamp: new Date(quote.timestamp * 1000).toISOString(),
+        change: quote.change,
+        changePct: quote.changePct,
+        volume: quote.volume ?? null,
+        amount: quote.amount ?? null,
+        open: quote.open,
+        high: quote.high,
+        low: quote.low,
+        preClose: quote.preClose,
+        timestamp: quote.timestamp,
         market
       }
 
-      marketData.value.set(symbol, data)
+      marketData.value.set(cacheKey(market, symbol), data)
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载市场数据失败'
@@ -196,19 +250,23 @@ export const useMarketStore = defineStore('market', () => {
         const symbol = symbols[i]
 
         if (result.status === 'fulfilled') {
-          const quote = result.value
+          const quote = normalizeQuote(result.value, symbol, market)
           const data: MarketData = {
-            symbol: quote.code || symbol,
+            symbol: quote.symbol,
             name: quote.name || symbol,
             price: quote.price,
-            change: quote.change ?? 0,
-            changePct: quote.change_pct ?? 0,
-            volume: quote.volume ?? 0,
-            amount: quote.amount,
-            timestamp: new Date(quote.timestamp * 1000).toISOString(),
+            change: quote.change,
+            changePct: quote.changePct,
+            volume: quote.volume ?? null,
+            amount: quote.amount ?? null,
+            open: quote.open,
+            high: quote.high,
+            low: quote.low,
+            preClose: quote.preClose,
+            timestamp: quote.timestamp,
             market
           }
-          marketData.value.set(symbol, data)
+          marketData.value.set(cacheKey(market, symbol), data)
           marketDataList.push(data)
         } else {
           console.warn(`Failed to fetch data for ${symbol}:`, result.reason)
@@ -225,18 +283,21 @@ export const useMarketStore = defineStore('market', () => {
   }
 
   function updateQuote(symbol: string, quote: Quote) {
-    quotes.value.set(symbol, quote)
+    const market = quote.market || selectedMarket.value
+    const normalized = normalizeQuote(quote, symbol, market)
+    const key = cacheKey(market, symbol)
+    quotes.value.set(key, normalized)
 
     // Update market data if exists
-    const data = marketData.value.get(symbol)
+    const data = marketData.value.get(key)
     if (data) {
-      marketData.value.set(symbol, {
+      marketData.value.set(key, {
         ...data,
-        price: quote.price,
-        change: quote.change,
-        changePct: quote.changePct,
-        volume: quote.volume ?? data.volume,
-        timestamp: quote.timestamp
+        price: normalized.price,
+        change: normalized.change,
+        changePct: normalized.changePct,
+        volume: normalized.volume ?? data.volume,
+        timestamp: normalized.timestamp
       })
     }
   }
@@ -247,21 +308,23 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  function getMarketData(symbol: string): MarketData | undefined {
-    return marketData.value.get(symbol)
+  function getMarketData(symbol: string, market: MarketCode = selectedMarket.value): MarketData | undefined {
+    return marketData.value.get(cacheKey(market, symbol))
   }
 
-  function getQuote(symbol: string): Quote | undefined {
-    return quotes.value.get(symbol)
+  function getQuote(symbol: string, market: MarketCode = selectedMarket.value): Quote | undefined {
+    return quotes.value.get(cacheKey(market, symbol))
   }
 
-  function clearMarketData(symbol?: string) {
+  function clearMarketData(symbol?: string, market: MarketCode = selectedMarket.value) {
     if (symbol) {
-      marketData.value.delete(symbol)
-      quotes.value.delete(symbol)
+      const key = cacheKey(market, symbol)
+      marketData.value.delete(key)
+      quotes.value.delete(key)
     } else {
-      marketData.value.clear()
-      quotes.value.clear()
+      const prefix = `${market}:`
+      for (const key of marketData.value.keys()) if (key.startsWith(prefix)) marketData.value.delete(key)
+      for (const key of quotes.value.keys()) if (key.startsWith(prefix)) quotes.value.delete(key)
     }
   }
 

@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ChevronRight, Menu, Moon, Search, Sun, X } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
+import type { MarketCode } from '../api/types'
+import { COMMAND_WORKFLOWS } from '../navigation/workflows'
 
 const emit = defineEmits<{
   toggleMenu: []
+}>()
+
+const props = defineProps<{
+  menuOpen?: boolean
 }>()
 
 const store = useAppStore()
@@ -14,22 +20,14 @@ const router = useRouter()
 
 const paletteOpen = ref(false)
 const paletteQuery = ref('')
+const paletteIndex = ref(0)
 const paletteInput = ref<HTMLInputElement | null>(null)
+const paletteTrigger = ref<HTMLButtonElement | null>(null)
+const menuTrigger = ref<HTMLButtonElement | null>(null)
 
 const themeIcon = computed(() => store.isDark ? Sun : Moon)
 
-const paletteItems = [
-  { label: '决策中心', hint: '自选池、确定性决策和推送资格', to: '/app/decision' },
-  { label: '市场情报', hint: '广度、板块、新闻和 AI 信号候选', to: '/app/intelligence' },
-  { label: '单股研究', hint: '行情、证据、估值和结构化研究', to: '/app/research/CN/600519' },
-  { label: '条件筛选与 AI 选股', hint: '预设、条件构建和候选池导入', to: '/app/more/screener' },
-  { label: 'AI 研究工作台', hint: 'Agent、LLM provider、任务和报告', to: '/app/more/agents' },
-  { label: '结构化报告', hint: '冻结报告、分享和投递记录', to: '/app/reports' },
-  { label: '验证与回测', hint: '策略验证、样本外和稳健性分析', to: '/app/validation' },
-  { label: '模拟盘与风控', hint: '仅本地模拟盘，所有写操作需确认', to: '/app/more/paper' },
-  { label: '通知路由', hint: '目标、路由和投递资格状态', to: '/app/notifications' },
-  { label: '工作区设置', hint: '市场能力、Worker 和安全边界', to: '/app/settings' },
-]
+const paletteItems = COMMAND_WORKFLOWS.map(({ label, description, to }) => ({ label, hint: description, to }))
 
 const paletteResults = computed(() => {
   const queryText = paletteQuery.value.trim().toLowerCase()
@@ -37,30 +35,89 @@ const paletteResults = computed(() => {
   return paletteItems.filter((item) => `${item.label} ${item.hint}`.toLowerCase().includes(queryText))
 })
 
+watch(paletteResults, () => {
+  paletteIndex.value = 0
+})
+
+watch(() => props.menuOpen, (open, previous) => {
+  if (previous && !open) void nextTick(() => menuTrigger.value?.focus())
+})
+
 function openPalette() {
   paletteOpen.value = true
   paletteQuery.value = ''
+  paletteIndex.value = 0
   void nextTick(() => paletteInput.value?.focus())
 }
 
 function closePalette() {
   paletteOpen.value = false
   paletteQuery.value = ''
+  paletteIndex.value = 0
+  void nextTick(() => paletteTrigger.value?.focus())
 }
 
 function navigateFromPalette(to: string) {
   closePalette()
   void router.push(to)
 }
+
+function movePalette(delta: number) {
+  if (!paletteResults.value.length) return
+  const size = paletteResults.value.length
+  paletteIndex.value = (paletteIndex.value + delta + size) % size
+  void nextTick(() => document.getElementById(`palette-option-${paletteIndex.value}`)?.scrollIntoView({ block: 'nearest' }))
+}
+
+function handlePaletteKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    movePalette(1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    movePalette(-1)
+  } else if (event.key === 'Enter' && paletteResults.value[paletteIndex.value]) {
+    event.preventDefault()
+    navigateFromPalette(paletteResults.value[paletteIndex.value].to)
+  }
+}
+
+function handleMarketChange(event: Event) {
+  const nextMarket = String((event.target as HTMLSelectElement).value || 'CN').toUpperCase()
+  store.setMarket(nextMarket as MarketCode)
+  const currentMarket = String(route.params.market || '').toUpperCase()
+  const currentSymbol = String(route.params.symbol || '').trim()
+  if (currentMarket && currentSymbol && currentMarket !== nextMarket) {
+    void router.replace({
+      path: `/app/research/${nextMarket}/${encodeURIComponent(currentSymbol)}`,
+      query: { ...route.query, market: nextMarket },
+    })
+  }
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    openPalette()
+  } else if (event.key === 'Escape' && paletteOpen.value) {
+    closePalette()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
 </script>
 
 <template>
   <main class="main-shell">
     <header class="topbar">
       <button
+        ref="menuTrigger"
         class="icon-button mobile-only"
         title="打开导航"
         aria-label="打开导航"
+        aria-controls="mobile-navigation"
+        :aria-expanded="props.menuOpen === true"
         @click="$emit('toggleMenu')"
       >
         <Menu :size="20" />
@@ -74,7 +131,7 @@ function navigateFromPalette(to: string) {
       <div class="topbar-actions">
         <label class="market-select">
           <span class="sr-only">市场</span>
-          <select v-model="store.market">
+          <select :value="store.market" @change="handleMarketChange">
             <option value="CN">A 股</option>
             <option value="HK">港股</option>
             <option value="US">美股</option>
@@ -85,7 +142,8 @@ function navigateFromPalette(to: string) {
         </label>
 
         <button
-          class="icon-button palette-trigger"
+          ref="paletteTrigger"
+        class="icon-button palette-trigger"
           title="打开快捷导航（⌘K / Ctrl+K）"
           aria-label="打开快捷导航（⌘K / Ctrl+K）"
           @click="openPalette"
@@ -109,7 +167,7 @@ function navigateFromPalette(to: string) {
     </header>
 
     <div v-if="paletteOpen" class="palette-backdrop" @click.self="closePalette">
-      <section class="command-palette panel" role="dialog" aria-modal="true" aria-labelledby="palette-title">
+      <section class="command-palette panel" role="dialog" aria-modal="true" aria-labelledby="palette-title" @keydown="handlePaletteKeydown">
         <div class="command-palette-head">
           <div>
             <span class="context-label">快捷导航</span>
@@ -136,17 +194,26 @@ function navigateFromPalette(to: string) {
             type="search"
             autocomplete="off"
             placeholder="搜索决策、研究、Agent、报告…"
+            role="combobox"
+            aria-controls="palette-options"
+            :aria-activedescendant="paletteResults.length ? `palette-option-${paletteIndex}` : undefined"
+            aria-autocomplete="list"
+            @keydown="handlePaletteKeydown"
           />
           <kbd>Esc</kbd>
         </div>
 
-        <div v-if="paletteResults.length" class="palette-list" role="listbox" aria-label="工作流结果">
+        <div v-if="paletteResults.length" id="palette-options" class="palette-list" role="listbox" aria-label="工作流结果">
           <button
-            v-for="item in paletteResults"
+            v-for="(item, index) in paletteResults"
+            :id="`palette-option-${index}`"
             :key="item.to"
             class="palette-item"
+            :class="{ selected: index === paletteIndex }"
             type="button"
             role="option"
+            :aria-selected="index === paletteIndex"
+            @mouseenter="paletteIndex = index"
             @click="navigateFromPalette(item.to)"
           >
             <span class="palette-item-icon"><ChevronRight :size="16" /></span>
@@ -167,7 +234,11 @@ function navigateFromPalette(to: string) {
     </div>
 
     <div class="content-wrap">
-      <RouterView />
+      <RouterView v-slot="{ Component, route: routedComponent }">
+        <Transition name="workspace-route" mode="out-in">
+          <component :is="Component" :key="routedComponent.fullPath" />
+        </Transition>
+      </RouterView>
     </div>
   </main>
 </template>
@@ -346,8 +417,9 @@ function navigateFromPalette(to: string) {
   transition: background 0.2s ease;
 }
 
-.palette-item:hover {
-  background: var(--color-bg-tertiary);
+.palette-item:hover, .palette-item:focus-visible, .palette-item.selected {
+  background: var(--color-accent-pale);
+  color: var(--color-accent-strong);
 }
 
 .palette-item strong {

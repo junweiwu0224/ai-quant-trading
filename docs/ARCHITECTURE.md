@@ -82,6 +82,29 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
                     watchlist API（添加自选股时自动采集）
 ```
 
+#### 多市场研究能力边界
+
+`data/markets.py` 是六市场能力矩阵的唯一声明入口，统一维护市场时区、交易日历、粒度、provider provenance 和自动化资格。六个市场固定为 CN（A 股）、HK（港股）、US（美股）、JP（日股）、KR（韩股）和 TW（台股）。A 股继续由本地 quote service / `stock_daily` 提供当前运行数据；HK/US 的 Yahoo Finance Chart 是已集成但仅限手动日线研究的 provider；JP/KR/TW 同样只通过 Yahoo Finance 提供手动日线研究。HK/US 的 Longbridge、CN 的 Tushare Pro/TickFlow 是目标 provider，当前尚未接入，不能计入当前覆盖或自动化资格。
+
+跨市场 provider 的响应必须携带 `market`、`source`、`provider`、`as_of`、`coverage_pct`、`manual_research_only` 和 `authoritative`。Yahoo Finance 响应明确为 `manual_research_only=true`、`authoritative=false`，可以渲染到研究页面，但不具备自动推送、确定性决策或实盘资格；provider 失败时返回显式不可用状态和失败原因，不把请求改投 A 股接口。`/api/market/capabilities` 和 `/api/datahub/health` 共享同一能力矩阵，旧 `/api/market/markets` 仅保留兼容投影。
+
+跨市场读取由两层缓存共同约束：`data/providers/market_data.py` 按 Yahoo ticker/粒度/范围做 60 秒线程安全缓存，详情和 K 线路由再按各自时效做短 TTL 缓存；只有成功响应写入缓存，失败响应不写入缓存。研究前端的所有市场 K 线统一走 `/api/stock/kline`，避免同一标的在决策研究和详情路由之间重复请求 provider。
+
+自动推送资格是独立的运行时判定，不由“provider 已声明”或“provider 已配置”推导：必须同时满足 adapter 声明、已接入且允许该粒度的 provider、已验证的交易日历，以及新鲜、健康、字段完整、覆盖率 100% 且（盘中时）已完成的 bar。当前六市场没有可用的自动推送 provider；手动研究可用不等于自动推送资格。
+
+**六市场当前来源与研究代理：**
+
+| 市场 | 当前 provider 与用途 | 市场/Universe 代理 | 当前覆盖与权威边界 |
+|------|----------------------|--------------------|--------------------|
+| CN（A 股） | 本地 quote service（mootdx / 腾讯 / 东方财富混合）与 `stock_daily`；运行时来源 | 无外部市场 ETF 代理；使用本地覆盖池 | 当前运行数据，但覆盖率由实际 `stock_daily`/字段健康度计算；旧 feed 未通过自动推送资格门禁 |
+| HK（港股） | Yahoo Finance Chart/Search；仅手动日线研究 | `^HSI` 指数；`2800.HK` Universe 搜索代理 | 成功响应可用于研究，但不是交易所全量覆盖，`manual_research_only=true`、`authoritative=false` |
+| US（美股） | Yahoo Finance Chart/Search；仅手动日线研究 | `^GSPC` 指数；`SPY` Universe 搜索代理 | 同上；代理结果不是全市场成分或权威交易 feed |
+| JP（日股） | Yahoo Finance Chart/Search；仅手动日线研究 | `^N225` 指数；`1306.T` Universe 搜索代理 | 同上；仅代表可查询的研究范围，不构成自动化覆盖 |
+| KR（韩股） | Yahoo Finance Chart/Search；仅手动日线研究 | `^KS11` 指数；`069500.KS` Universe 搜索代理 | 同上；代理结果不是 KRX 全量权威成分 |
+| TW（台股） | Yahoo Finance Chart/Search；仅手动日线研究 | `^TWII` 指数；`0050.TW` Universe 搜索代理 | 同上；代理结果不是 TWSE 全量权威成分 |
+
+上述指数和 ETF 是明确标注的市场/Universe 研究代理，不是 sector（行业/概念板块）覆盖。非 CN 的 Yahoo 响应成功只表示该标的或代理可查询，不代表交易所全量覆盖；失败响应显式返回不可用状态，不伪装成空数据，也不回退到 A 股接口。`coverage_pct` 在 provider 能提供实际覆盖统计时填写；无法证明全量覆盖时保持未知/不完整，不能推导权威性。所有非 CN 研究结果都不进入确定性决策、自动报告推送或实盘资格；AI/报告展示必须保留 `manual_research_only` 与 `authoritative` 标记。
+
 **行情服务架构（quote_service.py）：**
 
 采用 Xueqiu + push2delay + 腾讯混合行情架构：
@@ -258,6 +281,15 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 |------|--------|------|
 | `/api/backtest/*` | 17+ | 回测运行、策略列表、Monte Carlo、Walk-Forward、Brinson归因、PDF报告 |
 | `/api/portfolio/*` | 18+ | 持仓快照、交易记录、风险指标、行业分布、相关性、导出 |
+
+#### 当前 Vue 工作流导航
+
+`dashboard/ui/src/navigation/workflows.ts` 是桌面侧栏、移动底部导航和命令面板的唯一页面注册表。正式功能使用 canonical 路由：
+
+- 研究：`/app/research/screener`、`/app/research/alpha`、`/app/research/formula-basket`
+- 策略与组合：`/app/strategy`、`/app/portfolio-risk`、`/app/paper`
+- 运行与通知：`/app/alerts`、`/app/ai`、`/app/ai/runtime`、`/app/broker`
+- `/app/more/*` 仅作为历史链接的兼容重定向；正式功能全部由工作流注册表和 canonical 路由承载，用户界面不再把功能隐藏在 More 中。
 | `/api/stock/*` | 25+ | 股票搜索、K线、分时、五档、筹码、画线、多股对比、多周期共振、龙虎榜分析、市场指数/板块/热力图 |
 | `/api/alpha/*` | 15+ | 因子评估、SHAP、模型对比、因子挖掘、跨截面训练/预测、组合回测 |
 | `/api/screener/*` | 4 | 条件选股、预设策略、字段列表 |
@@ -515,7 +547,7 @@ workspace/watchlist -> decision portfolio -> frozen snapshot
 ### 9.4 前端迁移
 
 `dashboard/ui/` 是 Vue 3/TypeScript/Vite/Pinia/Router 的同源应用，承载决策、报告、单股研究、
-验证、通知、设置和 `/app/more/*` 高级工具矩阵。旧 Jinja/Vanilla 壳已退役，旧 query/hash 链接由
+验证、通知、设置和工作流目录中的高级工具矩阵。旧 Jinja/Vanilla 壳已退役，旧 query/hash 链接由
 Vue Router 和 FastAPI 保留兼容映射。该节描述的是当前决策平台边界，不能替代对真实 provider、
 Webhook、Docker、cloudflared 和券商的联调证据。
 

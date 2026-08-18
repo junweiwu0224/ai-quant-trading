@@ -173,26 +173,36 @@ class AIRuntime:
 
         return ProviderChannel.model_validate(dict(value))
 
-    def refresh_channels(self) -> list[dict[str, Any]]:
+    def refresh_channels(self, workspace_id: str | None = None) -> list[dict[str, Any]]:
         from .models import ProviderChannel
 
-        channels = [ProviderChannel.model_validate(item) for item in self.repository.list_channels()]
+        channels = [ProviderChannel.model_validate(item) for item in self.repository.list_channels(workspace_id or "default")]
         if not channels:
             default = default_channel_from_environment()
             if default is not None:
                 channels = [default]
-        self.router = ProviderRouter(channels, runtime_store=self.repository)
-        return self.router.public_status()
+        channel_router = ProviderRouter(channels, runtime_store=self.repository)
+        if not workspace_id or workspace_id == "default":
+            self.router = channel_router
+        return channel_router.public_status()
 
-    def save_channel(self, channel: Any) -> dict[str, Any]:
+    def save_channel(self, channel: Any, workspace_id: str = "default") -> list[dict[str, Any]]:
         payload = channel.model_dump(mode="json") if hasattr(channel, "model_dump") else dict(channel)
-        self.repository.save_channel(payload)
-        self.refresh_channels()
-        return self.router.public_status()
+        self.repository.save_channel(payload, workspace_id=workspace_id)
+        return self.refresh_channels(workspace_id)
 
-    def provider_status(self) -> list[dict[str, Any]]:
+    def _workspace_router(self, workspace_id: str | None = None):
+        if not workspace_id or workspace_id == "default":
+            return self.router
+        from .models import ProviderChannel
+        channels = [ProviderChannel.model_validate(item) for item in self.repository.list_channels(workspace_id)]
+        if not channels:
+            return self.router
+        return ProviderRouter(channels, runtime_store=self.repository)
+
+    def provider_status(self, workspace_id: str | None = None) -> list[dict[str, Any]]:
         try:
-            return self.router.public_status()
+            return self._workspace_router(workspace_id).public_status()
         except GenerationError as exc:
             return [{"id": "runtime", "enabled": False, "error": exc.public_dict()}]
 
@@ -238,13 +248,17 @@ class AIRuntime:
         owner_id: str,
         limit: int = 4,
         fence_check: Callable[[], None] | None = None,
+        heartbeat: Callable[[dict[str, Any]], None] | None = None,
+        lease_ttl_seconds: float = 60.0,
     ) -> list[dict[str, Any]]:
-        claimed = self.repository.claim_tasks(owner_id, limit=limit)
+        claimed = self.repository.claim_tasks(owner_id, limit=limit, lease_ttl_seconds=lease_ttl_seconds)
         results: list[dict[str, Any]] = []
         for task in claimed:
             if fence_check is not None:
                 fence_check()
-            results.append(self.run_task(task["id"], workspace_id=task["workspace_id"], owner_id=owner_id, fence_check=fence_check))
+            token = task.get("lease_token")
+            task_heartbeat = (lambda: self.repository.heartbeat_task(task["id"], owner_id=owner_id, lease_token=token, lease_ttl_seconds=lease_ttl_seconds)) if token else None
+            results.append(self.run_task(task["id"], workspace_id=task["workspace_id"], owner_id=owner_id, lease_token=token, fence_check=fence_check, heartbeat=task_heartbeat))
         return results
 
     def run_task(
@@ -253,7 +267,9 @@ class AIRuntime:
         *,
         workspace_id: str,
         owner_id: str | None = None,
+        lease_token: str | None = None,
         fence_check: Callable[[], None] | None = None,
+        heartbeat: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         task = self.repository.get_task(task_id, workspace_id)
         if task is None:
@@ -275,6 +291,8 @@ class AIRuntime:
                 raise TaskCancelled()
             if fence_check is not None:
                 fence_check()
+            if heartbeat is not None and not heartbeat():
+                raise RuntimeError("ai worker task lease heartbeat expired")
 
         self._emit(task_id, "thinking", {"message": "准备冻结研究输入"})
         try:
@@ -295,12 +313,14 @@ class AIRuntime:
                 provenance=report.provenance,
                 usage=result.get("usage", {}),
                 diagnostics=report.diagnostics,
+                owner_id=owner_id,
+                lease_token=lease_token,
             )
             if saved is None:
                 raise TaskCancelled()
             ensure_active()
             terminal = TaskStatus.COMPLETED.value if report.status in {"complete", "partial"} else TaskStatus.DEGRADED.value
-            completed = self.repository.complete_task(task_id, status=terminal, report_id=saved.get("id"), error={"diagnostics": report.diagnostics} if report.diagnostics else None) or task
+            completed = self.repository.complete_task(task_id, status=terminal, report_id=saved.get("id"), error={"diagnostics": report.diagnostics} if report.diagnostics else None, owner_id=owner_id, lease_token=lease_token) or task
             self._emit(task_id, "done", {"status": terminal, "report_id": saved.get("id"), "duration_s": round(time.monotonic() - started, 3)})
             return completed
         except TaskCancelled:

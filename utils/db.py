@@ -13,11 +13,11 @@ from sqlalchemy.engine import Engine
 
 
 def _enable_wal_or_fallback(conn: sqlite3.Connection) -> None:
-    """Enable WAL when supported, falling back for restrictive filesystems."""
+    """Enable WAL when supported, preserving the existing mode on failure."""
     try:
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.OperationalError:
-        conn.execute("PRAGMA journal_mode=DELETE")
+        pass
 
 
 def get_connection(db_path: str | Path, readonly: bool = False) -> sqlite3.Connection:
@@ -73,7 +73,10 @@ def create_sqlite_engine(db_path: str | Path, **kwargs):
         try:
             cursor.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
-            cursor.execute("PRAGMA journal_mode=DELETE")
+            # Multiple containers may initialize the same bind-mounted database
+            # concurrently. Keep the existing journal mode instead of changing it
+            # again while another process is using the file.
+            pass
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ArrowLeft, Edit3, Plus, RefreshCw, Save, ShieldCheck, Trash2, X } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
+import BrokerDisableGuard from '../components/guards/BrokerDisableGuard.vue'
 
 type Row = Record<string, any>
 type RuleForm = { alert_rule_id: number; code: string; direction: string; order_type: string; price: number | null; volume: number; max_amount: number; enabled: boolean; cooldown: number }
@@ -112,8 +113,9 @@ onMounted(load)
 </script>
 
 <template>
+  <BrokerDisableGuard />
   <section>
-    <div class="page-head"><div><RouterLink to="/app/more" class="muted small"><ArrowLeft :size="14" />返回更多工具</RouterLink><h1>条件单</h1><p>条件单只写入模拟盘订单路径。规则可以编辑、启停和删除；启用不等于真实下单，也不会绕过风险校验。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" :class="{ spin: loading }" />刷新</button></div>
+    <div class="page-head"><div><RouterLink to="/app/workflows" class="muted small"><ArrowLeft :size="14" />返回工作流目录</RouterLink><h1>条件单</h1><p>条件单只写入模拟盘订单路径。规则可以编辑、启停和删除；启用不等于真实下单，也不会绕过风险校验。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" :class="{ spin: loading }" />刷新</button></div>
     <div v-if="message" class="error-box" role="status">{{ message }}</div>
     <div class="section-grid two">
       <section class="panel"><div class="panel-head"><div><h2>{{ editingId ? '编辑条件单' : '创建条件单' }}</h2><p>新建规则默认关闭；修改后仍会保留人工启停动作。</p></div><ShieldCheck :size="18" class="faint" /></div><div class="panel-body"><div class="field-grid"><div class="field"><label for="conditional-code">股票代码</label><input id="conditional-code" v-model="form.code" placeholder="600519" maxlength="6" /></div><div class="field"><label for="conditional-rule">告警规则 ID</label><input id="conditional-rule" v-model.number="form.alert_rule_id" type="number" min="1" /></div><div class="field"><label for="conditional-direction">方向</label><select id="conditional-direction" v-model="form.direction"><option value="buy">买入</option><option value="sell">卖出</option></select></div><div class="field"><label for="conditional-volume">数量</label><input id="conditional-volume" v-model.number="form.volume" type="number" min="100" step="100" /></div><div class="field"><label for="conditional-type">订单类型</label><select id="conditional-type" v-model="form.order_type"><option value="market">市价</option><option value="limit">限价</option></select></div><div class="field"><label for="conditional-price">限价</label><input id="conditional-price" v-model.number="form.price" type="number" min="0" step="0.001" :disabled="form.order_type !== 'limit'" /></div><div class="field"><label for="conditional-max">最大金额</label><input id="conditional-max" v-model.number="form.max_amount" type="number" min="0" step="100" /></div><div class="field"><label for="conditional-cooldown">冷却秒数</label><input id="conditional-cooldown" v-model.number="form.cooldown" type="number" min="0" /></div></div><div class="form-actions"><span class="tag warn">{{ editingId ? (form.enabled ? '当前已启用' : '当前已关闭') : '默认 disabled' }}</span><button class="button primary" type="button" :disabled="saving" @click="saveRule"><Save :size="15" />{{ saving ? '保存中' : editingId ? '保存修改' : '保存关闭规则' }}</button><button v-if="editingId" class="button ghost" type="button" @click="resetForm"><X :size="15" />取消编辑</button></div></div></section>

@@ -1,20 +1,28 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import BaseCard from '../../components/base/BaseCard.vue'
 import BaseButton from '../../components/base/BaseButton.vue'
 import BaseInput from '../../components/base/BaseInput.vue'
 import BrokerDisableGuard from '../../components/guards/BrokerDisableGuard.vue'
 import { TrendingUp, RefreshCw, TrendingDown } from 'lucide-vue-next'
-import { getPaperAccount, getPaperHoldings, getPaperTrades } from '../../api/paper'
+import { getPaperAccount, getPaperHoldings, getPaperTrades, createPaperTrade } from '../../api/paper'
 import type { PaperAccount, PaperHolding, PaperTrade } from '../../api/paper'
 import { LIVE_TRADING_ENABLED } from '../../config/features'
+import { useResearchContextStore } from '../../stores/researchContext'
 
 const title = '模拟盘交易'
 const description = '完整的模拟交易环境，用于验证策略和训练交易技能'
 
+const contextStore = useResearchContextStore()
+const hasResearchContext = computed(() => contextStore.hasInstrument)
+const contextInstrument = computed(() => hasResearchContext.value ? `${contextStore.context.market} / ${contextStore.context.symbol}` : '')
+
 // State
 const loading = ref(false)
+const submitting = ref(false)
 const error = ref<string | null>(null)
+const notice = ref<string | null>(null)
 const account = ref<PaperAccount | null>(null)
 const holdings = ref<PaperHolding[]>([])
 const trades = ref<PaperTrade[]>([])
@@ -23,20 +31,21 @@ const trades = ref<PaperTrade[]>([])
 const isLiveTradingDisabled = computed(() => !LIVE_TRADING_ENABLED)
 
 // Trade form
-const tradeForm = ref({
-  symbol: '',
+  const tradeForm = ref({
+  symbol: contextStore.context.symbol || '',
   action: 'buy' as 'buy' | 'sell',
   shares: 100
 })
 
 // Computed
 const profitColor = computed(() => {
-  if (!account.value) return ''
+  if (!account.value || account.value.profit_loss == null) return ''
   return account.value.profit_loss >= 0 ? 'profit' : 'loss'
 })
 
 // Methods
 async function loadData() {
+  if (!hasResearchContext.value) return
   loading.value = true
   error.value = null
 
@@ -58,16 +67,42 @@ async function loadData() {
   }
 }
 
-function handleTrade() {
-  alert('模拟交易功能开发中\n\n提示：此功能将完全在客户端模拟，不涉及真实资金交易')
+async function handleTrade() {
+  if (!hasResearchContext.value) return
+  error.value = null
+  notice.value = null
+  const symbol = tradeForm.value.symbol.trim() || contextStore.context.symbol || ''
+  if (!symbol) { error.value = '请先选择研究对象'; return }
+  if (!Number.isInteger(Number(tradeForm.value.shares)) || Number(tradeForm.value.shares) <= 0) {
+    error.value = '交易数量必须是大于 0 的整数'
+    return
+  }
+  submitting.value = true
+  try {
+    const trade = await createPaperTrade({ symbol, action: tradeForm.value.action, shares: Number(tradeForm.value.shares), strategyName: contextStore.context.strategy || undefined })
+    notice.value = `Paper Engine 已接收订单：${trade.symbol}，状态 ${trade.status}`
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '模拟订单提交失败'
+  } finally {
+    submitting.value = false
+  }
 }
 
-function formatNumber(num: number): string {
-  return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function formatNumber(num: number | undefined): string {
+  return typeof num === 'number' && Number.isFinite(num) ? num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
 }
 
-function formatPercent(num: number): string {
-  return num.toFixed(2) + '%'
+function formatPercent(num: number | undefined): string {
+  return typeof num === 'number' && Number.isFinite(num) ? `${num.toFixed(2)}%` : '—'
+}
+
+function signedNumber(num: number | undefined): string {
+  return num == null || !Number.isFinite(num) ? '—' : `${num >= 0 ? '+' : ''}${formatNumber(num)}`
+}
+
+function valueClass(num: number | undefined): string {
+  return num == null || !Number.isFinite(num) ? '' : num >= 0 ? 'profit' : 'loss'
 }
 
 function formatDateTime(iso: string): string {
@@ -88,6 +123,9 @@ onMounted(() => {
   <BrokerDisableGuard />
 
   <div class="page-container">
+    <div v-if="!hasResearchContext" class="panel empty-context-panel"><h2>先选择研究对象</h2><p>模拟盘预览必须继承一项研究对象。请先完成研究或验证，再进入 Paper Engine。</p><RouterLink class="button primary" to="/app/decision">返回决策中心</RouterLink></div>
+    <template v-else>
+    <div class="data-source context-source"><strong>当前研究对象：{{ contextInstrument }}</strong><span>{{ contextStore.context.name || '未命名标的' }}</span></div>
     <!-- Disclaimer Banner -->
     <div class="disclaimer">
       <strong>模拟交易功能，仅供学习研究，不构成投资建议。</strong>
@@ -112,10 +150,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Error State -->
-    <div v-if="error" class="error-banner">
-      {{ error }}
-    </div>
+    <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-if="notice" class="notice-banner" role="status">{{ notice }}</div>
 
     <!-- Loading State -->
     <div v-if="loading && !account" class="loading-state">
@@ -140,13 +176,13 @@ onMounted(() => {
           <div class="summary-item">
             <div class="summary-label">盈亏金额</div>
             <div class="summary-value" :class="profitColor">
-              {{ account.profit_loss >= 0 ? '+' : '' }}¥{{ formatNumber(account.profit_loss) }}
+              {{ signedNumber(account.profit_loss) }}
             </div>
           </div>
           <div class="summary-item">
             <div class="summary-label">收益率</div>
             <div class="summary-value" :class="profitColor">
-              {{ account.return_percent >= 0 ? '+' : '' }}{{ formatPercent(account.return_percent) }}
+              {{ account.return_percent == null ? '—' : `${account.return_percent >= 0 ? '+' : ''}${formatPercent(account.return_percent)}` }}
             </div>
           </div>
           <div class="summary-item">
@@ -187,11 +223,11 @@ onMounted(() => {
                 <td class="align-right">{{ holding.shares }}</td>
                 <td class="align-right">{{ formatNumber(holding.cost_basis) }}</td>
                 <td class="align-right">{{ formatNumber(holding.current_price) }}</td>
-                <td class="align-right" :class="holding.profit_loss >= 0 ? 'profit' : 'loss'">
-                  {{ holding.profit_loss >= 0 ? '+' : '' }}{{ formatNumber(holding.profit_loss) }}
+                <td class="align-right" :class="valueClass(holding.profit_loss)">
+                  {{ signedNumber(holding.profit_loss) }}
                 </td>
-                <td class="align-right" :class="holding.profit_loss_percent >= 0 ? 'profit' : 'loss'">
-                  {{ holding.profit_loss_percent >= 0 ? '+' : '' }}{{ formatPercent(holding.profit_loss_percent) }}
+                <td class="align-right" :class="valueClass(holding.profit_loss_percent)">
+                  {{ signedNumber(holding.profit_loss_percent) }}
                 </td>
                 <td class="align-right">{{ formatPercent(holding.weight) }}</td>
               </tr>
@@ -209,7 +245,7 @@ onMounted(() => {
               <label>股票代码</label>
               <BaseInput
                 v-model="tradeForm.symbol"
-                placeholder="如: 600519.SH"
+                placeholder="当前研究对象"
                 size="md"
               />
             </div>
@@ -250,10 +286,12 @@ onMounted(() => {
             type="submit"
             variant="primary"
             size="md"
-            :disabled="true"
+            :loading="submitting"
+            :disabled="submitting"
           >
-            提交交易（功能开发中）
+            {{ submitting ? '提交中…' : '确认提交模拟订单' }}
           </BaseButton>
+          <p class="trade-confirmation">执行环境：Paper Engine · 当前策略：{{ contextStore.context.strategy || '手动研究' }} · 价格由后端行情/撮合决定</p>
         </form>
       </BaseCard>
 
@@ -304,6 +342,7 @@ onMounted(() => {
     <div v-else class="empty-state">
       暂无数据
     </div>
+    </template>
   </div>
 </template>
 
@@ -358,6 +397,20 @@ onMounted(() => {
   margin-bottom: var(--spacing-lg);
 }
 
+.notice-banner {
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-md);
+}
+
+.trade-confirmation {
+  margin: var(--spacing-sm) 0 0;
+  color: var(--color-ink-soft);
+  font-size: var(--font-size-sm);
+}
 .loading-state {
   display: flex;
   flex-direction: column;
@@ -366,7 +419,6 @@ onMounted(() => {
   padding: var(--spacing-3xl);
   color: var(--color-ink-soft);
 }
-
 .spinner {
   width: 40px;
   height: 40px;

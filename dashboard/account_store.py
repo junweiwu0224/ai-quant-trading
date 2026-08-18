@@ -887,6 +887,23 @@ class AccountStore:
             "permissions": self.get_permissions(workspace["id"]),
         }
 
+    def get_principal_bundle(self, user_id: str, workspace_id: str | None = None) -> dict | None:
+        """Resolve an API-key principal to an owned user/workspace bundle."""
+        user = self.get_user_by_id(str(user_id or ""))
+        if not user or user.get("disabled"):
+            return None
+        workspace = self.get_workspace(str(workspace_id or "")) if workspace_id else None
+        if workspace is None or workspace.get("user_id") != user["id"]:
+            workspace = self.ensure_workspace(user["id"], user["username"], user["role"] == "admin")
+        if user["role"] == "admin":
+            self._ensure_admin_permissions(workspace["id"])
+        return {
+            "user": user,
+            "workspace": workspace,
+            "permissions": self.get_permissions(workspace["id"]),
+            "auth_method": "api_key",
+        }
+
     def _ensure_admin_permissions(self, workspace_id: str) -> None:
         conn = self._conn()
         try:

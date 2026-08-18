@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Bell, Boxes, ChevronRight, FileText, FlaskConical, BarChart3, LayoutDashboard, Settings, X, Moon, Sun, Sparkles } from 'lucide-vue-next'
+import { Boxes, Settings, X, Moon, Sun, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 import { useTheme } from '../composables/useTheme'
 import { useTokenUsage } from '../composables/useTokenUsage'
+import { PRIMARY_WORKFLOWS } from '../navigation/workflows'
 
 defineProps<{
+  id?: string
   open: boolean
 }>()
 
@@ -19,14 +21,7 @@ const store = useAppStore()
 const { isDark, toggleTheme } = useTheme()
 const tokenUsage = useTokenUsage()
 
-const nav = [
-  { to: '/app/decision', label: '决策中心', icon: LayoutDashboard },
-  { to: '/app/intelligence', label: '市场情报', icon: BarChart3 },
-  { to: '/app/reports', label: '报告', icon: FileText },
-  { to: '/app/validation', label: '验证', icon: FlaskConical },
-  { to: '/app/research', label: '单股研究', icon: Bell },
-  { to: '/app/notifications', label: '通知', icon: Bell },
-]
+const nav = PRIMARY_WORKFLOWS.filter((entry) => entry.id !== 'settings')
 
 const themeIcon = computed(() => isDark.value ? Sun : Moon)
 
@@ -52,7 +47,7 @@ function handleTokenPanelClick() {
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ open }">
+  <aside :id="id" class="sidebar" :class="{ open }" :aria-hidden="open ? 'false' : undefined">
     <div class="brand">
       <div class="brand-mark">AQ</div>
       <div><strong>AI Quant</strong><small>决策工作台</small></div>
@@ -91,9 +86,9 @@ function handleTokenPanelClick() {
         <Settings :size="18" />
         <span>设置</span>
       </RouterLink>
-      <RouterLink to="/app/more" class="nav-link" @click="handleNavClick">
+      <RouterLink to="/app/workflows" class="nav-link" @click="handleNavClick">
         <Boxes :size="18" />
-        <span>更多工具</span>
+        <span>工作流目录</span>
       </RouterLink>
     </nav>
 
@@ -106,10 +101,6 @@ function handleTokenPanelClick() {
         <span class="status-dot" :class="store.health ? 'good' : 'muted'" />
         <span>{{ store.health ? '数据状态已读取' : '等待数据状态' }}</span>
       </div>
-      <RouterLink class="legacy-link" to="/app/more/agents">
-        <ChevronRight :size="15" />
-        Agent 工作台
-      </RouterLink>
     </div>
   </aside>
 </template>
@@ -126,7 +117,7 @@ function handleTokenPanelClick() {
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: transform 0.3s ease;
+  overflow-y: auto;
 }
 
 .brand {

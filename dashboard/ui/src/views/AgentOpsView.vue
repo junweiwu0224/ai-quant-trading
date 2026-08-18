@@ -841,7 +841,7 @@ onBeforeUnmount(() => {
   <section class="ai-workbench">
     <div class="page-head">
       <div>
-        <RouterLink to="/app/more" class="muted small ai-back-link"><ArrowLeft :size="14" />返回更多工具</RouterLink>
+        <RouterLink to="/app/workflows" class="muted small ai-back-link"><ArrowLeft :size="14" />返回工作流目录</RouterLink>
         <h1>AI 研究工作台</h1>
         <p>吸收参考项目的多角色对话、技能选择、冻结上下文和结构化报告流程。AI 只生成研究 artifact，不拥有决策、推送资格或订单权限。</p>
       </div>

@@ -151,6 +151,23 @@ export interface MarketInfo {
 
 export interface DataHealth {
   success: boolean
+  status?: 'healthy' | 'degraded' | 'unavailable' | string
+  markets?: Record<string, {
+    status?: string
+    research_status?: string
+    provider?: string | null
+    coverage?: number
+    coverage_pct?: number
+    data_state?: string
+    data_state_label?: string
+    capabilities?: string[]
+    declared_capabilities?: string[]
+    last_update?: string | null
+    stale?: boolean
+    freshness_status?: 'fresh' | 'stale' | 'not_checked' | 'unavailable' | string
+    reason?: string
+    manual_research?: boolean
+  }>
   stock_count: number
   stock_daily: Record<string, unknown>
   watchlist_count: number
@@ -158,6 +175,7 @@ export interface DataHealth {
   quality_summary: Record<string, unknown>
   quote: QuoteServiceHealth
   signal: SignalHealth
+  providers?: Record<string, string>
 }
 
 export interface QuoteServiceHealth {
@@ -172,6 +190,7 @@ export interface SignalHealth {
   status: 'online' | 'stale' | 'offline'
   cache_age_hours?: number
   cache_age_label: string
+  latest_date?: string
   provider: string
   model_version: string
   validation: SignalValidation
@@ -233,11 +252,11 @@ export interface DecisionMatrixSummary {
 
 export interface KLineBar {
   date: string
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
+  open?: number
+  high?: number
+  low?: number
+  close?: number
+  volume?: number
   amount?: number
 }
 

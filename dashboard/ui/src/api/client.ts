@@ -710,12 +710,18 @@ async function requestAiStream<T extends AIStreamEvent>(
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
+    const headers = new Headers({
+      Accept: 'application/json',
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    })
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
     response = await fetch(path, {
-      credentials: 'include',
-      headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}) },
       ...init,
+      credentials: 'include',
+      headers,
     })
   } catch (error) {
+    if (isAbortError(error)) throw error
     throw new ApiError(formatApiError(null), 0, error)
   }
 
@@ -751,9 +757,9 @@ export const api = {
   logout() {
     return request<{ success?: boolean }>('/api/account/logout', { method: 'POST', body: JSON.stringify({}) })
   },
-  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>) {
+  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>, signal?: AbortSignal) {
     const url = params ? withQuery(path, params) : path
-    return request<T>(url)
+    return request<T>(url, signal ? { signal } : undefined)
   },
   post<T>(path: string, body: unknown, headers?: Record<string, string>) {
     return request<T>(path, {
@@ -804,29 +810,32 @@ export const api = {
   decisionMatrix(scope = 'watchlist') {
     return request<DecisionMatrix>(`/api/datahub/decision-matrix?scope=${encodeURIComponent(scope)}&fast=true&limit=30`)
   },
-  marketRadar() {
-    return request<ApiEnvelope<Record<string, unknown>>>('/api/market/radar?fast=true')
+  marketRadar(market = 'CN') {
+    return request<ApiEnvelope<Record<string, unknown>>>(`/api/market/radar?fast=true&market=${encodeURIComponent(market)}`)
   },
-  marketBreadth() {
-    return request<Record<string, unknown>>('/api/market/breadth')
+  marketSnapshot(market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/snapshot?market=${encodeURIComponent(market)}&limit=50`, { signal })
   },
-  marketSectors(fast = true) {
-    return request<Record<string, unknown>>(`/api/market/sectors?type=industry&fast=${fast ? 'true' : 'false'}`)
+  marketBreadth(market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/breadth?market=${encodeURIComponent(market)}`, { signal })
   },
-  marketHeatmap(fast = true) {
-    return request<Record<string, unknown>>(`/api/market/heatmap?fast=${fast ? 'true' : 'false'}`)
+  marketSectors(fast = true, market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/sectors?type=industry&fast=${fast ? 'true' : 'false'}&market=${encodeURIComponent(market)}`, { signal })
   },
-  marketHotspot() {
-    return request<Record<string, unknown>>('/api/market/hotspot')
+  marketHeatmap(fast = true, market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/heatmap?fast=${fast ? 'true' : 'false'}&market=${encodeURIComponent(market)}`, { signal })
   },
-  marketNews() {
-    return request<Record<string, unknown>>('/api/market/news')
+  marketHotspot(market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/hotspot?market=${encodeURIComponent(market)}`, { signal })
   },
-  iwencai(query: string) {
-    return request<Record<string, unknown>>('/api/llm/iwencai', { method: 'POST', body: JSON.stringify({ query }) })
+  marketNews(market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/market/news?market=${encodeURIComponent(market)}`, { signal })
   },
-  signalTop(limit = 20) {
-    return request<Record<string, unknown>>(`/api/signals/top?limit=${limit}`)
+  iwencai(query: string, market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>('/api/llm/iwencai', { method: 'POST', body: JSON.stringify({ query, market }), signal })
+  },
+  signalTop(limit = 20, market = 'CN', signal?: AbortSignal) {
+    return request<Record<string, unknown>>(`/api/signals/top?limit=${limit}&market=${encodeURIComponent(market)}`, { signal })
   },
   signalHealth() {
     return request<ApiEnvelope<Record<string, unknown>>>('/api/signals/health?fast=true')

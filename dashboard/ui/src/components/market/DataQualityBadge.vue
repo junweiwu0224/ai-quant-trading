@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getDataHealth } from '../../api/market'
 import type { DataHealth } from '../../api/types'
 
@@ -7,6 +7,11 @@ interface Props {
   market: string
   symbol: string
   autoRefresh?: boolean
+  researchState?: 'loading' | 'available' | 'partial' | 'unavailable'
+  researchSource?: string
+  researchAsOf?: string
+  researchError?: string
+  researchCoverage?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -14,10 +19,10 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 interface DataQualityStatus {
-  status: 'healthy' | 'delayed' | 'partial' | 'unavailable' | 'loading'
+  status: 'healthy' | 'delayed' | 'partial' | 'manual' | 'unavailable' | 'loading'
   provider: string
   lastUpdate: string
-  coverage: number
+  coverage: number | null
   capabilities: string[]
 }
 
@@ -25,7 +30,7 @@ const qualityData = ref<DataQualityStatus>({
   status: 'loading',
   provider: 'Unknown',
   lastUpdate: '-',
-  coverage: 0,
+  coverage: null,
   capabilities: []
 })
 
@@ -51,7 +56,13 @@ const badgeConfig = computed(() => {
       return {
         label: '部分缺失',
         variant: 'warning' as const,
-        color: '#d97706' // Orange for partial
+        color: 'var(--color-warn)'
+      }
+    case 'manual':
+      return {
+        label: '手动研究',
+        variant: 'warning' as const,
+        color: 'var(--color-warn)'
       }
     case 'unavailable':
       return {
@@ -76,10 +87,11 @@ const tooltipContent = computed(() => {
 
   const { provider, lastUpdate, coverage, capabilities } = qualityData.value
 
+  const boundary = qualityData.value.status === 'manual' ? '\n边界: 仅供手动研究，不具备自动推送资格' : ''
   return `数据源: ${provider}
 最后更新: ${lastUpdate}
-覆盖率: ${coverage.toFixed(1)}%
-能力: ${capabilities.join('、') || '无'}`
+覆盖率: ${coverage == null ? '未知' : `${coverage.toFixed(1)}%`}
+能力: ${capabilities.join('、') || '无'}${boundary}`
 })
 
 async function fetchQualityData() {
@@ -89,49 +101,49 @@ async function fetchQualityData() {
 
     const health = await getDataHealth(true)
 
-    // Parse health data to determine quality status
-    const stockDaily = health.stock_daily || {}
-    const coverage = health.stock_count || 0
-    const sourceHealth = health.source_health || {}
-
-    // Calculate data freshness (simplified - would need actual timestamp parsing)
-    const quoteAge = health.quote?.last_update_age_sec || 0
-    const signalAge = health.signal?.cache_age_hours || 0
-
-    // Determine status based on coverage and freshness
-    let status: 'healthy' | 'delayed' | 'partial' | 'unavailable' = 'healthy'
-    let coveragePct = 100
-
-    if (coverage === 0) {
-      status = 'unavailable'
-      coveragePct = 0
-    } else if (quoteAge > 21600 || signalAge > 6) { // 6 hours
-      status = 'unavailable'
-      coveragePct = coverage > 0 ? 50 : 0
-    } else if (quoteAge > 3600 || signalAge > 1) { // 1 hour
-      status = 'delayed'
-      coveragePct = coverage > 0 ? 80 : 0
-    } else if (coverage < 1000) {
-      status = 'partial'
-      coveragePct = 70
-    }
-
-    // Extract provider info
-    const provider = health.signal?.provider || 'Unknown'
-
-    // Format last update time
-    const lastUpdate = new Date().toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-
-    // Determine capabilities from health data
+    const marketHealth = health.markets?.[props.market]
+    const marketStatus = String(marketHealth?.research_status || marketHealth?.status || '').toLowerCase()
+    const dataState = String(marketHealth?.data_state || '').toLowerCase()
+    const manualResearch = props.market !== 'CN' && (
+      marketHealth?.manual_research === true
+      || props.researchSource === 'yahoo_finance_chart'
+      || props.researchSource === 'external_kline_fallback'
+    )
+    const status = props.researchState === 'unavailable'
+      ? 'unavailable'
+      : props.researchState === 'loading'
+        ? 'loading'
+        : manualResearch
+          ? 'manual'
+          : props.researchState === 'available'
+      ? 'healthy'
+      : props.researchState === 'partial'
+        ? 'partial'
+        : ['healthy', 'online', 'active', 'configured'].includes(marketStatus)
+          ? 'healthy'
+          : ['degraded', 'limited', 'manual_research'].includes(marketStatus)
+            ? 'partial'
+            : ['unavailable', 'offline', 'not_integrated'].includes(dataState || marketStatus)
+              ? 'unavailable'
+              : 'loading'
+    if (props.researchError) error.value = props.researchError
+    // A stock-level research response and the workspace-wide health feed have
+    // different coverage universes. Never fall back from a research response
+    // to the workspace percentage: a healthy bar series can coexist with an
+    // empty local A-share coverage pool, and showing 0% here would be false.
+    const coveragePct = props.researchCoverage
+      ?? (!props.researchSource
+        ? (typeof marketHealth?.coverage_pct === 'number' ? marketHealth.coverage_pct : null)
+        : null)
+      ?? (!props.researchSource && typeof marketHealth?.coverage === 'number' ? marketHealth.coverage * 100 : null)
+    const provider = props.researchSource || String(marketHealth?.provider || health.providers?.market || '未声明')
+    const asOf = props.researchAsOf || marketHealth?.last_update || health.signal?.latest_date
+    const lastUpdate = asOf ? String(asOf) : '未知'
     const capabilities: string[] = []
-    if (health.quote?.running) capabilities.push('实时')
-    if (health.stock_count > 0) capabilities.push('日线')
-    if (health.signal?.status === 'online') capabilities.push('信号')
+    const declared = marketHealth?.capabilities || marketHealth?.declared_capabilities || []
+    capabilities.push(...declared.filter((item) => !capabilities.includes(item)))
+    if (health.quote?.running) capabilities.push('实时服务')
+    if (health.signal?.status === 'online') capabilities.push('信号服务')
 
     qualityData.value = {
       status,
@@ -145,9 +157,9 @@ async function fetchQualityData() {
     error.value = err instanceof Error ? err.message : '获取数据质量失败'
     qualityData.value = {
       status: 'unavailable',
-      provider: 'Unknown',
-      lastUpdate: '-',
-      coverage: 0,
+      provider: '未声明',
+      lastUpdate: '未知',
+      coverage: null,
       capabilities: []
     }
   } finally {
@@ -175,6 +187,11 @@ onMounted(() => {
   fetchQualityData()
   startAutoRefresh()
 })
+
+watch(
+  () => [props.market, props.symbol, props.researchState, props.researchSource, props.researchAsOf, props.researchError, props.researchCoverage],
+  () => { void fetchQualityData() },
+)
 
 onUnmounted(() => {
   stopAutoRefresh()

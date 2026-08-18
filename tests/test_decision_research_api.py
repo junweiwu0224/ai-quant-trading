@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 
 import pandas as pd
+import pytest
+from fastapi import HTTPException
 
 from dashboard.routers import decisions
 
@@ -73,12 +75,30 @@ def test_research_without_any_source_fails_closed(monkeypatch) -> None:
 
 def test_non_cn_research_does_not_call_a_share_fallback(monkeypatch) -> None:
     monkeypatch.setattr(decisions, "fetch_kline", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("non-CN must not call A-share fallback")))
+    monkeypatch.setattr(
+        decisions,
+        "fetch_market_history",
+        lambda *args, **kwargs: {
+            "source": "yahoo_finance_chart",
+            "provider": "Yahoo Finance",
+            "as_of": "2026-08-18",
+            "updated_at": "2026-08-18T16:00:00-04:00",
+            "coverage_pct": 100.0,
+            "klines": [{"date": "2026-08-18", "open": 100, "high": 105, "low": 99, "close": 104, "volume": 1000}],
+        },
+    )
 
     payload = asyncio.run(decisions.research("HK", "00700", ACCOUNT))
 
-    assert payload["status"] == "provider_not_connected"
-    assert payload["bars"] == []
+    assert payload["status"] == "manual_research"
+    assert payload["bars"][0]["close"] == 104
     assert payload["authoritative"] is False
+
+
+def test_invalid_market_research_fails_with_client_error() -> None:
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(decisions.research("XX", "600519", ACCOUNT))
+    assert raised.value.status_code == 400
 
 
 def test_decision_status_separates_worker_process_and_workspace_automation(monkeypatch, tmp_path: Path) -> None:

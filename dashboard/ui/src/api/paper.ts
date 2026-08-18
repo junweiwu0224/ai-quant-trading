@@ -1,33 +1,26 @@
-/**
- * Paper Trading API - Mock implementation for simulated trading
- *
- * IMPORTANT: This is CLIENT-SIDE SIMULATION ONLY
- * All trades are virtual and do not involve real money or broker connections
- */
-
 import { api } from './client'
 
-// ==================== Types ====================
-
 export interface PaperAccount {
-  initial_capital: number
-  current_value: number
-  cash: number
-  position_value: number
-  profit_loss: number
-  return_percent: number
-  updated_at: string
+  initial_capital?: number
+  current_value?: number
+  cash?: number
+  position_value?: number
+  profit_loss?: number
+  return_percent?: number
+  updated_at?: string
+  [key: string]: unknown
 }
 
 export interface PaperHolding {
   symbol: string
-  name: string
-  shares: number
-  cost_basis: number
-  current_price: number
-  profit_loss: number
-  profit_loss_percent: number
-  weight: number
+  name?: string
+  shares?: number
+  cost_basis?: number
+  current_price?: number
+  profit_loss?: number
+  profit_loss_percent?: number
+  weight?: number
+  [key: string]: unknown
 }
 
 export interface PaperTrade {
@@ -35,140 +28,100 @@ export interface PaperTrade {
   timestamp: string
   symbol: string
   action: 'buy' | 'sell'
-  price: number
+  price?: number
   shares: number
-  status: 'completed' | 'pending' | 'failed'
-  total_amount: number
+  status: string
+  total_amount?: number
+  [key: string]: unknown
 }
 
 export interface PaperTradeRequest {
   symbol: string
   action: 'buy' | 'sell'
   shares: number
+  strategyName?: string
+  signalReason?: string
 }
 
-// ==================== Mock Data ====================
-
-const mockAccount: PaperAccount = {
-  initial_capital: 1000000,
-  current_value: 1085200,
-  cash: 523400,
-  position_value: 561800,
-  profit_loss: 85200,
-  return_percent: 8.52,
-  updated_at: new Date().toISOString()
+type Envelope<T> = { success?: boolean; data?: T; error?: string; message?: string }
+function unwrap<T>(response: Envelope<T>): T {
+  if (response.success === false) throw new Error(response.error || response.message || '模拟盘请求失败')
+  if (response.data === undefined) throw new Error(response.error || '模拟盘没有返回数据')
+  return response.data
 }
-
-const mockHoldings: PaperHolding[] = [
-  {
-    symbol: '600519.SH',
-    name: '贵州茅台',
-    shares: 100,
-    cost_basis: 1680.50,
-    current_price: 1725.30,
-    profit_loss: 4480,
-    profit_loss_percent: 2.67,
-    weight: 30.7
-  },
-  {
-    symbol: '000858.SZ',
-    name: '五粮液',
-    shares: 500,
-    cost_basis: 158.20,
-    current_price: 162.40,
-    profit_loss: 2100,
-    profit_loss_percent: 2.66,
-    weight: 14.5
-  },
-  {
-    symbol: '601318.SH',
-    name: '中国平安',
-    shares: 1000,
-    cost_basis: 45.80,
-    current_price: 47.20,
-    profit_loss: 1400,
-    profit_loss_percent: 3.06,
-    weight: 8.4
-  }
-]
-
-const mockTrades: PaperTrade[] = [
-  {
-    id: 't1',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    symbol: '600519.SH',
-    action: 'buy',
-    price: 1725.30,
-    shares: 10,
-    status: 'completed',
-    total_amount: 17253
-  },
-  {
-    id: 't2',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    symbol: '000858.SZ',
-    action: 'sell',
-    price: 162.40,
-    shares: 50,
-    status: 'completed',
-    total_amount: 8120
-  },
-  {
-    id: 't3',
-    timestamp: new Date(Date.now() - 86400000).toISOString(),
-    symbol: '601318.SH',
-    action: 'buy',
-    price: 47.20,
-    shares: 200,
-    status: 'completed',
-    total_amount: 9440
-  }
-]
-
-// ==================== API Functions ====================
 
 export async function getPaperAccount(): Promise<PaperAccount> {
-  // TODO: Replace with real API call when backend is ready
-  // return api.get<PaperAccount>('/api/paper/account')
-
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return mockAccount
+  const status = await api.paperStatus() as Record<string, any>
+  const config = (status.config || {}) as Record<string, any>
+  const initial = Number(config.initial_cash ?? config.initial_capital ?? 0)
+  const equity = status.equity == null ? undefined : Number(status.equity)
+  const cash = status.cash == null ? undefined : Number(status.cash)
+  const positionValue = equity != null && cash != null ? equity - cash : undefined
+  const performance = await api.paperPerformance().catch(() => null) as Envelope<Record<string, any>> | null
+  const metrics = performance?.data || {}
+  const currentValue = equity ?? Number(metrics.total_equity)
+  const profitLoss = Number.isFinite(currentValue) && initial > 0 ? currentValue - initial : undefined
+  return {
+    initial_capital: initial,
+    current_value: Number.isFinite(currentValue) ? currentValue : undefined,
+    cash,
+    position_value: positionValue,
+    profit_loss: profitLoss,
+    return_percent: profitLoss != null && initial > 0 ? profitLoss / initial * 100 : undefined,
+    updated_at: new Date().toISOString(),
+    running: Boolean(status.running),
+    trade_count: status.trade_count,
+  }
 }
 
 export async function getPaperHoldings(): Promise<PaperHolding[]> {
-  // TODO: Replace with real API call when backend is ready
-  // return api.get<PaperHolding[]>('/api/paper/holdings')
-
-  await new Promise(resolve => setTimeout(resolve, 400))
-  return mockHoldings
+  const response = await api.get<Envelope<Array<Record<string, unknown>>>>('/api/paper/positions')
+  return unwrap(response).map((position) => ({
+    ...position,
+    symbol: String(position.code || ''),
+    shares: Number(position.volume || 0),
+    cost_basis: Number(position.avg_price || 0),
+    current_price: Number(position.current_price || 0),
+    profit_loss: Number(position.unrealized_pnl || 0),
+    profit_loss_percent: Number(position.unrealized_pnl_pct || 0),
+  }))
 }
 
 export async function getPaperTrades(limit: number = 20): Promise<PaperTrade[]> {
-  // TODO: Replace with real API call when backend is ready
-  // return api.get<PaperTrade[]>('/api/paper/trades', { limit: limit.toString() })
-
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return mockTrades.slice(0, limit)
+  const response = await api.get<Envelope<{ items?: Array<Record<string, unknown>> }>>(`/api/paper/trades-v2?page=1&page_size=${Math.max(1, Math.min(500, limit))}`)
+  return (unwrap(response).items || []).map((trade) => ({
+    ...trade,
+    id: String(trade.trade_id || trade.order_id || ''),
+    timestamp: String(trade.created_at || ''),
+    symbol: String(trade.code || ''),
+    action: trade.direction === 'sell' || trade.direction === 'short' ? 'sell' : 'buy',
+    price: trade.price == null ? undefined : Number(trade.price),
+    shares: Number(trade.volume || 0),
+    status: 'filled',
+    total_amount: trade.price == null ? undefined : Number(trade.price) * Number(trade.volume || 0),
+  }))
 }
 
 export async function createPaperTrade(request: PaperTradeRequest): Promise<PaperTrade> {
-  // TODO: Replace with real API call when backend is ready
-  // return api.post<PaperTrade>('/api/paper/trade', request)
-
-  // SAFETY: This is mock only - no real trading occurs
-  await new Promise(resolve => setTimeout(resolve, 800))
-
-  const trade: PaperTrade = {
-    id: 't' + Math.random().toString(36).substring(7),
-    timestamp: new Date().toISOString(),
-    symbol: request.symbol,
+  if (!Number.isInteger(request.shares) || request.shares <= 0) throw new Error('交易数量必须是大于 0 的整数')
+  const response = await api.post<Envelope<Record<string, unknown>>>('/api/paper/orders', {
+    code: request.symbol.trim(),
+    direction: request.action === 'buy' ? 'long' : 'short',
+    order_type: 'market',
+    volume: request.shares,
+    strategy_name: request.strategyName || 'manual',
+    signal_reason: request.signalReason || '研究工作流手动确认',
+  })
+  const order = unwrap(response)
+  return {
+    id: String(order.order_id || order.id || ''),
+    timestamp: String(order.created_at || new Date().toISOString()),
+    symbol: String(order.code || request.symbol),
     action: request.action,
-    price: 100 + Math.random() * 50, // Mock price
-    shares: request.shares,
-    status: 'completed',
-    total_amount: request.shares * (100 + Math.random() * 50)
+    price: typeof order.filled_price === 'number' ? order.filled_price : undefined,
+    shares: Number(order.volume || request.shares),
+    status: String(order.status || 'pending'),
+    total_amount: typeof order.filled_price === 'number' ? order.filled_price * Number(order.volume || request.shares) : undefined,
+    raw: order,
   }
-
-  return trade
 }

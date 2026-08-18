@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue'
 import { Ban, Copy, ExternalLink, RefreshCw } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { DecisionReport, DecisionShareResponse } from '../types'
+import RefreshIndicator from '../components/base/RefreshIndicator.vue'
+import AsyncState from '../components/base/AsyncState.vue'
 
 type ShareLink = { id?: string; expires_at?: string; created_at?: string; revoked?: boolean }
 type ReportRow = DecisionReport & { share_link_id?: string; share_created_at?: string; share_revoked?: boolean }
@@ -11,6 +13,7 @@ type ShareResponse = DecisionShareResponse & { link?: ShareLink }
 const reports = ref<ReportRow[]>([])
 const deliveryAttempts = ref<any[]>([])
 const loading = ref(false)
+const refreshing = ref(false)
 const sharingId = ref<string | null>(null)
 const revokingId = ref<string | null>(null)
 const message = ref('')
@@ -45,6 +48,7 @@ async function copyToClipboard(value: string) {
 
 async function load() {
   loading.value = true
+  refreshing.value = reports.value.length > 0 || deliveryAttempts.value.length > 0
   message.value = ''
   try {
     const [reportResult, deliveryResult] = await Promise.allSettled([
@@ -62,6 +66,7 @@ async function load() {
     message.value = error instanceof Error ? error.message : '报告加载失败'
   } finally {
     loading.value = false
+    refreshing.value = false
   }
 }
 
@@ -139,9 +144,9 @@ onMounted(load)
   <section>
     <div class="page-head">
       <div><h1>报告索引</h1><p>消息渠道只携带精简摘要；完整内容在独立的手机和桌面阅读页中查看。</p></div>
-      <button class="button" :disabled="loading" type="button" @click="load"><RefreshCw :size="16" />刷新</button>
+      <div class="head-actions"><RefreshIndicator :state="refreshing ? 'refreshing' : reports.length ? 'live' : 'unavailable'" :label="refreshing ? '保留报告，正在刷新' : '报告索引'" /><button class="button" :disabled="loading" type="button" @click="load"><RefreshCw :size="16" />刷新</button></div>
     </div>
-    <div v-if="message" class="error-box" role="status">{{ message }}</div>
+    <AsyncState v-if="message" state="error" :message="message" @retry="load" />
     <section class="panel">
       <div class="panel-head"><div><h2>冻结报告</h2><p>每份报告都保留输入 hash、版本 hash 和生成来源。</p></div><span class="tag">{{ reports.length }} 份</span></div>
       <div v-if="!reports.length" class="panel-body"><div class="empty"><strong>还没有报告</strong><span>从决策中心完成一次预览或手动分析。</span></div></div>

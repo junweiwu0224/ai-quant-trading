@@ -346,9 +346,9 @@ def test_backtest_layout_responsive():
         re.DOTALL
     ), "backtest-layout should use grid on desktop"
 
-    # Check 60/40 split
-    assert "60%" in style and "40%" in style, \
-        "backtest-layout should have 60/40 grid split"
+    # Accept the production-safe minmax split as well as the legacy 60/40 form.
+    assert ("60%" in style and "40%" in style) or "minmax(0, 3fr) minmax(0, 2fr)" in style, \
+        "backtest-layout should use a bounded two-column split"
 
     # Check mobile stacked layout
     mobile_section = re.search(
@@ -687,8 +687,12 @@ def test_all_imports_valid():
             # Resolve relative path
             resolved = (view_path.parent / import_path).resolve()
             if not resolved.suffix:
-                # Try adding .vue extension
-                resolved = resolved.with_suffix('.vue')
+                # Vue imports commonly omit the extension for TS/JS modules.
+                candidates = [
+                    resolved.with_suffix(extension)
+                    for extension in ('.vue', '.ts', '.tsx', '.js', '.jsx')
+                ]
+                resolved = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
 
             # Check file exists
             assert resolved.exists(), \

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from config.settings import DB_PATH, QLIB_PRED_CACHE
 from data.signals.engine import DEFAULT_PROVIDER, get_signal_records, load_prediction_history
@@ -57,7 +57,50 @@ async def top_signals(
     provider: str = Query(DEFAULT_PROVIDER),
     top_n: int = Query(50, ge=1, le=500, alias="limit"),
     date: str = Query(""),
+    market: str = Query("CN"),
 ):
+    normalized_market = str(market or "CN").strip().upper() or "CN"
+    try:
+        from data.markets import get_market_adapter
+
+        adapter = get_market_adapter(normalized_market)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效市场: {normalized_market}") from exc
+    if adapter.code.value != "CN":
+        # Keep signal generation disabled while exposing the same provider
+        # envelope as market-level research endpoints.  A Yahoo snapshot is
+        # evidence of research availability, not deterministic signal input.
+        try:
+            from data.providers.market_data import fetch_market_snapshot
+
+            snapshot = await asyncio.to_thread(fetch_market_snapshot, normalized_market, limit=1)
+        except Exception as exc:
+            snapshot = {
+                "provider": "Yahoo Finance",
+                "source": "yahoo_finance",
+                "data_state": "unavailable",
+                "as_of": None,
+                "coverage_pct": 0.0,
+                "error": str(exc),
+            }
+        index = snapshot.get("index") if isinstance(snapshot, dict) else {}
+        return {
+            "success": False,
+            "signals": [],
+            "predictions": [],
+            "primary_collection": "signals",
+            "legacy_aliases": {"predictions": "signals"},
+            **SIGNAL_API_META,
+            "market": normalized_market,
+            "provider": snapshot.get("provider", "Yahoo Finance"),
+            "source": snapshot.get("source", "yahoo_finance"),
+            "as_of": (index or {}).get("as_of") if isinstance(index, dict) else None,
+            "coverage_pct": 0.0,
+            "data_state": "not_integrated",
+            "manual_research_only": True,
+            "authoritative": False,
+            "error": f"{normalized_market} 当前没有已接入的确定性信号 provider",
+        }
     records, meta = get_signal_records(
         provider=provider,
         top_n=top_n,

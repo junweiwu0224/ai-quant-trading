@@ -19,11 +19,13 @@ import {
 import { api } from '../api/client'
 import type { DecisionMatrix, WatchlistItem } from '../types'
 import { useAppStore } from '../stores/app'
+import { useResearchContextStore } from '../stores/researchContext'
 
 type AnyRecord = Record<string, any>
 type OpportunityScope = 'signal' | 'watchlist'
 
 const app = useAppStore()
+const researchContext = useResearchContextStore()
 const portfolios = ref<AnyRecord[]>([])
 const selected = ref<AnyRecord | null>(null)
 const result = ref<AnyRecord | null>(null)
@@ -96,8 +98,8 @@ const riskCount = computed(() => decisions.value.filter((item: AnyRecord) => ite
 const activeMatrix = computed(() => opportunityScope.value === 'signal' ? signalMatrix.value : watchlistMatrix.value)
 const matrixItems = computed<AnyRecord[]>(() => (activeMatrix.value?.items || []) as AnyRecord[])
 const matrixSummary = computed<AnyRecord>(() => (activeMatrix.value?.summary || {}) as AnyRecord)
-const currentCapability = computed<AnyRecord | null>(() => marketCapabilities.value.find((item) => String(item.market || '').toUpperCase() === app.market) || null)
-const currentMarketIsManualOnly = computed(() => !currentCapability.value?.automatic_push)
+const currentCapability = computed<AnyRecord | null>(() => marketCapabilities.value.find((item) => String(item.market || item.code || '').toUpperCase() === app.market) || null)
+const currentMarketIsManualOnly = computed(() => !currentCapability.value?.automatic_push_supported && !currentCapability.value?.automatic_push)
 const matrixNeedsManualReview = computed(() => {
   const coverage = Number(matrixSummary.value.signal_coverage_pct)
   return Boolean(
@@ -129,16 +131,24 @@ const matrixTrustText = computed(() => {
 })
 const capabilityMessage = computed(() => {
   if (!currentCapability.value) return '市场能力清单尚未返回，自动推送保持关闭。'
-  if (currentCapability.value.automatic_push) return '已声明推送形状，但仍必须通过 provider 健康、验证、完整覆盖和目标测试。'
-  return currentCapability.value.fallback_reason || '当前市场仅支持受控手动研究，自动推送不可用。'
+  if (currentCapability.value.automatic_push || currentCapability.value.automatic_push_supported) return '已声明推送形状，但仍必须通过 provider 健康、验证、完整覆盖和目标测试。'
+  return currentCapability.value.fallback_reason || currentCapability.value.reason || '当前市场仅支持受控手动研究，自动推送不可用。'
 })
 const alertCountLabel = computed(() => alertLoaded.value ? String(alertHistory.value.length) : '—')
 
+function researchPath(code: unknown): string {
+  const normalized = plainCode(code)
+  return normalized ? `/app/research/${app.market}/${encodeURIComponent(normalized)}` : '/app/research'
+}
+
+function selectResearch(code: unknown, name?: unknown) {
+  const normalized = plainCode(code)
+  if (normalized) researchContext.setInstrument({ market: app.market, symbol: normalized, name: name ? String(name) : undefined })
+}
 function inWatchlist(code: unknown): boolean {
   const normalized = plainCode(code)
   return Boolean(normalized && watchlist.value.some((item) => plainCode(item.code) === normalized))
 }
-
 function researchPriority(item: AnyRecord): string {
   if (item.stale || item.coverage_pct == null || Number(item.coverage_pct) < 80) return '先补数据'
   return item.matrix_rank ? `P${item.matrix_rank}` : '待复核'
@@ -343,7 +353,7 @@ onMounted(load)
               <div class="radar-meta data-source"><span><Database :size="14" />{{ radar.source || '—' }}</span><span><Clock3 :size="14" />{{ timeOrDash(radar.generated_at || radar.latest_date) }}</span><span class="tag" :class="radar.source_unavailable ? 'bad' : radar.stale ? 'warn' : 'good'">{{ radar.source_unavailable ? '来源不可用' : radar.stale ? '可能过期' : '已读取' }}</span></div>
               <p class="muted small radar-note">{{ radar.coverage_note || radar.fast_path_note || '—' }}</p>
               <div class="radar-grid">
-                <div v-for="board in radarBoards" :key="board.key" class="radar-board"><div class="radar-board-head"><strong>{{ board.icon }} {{ board.label }}</strong><span>{{ radar[board.key]?.length || 0 }} 条</span></div><div v-if="!radar[board.key]?.length" class="empty compact-empty">暂无可验证记录</div><RouterLink v-for="row in (radar[board.key] || []).slice(0, 5)" :key="`${board.key}-${row.code}`" class="radar-row" :to="`/app/research/${app.market}/${encodeURIComponent(String(row.code || ''))}`"><span><strong>{{ row.code || '—' }}</strong><small>{{ row.name || row.industry || '—' }}</small></span><span class="radar-value">{{ row.value == null ? '—' : numberOrDash(row.value) }}</span></RouterLink></div>
+                <div v-for="board in radarBoards" :key="board.key" class="radar-board"><div class="radar-board-head"><strong>{{ board.icon }} {{ board.label }}</strong><span>{{ radar[board.key]?.length || 0 }} 条</span></div><div v-if="!radar[board.key]?.length" class="empty compact-empty">暂无可验证记录</div><RouterLink v-for="row in (radar[board.key] || []).slice(0, 5)" :key="`${board.key}-${row.code}`" class="radar-row" :to="researchPath(row.code)" @click="selectResearch(row.code, row.name)"><span><strong>{{ row.code || '—' }}</strong><small>{{ row.name || row.industry || '—' }}</small></span><span class="radar-value">{{ row.value == null ? '—' : numberOrDash(row.value) }}</span></RouterLink></div>
               </div>
             </template>
           </div>
@@ -352,14 +362,14 @@ onMounted(load)
         <section class="panel opportunity-panel">
           <div class="panel-head"><div><h2>机会池</h2><p>基于 decision matrix 的 signal / watchlist 范围；缺失 provider 不会产生虚假候选。</p></div><Star :size="18" class="faint" /></div>
           <div class="panel-body">
-            <div v-if="app.market !== 'CN'" class="capability-state opportunity-capability"><span class="tag warn">当前市场未接入研究矩阵</span><strong>{{ app.market }} 仅保留手动研究</strong><span>{{ capabilityMessage }}</span></div>
+            <div v-if="app.market !== 'CN'" class="capability-state opportunity-capability"><span class="tag warn">{{ currentCapability?.daily_research ? '日线研究可用' : '当前市场待接入' }}</span><strong>{{ app.market }} 市场研究状态</strong><span>{{ capabilityMessage }}</span><RouterLink v-if="currentCapability?.daily_research" class="button ghost compact-button" :to="researchPath(app.market === 'US' ? 'AAPL' : app.market === 'HK' ? '00700' : app.market === 'JP' ? '7203' : app.market === 'KR' ? '005930' : '2330')" @click="selectResearch(app.market === 'US' ? 'AAPL' : app.market === 'HK' ? '00700' : app.market === 'JP' ? '7203' : app.market === 'KR' ? '005930' : '2330')">打开示例研究</RouterLink></div>
             <template v-else>
               <div class="workspace-tabs" role="tablist" aria-label="机会池范围"><button type="button" :class="{ active: opportunityScope === 'signal' }" :aria-selected="opportunityScope === 'signal'" @click="opportunityScope = 'signal'"><Activity :size="15" />AI 信号 Top</button><button type="button" :class="{ active: opportunityScope === 'watchlist' }" :aria-selected="opportunityScope === 'watchlist'" @click="opportunityScope = 'watchlist'"><Star :size="15" />当前自选</button></div>
               <div class="opportunity-trust-panel" :class="matrixTrustClass" role="status"><span class="opportunity-trust-badge">{{ matrixTrustLabel }}</span><span class="opportunity-trust-text">{{ matrixTrustText }}</span><span class="opportunity-trust-meta">覆盖 {{ matrixSummary.signal_coverage_pct == null ? '—' : `${matrixSummary.signal_coverage_pct}%` }} · 生成 {{ timeOrDash(matrixSummary.generated_at) }}</span></div>
               <div v-if="researchBusy && !activeMatrix" class="empty"><RefreshCw :size="16" class="spin" />正在读取机会池…</div>
               <div v-else-if="!activeMatrix" class="empty"><strong>机会池暂未返回</strong><span>刷新后会重新请求当前范围。</span></div>
               <div v-else-if="!matrixItems.length" class="empty"><strong>当前范围没有可验证候选</strong><span>{{ opportunityScope === 'watchlist' ? '先加入自选股，再刷新当前范围。' : '当前没有已返回的 signal 记录。' }}</span></div>
-              <div v-else class="table-scroll"><table class="decision-table opportunity-table"><thead><tr><th>标的</th><th>价格</th><th>研究动作</th><th>风险</th><th>数据</th><th>操作</th></tr></thead><tbody><tr v-for="item in matrixItems.slice(0, 12)" :key="String(item.code)"><td><RouterLink class="symbol-link" :to="`/app/research/${app.market}/${encodeURIComponent(String(item.code || ''))}`"><span class="symbol">{{ item.code || '—' }}</span><small>{{ item.name || '—' }}</small></RouterLink></td><td><strong>{{ numberOrDash(item.price) }}</strong><small :class="Number(item.change_pct) >= 0 ? 'good' : 'bad'">{{ percentOrDash(item.change_pct) }}</small></td><td><strong class="action" :class="item.primary_action === '进重点池' ? 'buy_candidate' : item.primary_action === '减仓候选' ? 'reduce_candidate' : 'watch'">{{ item.primary_action || '—' }}</strong><small>研究优先级 {{ researchPriority(item) }}</small></td><td><span class="tag" :class="item.risk_level === '高' ? 'bad' : item.risk_level === '中' ? 'warn' : ''">{{ item.risk_level || '—' }}</span></td><td><span class="tag" :class="item.stale ? 'warn' : item.coverage_pct == null ? '' : 'good'">{{ item.stale ? '可能过期' : item.coverage_pct == null ? '覆盖未知' : `覆盖 ${item.coverage_pct}%` }}</span><small>{{ item.source || item.signal_provider || '—' }}</small></td><td><button v-if="!inWatchlist(item.code)" class="icon-button compact-icon" :disabled="watchlistActionCode === item.code" title="加入自选" aria-label="加入自选" @click="addToWatchlist(item.code)"><Plus :size="15" /></button><span v-else class="tag good"><Star :size="13" />已自选</span></td></tr></tbody></table></div>
+              <div v-else class="table-scroll"><table class="decision-table opportunity-table"><thead><tr><th>标的</th><th>价格</th><th>研究动作</th><th>风险</th><th>数据</th><th>操作</th></tr></thead><tbody><tr v-for="item in matrixItems.slice(0, 12)" :key="String(item.code)"><td><RouterLink class="symbol-link" :to="researchPath(item.code)" @click="selectResearch(item.code, item.name)"><span class="symbol">{{ item.code || '—' }}</span><small>{{ item.name || '—' }}</small></RouterLink></td><td><strong>{{ numberOrDash(item.price) }}</strong><small :class="Number(item.change_pct) >= 0 ? 'good' : 'bad'">{{ percentOrDash(item.change_pct) }}</small></td><td><strong class="action" :class="item.primary_action === '进重点池' ? 'buy_candidate' : item.primary_action === '减仓候选' ? 'reduce_candidate' : 'watch'">{{ item.primary_action || '—' }}</strong><small>研究优先级 {{ researchPriority(item) }}</small></td><td><span class="tag" :class="item.risk_level === '高' ? 'bad' : item.risk_level === '中' ? 'warn' : ''">{{ item.risk_level || '—' }}</span></td><td><span class="tag" :class="item.stale ? 'warn' : item.coverage_pct == null ? '' : 'good'">{{ item.stale ? '可能过期' : item.coverage_pct == null ? '覆盖未知' : `覆盖 ${item.coverage_pct}%` }}</span><small>{{ item.source || item.signal_provider || '—' }}</small></td><td><button v-if="!inWatchlist(item.code)" class="icon-button compact-icon" :disabled="watchlistActionCode === item.code" title="加入自选" aria-label="加入自选" @click="addToWatchlist(item.code)"><Plus :size="15" /></button><span v-else class="tag good"><Star :size="13" />已自选</span></td></tr></tbody></table></div>
             </template>
           </div>
         </section>
@@ -378,7 +388,7 @@ onMounted(load)
       <aside class="stack-lg">
         <section class="panel"><div class="panel-head"><div><h2>自动推送资格</h2><p>资格通过之前，开关不可绕过。</p></div><ShieldAlert :size="18" class="faint" /></div><div class="panel-body"><div v-if="result?.eligibility" class="check-list"><div v-for="(value, key) in result.eligibility.checks" :key="key" class="check-row"><div class="check-copy"><strong>{{ ({ preview_ok: '真实预览', validation_ok: '历史验证', health_ok: '当前健康', adapter_ok: '市场能力', target_ok: '通知目标' } as AnyRecord)[key] || key }}</strong><span>{{ value ? '已满足' : (result.eligibility.reasons?.[0] || '尚未满足') }}</span></div><CheckCircle2 v-if="value" :size="18" class="good" /><CircleAlert v-else :size="18" class="faint" /></div></div><div v-else class="empty">完成一次预览后显示资格检查。</div><div class="form-actions"><RouterLink class="button ghost" to="/app/validation">进入验证</RouterLink><RouterLink class="button ghost" to="/app/notifications">配置通知</RouterLink></div></div></section>
 
-        <section class="panel"><div class="panel-head"><div><h2>当前工作区自选</h2><p>自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。</p></div><Star :size="18" class="faint" /></div><div class="panel-body"><div v-if="researchBusy && !watchlist.length" class="empty"><RefreshCw :size="16" class="spin" />正在读取自选…</div><div v-else-if="!watchlist.length" class="empty"><strong>当前自选为空</strong><span>可以从机会池加入，或前往单股研究搜索入口。</span></div><div v-else class="watchlist-list"><div v-for="item in watchlist" :key="item.code" class="watchlist-row"><RouterLink :to="`/app/research/${app.market}/${encodeURIComponent(String(item.code || ''))}`"><strong>{{ item.code }}</strong><small>{{ item.name || item.industry || '—' }}</small></RouterLink><span class="watchlist-quote"><strong>{{ numberOrDash(item.price) }}</strong><small :class="Number(item.change_pct) >= 0 ? 'good' : 'bad'">{{ percentOrDash(item.change_pct) }}</small></span><button class="icon-button compact-icon" :disabled="watchlistActionCode === item.code" title="移出自选" aria-label="移出自选" @click="removeFromWatchlist(item.code)"><Trash2 :size="15" /></button></div></div></div></section>
+        <section class="panel"><div class="panel-head"><div><h2>当前工作区自选</h2><p>自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。</p></div><Star :size="18" class="faint" /></div><div class="panel-body"><div v-if="researchBusy && !watchlist.length" class="empty"><RefreshCw :size="16" class="spin" />正在读取自选…</div><div v-else-if="!watchlist.length" class="empty"><strong>当前自选为空</strong><span>可以从机会池加入，或前往单股研究搜索入口。</span></div><div v-else class="watchlist-list"><div v-for="item in watchlist" :key="item.code" class="watchlist-row"><RouterLink :to="researchPath(item.code)" @click="selectResearch(item.code, item.name)"><strong>{{ item.code }}</strong><small>{{ item.name || item.industry || '—' }}</small></RouterLink><span class="watchlist-quote"><strong>{{ numberOrDash(item.price) }}</strong><small :class="Number(item.change_pct) >= 0 ? 'good' : 'bad'">{{ percentOrDash(item.change_pct) }}</small></span><button class="icon-button compact-icon" :disabled="watchlistActionCode === item.code" title="移出自选" aria-label="移出自选" @click="removeFromWatchlist(item.code)"><Trash2 :size="15" /></button></div></div></div></section>
 
         <section class="panel"><div class="panel-head"><div><h2>预警历史</h2><p>只展示接口返回的触发记录；没有记录不等于当前没有风险。</p></div><BellRing :size="18" class="faint" /></div><div class="panel-body"><div v-if="!alertLoaded" class="empty"><RefreshCw :size="16" class="spin" />正在读取预警历史…</div><div v-else-if="!alertHistory.length" class="empty"><strong>暂无预警历史</strong><span>当前接口没有返回触发记录。</span></div><div v-else class="alert-list"><div v-for="(alert, index) in alertHistory.slice(0, 8)" :key="String(alert.id || index)" class="alert-row"><div><strong>{{ alert.code || alert.name || alert.condition || '预警事件' }}</strong><small>{{ alert.message || alert.condition_label || alert.threshold || '—' }}</small></div><span>{{ timeOrDash(alert.triggered_at || alert.created_at || alert.time) }}</span></div></div></div></section>
 

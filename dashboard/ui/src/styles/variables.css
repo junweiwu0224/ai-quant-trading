@@ -5,38 +5,52 @@
 
 :root {
   /* ========== 颜色系统 ========== */
+  /* Paper / graphite 基础层：借鉴技术编辑页面的高对比秩序，避免营销式渐变 */
+  --color-canvas: #f3f3ef;
+  --color-surface: #fffefa;
+  --color-surface-muted: #ebece8;
+  --color-surface-strong: #dedfda;
+  --color-ink: #151716;
+  --color-ink-soft: #626763;
+  --color-ink-faint: #8a8f8a;
+  --color-line: #d8dbd5;
+  --color-line-strong: #b9beb8;
 
-  /* 浅色主题 */
-  --color-canvas: #f4f6f7;
-  --color-surface: #ffffff;
-  --color-surface-muted: #edf1f3;
-  --color-surface-strong: #e2e8eb;
-  --color-ink: #17232b;
-  --color-ink-soft: #63727b;
-  --color-ink-faint: #8b989f;
-  --color-line: #d8e0e4;
+  /* scoped shell 的兼容别名：逐步收敛旧组件的第二套命名 */
+  --color-bg-primary: var(--color-canvas);
+  --color-bg-secondary: var(--color-surface);
+  --color-bg-tertiary: var(--color-surface-muted);
+  --color-border: var(--color-line);
+  --color-text-primary: var(--color-ink);
+  --color-text-secondary: var(--color-ink-soft);
+  --color-text-tertiary: var(--color-ink-faint);
 
   /* 强调色 */
-  --color-accent: #147d87;
-  --color-accent-strong: #0d616a;
-  --color-accent-pale: #dff1f0;
+  --color-accent: #0d7770;
+  --color-accent-strong: #075b56;
+  --color-accent-pale: #dcefeb;
+  --color-accent-contrast: #f4fffc;
 
-  /* 语义色 */
-  --color-up: #b53a49;
-  --color-down: #157e67;
-  --color-warn: #9b6816;
-  --color-warn-bg: #fff5e6;
-  --color-danger: #c23636;
-  --color-danger-strong: #a02c2c;
-  --color-danger-bg: #f8e5e6;
-  --color-success: #157e67;
-  --color-success-bg: #e6f7f3;
-  --color-info: #147d87;
-  --color-info-bg: #dff1f0;
+  /* 语义色：市场、风险、数据可信度分开表达 */
+  --color-up: #b43c48;
+  --color-down: #157a68;
+  --color-warn: #996718;
+  --color-warn-bg: #fff3dc;
+  --color-danger: #bd3638;
+  --color-danger-strong: #962b2e;
+  --color-danger-bg: #f8e4e3;
+  --color-success: #157a68;
+  --color-success-bg: #e1f3ed;
+  --color-info: #0d7770;
+  --color-info-bg: #dcefeb;
+  --color-data-live: #157a68;
+  --color-data-delayed: #996718;
+  --color-data-stale: #b43c48;
+  --color-data-unavailable: #747a75;
 
   /* AI 内容背景 */
-  --color-ai-bg: #f9fafb;
-  --color-ai-border: #e5e7eb;
+  --color-ai-bg: #f7f8f5;
+  --color-ai-border: #dfe2dc;
 
   /* ========== 间距系统 ========== */
   --spacing-xs: 4px;
@@ -47,6 +61,16 @@
   --spacing-2xl: 48px;
   --spacing-3xl: 64px;
 
+  /* 组件 scoped 样式使用的数字间距别名 */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 28px;
+  --spacing-8: 32px;
+
   /* ========== 圆角系统 ========== */
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -56,10 +80,11 @@
   --radius-full: 9999px;
 
   /* ========== 阴影系统 ========== */
-  --shadow-sm: 0 2px 4px rgba(24, 42, 51, 0.04);
-  --shadow-md: 0 4px 12px rgba(24, 42, 51, 0.06);
-  --shadow-lg: 0 8px 22px rgba(24, 42, 51, 0.08);
-  --shadow-xl: 0 12px 32px rgba(24, 42, 51, 0.10);
+  /* 高级感来自边界、留白和层级，不依赖厚重浮夸阴影 */
+  --shadow-sm: 0 1px 2px rgba(21, 23, 22, 0.04);
+  --shadow-md: 0 8px 24px rgba(21, 23, 22, 0.07);
+  --shadow-lg: 0 16px 44px rgba(21, 23, 22, 0.11);
+  --shadow-xl: 0 24px 70px rgba(21, 23, 22, 0.15);
 
   /* ========== 动画时长 ========== */
   --duration-fast: 120ms;
@@ -122,18 +147,28 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --color-canvas: #11191e;
-  --color-surface: #182329;
-  --color-surface-muted: #202e35;
-  --color-surface-strong: #2b3b43;
-  --color-ink: #edf3f4;
-  --color-ink-soft: #a9b7bb;
-  --color-ink-faint: #7f9096;
-  --color-line: #304149;
+  --color-canvas: #101312;
+  --color-surface: #171a18;
+  --color-surface-muted: #202521;
+  --color-surface-strong: #2b312c;
+  --color-ink: #f1f4ef;
+  --color-ink-soft: #aeb7ae;
+  --color-ink-faint: #7e897f;
+  --color-line: #303831;
+  --color-line-strong: #4a554b;
 
-  --color-accent: #76d3d0;
-  --color-accent-strong: #9ce2df;
-  --color-accent-pale: #193f44;
+  --color-bg-primary: var(--color-canvas);
+  --color-bg-secondary: var(--color-surface);
+  --color-bg-tertiary: var(--color-surface-muted);
+  --color-border: var(--color-line);
+  --color-text-primary: var(--color-ink);
+  --color-text-secondary: var(--color-ink-soft);
+  --color-text-tertiary: var(--color-ink-faint);
+
+  --color-accent: #79d5c7;
+  --color-accent-strong: #a0e8dc;
+  --color-accent-pale: #193e38;
+  --color-accent-contrast: #10201c;
 
   --color-up: #f08b96;
   --color-down: #6fd4b7;

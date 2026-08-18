@@ -6,7 +6,6 @@ services:
         INSTALL_OPTIONAL_AI: ${INSTALL_OPTIONAL_AI:-false}
     ports:
       - "8001:8001"
-      - "8002:8002"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -16,12 +15,19 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - DECISION_WORKER_ENABLED=${DECISION_WORKER_ENABLED:-false}
       - AI_WORKER_ENABLED=${AI_WORKER_ENABLED:-false}
       - AI_INLINE_EXECUTION=false
       - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
       - APP_ENV=${APP_ENV:-development}
-      - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-0.0.0.0}
+      - QLIB_SERVICE_HOST=${QLIB_SERVICE_HOST:-127.0.0.1}
       - DASHBOARD_BACKGROUND_WORKER=false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   worker:
@@ -45,6 +51,8 @@ services:
       - DASHBOARD_BACKGROUND_WORKER=false
       - DAILY_BRIEF_WEBHOOK_URL=${DAILY_BRIEF_WEBHOOK_URL:-}
       - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   ai-worker:
@@ -69,6 +77,8 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - DASHBOARD_BACKGROUND_WORKER=false
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   cloudflared:
@@ -78,7 +88,8 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN:-}
     profiles: ["tunnel"]
     depends_on:
-      - dashboard
+      dashboard:
+        condition: service_healthy
     restart: unless-stopped
 
   paper:
@@ -92,6 +103,8 @@ services:
       - TZ=Asia/Shanghai
     profiles:
       - trading
+    healthcheck:
+      disable: true
 
   live:
     build: .
@@ -104,6 +117,8 @@ services:
       - TZ=Asia/Shanghai
     profiles:
       - trading
+    healthcheck:
+      disable: true
 
   backtest:
     build: .

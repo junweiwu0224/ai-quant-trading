@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from config.settings import DB_DIR
 from data.providers.astock_data_adapter import fetch_kline
+from data.providers.market_data import MarketProviderError, fetch_market_history
 from data.storage.storage import DataStorage
 from dashboard.session import current_account
 from decision.market import MARKET_ADAPTERS, get_market_adapter
@@ -481,17 +482,44 @@ async def create_route(request: RouteRequest, account: dict = Depends(current_ac
 
 @router.get("/research/{market}/{symbol}")
 async def research(market: str, symbol: str, account: dict = Depends(current_account)):
-    adapter = get_market_adapter(market)
-    if market.upper() != "CN":
+    try:
+        adapter = get_market_adapter(market)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效的市场或标的: {market}/{symbol}") from exc
+    normalized_market = adapter.market
+    if normalized_market != "CN":
+        try:
+            external = await asyncio.to_thread(fetch_market_history, normalized_market, symbol, count=180, period="daily")
+        except (MarketProviderError, KeyError, ValueError) as exc:
+            return {
+                "symbol": symbol,
+                "market": adapter.capabilities(),
+                "bars": [],
+                "status": "provider_unavailable",
+                "source": "yahoo_finance_chart",
+                "authoritative": False,
+                "data_quality": {"status": "unavailable", "authoritative": False, "manual_research_only": True},
+                "fallback_reason": str(exc),
+            }
+        bars = list(external.get("klines") or [])
         return {
             "symbol": symbol,
             "market": adapter.capabilities(),
-            "bars": [],
-            "status": "provider_not_connected",
-            "source": "none",
+            "bars": bars,
+            "status": "manual_research" if bars else "no_data",
+            "source": external.get("source") or "yahoo_finance_chart",
+            "provider": external.get("provider"),
+            "latest_date": external.get("as_of"),
+            "updated_at": external.get("updated_at"),
             "authoritative": False,
-            "data_quality": {"status": "unavailable", "authoritative": False, "manual_research_only": True},
-            "fallback_reason": "market_provider_not_connected",
+            "data_quality": {
+                "status": "partial" if bars else "unavailable",
+                "bars": len(bars),
+                "coverage_pct": external.get("coverage_pct"),
+                "authoritative": False,
+                "manual_research_only": True,
+            },
+            "fallback_reason": "manual_research_provider; not eligible for deterministic decisions",
         }
     frame = research_storage.get_stock_daily(symbol)
     if not frame.empty:

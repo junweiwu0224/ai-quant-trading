@@ -155,6 +155,7 @@ async def diagnose_backtest(req: DiagnoseBacktestRequest):
 
 class IwencaiRequest(BaseModel):
     query: str
+    market: str = "CN"
     cookie: str = ""
 
 
@@ -163,6 +164,15 @@ async def iwencai_query(req: IwencaiRequest):
     """问财自然语言股票查询"""
     if not req.query.strip():
         raise HTTPException(400, "查询语句不能为空")
+    normalized_market = str(req.market or "CN").strip().upper() or "CN"
+    try:
+        from data.markets import get_market_adapter
+
+        adapter = get_market_adapter(normalized_market)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效市场: {normalized_market}") from exc
+    if adapter.code.value != "CN":
+        raise HTTPException(400, "问财仅支持 A 股 market")
     try:
         from alpha.iwencai_client import query_iwencai
         df = await query_iwencai(req.query, cookie=req.cookie)
@@ -192,9 +202,28 @@ class ReportAnalyzeRequest(BaseModel):
 
 
 @router.get("/reports/{code}")
-async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
-    """获取个股研报列表（东方财富）"""
+async def get_stock_reports(code: str, market: str = "CN", page: int = 1, page_size: int = 10):
+    """获取个股研报列表（东方财富，仅 CN provider）。
+
+    Non-CN research is deliberately manual-research-only today.  Returning an
+    explicit unavailable state prevents the CN report provider from being
+    mistaken for HK/US/JP/KR/TW coverage.
+    """
     import re
+    normalized_market = str(market or "CN").strip().upper() or "CN"
+    if normalized_market != "CN":
+        return {
+            "success": False,
+            "market": normalized_market,
+            "code": code,
+            "reports": [],
+            "items": [],
+            "total": 0,
+            "page": page,
+            "source": "market_capability",
+            "data_state": "manual_research_only",
+            "error": f"{normalized_market} 当前没有已接入的研报 provider",
+        }
     if not re.match(r'^\d{6}$', code):
         raise HTTPException(400, "股票代码必须为6位数字")
     import time
@@ -229,14 +258,18 @@ async def get_stock_reports(code: str, page: int = 1, page_size: int = 10):
 
         return {
             "success": True,
+            "market": normalized_market,
             "code": code,
             "reports": reports,
+            # ``reports`` is the legacy field; ``items`` is the shared
+            # research-evidence envelope consumed by the Vue client.
+            "items": reports,
             "total": data.get("totalHits", 0),
             "page": page,
         }
     except Exception as e:
         logger.error(f"获取研报失败 {code}: {e}")
-        return {"success": False, "error": "获取研报失败，请稍后重试", "reports": []}
+        return {"success": False, "market": normalized_market, "error": "获取研报失败，请稍后重试", "reports": [], "items": []}
 
 
 @router.post("/reports/analyze")

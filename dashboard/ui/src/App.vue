@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app'
+import type { MarketCode } from './api/types'
 import AuthView from './views/AuthView.vue'
 import AppShell from './components/AppShell.vue'
 
@@ -12,9 +13,9 @@ const standalone = computed(() => route.path.startsWith('/report/'))
 const authRoute = computed(() => route.path === '/auth')
 
 const supportedMarkets = new Set(['CN', 'HK', 'US', 'JP', 'KR', 'TW'])
-function normalMarket(value: unknown) {
+function normalMarket(value: unknown): MarketCode {
   const market = String(value || '').toUpperCase()
-  return supportedMarkets.has(market) ? market : 'CN'
+  return (supportedMarkets.has(market) ? market : 'CN') as MarketCode
 }
 
 function handleAuthExpired() {

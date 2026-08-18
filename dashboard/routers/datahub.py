@@ -63,6 +63,44 @@ def _age_label(hours: float | None) -> str:
     return f"{round(hours / 24, 1)}天"
 
 
+def _cn_market_runtime_state(stock_count: int, stock_daily: dict[str, Any]) -> tuple[str, float]:
+    """Classify the local CN feed from its actual coverage contract.
+
+    get_stock_daily_coverage exposes stock_count and daily_covered. Older
+    callers used non-existent total/covered keys, which could mark an empty
+    coverage set as healthy.
+    """
+
+    daily_total = max(0, int(stock_daily.get("stock_count") or stock_daily.get("total") or 0))
+    daily_covered = max(0, int(stock_daily.get("daily_covered") or stock_daily.get("covered") or 0))
+    coverage = min(1.0, daily_covered / daily_total) if daily_total else 0.0
+    if stock_count <= 0:
+        return "degraded", coverage
+    if daily_total <= 0:
+        return "unavailable", coverage
+    if daily_covered <= 0:
+        return "degraded", coverage
+    return "healthy", coverage
+
+
+def _cn_market_freshness(stock_daily: dict[str, Any], *, now: datetime | None = None) -> tuple[str, float | None]:
+    """Classify latest local daily snapshot without treating old data as live."""
+    latest = str(stock_daily.get("latest_date") or "").strip()[:10]
+    if not latest:
+        return "unknown", None
+    try:
+        latest_day = datetime.fromisoformat(latest).date()
+    except ValueError:
+        return "unknown", None
+    current = (now or datetime.now()).date()
+    age_days = max(0.0, (current - latest_day).days)
+    if age_days <= 1:
+        return "fresh", age_days
+    if age_days <= 3:
+        return "aging", age_days
+    return "stale", age_days
+
+
 def _load_qlib_health() -> dict[str, Any]:
     try:
         from dashboard.routers.qlib import PRED_CACHE_FILE, _load_sync_status
@@ -783,44 +821,130 @@ async def datahub_health(
             valuation_covered = 0
 
     # ── 多市场健康状态 ──
+    #
+    # ``config.settings.MARKETS`` is a legacy UI configuration and only
+    # describes the CN runtime feed.  The market adapter matrix is the
+    # canonical declaration for every market, including manual-research
+    # coverage and provider provenance.  Keep the CN runtime measurements,
+    # but derive the shape and declared capabilities for all markets from the
+    # same matrix used by ``/api/market/capabilities``.
     from config.settings import MARKETS
+    from data.markets import market_capability_matrix
 
-    markets_health = {}
-    for market_code, config in MARKETS.items():
+    canonical_matrix = market_capability_matrix()
+    markets_health: dict[str, dict[str, Any]] = {}
+    # Enumerate the canonical adapter matrix so a newly declared market
+    # cannot appear in capabilities while silently disappearing from health.
+    for market_code, adapter in canonical_matrix.items():
+        config = MARKETS.get(market_code) or {}
+        providers = list(adapter.get("providers") or [])
+        current_providers = [
+            provider for provider in providers
+            if provider.get("status") in {"legacy_current", "integrated"}
+        ]
+        target_providers = [
+            provider for provider in providers
+            if provider.get("status") == "target_not_integrated"
+        ]
+        daily = list(adapter.get("daily_granularities") or [])
+        intraday = list(adapter.get("intraday_granularities") or [])
+        declared_capabilities: list[str] = []
+        if "1d" in daily:
+            declared_capabilities.extend(["日线", "历史"])
+        if intraday:
+            declared_capabilities.append("分时")
+
         if market_code == "CN":
-            # CN 市场详细健康检查
-            cn_status = "healthy"
-            if stock_count == 0:
+            # CN runtime measurements remain backed by the local storage and
+            # quote service.  ``MARKETS`` retains the legacy provider label
+            # expected by existing clients.
+            cn_status, coverage = _cn_market_runtime_state(stock_count, stock_daily)
+            freshness_status, freshness_age_days = _cn_market_freshness(stock_daily)
+            if cn_status == "healthy" and freshness_status in {"stale", "unknown"}:
                 cn_status = "degraded"
-            elif stock_daily.get("total", 0) == 0:
-                cn_status = "unavailable"
-
-            # 计算覆盖率
-            coverage = 0.0
-            if stock_daily.get("total", 0) > 0:
-                coverage = stock_daily.get("covered", 0) / stock_daily["total"]
 
             markets_health[market_code] = {
                 "status": cn_status,
+                "research_status": cn_status,
                 "provider": config.get("provider"),
+                "source": "local_stock_daily",
                 "last_update": datetime.now().isoformat(timespec="seconds"),
                 "coverage": round(coverage, 2),
-                "capabilities": config.get("capabilities", []),
+                "coverage_pct": round(coverage * 100, 1),
+                # Preserve the legacy CN capability vocabulary for existing
+                # clients; ``declared_capabilities`` carries the canonical
+                # matrix without changing that response contract.
+                "capabilities": config.get("capabilities", []) or declared_capabilities,
                 "stock_count": stock_count,
+                "data_state": "configured" if cn_status == "healthy" else cn_status,
+                "data_state_label": "运行中" if cn_status == "healthy" else "需要检查",
+                "runtime_status": cn_status,
+                "runtime_state_label": "运行中" if cn_status == "healthy" else "本地覆盖不可用",
+                "freshness_status": freshness_status,
+                "freshness_age_days": freshness_age_days,
+                "runtime_error": None if cn_status == "healthy" else "local_stock_daily_coverage_or_freshness_unavailable",
+                "declared_capabilities": declared_capabilities,
+                "provider_details": providers,
+                "manual_research": "manual_research" in (adapter.get("report_types") or []),
+                "stale": cn_status != "healthy",
             }
-        else:
-            # 其他市场未接入
-            markets_health[market_code] = {
-                "status": "unavailable",
-                "reason": config.get("reason", "数据源未接入"),
-            }
+            continue
 
-    # 整体健康状态
-    overall_status = "healthy"
-    if markets_health.get("CN", {}).get("status") != "healthy":
-        overall_status = "degraded"
-    if all(m.get("status") == "unavailable" for m in markets_health.values()):
+        # A target provider is not a live feed.  Expose the market's declared
+        # manual-research coverage instead of collapsing it into an opaque
+        # "unavailable" record; UI can now distinguish "not integrated" from
+        # a runtime outage while still refusing to render fake prices.
+        manual_research = "manual_research" in (adapter.get("report_types") or [])
+        configured = bool(current_providers)
+        runtime_status = "not_checked" if configured else "unavailable"
+        markets_health[market_code] = {
+            # Keep the legacy status value for existing API consumers.  New
+            # clients should use ``research_status``/``data_state`` to tell a
+            # manual-research boundary from a provider outage.
+            "status": "unavailable",
+            "research_status": "manual_research" if manual_research and configured else "unavailable",
+            "provider": ", ".join(
+                provider.get("name", "") for provider in (current_providers or target_providers)
+                if provider.get("name")
+            ) or None,
+            "source": "market_capability",
+            "last_update": None,
+            "coverage": None,
+            "coverage_pct": None,
+            "capabilities": declared_capabilities,
+            "declared_capabilities": declared_capabilities,
+            "data_state": "configured" if configured else "not_integrated",
+            "data_state_label": "手动研究 provider 已配置" if manual_research and configured else "未接入",
+            "runtime_status": runtime_status,
+            "runtime_state_label": "运行时尚未探测" if configured else "provider 未接入",
+            "freshness_status": "not_checked" if configured else "unavailable",
+            "runtime_error": None,
+            "manual_research": manual_research,
+            "provider_details": providers,
+            "target_providers": [provider.get("name") for provider in target_providers if provider.get("name")],
+            "reason": (
+                "已配置手动研究 provider；当前未纳入本地 CN 实时运行池，研究响应需展示来源与 asOf"
+                if manual_research and configured
+                else "数据源未接入"
+            ),
+            # Health is intentionally read-only and does not issue an
+            # external Yahoo request.  A configured source is therefore
+            # ``not_checked`` rather than falsely healthy or stale; an absent
+            # source is explicitly unavailable.
+            "stale": False if configured else True,
+            "stale_reason": "provider_not_integrated" if not configured else None,
+        }
+
+    # Overall health includes every declared market.  A healthy CN feed with
+    # incomplete global coverage is a degraded product state, not a healthy
+    # six-market data plane.
+    statuses = {market.get("status") for market in markets_health.values()}
+    if not statuses or statuses == {"unavailable"}:
         overall_status = "unavailable"
+    elif "degraded" in statuses or "unavailable" in statuses:
+        overall_status = "degraded"
+    else:
+        overall_status = "healthy"
 
     return {
         "success": True,

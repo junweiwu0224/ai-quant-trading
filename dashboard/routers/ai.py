@@ -29,10 +29,14 @@ router = APIRouter()
 runtime = AIRuntime.from_environment(Path(DB_DIR) / "ai_runtime.db")
 
 
-def _capability_matrix() -> dict[str, Any]:
+def _account_workspace(account: dict[str, Any] | None) -> str:
+    return _workspace_id(account)
+
+
+def _capability_matrix(workspace_id: str | None = None) -> dict[str, Any]:
     """Read provider capabilities without requiring a test adapter to clone every method."""
 
-    method = getattr(runtime.router, "capability_matrix", None)
+    method = getattr(runtime._workspace_router(workspace_id), "capability_matrix", None)
     if callable(method):
         value = method()
         return value if isinstance(value, dict) else {}
@@ -138,7 +142,7 @@ async def _submit(payload: AITaskPayload, workspace_id: str) -> dict[str, Any]:
 
 @router.get("/status")
 async def ai_status(account: dict[str, Any] | None = Depends(optional_account)):
-    del account
+    workspace_id = _workspace_id(account)
     lease = SQLiteWorkerLease(Path(DB_DIR) / "worker_leases.db", lease_name="ai-worker")
     try:
         worker = lease.readiness()
@@ -147,8 +151,8 @@ async def ai_status(account: dict[str, Any] | None = Depends(optional_account)):
     return {
         "success": True,
         "runtime": "ready",
-        "providers": runtime.provider_status(),
-        "capability_matrix": _capability_matrix(),
+        "providers": runtime.provider_status(workspace_id),
+        "capability_matrix": _capability_matrix(workspace_id),
         "worker": worker,
         "worker_enabled": os.getenv("AI_WORKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
         "decision_effect": "none",
@@ -158,8 +162,8 @@ async def ai_status(account: dict[str, Any] | None = Depends(optional_account)):
 
 @router.get("/channels")
 async def ai_channels(account: dict[str, Any] | None = Depends(optional_account)):
-    del account
-    return {"items": runtime.provider_status(), "capability_matrix": _capability_matrix()}
+    workspace_id = _workspace_id(account)
+    return {"items": runtime.provider_status(workspace_id), "capability_matrix": _capability_matrix(workspace_id)}
 
 
 @router.post("/channels")
@@ -169,7 +173,7 @@ async def save_ai_channel(
     channel_id: str = "",
     account: dict[str, Any] | None = Depends(optional_account),
 ):
-    del account
+    workspace_id = _workspace_id(account)
     if channel_id and channel_id != payload.id:
         raise HTTPException(status_code=400, detail="channel_id_mismatch")
     try:
@@ -182,7 +186,7 @@ async def save_ai_channel(
         else:
             detail = "AI provider configuration is invalid"
         raise HTTPException(status_code=400, detail=detail) from exc
-    return {"items": runtime.save_channel(channel)}
+    return {"items": runtime.save_channel(channel, workspace_id=workspace_id)}
 
 
 @router.get("/models")

@@ -31,8 +31,142 @@
   --sidebar: var(--sidebar-width);
 }
 
-/* ========== Component-Specific Styles ========== */
-.app-shell { min-height: 100vh; }
+/* ========== DeepSeek-inspired 工作台基线 ========== */
+body {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-line) 28%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 22%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+}
+
+.app-shell {
+  isolation: isolate;
+}
+
+.page-head {
+  position: relative;
+  padding-top: 8px;
+}
+
+.page-head::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  border-top: 2px solid var(--color-accent);
+}
+
+.page-head h1,
+.page-head h2,
+.page-head h3,
+.panel-head h2,
+.panel-head h3 {
+  letter-spacing: -0.035em;
+}
+
+.panel,
+.summary-item,
+.tool-card {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel:hover,
+.tool-card:hover {
+  border-color: var(--color-line-strong);
+}
+
+.panel-head {
+  background: color-mix(in srgb, var(--color-surface-muted) 42%, var(--color-surface));
+}
+
+.mono,
+.metric-value,
+.summary-item strong,
+.decision-table td:not(:first-child) {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-label,
+.nav-section-title,
+.panel-head p,
+.data-source,
+.summary-item span,
+.summary-item small {
+  letter-spacing: 0.06em;
+}
+
+/* 明确属性动画，避免 transition: all 造成数据刷新时布局抖动 */
+.icon-button,
+.nav-link,
+.theme-toggle,
+.mobile-nav-item,
+.button,
+.panel,
+.tool-card,
+.palette-item {
+  transition:
+    color var(--duration-fast) var(--ease-smooth),
+    background-color var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth),
+    box-shadow var(--duration-fast) var(--ease-smooth),
+    transform var(--duration-fast) var(--ease-smooth),
+    opacity var(--duration-fast) var(--ease-smooth);
+}
+
+/* 动态工作区的短促进入反馈，不阻塞数据加载 */
+.workspace-route-enter-active,
+.workspace-route-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+.workspace-route-enter-from,
+.workspace-route-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@media (max-width: 767px) {
+  body {
+    background-size: 32px 32px;
+  }
+
+  .content-wrap {
+    padding-top: 24px;
+  }
+}
+
+/* 桌面端不重复显示移动任务栏 */
+.mobile-task-bar { display: none; }
+
+/* ========== 移动端任务优先模式 ========== */
+@media (max-width: 767px) {
+  .main-shell { padding-bottom: calc(var(--mobile-nav-height) + 14px); }
+  .content-wrap { padding-left: 16px; padding-right: 16px; }
+  .page-head { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .page-head .head-actions { width: 100%; }
+  .page-head .head-actions > .button, .page-head .head-actions > a.button { flex: 1 1 auto; }
+  .summary-strip, .field-grid, .tool-grid, .ai-dsa-grid, .strategy-check-grid { grid-template-columns: 1fr 1fr; }
+  .section-grid.two, .backtest-layout, .strategy-grid { grid-template-columns: 1fr; }
+  .table-scroll { margin-right: -16px; padding-right: 16px; }
+  .decision-table th, .decision-table td { padding-left: 8px; padding-right: 8px; }
+  .decision-table th:nth-child(n + 6), .decision-table td:nth-child(n + 6) { display: none; }
+  .mobile-task-bar { position: sticky; bottom: calc(var(--mobile-nav-height) + 8px); z-index: var(--z-sticky); display: flex; gap: 8px; padding: 8px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-surface) 92%, transparent); box-shadow: var(--shadow-md); backdrop-filter: blur(12px); }
+  .mobile-task-bar > * { flex: 1 1 0; }
+}
+
+@media (max-width: 480px) {
+  .summary-strip, .field-grid, .tool-grid, .ai-dsa-grid, .strategy-check-grid { grid-template-columns: 1fr; }
+  .panel-head, .panel-body { padding-left: 14px; padding-right: 14px; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-nav, .detail-drawer__head, .mobile-task-bar { backdrop-filter: none; background: var(--color-surface); }
+}
+
 .sidebar { width: var(--sidebar); background: var(--surface); border-right: 1px solid var(--line); position: fixed; inset: 0 auto 0 0; display: flex; flex-direction: column; padding: 22px 16px; z-index: 30; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; border-bottom: 1px solid var(--line); }
 .brand-mark { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--ink); color: var(--surface); font-weight: 800; font-size: 12px; letter-spacing: 0; }

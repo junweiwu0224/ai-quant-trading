@@ -6,6 +6,7 @@ import os
 from fastapi import Cookie, Depends, HTTPException, Request, Response, WebSocket
 
 from dashboard.account_store import account_store
+from dashboard.auth import api_key_principal, request_api_key
 
 SESSION_COOKIE = "quant_session"
 
@@ -31,9 +32,16 @@ def clear_session_cookie(response: Response) -> None:
 
 
 async def optional_account(
+    request: Request,
     quant_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> dict | None:
-    return account_store.get_user_by_session(quant_session or "")
+    session_account = account_store.get_user_by_session(quant_session or "")
+    if session_account:
+        return session_account
+    principal = api_key_principal(request_api_key(request))
+    if not principal or not principal.get("user_id"):
+        return None
+    return account_store.get_principal_bundle(principal["user_id"], principal.get("workspace_id"))
 
 
 async def optional_websocket_account(ws: WebSocket) -> dict | None:

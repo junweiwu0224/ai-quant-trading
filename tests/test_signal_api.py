@@ -38,6 +38,24 @@ def test_signal_top_api_returns_unified_rows(client, monkeypatch, tmp_path):
     assert payload["signals"][0]["qlib_rank"] == 1
 
 
+def test_signal_top_non_cn_is_explicitly_unavailable(client):
+    response = client.get("/api/signals/top?limit=1&market=JP")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["market"] == "JP"
+    assert payload["data_state"] == "not_integrated"
+    assert payload["signals"] == []
+    assert payload["manual_research_only"] is True
+
+
+def test_signal_top_rejects_unknown_market(client):
+    response = client.get("/api/signals/top?limit=1&market=ZZ")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "无效市场: ZZ"
+
+
 def test_signal_top_api_uses_valuation_snapshot_as_industry_fallback(client, monkeypatch, tmp_path):
     from data.storage.storage import DataStorage
     from dashboard.routers import qlib as qlib_router

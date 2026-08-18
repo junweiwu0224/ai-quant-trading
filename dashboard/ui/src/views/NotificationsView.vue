@@ -2,18 +2,22 @@
 import { onMounted, ref } from 'vue'
 import { Bell, CircleAlert, History, Link2, Plus, RefreshCw, Send, ShieldCheck } from 'lucide-vue-next'
 import { api } from '../api/client'
+import RefreshIndicator from '../components/base/RefreshIndicator.vue'
+import AsyncState from '../components/base/AsyncState.vue'
 
 const targets = ref<any[]>([])
 const routes = ref<any[]>([])
 const portfolios = ref<any[]>([])
 const attempts = ref<any[]>([])
 const loading = ref(false)
+const refreshing = ref(false)
 const form = ref({ channel: 'wecom_robot', label: '', secret_ref: '', endpoint_ref: '' })
 const routeForm = ref({ portfolio_id: '', target_id: '', event_type: 'scheduled' })
 const message = ref('')
 
 async function load() {
   loading.value = true
+  refreshing.value = targets.value.length > 0 || routes.value.length > 0 || attempts.value.length > 0
   try {
     const [targetResponse, routeResponse, portfolioResponse, attemptResponse] = await Promise.all([
       api.get<{ items: any[] }>('/api/decisions/targets'),
@@ -29,6 +33,7 @@ async function load() {
     message.value = error instanceof Error ? error.message : '通知配置加载失败'
   } finally {
     loading.value = false
+    refreshing.value = false
   }
 }
 
@@ -85,9 +90,9 @@ onMounted(load)
   <section>
     <div class="page-head">
       <div><h1>通知路由</h1><p>摘要发送到企业微信、个人微信服务、飞书或 QQ；完整报告通过短期只读链接打开。凭证只使用受保护引用。</p></div>
-      <div class="head-actions"><span class="tag warn"><ShieldCheck :size="14" />外部投递默认关闭</span><button class="button" :disabled="loading" type="button" @click="load"><RefreshCw :size="15" />刷新</button></div>
+      <div class="head-actions"><RefreshIndicator :state="refreshing ? 'refreshing' : targets.length || routes.length ? 'live' : 'unavailable'" :label="refreshing ? '保留配置，正在刷新' : '投递配置'" /><span class="tag warn"><ShieldCheck :size="14" />外部投递默认关闭</span><button class="button" :disabled="loading" type="button" @click="load"><RefreshCw :size="15" />刷新</button></div>
     </div>
-    <div v-if="message" class="error-box" role="status">{{ message }}</div>
+    <AsyncState v-if="message" state="error" :message="message" @retry="load" />
 
     <div class="section-grid two">
       <section class="panel">

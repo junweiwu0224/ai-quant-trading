@@ -17,6 +17,9 @@ import {
 } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
+import DetailDrawer from '../components/base/DetailDrawer.vue'
+import SelectionToolbar from '../components/base/SelectionToolbar.vue'
+import FilterBar from '../components/base/FilterBar.vue'
 
 type Mode = 'manual' | 'ai' | 'iwencai'
 type Operator = 'gt' | 'lt' | 'gte' | 'lte' | 'between'
@@ -47,6 +50,8 @@ const resultSearch = ref('')
 const sortBy = ref('change_pct')
 const sortDesc = ref(true)
 const addingCode = ref('')
+const selectedCodes = ref<string[]>([])
+const detailStock = ref<Stock | null>(null)
 
 const aiStatus = ref<AIStatus | null>(null)
 const aiModelType = ref('lightgbm')
@@ -94,6 +99,7 @@ const iwencaiColumns = computed(() => {
   return Object.keys(first).filter((key) => !key.toLowerCase().includes('url')).slice(0, 8)
 })
 const iwencaiCodes = computed(() => iwencaiRows.value.map(stockCode).filter(Boolean))
+const activeFilterLabel = computed(() => selectedPreset.value || (validConditionCount.value ? `${validConditionCount.value} 条条件` : codeInput.value ? '代码范围' : '未运行'))
 
 function newCondition(): Condition {
   return { field: numericFields.value[0]?.field || '', op: 'gt', value: null, upper: null }
@@ -199,6 +205,29 @@ function sortResults(field: string) {
 
 function sortMark(field: string) {
   return sortBy.value === field ? (sortDesc.value ? ' ↓' : ' ↑') : ''
+}
+
+function toggleSelected(stock: Stock) {
+  const code = stockCode(stock)
+  if (!code) return
+  selectedCodes.value = selectedCodes.value.includes(code)
+    ? selectedCodes.value.filter((item) => item !== code)
+    : [...selectedCodes.value, code]
+}
+
+function clearSelection() {
+  selectedCodes.value = []
+}
+
+function openStock(stock: Stock) {
+  detailStock.value = stock
+}
+
+function clearFilter() {
+  selectedPreset.value = ''
+  codeInput.value = ''
+  resultSearch.value = ''
+  resetConditions()
 }
 
 async function loadMetadata() {
@@ -421,7 +450,7 @@ onMounted(async () => {
   <section class="screener-page">
     <div class="page-head">
       <div>
-        <RouterLink to="/app/more" class="muted small"><ArrowLeft :size="14" />返回更多工具</RouterLink>
+        <RouterLink to="/app/workflows" class="muted small"><ArrowLeft :size="14" />返回工作流目录</RouterLink>
         <h1>条件筛选与 AI 选股</h1>
         <p>把预设、可编辑条件、问财候选池和截面模型放在同一个研究工作流里；结果只生成候选，不直接改变决策、推送或订单。</p>
       </div>
@@ -429,6 +458,7 @@ onMounted(async () => {
     </div>
 
     <div class="screener-boundary panel"><div class="screener-boundary-icon"><ShieldCheck :size="17" /></div><div><strong>安全边界保持不变</strong><p>选股结果需要回到单股研究、验证和确定性策略流程。此页不会创建自动推送资格、交易指令或实盘订单。</p></div><div class="screener-boundary-meta"><span>候选只读</span><span>AI decision_effect: none</span></div></div>
+    <FilterBar label="当前筛选" :value="activeFilterLabel" @clear="clearFilter" />
     <div v-if="errorMessage" class="error-box" role="alert">{{ errorMessage }}</div>
     <div v-if="noticeMessage" class="ai-notice" role="status"><CheckCircle2 :size="16" />{{ noticeMessage }}</div>
 
@@ -455,8 +485,10 @@ onMounted(async () => {
 
       <section class="panel screener-result-panel">
         <div class="panel-head"><div><h2>候选结果</h2><p>共 {{ total || 0 }} 个候选；表格支持搜索、排序和显式加入自选。</p></div><div class="head-actions"><span class="tag">{{ resultLabel }}</span><button class="button ghost compact-button" type="button" :disabled="!stocks.length" @click="exportCsv"><Download :size="14" />导出 CSV</button><button class="button ghost compact-button" type="button" :disabled="!stocks.length || addingCode === 'bulk'" @click="addCodesToWatchlist(stocks.map(stockCode))"><Star :size="14" />全部加自选</button></div></div>
-        <div class="panel-body"><div v-if="stocks.length" class="inline-search screener-result-tools"><input v-model="resultSearch" aria-label="搜索候选结果" placeholder="搜索代码、名称或行业" /><span class="tag">显示 {{ filteredStocks.length }} / {{ stocks.length }}</span></div><div v-if="!stocks.length" class="empty"><strong>暂无候选</strong><span>选择预设、添加条件、输入代码或导入问财候选池后运行。</span></div><div v-else-if="!filteredStocks.length" class="empty">没有匹配当前搜索词。</div><div v-else class="table-scroll"><table class="decision-table screener-table"><thead><tr><th><button type="button" class="table-sort" @click="sortResults('code')">代码{{ sortMark('code') }}</button></th><th>名称</th><th>行业</th><th><button type="button" class="table-sort" @click="sortResults('price')">最新价{{ sortMark('price') }}</button></th><th><button type="button" class="table-sort" @click="sortResults('change_pct')">涨跌幅{{ sortMark('change_pct') }}</button></th><th>PE</th><th>PB</th><th>市值(亿)</th><th>换手率</th><th>操作</th></tr></thead><tbody><tr v-for="stock in filteredStocks" :key="stockCode(stock) || String(stock.name)"><td class="symbol">{{ stockCode(stock) || '—' }}</td><td>{{ stockName(stock) }}</td><td>{{ stock.industry || '—' }}</td><td>{{ resultNumber(stock, ['price', '最新价'], 2) }}</td><td :class="changeClass(stock.change_pct)">{{ resultNumber(stock, ['change_pct', '涨跌幅'], 2, '%') }}</td><td>{{ resultNumber(stock, ['pe_ratio', '市盈率'], 2) }}</td><td>{{ resultNumber(stock, ['pb_ratio', '市净率'], 2) }}</td><td>{{ resultNumber(stock, ['market_cap', '总市值'], 2) }}</td><td>{{ resultNumber(stock, ['turnover_rate', '换手率'], 2, '%') }}</td><td><button class="button ghost compact-button" type="button" :disabled="addingCode === stockCode(stock) || addingCode === 'bulk'" @click="addToWatchlist(stockCode(stock))"><Star :size="13" />加入</button></td></tr></tbody></table></div></div>
+        <div class="panel-body"><div v-if="stocks.length" class="inline-search screener-result-tools"><input v-model="resultSearch" aria-label="搜索候选结果" placeholder="搜索代码、名称或行业" /><span class="tag">显示 {{ filteredStocks.length }} / {{ stocks.length }}</span></div><div v-if="!stocks.length" class="empty"><strong>暂无候选</strong><span>选择预设、添加条件、输入代码或导入问财候选池后运行。</span></div><div v-else-if="!filteredStocks.length" class="empty">没有匹配当前搜索词。</div><div v-else class="table-scroll"><table class="decision-table screener-table"><thead><tr><th><input type="checkbox" aria-label="选择全部当前候选" :checked="filteredStocks.length > 0 && filteredStocks.every((stock) => selectedCodes.includes(stockCode(stock)))" @change="selectedCodes = ($event.target as HTMLInputElement).checked ? filteredStocks.map(stockCode).filter(Boolean) : []" /></th><th><button type="button" class="table-sort" @click="sortResults('code')">代码{{ sortMark('code') }}</button></th><th>名称</th><th>行业</th><th><button type="button" class="table-sort" @click="sortResults('price')">最新价{{ sortMark('price') }}</button></th><th><button type="button" class="table-sort" @click="sortResults('change_pct')">涨跌幅{{ sortMark('change_pct') }}</button></th><th>PE</th><th>PB</th><th>市值(亿)</th><th>换手率</th><th>操作</th></tr></thead><tbody><tr v-for="stock in filteredStocks" :key="stockCode(stock) || String(stock.name)"><td><input type="checkbox" :aria-label="`选择 ${stockCode(stock) || stockName(stock)}`" :checked="selectedCodes.includes(stockCode(stock))" @change="toggleSelected(stock)" /></td><td class="symbol"><button type="button" class="table-link" @click="openStock(stock)">{{ stockCode(stock) || '—' }}</button></td><td>{{ stockName(stock) }}</td><td>{{ stock.industry || '—' }}</td><td>{{ resultNumber(stock, ['price', '最新价'], 2) }}</td><td :class="changeClass(stock.change_pct)">{{ resultNumber(stock, ['change_pct', '涨跌幅'], 2, '%') }}</td><td>{{ resultNumber(stock, ['pe_ratio', '市盈率'], 2) }}</td><td>{{ resultNumber(stock, ['pb_ratio', '市净率'], 2) }}</td><td>{{ resultNumber(stock, ['market_cap', '总市值'], 2) }}</td><td>{{ resultNumber(stock, ['turnover_rate', '换手率'], 2, '%') }}</td><td><button class="button ghost compact-button" type="button" :disabled="addingCode === stockCode(stock) || addingCode === 'bulk'" @click="addToWatchlist(stockCode(stock))"><Star :size="13" />加入</button></td></tr></tbody></table></div></div>
       </section>
+      <SelectionToolbar class="mobile-task-bar" :count="selectedCodes.length" label="个候选" @clear="clearSelection"><button class="button" type="button" :disabled="addingCode === 'bulk'" @click="addCodesToWatchlist(selectedCodes)"><Star :size="13" />加入自选</button><button class="button" type="button" @click="detailStock = filteredStocks.find((stock) => stockCode(stock) === selectedCodes[0]) || null">查看首项</button></SelectionToolbar>
+      <DetailDrawer :open="Boolean(detailStock)" :title="detailStock ? `${stockCode(detailStock)} ${stockName(detailStock)}` : '候选详情'" eyebrow="SCREENING CANDIDATE" @close="detailStock = null"><div v-if="detailStock" class="screener-detail"><div class="detail-metric"><span>行业</span><strong>{{ detailStock.industry || '—' }}</strong></div><div class="detail-metric"><span>最新价</span><strong>{{ resultNumber(detailStock, ['price', '最新价'], 2) }}</strong></div><div class="detail-metric"><span>涨跌幅</span><strong :class="changeClass(detailStock.change_pct)">{{ resultNumber(detailStock, ['change_pct', '涨跌幅'], 2, '%') }}</strong></div><div class="detail-metric"><span>估值</span><strong>PE {{ resultNumber(detailStock, ['pe_ratio', '市盈率'], 2) }} · PB {{ resultNumber(detailStock, ['pb_ratio', '市净率'], 2) }}</strong></div><p class="muted">候选只用于研究排序。打开单股研究后，继续查看证据、验证和资格状态。</p><RouterLink class="button primary" :to="`/app/research/CN/${encodeURIComponent(stockCode(detailStock))}`">进入单股研究</RouterLink></div></DetailDrawer>
     </template>
 
     <template v-else-if="mode === 'ai'">

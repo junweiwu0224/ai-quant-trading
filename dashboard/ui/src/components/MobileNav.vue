@@ -1,16 +1,12 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { BookOpen, FileText, BarChart3, LayoutDashboard, Search, Moon, Sun } from 'lucide-vue-next'
+import { Moon, Sun } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
+import { MOBILE_WORKFLOWS } from '../navigation/workflows'
 
 const { isDark, toggleTheme } = useTheme()
 
-const mobileNav = [
-  { to: '/app/decision', label: '决策', icon: LayoutDashboard },
-  { to: '/app/intelligence', label: '情报', icon: BarChart3 },
-  { to: '/app/reports', label: '报告', icon: FileText },
-  { to: '/app/research', label: '研究', icon: Search },
-]
+const mobileNav = MOBILE_WORKFLOWS
 </script>
 
 <template>
@@ -24,7 +20,7 @@ const mobileNav = [
       <component :is="item.icon" :size="18" />
       <span>{{ item.label }}</span>
     </RouterLink>
-    <button class="mobile-nav-item theme-btn" @click="toggleTheme">
+    <button class="mobile-nav-item theme-btn" type="button" :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'" :aria-pressed="isDark" @click="toggleTheme">
       <component :is="isDark ? Sun : Moon" :size="18" />
       <span>主题</span>
     </button>
@@ -38,8 +34,9 @@ const mobileNav = [
   left: 0;
   right: 0;
   height: 64px;
-  background: var(--color-bg-secondary);
+  background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
   border-top: 1px solid var(--color-border);
+  backdrop-filter: blur(14px);
   display: flex;
   justify-content: space-around;
   align-items: center;
@@ -58,7 +55,7 @@ const mobileNav = [
   text-decoration: none;
   font-size: 11px;
   border-radius: var(--radius-md);
-  transition: all 0.2s ease;
+  transition: color var(--duration-fast) var(--ease-smooth), background-color var(--duration-fast) var(--ease-smooth), transform var(--duration-fast) var(--ease-smooth);
   flex: 1;
   max-width: 80px;
 }
@@ -70,7 +67,7 @@ const mobileNav = [
 
 .mobile-nav-item.router-link-active {
   color: var(--color-accent);
-  background: var(--color-accent-bg);
+  background: var(--color-accent-pale);
 }
 
 .theme-btn {

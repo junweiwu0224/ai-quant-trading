@@ -34,6 +34,34 @@ export interface MarketCapability {
   }
   timezone: string
   currency: string
+  data_state?: 'configured' | 'not_integrated' | string
+  data_state_label?: string
+  runtime_status?: string
+  runtime_state_label?: string
+  freshness_status?: string
+  daily_granularities?: string[]
+  intraday_granularities?: string[]
+  provider_details?: Array<{
+    name: string
+    status: string
+    granularities: string[]
+    purpose: string
+    qualifies_for_intraday_auto_push: boolean
+    qualifies_for_daily_auto_push: boolean
+    qualification_reasons?: string[]
+    last_checked_at?: string | null
+    freshness_status?: string
+    [key: string]: unknown
+  }>
+  target_providers?: string[]
+  manual_research?: boolean
+  scheduled_daily_report?: boolean
+  intraday_auto_push?: boolean
+  qualification_reasons?: string[]
+  generated_at?: string | null
+  source_status?: string
+  freshness?: string | null
+  adapter?: Record<string, unknown>
 }
 
 export interface MarketsResponse {
@@ -45,7 +73,7 @@ export interface MarketsResponse {
 }
 
 export async function getMarketCapabilities(): Promise<MarketsResponse> {
-  return api.get<MarketsResponse>('/api/market/markets')
+  return api.get<MarketsResponse>('/api/market/capabilities')
 }
 
 // ==================== Decision Matrix ====================
@@ -73,11 +101,22 @@ export async function getDecisionMatrix(params: DecisionMatrixParams = {}): Prom
 
 // ==================== Stock Data ====================
 
+export interface QuoteResponse extends Quote {
+  success?: boolean
+  available?: boolean
+  data_state?: string
+  error?: string
+}
+
 export async function getStockQuote(
   code: string,
   market: MarketCode = 'CN'
-): Promise<Quote> {
-  return api.get<Quote>(`/api/stock/detail/${encodeURIComponent(code)}`, { market })
+): Promise<QuoteResponse> {
+  const response = await api.get<QuoteResponse>(`/api/stock/detail/${encodeURIComponent(code)}`, { market })
+  if (response.success === false || response.available === false) {
+    throw new Error(response.error || `${market} 当前行情不可用`)
+  }
+  return response
 }
 
 export async function getStockKline(
@@ -148,31 +187,32 @@ export async function unsubscribeQuotes(codes: string[]): Promise<{
 
 // ==================== Market Overview ====================
 
-export async function getMarketRadar(): Promise<ApiEnvelope<Record<string, unknown>>> {
-  return api.get('/api/market/radar', { fast: 'true' })
+export async function getMarketRadar(market: MarketCode = 'CN'): Promise<ApiEnvelope<Record<string, unknown>>> {
+  return api.get('/api/market/radar', { fast: 'true', market })
 }
 
-export async function getMarketBreadth(): Promise<Record<string, unknown>> {
-  return api.get('/api/market/breadth')
+export async function getMarketBreadth(market: MarketCode = 'CN'): Promise<Record<string, unknown>> {
+  return api.get('/api/market/breadth', { market })
 }
 
-export async function getMarketSectors(fast: boolean = true): Promise<Record<string, unknown>> {
+export async function getMarketSectors(fast: boolean = true, market: MarketCode = 'CN'): Promise<Record<string, unknown>> {
   return api.get('/api/market/sectors', {
     type: 'industry',
-    fast: fast ? 'true' : 'false'
+    fast: fast ? 'true' : 'false',
+    market
   })
 }
 
-export async function getMarketHeatmap(fast: boolean = true): Promise<Record<string, unknown>> {
-  return api.get('/api/market/heatmap', { fast: fast ? 'true' : 'false' })
+export async function getMarketHeatmap(fast: boolean = true, market: MarketCode = 'CN'): Promise<Record<string, unknown>> {
+  return api.get('/api/market/heatmap', { fast: fast ? 'true' : 'false', market })
 }
 
-export async function getMarketHotspot(): Promise<Record<string, unknown>> {
-  return api.get('/api/market/hotspot')
+export async function getMarketHotspot(market: MarketCode = 'CN'): Promise<Record<string, unknown>> {
+  return api.get('/api/market/hotspot', { market })
 }
 
-export async function getMarketNews(): Promise<Record<string, unknown>> {
-  return api.get('/api/market/news')
+export async function getMarketNews(market: MarketCode = 'CN'): Promise<Record<string, unknown>> {
+  return api.get('/api/market/news', { market })
 }
 
 // ==================== Watchlist ====================
@@ -191,11 +231,6 @@ export async function removeFromWatchlist(code: string): Promise<Record<string, 
 
 // ==================== Search ====================
 
-// TODO(Task11-Fix): This endpoint is unverified in the backend.
-// Expected endpoint: GET /api/search?q={query}&market={market}
-// Expected response: Array<{ code: string; name: string; market: string }>
-// Backend implementation status: NOT FOUND during review
-// When backend is ready, this should work as-is. Until then, may return 404.
 export async function searchSymbols(
   query: string,
   market?: MarketCode
@@ -204,10 +239,9 @@ export async function searchSymbols(
   if (market) params.market = market
 
   try {
-    return await api.get('/api/search', params)
-  } catch (err) {
-    // Fallback to empty results if endpoint not implemented
-    console.warn('Search endpoint not available:', err)
+    const response = await api.get<{ results?: Array<{ code: string; name: string; market?: string }>; success?: boolean }>('/api/stock/search', params)
+    return (response.results || []).map((item) => ({ code: item.code, name: item.name, market: item.market || market || 'CN' }))
+  } catch {
     return []
   }
 }

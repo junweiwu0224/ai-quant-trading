@@ -23,13 +23,13 @@ describe('Vue route compatibility', () => {
 
   it('maps old aliases and keeps their query context', async () => {
     await router.push('/app/decision#alpha?code=600519&market=US')
-    expect(router.currentRoute.value.path).toBe('/app/more/alpha-factors')
+    expect(router.currentRoute.value.path).toBe('/app/research/alpha')
     expect(router.currentRoute.value.query).toMatchObject({ code: '600519', market: 'US', source: 'legacy-hash' })
   })
 
   it('accepts a legacy route query when a server serves the Vue shell at root', async () => {
     await router.push('/app/decision?route=portfolio&market=CN')
-    expect(router.currentRoute.value.path).toBe('/app/more/portfolio-risk')
+    expect(router.currentRoute.value.path).toBe('/app/portfolio')
     expect(router.currentRoute.value.query).toMatchObject({ route: 'portfolio', market: 'CN', source: 'legacy-hash' })
   })
 

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Quant Trading · 当前生产边界",
+    "output": "quant-trading-system-architecture.archify.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/junweiwu0224/ai-quant-trading.git",
+      "revision": "5124a02e3af898680443bb827084186ac73faff4"
+    },
+    "views": [
+      {
+        "id": "decision-path",
+        "label": "决策主路径",
+        "focus": ["operator", "workspace", "control", "marketdata", "research", "decision", "outbox"],
+        "note": "从当前 workspace 自选池开始，沿可回放的研究与决策主路径查看数据流。"
+      },
+      {
+        "id": "market-data",
+        "label": "市场数据与质量",
+        "focus": ["marketdata", "providers", "storage", "control"],
+        "note": "市场能力矩阵决定可见范围和自动化资格，来源退化必须在页面上可见。"
+      },
+      {
+        "id": "automation-boundary",
+        "label": "自动化边界",
+        "focus": ["decision", "aiworker", "outbox", "paper", "notifications"],
+        "note": "确定性动作、AI 解释、通知和模拟盘分别由各自边界负责。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "operator", "type": "external", "label": "研究者", "sublabel": "桌面 / 移动浏览器", "pos": [40, 280], "size": [140, 66], "sources": [{ "path": "PRODUCT.md", "line": 7, "label": "用户与场景" }] },
+    { "id": "workspace", "type": "frontend", "label": "Vue 工作台", "sublabel": "dashboard/ui · /app", "tag": "决策 / 研究 / 验证", "pos": [250, 280], "size": [160, 66], "sources": [{ "path": "dashboard/ui/src/router.ts", "line": 1, "label": "路由入口" }] },
+    { "id": "control", "type": "backend", "label": "FastAPI 控制面", "sublabel": "dashboard/app.py · routers", "tag": "认证 + workspace", "pos": [480, 280], "size": [180, 66], "sources": [{ "path": "dashboard/app.py", "line": 333, "label": "路由装配" }] },
+    { "id": "marketdata", "type": "backend", "label": "六市场数据能力层", "sublabel": "data/markets.py · capability + cache", "tag": "来源 / 覆盖 / 新鲜度 / 资格", "pos": [720, 170], "size": [190, 72], "sources": [{ "path": "data/markets.py", "line": 1, "label": "六市场能力矩阵" }, { "path": "dashboard/routers/datahub.py", "line": 823, "label": "健康投影" }] },
+    { "id": "providers", "type": "external", "label": "六市场行情与研究来源", "sublabel": "CN 本地 feed · Yahoo 手动日线 · 指数/ETF 研究代理", "tag": "CN 运行；其余手动研究", "pos": [970, 170], "size": [190, 72], "sources": [{ "path": "docs/ARCHITECTURE.md", "label": "六市场来源、代理与边界" }, { "path": "data/markets.py", "line": 514, "label": "CN / 六市场 provider provenance" }, { "path": "data/providers/market_data.py", "line": 36, "label": "指数/ETF 研究代理" }] },
+    { "id": "storage", "type": "database", "label": "SQLite + SQLAlchemy", "sublabel": "data/storage · data/db", "tag": "快照 / 自选 / 审计", "pos": [720, 390], "size": [190, 72], "sources": [{ "path": "data/storage/storage.py", "line": 1, "label": "持久化边界" }] },
+    { "id": "research", "type": "backend", "label": "Alpha + Agentic 研究", "sublabel": "alpha/ · agentic/", "tag": "因子 / 证据 / 验证", "pos": [950, 300], "size": [190, 72], "sources": [{ "path": "alpha/feature_pipeline.py", "line": 1, "label": "特征管道" }] },
+    { "id": "decision", "type": "backend", "label": "决策 Worker", "sublabel": "engine/decision_worker.py · decision/", "tag": "决策调度与报告投递所有者", "pos": [1190, 280], "size": [190, 72], "sources": [{ "path": "engine/decision_worker.py", "line": 1, "label": "Worker 边界" }, { "path": "decision/runtime.py", "line": 215, "label": "确定性决策运行时" }] },
+    { "id": "aiworker", "type": "backend", "label": "AI Worker / Runtime", "sublabel": "engine/ai_worker.py · ai_runtime/", "tag": "非权威解释", "pos": [1190, 120], "size": [190, 72], "sources": [{ "path": "engine/ai_worker.py", "line": 1, "label": "AI 隔离" }] },
+    { "id": "outbox", "type": "messagebus", "label": "SQLite Outbox", "sublabel": "engine/events/ · notifications", "tag": "可重试投递", "pos": [1420, 280], "size": [180, 72], "sources": [{ "path": "engine/events/outbox.py", "line": 1, "label": "事件出口" }] },
+    { "id": "paper", "type": "backend", "label": "模拟盘与报告", "sublabel": "engine/paper_engine.py · reports", "tag": "paper-only", "pos": [1420, 420], "size": [180, 72], "sources": [{ "path": "engine/paper_engine.py", "line": 1, "label": "模拟边界" }] },
+    { "id": "notifications", "type": "external", "label": "通知渠道", "sublabel": "Webhook / 渠道适配器", "tag": "外部投递可关闭", "pos": [1650, 280], "size": [180, 72], "sources": [{ "path": "engine/notifications/adapters.py", "line": 35, "label": "Webhook 适配器" }, { "path": "engine/notifications/channels.py", "line": 221, "label": "渠道适配器" }] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "本机 / Docker 控制面", "wraps": ["workspace", "control", "marketdata", "storage", "research", "decision", "aiworker", "outbox", "paper"] },
+    { "kind": "region", "label": "外部依赖与人工确认边界", "wraps": ["operator", "providers", "notifications"] }
+  ],
+  "connections": [
+    { "id": "operator-workspace", "from": "operator", "to": "workspace", "label": "HTTPS / PWA", "variant": "emphasis" },
+    { "id": "workspace-control", "from": "workspace", "to": "control", "label": "REST / SSE", "variant": "emphasis" },
+    { "id": "control-marketdata", "from": "control", "to": "marketdata", "label": "读取行情能力", "fromSide": "right", "toSide": "left", "labelDy": -84 },
+    { "id": "marketdata-providers", "from": "marketdata", "to": "providers", "label": "CN 本地 feed；非 CN Yahoo 手动日线（指数/ETF 仅研究代理）；失败显式", "variant": "dashed" },
+    { "id": "providers-research", "from": "providers", "to": "research", "label": "跨市场手动研究", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "marketdata-storage", "from": "marketdata", "to": "storage", "label": "读取本地 stock_daily / 快照", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "control-storage", "from": "control", "to": "storage", "label": "workspace / 快照", "fromSide": "bottom", "toSide": "left" },
+    { "id": "storage-research", "from": "storage", "to": "research", "label": "历史与证据", "fromSide": "right", "toSide": "bottom" },
+    { "id": "research-decision", "from": "research", "to": "decision", "label": "validated decision input", "variant": "emphasis", "labelAt": [1165, 260] },
+    { "id": "decision-ai", "from": "decision", "to": "aiworker", "label": "冻结上下文 / 解释", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "decision-outbox", "from": "decision", "to": "outbox", "label": "报告 / 事件", "variant": "emphasis", "labelAt": [1400, 260] },
+    { "id": "decision-paper", "from": "decision", "to": "paper", "label": "批准后模拟", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "outbox-notifications", "from": "outbox", "to": "notifications", "label": "重试投递", "variant": "dashed" },
+    { "id": "paper-storage", "from": "paper", "to": "storage", "label": "审计结果", "variant": "dashed", "fromSide": "left", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "可见性", "items": ["六市场统一返回来源、覆盖、新鲜度、研究边界和失败状态", "Yahoo 指数/ETF 仅是明确的研究代理，不代表 sector 或交易所全量覆盖", "手动研究 provider 不被标记为自动推送 feed"] },
+    { "dot": "emerald", "title": "权威边界", "items": ["决策 Worker 是调度与动作的唯一所有者", "AI 只能解释冻结上下文，不改变动作或资格"] },
+    { "dot": "rose", "title": "生产门禁", "items": ["通知通过 Outbox 可重试，外部投递默认可关闭", "真实交易仍停留在人工确认与独立验收边界"] }
+  ]
+}

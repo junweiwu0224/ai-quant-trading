@@ -50,8 +50,14 @@ function formatNumber(num: number): string {
   return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function formatPercent(num: number): string {
-  return num.toFixed(1) + '%'
+function formatPercent(num: unknown): string {
+  const value = typeof num === 'number' ? num : Number(num)
+  return Number.isFinite(value) ? `${value.toFixed(1)}%` : '—'
+}
+
+function formatExposure(num: unknown): string {
+  const value = typeof num === 'number' ? num : Number(num)
+  return Number.isFinite(value) ? value.toFixed(2) : '—'
 }
 
 function formatDateTime(iso?: string): string {
@@ -201,7 +207,7 @@ onMounted(() => {
         <BaseCard padding="lg">
           <div class="metric-item">
             <div class="metric-label">市场敞口</div>
-            <div class="metric-value">{{ riskData.dashboard.market_exposure.toFixed(2) }}</div>
+            <div class="metric-value">{{ formatExposure(riskData.dashboard.market_exposure) }}</div>
             <div class="metric-note">Beta 加权</div>
           </div>
         </BaseCard>

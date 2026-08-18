@@ -1,6 +1,9 @@
 """FastAPI 可视化面板"""
 import os
 import asyncio
+import sqlite3
+import urllib.error
+import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -55,7 +58,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         if (
-            path in ("/", "/favicon.ico", "/sw.js")
+            path in ("/", "/health", "/readiness", "/favicon.ico", "/sw.js")
             or path.startswith("/static/")
             or _is_vue_shell(path)
             or _is_public_vue_asset(path)
@@ -83,6 +86,8 @@ class SessionGateMiddleware(BaseHTTPMiddleware):
         "/",
         "/favicon.ico",
         "/sw.js",
+        "/health",
+        "/readiness",
         "/api/account/me",
         "/api/account/login",
         "/api/account/register",
@@ -313,6 +318,90 @@ if UI_DIST.exists():
     app.mount("/app/assets", StaticFiles(directory=UI_DIST / "assets"), name="vue-assets")
 
 
+def _probe_sqlite() -> dict[str, object]:
+    from config.settings import DB_PATH
+
+    try:
+        with sqlite3.connect(DB_PATH, timeout=2) as connection:
+            connection.execute("SELECT 1").fetchone()
+        return {"ready": True, "status": "ready", "path": str(DB_PATH)}
+    except Exception as exc:
+        return {"ready": False, "status": "unavailable", "error": str(exc)[:200]}
+
+
+def _probe_qlib() -> dict[str, object]:
+    url = os.getenv("QLIB_SERVICE_URL", "http://127.0.0.1:8002").rstrip("/") + "/health"
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            import json
+            payload = json.loads(response.read().decode("utf-8"))
+        ready = isinstance(payload, dict) and payload.get("success") is True
+        return {"ready": ready, "status": payload.get("status", "unknown"), "response": payload}
+    except (OSError, ValueError, TypeError, urllib.error.URLError) as exc:
+        return {"ready": False, "status": "unavailable", "error": str(exc)[:200]}
+
+
+def _probe_worker(lease_name: str) -> dict[str, object]:
+    from config.settings import DB_DIR
+    from engine.decision_worker import SQLiteWorkerLease
+
+    lease = SQLiteWorkerLease(DB_DIR / "worker_leases.db", lease_name=lease_name)
+    try:
+        state = lease.readiness()
+        return {
+            key: state[key]
+            for key in (
+                "ready",
+                "status",
+                "worker_name",
+                "age_seconds",
+                "draining",
+                "lease_matches",
+            )
+            if key in state
+        }
+    finally:
+        lease.close()
+
+
+def _readiness_state() -> dict[str, object]:
+    from data.collector.quote_service import get_quote_service
+
+    dependencies: dict[str, object] = {
+        "database": _probe_sqlite(),
+        "quote_service": {
+            "ready": get_quote_service().is_running,
+            "status": "ready" if get_quote_service().is_running else "unavailable",
+        },
+        "qlib": _probe_qlib(),
+    }
+    if os.getenv("DECISION_WORKER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        dependencies["decision_worker"] = _probe_worker("decision-worker")
+    if os.getenv("AI_WORKER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        dependencies["ai_worker"] = _probe_worker("ai-worker")
+
+    failed = [name for name, state in dependencies.items() if not bool(state.get("ready"))]
+    status = "ready" if not failed else "degraded" if len(failed) < len(dependencies) else "unavailable"
+    return {"status": status, "service": "dashboard", "dependencies": dependencies, "failed": failed}
+
+
+@app.get("/health", tags=["运行状态"])
+async def health():
+    """Liveness probe that does not require authentication or external services."""
+
+    return {"status": "ok", "service": "dashboard"}
+
+
+@app.get("/readiness", tags=["运行状态"])
+async def readiness(response: Response):
+    """Readiness probe for load balancers and container orchestration."""
+
+    state = await asyncio.to_thread(_readiness_state)
+    if state["status"] != "ready":
+        response.status_code = 503
+    return state
+
+
 @app.get("/sw.js")
 async def service_worker():
     """Service Worker 必须从根路径提供以获得完整 scope"""
@@ -373,6 +462,19 @@ app.include_router(decisions.router, prefix="/api/decisions", tags=["可复现�
 
 
 # ── 页面路由 ──
+
+def _vue_shell_response() -> FileResponse:
+    if not UI_DIST.exists() or not (UI_DIST / "index.html").exists():
+        raise HTTPException(status_code=503, detail="Vue 应用尚未构建")
+    return FileResponse(UI_DIST / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/auth")
+async def auth_application():
+    """Serve the Vue history-mode shell for the authentication route."""
+
+    return _vue_shell_response()
+
 
 @app.get("/")
 async def index(request: Request):

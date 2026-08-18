@@ -40,6 +40,9 @@ def backtest(code, strategy, start, end, cash):
 
     result = engine.run(strat, [code], start, end)
 
+    if result.error:
+        raise click.ClickException(result.error)
+
     print("\n=== 回测报告 ===")
     for k, v in result.summary().items():
         print(f"  {k}: {v}")

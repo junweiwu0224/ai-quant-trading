@@ -555,6 +555,7 @@ def _longbridge_market(code: MarketCode, display_name: str, currency: str, calen
         intraday_granularities=frozenset({"5m"}),
         report_types=frozenset({"manual_research", "scheduled_daily_report", "intraday_signal"}),
         providers=(
+            _provider("Yahoo Finance", ProviderStatus.INTEGRATED, ("1d",), "manual daily research provider"),
             _provider("Longbridge", ProviderStatus.TARGET_NOT_INTEGRATED, ("1d", "5m"), "target daily and completed intraday source", qualified_intraday=True, qualified_daily=True),
         ),
         automatic_push_supported=True,
@@ -581,7 +582,7 @@ def _manual_daily_market(code: MarketCode, display_name: str, timezone_name: str
         intraday_granularities=frozenset(),
         report_types=frozenset({"manual_research", "scheduled_daily_report"}),
         providers=(
-            _provider("YFinance", ProviderStatus.TARGET_NOT_INTEGRATED, ("1d",), "manual daily research only"),
+            _provider("Yahoo Finance", ProviderStatus.INTEGRATED, ("1d",), "manual daily research provider"),
         ),
         automatic_push_supported=False,
     )

@@ -1,62 +1,30 @@
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useAppStore } from '../stores/app'
 
-export type Theme = 'light' | 'dark' | 'system';
-
-const STORAGE_KEY = 'quant-theme';
+export type Theme = 'light' | 'dark' | 'system'
 
 export function useTheme() {
-  const theme = ref<Theme>('light');
+  const store = useAppStore()
+  const theme = computed(() => store.theme as Theme)
+  const isDark = computed(() => store.isDark)
 
-  const isDark = computed(() => {
-    return theme.value === 'dark' ||
-      (theme.value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
-
-  const applyTheme = (newTheme: Theme) => {
-    const dark = newTheme === 'dark' ||
-      (newTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-    document.body.classList.toggle('theme-dark', dark);
-    document.body.classList.toggle('theme-light', !dark);
-  };
+  const syncSystemTheme = () => {
+    if (theme.value === 'system') store.applyTheme()
+  }
 
   const setTheme = (newTheme: Theme) => {
-    theme.value = newTheme;
-    localStorage.setItem(STORAGE_KEY, newTheme);
-    applyTheme(newTheme);
-  };
+    store.setTheme(newTheme)
+  }
 
   const toggleTheme = () => {
-    const next = theme.value === 'light' ? 'dark' : 'light';
-    setTheme(next);
-  };
+    setTheme(isDark.value ? 'light' : 'dark')
+  }
 
   onMounted(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && ['light', 'dark', 'system'].includes(saved)) {
-      theme.value = saved as Theme;
-      applyTheme(saved as Theme);
-    }
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    mediaQuery.addEventListener('change', syncSystemTheme)
+    onBeforeUnmount(() => mediaQuery.removeEventListener('change', syncSystemTheme))
+  })
 
-    // 监听系统主题变化
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => {
-      if (theme.value === 'system') {
-        applyTheme('system');
-      }
-    };
-    mediaQuery.addEventListener('change', handler);
-
-    // 清理事件监听器
-    onBeforeUnmount(() => {
-      mediaQuery.removeEventListener('change', handler);
-    });
-  });
-
-  return {
-    theme,
-    isDark,
-    setTheme,
-    toggleTheme
-  };
+  return { theme, isDark, setTheme, toggleTheme }
 }

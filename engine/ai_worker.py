@@ -87,7 +87,7 @@ class AIWorker:
             return []
         self._assert_fence()
         self.lease.heartbeat(self.owner_id, fence_token=self._fence_token, status="running")
-        results = self.runtime.process_pending(owner_id=self.owner_id, limit=self.batch_size, fence_check=self._assert_fence)
+        results = self.runtime.process_pending(owner_id=self.owner_id, limit=self.batch_size, lease_ttl_seconds=self.lease_ttl_seconds, fence_check=self._assert_fence)
         self._assert_fence()
         self.lease.heartbeat(self.owner_id, fence_token=self._fence_token, status="ready", last_success=utc_now())
         return results

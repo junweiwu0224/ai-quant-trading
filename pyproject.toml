@@ -3,4 +3,6 @@ testpaths = ["tests"]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
+    "e2e: Optional browser end-to-end tests (requires Playwright)",
 ]
+addopts = "--strict-markers"

@@ -9,31 +9,20 @@ def read_view(name: str) -> str:
     return (UI / "views" / name).read_text(encoding="utf-8")
 
 
-def test_research_view_covers_legacy_market_research_and_explicit_write_edges() -> None:
+def test_research_view_covers_real_data_edges_and_explicit_write_edges() -> None:
     source = read_view("ResearchView.vue")
+    research_api = (UI / "api" / "research.ts").read_text(encoding="utf-8")
 
-    for api_call in (
-        "api.stockKline",
-        "api.stockTimeline",
-        "api.stockTimelineMulti",
-        "api.stockMultiTimeframe",
-        "api.stockNews",
-        "api.stockCapitalFlow",
-        "api.stockOrderBook",
-        "api.valuation",
-        "api.stockAnnouncements",
-        "api.stockIndustryComparison",
-        "api.stockCompare",
-        "api.saveStockDrawing",
-        "api.deleteStockDrawing",
-    ):
+    for api_call in ("getKLineData", "getTechnicalIndicators", "getEvidence"):
         assert api_call in source
-
-    for indicator in ("MA", "BOLL", "MACD", "KDJ", "RSI"):
-        assert f'value="{indicator}"' in source
-    assert "当前数据不足以计算" in source
-    assert "自动推送" in source
-    assert "这不是交易指令" in source
+    decision = (UI / "components" / "research" / "DecisionCard.vue").read_text(encoding="utf-8")
+    state_panel = (UI / "components" / "research" / "ResearchStatePanel.vue").read_text(encoding="utf-8")
+    assert "数据不可用" in state_panel
+    assert "当前无法生成确定性结论" in decision
+    assert "进入验证并继承当前股票" in source
+    assert "这不是交易指令" in decision
+    assert "response.klines" in research_api
+    assert "source-specific" not in source
 
 
 def test_validation_view_renders_all_secondary_results_and_keeps_eligibility_separate() -> None:
@@ -85,7 +74,7 @@ def test_router_exposes_native_vue_research_validation_and_alpha_routes() -> Non
     for route in (
         "/app/research/:market/:symbol",
         "/app/validation",
-        "/app/more/alpha-factors",
-        "/app/more/formula-basket",
+        "/app/research/alpha",
+        "/app/research/formula-basket",
     ):
         assert f"path: '{route}'" in source

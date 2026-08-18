@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Quant Trading 当前生产架构基线",
+    "output": "architecture-baseline-2026-08-18.archify.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/junweiwu0224/ai-quant-trading.git",
+      "revision": "5124a02e3af898680443bb827084186ac73faff4"
+    },
+    "views": [
+      {
+        "id": "market-path",
+        "label": "市场数据主链路",
+        "focus": ["operator", "vue", "fastapi", "market_gateway", "market_providers", "sqlite"],
+        "note": "从研究员界面追踪行情能力、provider 资格和本地存储。"
+      },
+      {
+        "id": "decision-path",
+        "label": "决策与执行",
+        "focus": ["fastapi", "research_alpha", "decision_worker", "risk_engine", "execution_edges"],
+        "note": "区分控制面请求、独立决策 worker、风控和外部执行边界。"
+      },
+      {
+        "id": "ai-path",
+        "label": "AI 运行时",
+        "focus": ["fastapi", "ai_worker", "sqlite", "execution_edges"],
+        "note": "AI worker 通过独立 lease 与受保护配置参与研究；AI 结果不拥有决策、订单或通知状态。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "研究员 / 操作员",
+      "sublabel": "Browser",
+      "sources": [{ "path": "README.md", "label": "产品入口" }],
+      "pos": [40, 300],
+      "size": [150, 64]
+    },
+    {
+      "id": "vue",
+      "type": "frontend",
+      "label": "Vue 3 决策工作台",
+      "sublabel": "dashboard/ui · Vite",
+      "sources": [
+        { "path": "dashboard/ui/src/router.ts", "line": 1, "label": "路由" },
+        { "path": "dashboard/ui/src/components/Sidebar.vue", "label": "导航" }
+      ],
+      "pos": [260, 300],
+      "size": [170, 64]
+    },
+    {
+      "id": "fastapi",
+      "type": "backend",
+      "label": "FastAPI 控制面",
+      "sublabel": "dashboard/app.py · routers",
+      "sources": [
+        { "path": "dashboard/app.py", "line": 1, "label": "应用入口" },
+        { "path": "dashboard/routers/market.py", "label": "市场 API" }
+      ],
+      "pos": [500, 300],
+      "size": [170, 64]
+    },
+    {
+      "id": "market_gateway",
+      "type": "backend",
+      "label": "六市场数据网关",
+      "sublabel": "market adapter · capability · cache",
+      "sources": [
+        { "path": "data/markets.py", "line": 514, "label": "六市场矩阵" },
+        { "path": "dashboard/routers/datahub.py", "line": 823, "label": "健康投影" }
+      ],
+      "pos": [740, 190],
+      "size": [180, 64],
+      "tag": "资格与失败边界"
+    },
+    {
+      "id": "market_providers",
+      "type": "external",
+      "label": "六市场行情与研究来源",
+      "sublabel": "CN 本地 feed · Yahoo 手动日线 · 指数/ETF 研究代理",
+      "sources": [{ "path": "docs/ARCHITECTURE.md", "label": "六市场来源与边界" }, { "path": "data/markets.py", "line": 514, "label": "六市场 provider 矩阵" }, { "path": "data/providers/market_data.py", "line": 36, "label": "指数/ETF 研究代理" }],
+      "pos": [1010, 190],
+      "size": [180, 64]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "本地数据与决策库",
+      "sublabel": "SQLite · SQLAlchemy",
+      "sources": [
+        { "path": "data/storage/storage.py", "label": "数据存储" },
+        { "path": "docs/commands.md", "label": "备份恢复" }
+      ],
+      "pos": [1010, 390],
+      "size": [180, 64]
+    },
+    {
+      "id": "research_alpha",
+      "type": "backend",
+      "label": "研究与 Alpha",
+      "sublabel": "alpha · strategy · backtest",
+      "sources": [
+        { "path": "alpha/feature_pipeline.py", "label": "因子与模型" },
+        { "path": "strategy/manager.py", "label": "策略管理" }
+      ],
+      "pos": [740, 300],
+      "size": [180, 64]
+    },
+    {
+      "id": "decision_worker",
+      "type": "backend",
+      "label": "独立决策 Worker",
+      "sublabel": "lease · ledger · outbox · validated input",
+      "sources": [
+        { "path": "engine/decision_worker.py", "line": 1, "label": "worker" },
+        { "path": "scripts/run_worker.py", "line": 14, "label": "入口" },
+        { "path": "decision/runtime.py", "line": 215, "label": "决策运行时" }
+      ],
+      "pos": [740, 470],
+      "size": [180, 64]
+    },
+    {
+      "id": "ai_worker",
+      "type": "backend",
+      "label": "AI Worker",
+      "sublabel": "ai_runtime · independent lease · isolated",
+      "sources": [
+        { "path": "engine/ai_worker.py", "line": 1, "label": "AI worker" },
+        { "path": "ai_runtime/__init__.py", "label": "AI runtime" },
+        { "path": "dashboard/routers/llm.py", "line": 60, "label": "AI API" }
+      ],
+      "pos": [500, 620],
+      "size": [170, 64]
+    },
+    {
+      "id": "risk_engine",
+      "type": "security",
+      "label": "风控与模拟执行引擎",
+      "sublabel": "risk · paper · live gate",
+      "sources": [
+        { "path": "risk/monitor.py", "label": "风控" },
+        { "path": "engine/backtest_engine.py", "label": "执行引擎" }
+      ],
+      "pos": [1010, 510],
+      "size": [180, 64],
+      "tag": "实盘默认关闭"
+    },
+    {
+      "id": "execution_edges",
+      "type": "external",
+      "label": "券商配置与通知边界",
+      "sublabel": "Broker 配置 · Webhook",
+      "sources": [{ "path": "dashboard/routers/broker_config.py", "line": 18, "label": "券商配置" }, { "path": "docs/quality-gates.md", "label": "高风险边界" }],
+      "pos": [1260, 510],
+      "size": [180, 64]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Dashboard 控制面", "wraps": ["vue", "fastapi"] },
+    { "kind": "region", "label": "本地研究与 Worker 平面", "wraps": ["market_gateway", "sqlite", "research_alpha", "decision_worker", "ai_worker", "risk_engine"] },
+    { "kind": "security-group", "label": "需要显式资格 / 凭证的外部边界", "wraps": ["market_providers", "execution_edges"] }
+  ],
+  "connections": [
+    { "id": "operator-to-vue", "from": "operator", "to": "vue", "label": "HTTPS / session", "variant": "emphasis", "labelAt": [225, 378] },
+    { "id": "vue-to-fastapi", "from": "vue", "to": "fastapi", "label": "REST · WebSocket", "labelAt": [465, 378] },
+    { "id": "fastapi-to-market", "from": "fastapi", "to": "market_gateway", "label": "capability + quote" },
+    { "id": "market-to-provider", "from": "market_gateway", "to": "market_providers", "label": "CN 运行 feed；非 CN Yahoo 手动日线（指数/ETF 仅研究代理）", "variant": "dashed" },
+    { "id": "market-to-db", "from": "market_gateway", "to": "sqlite", "label": "读取本地 stock_daily / 缓存", "fromSide": "bottom", "toSide": "top" },
+    { "id": "fastapi-to-research", "from": "fastapi", "to": "research_alpha", "label": "research APIs", "labelAt": [705, 385] },
+    { "id": "research-to-worker", "from": "research_alpha", "to": "decision_worker", "label": "validated decision input", "fromSide": "bottom", "toSide": "top", "labelAt": [830, 400] },
+    { "id": "fastapi-to-ai", "from": "fastapi", "to": "ai_worker", "label": "AI API / queued task", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [585, 395] },
+    { "id": "worker-to-db", "from": "decision_worker", "to": "sqlite", "label": "ledger / outbox", "fromSide": "right", "toSide": "bottom", "labelAt": [1050, 480] },
+    { "id": "worker-to-risk", "from": "decision_worker", "to": "risk_engine", "label": "validated decision / paper boundary", "labelAt": [965, 585] },
+    { "id": "risk-to-edges", "from": "risk_engine", "to": "execution_edges", "label": "explicitly enabled only", "variant": "security", "labelAt": [1225, 588] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "用户可见主链路", "items": ["Vue 工作台统一消费 FastAPI API", "市场能力与研究路由共享同一适配器边界"] },
+    { "dot": "emerald", "title": "数据与决策", "items": ["六市场能力矩阵区分当前 feed、Yahoo 手动日线研究、指数/ETF 研究代理和目标 provider", "Yahoo 代理不是 sector 或交易所全量覆盖；覆盖未知时不填满覆盖率", "失败显式返回不可用状态；不把非 CN 请求回退到 A 股接口", "自动推送需独立健康、资格、日历和新鲜度校验"] },
+    { "dot": "rose", "title": "生产安全边界", "items": ["AI 结果不绕过确定性验证和风控", "外部通知、Broker 和实盘能力默认需要显式资格"] }
+  ]
+}

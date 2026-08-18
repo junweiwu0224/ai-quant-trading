@@ -84,7 +84,7 @@ onMounted(load)
     </div>
     <section class="panel" style="margin-top:18px">
       <div class="panel-head"><div><h2>市场能力矩阵</h2><p>市场切换器与能力边界独立，未接入 provider 的市场不会生成自动信号。</p></div></div>
-      <div class="panel-body"><div class="check-list"><div v-for="market in markets" :key="market.market" class="check-row"><div class="check-copy"><strong>{{ market.label }} <span class="tag">{{ market.market }}</span></strong><span>{{ market.source }} · {{ market.fallback_reason }}</span></div><span class="tag" :class="market.automatic_push ? 'good' : 'warn'">{{ market.automatic_push ? '可自动推送' : '仅研究' }}</span></div></div></div>
+      <div class="panel-body"><div v-if="!markets.length" class="empty" role="status">暂无市场能力数据；请刷新重试，未返回的数据不会被默认填充。</div><div v-else class="check-list"><div v-for="market in markets" :key="market.market" class="check-row"><div class="check-copy"><strong>{{ market.label || market.market || '未知市场' }} <span class="tag">{{ market.market || '—' }}</span></strong><span>{{ market.source || '来源未返回' }} · {{ market.fallback_reason || '暂无说明' }}</span></div><span class="tag" :class="market.automatic_push ? 'good' : 'warn'">{{ market.automatic_push ? '可自动推送' : '仅研究' }}</span></div></div></div>
     </section>
     <section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>安全边界</h2><p>当前阶段不连接券商、不调用真实 Webhook、不执行外部 LLM。</p></div><CircleAlert :size="18" class="faint" /></div><div class="panel-body"><div class="error-box">需要真实 provider、外部通知或 cloudflared 联调时，必须单独确认外部影响范围。关机或断网期间 Worker 会延迟，系统不会伪造“已发送”。</div></div></section>
   </section>

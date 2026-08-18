@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { BarChart3, CheckCircle2, CircleAlert, Download, Play, RefreshCw, ShieldCheck } from 'lucide-vue-next'
 import { api } from '../api/client'
+import { useResearchContextStore } from '../stores/researchContext'
+import RefreshIndicator from '../components/base/RefreshIndicator.vue'
+import AsyncState from '../components/base/AsyncState.vue'
 
 type Row = Record<string, any>
 type Workspace = 'backtest' | 'robustness' | 'analysis' | 'portfolio'
+
+const contextStore = useResearchContextStore()
+const contextInstrument = computed(() => contextStore.hasInstrument ? `${contextStore.context.market} / ${contextStore.context.symbol}` : '')
+const hasResearchContext = computed(() => contextStore.hasInstrument)
 
 const workspace = ref<Workspace>('backtest')
 const portfolios = ref<Row[]>([])
@@ -20,9 +28,10 @@ const robustness = ref<Row | null>(null)
 const comparison = ref<Row[]>([])
 const analysis = ref<Record<string, Row | null>>({})
 const loading = ref(false)
+const refreshing = ref(false)
 const message = ref('')
 const form = ref({
-  strategy: 'dual_ma', codes: '000001', start_date: '2023-01-01', end_date: '2024-12-31',
+  strategy: '', codes: '', start_date: '2023-01-01', end_date: '2024-12-31',
   initial_cash: 1000000, commission_rate: 0.0003, stamp_tax_rate: 0.001, slippage: 0.002,
   benchmark: '', period: 'daily', enable_risk: false,
 })
@@ -30,6 +39,7 @@ const trainRatio = ref(0.7)
 const simulations = ref(1000)
 const compareSelection = ref<string[]>([])
 
+const canPreviewPaper = computed(() => Boolean(backtest.value && contextStore.hasInstrument && contextStore.context.eligibility?.eligible !== false))
 const tabs: Array<{ key: Workspace; label: string }> = [
   { key: 'backtest', label: '回测工作流' }, { key: 'robustness', label: '样本外与 Monte Carlo' },
   { key: 'analysis', label: '收益、交易与成本' }, { key: 'portfolio', label: '组合资格' },
@@ -98,7 +108,21 @@ function bodyError(payload: Row | null) {
 }
 
 async function load() {
+  if (!hasResearchContext.value) {
+    strategies.value = await api.backtestStrategies()
+    benchmarks.value = await api.backtestBenchmarks()
+    form.value.strategy = ''
+    form.value.codes = ''
+    return
+  }
+
+  form.value.codes = contextStore.context.symbol || ''
+  form.value.strategy = contextStore.context.strategy || ''
+  if (contextStore.context.backtestRequest) {
+    Object.assign(form.value, contextStore.context.backtestRequest)
+  }
   loading.value = true
+  refreshing.value = Boolean(backtest.value || validation.value || robustness.value)
   message.value = ''
   try {
     const [portfolioResponse, strategyResponse, benchmarkResponse] = await Promise.all([
@@ -115,6 +139,7 @@ async function load() {
     message.value = error instanceof Error ? error.message : '验证数据加载失败'
   } finally {
     loading.value = false
+    refreshing.value = false
   }
 }
 
@@ -127,6 +152,7 @@ async function checkPortfolio() {
     const command = await api.waitDecisionCommand<Row>(queued.command_id)
     validation.value = command.result?.validation || null
     eligibility.value = command.result?.eligibility || null
+    contextStore.setEligibility(eligibility.value)
     if (command.status === 'rejected') message.value = command.result?.eligibility?.reasons?.join('、') || '资格检查被 Worker 拒绝'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '资格检查失败'
@@ -142,6 +168,7 @@ async function previewPortfolio() {
     const queued = await api.post<{ command_id: string }>(`/api/decisions/portfolios/${selected.value.id}/preview`, {})
     const command = await api.waitDecisionCommand<Row>(queued.command_id)
     eligibility.value = command.result?.eligibility || null
+    contextStore.setEligibility(eligibility.value)
     message.value = '真实预览已冻结；决策中心可查看本次输入和报告。'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '预览失败'
@@ -151,12 +178,15 @@ async function previewPortfolio() {
 }
 
 async function runBacktest() {
+  if (!hasResearchContext.value) { message.value = '请先从决策中心选择研究对象'; return }
   if (!codes.value.length) { message.value = '至少填写一个股票代码'; return }
   loading.value = true
   message.value = ''
   try {
     backtest.value = await api.backtestRun(requestBody.value)
     if (bodyError(backtest.value)) { message.value = bodyError(backtest.value); return }
+    contextStore.setStrategy(form.value.strategy)
+    contextStore.setBacktest(requestBody.value, backtest.value)
     workspace.value = 'backtest'
     const [monthlyResult, drawdownResult] = await Promise.allSettled([api.backtestMonthlyReturns(requestBody.value), api.backtestDrawdown(requestBody.value)])
     if (monthlyResult.status === 'fulfilled') monthly.value = monthlyResult.value
@@ -168,8 +198,11 @@ async function runBacktest() {
     loading.value = false
   }
 }
-
 async function runRobustness() {
+  if (!hasResearchContext.value) {
+    message.value = '请先从决策中心选择研究对象，再进行回测和稳健性验证'
+    return
+  }
   loading.value = true
   message.value = ''
   try {
@@ -186,8 +219,11 @@ async function runRobustness() {
     loading.value = false
   }
 }
-
 async function runComparison() {
+  if (!hasResearchContext.value) {
+    message.value = '请先从决策中心选择研究对象，再进行策略比较'
+    return
+  }
   loading.value = true
   try {
     comparison.value = await api.backtestCompare({ strategies: compareSelection.value, codes: codes.value, start_date: form.value.start_date, end_date: form.value.end_date, initial_cash: form.value.initial_cash })
@@ -226,8 +262,12 @@ onMounted(load)
 
 <template>
   <section>
-    <div class="page-head"><div><h1>验证与回测</h1><p>回测结果、样本外、Monte Carlo 和组合资格分开呈现；任何研究结果都不会直接变成订单或自动推送资格。</p></div><button class="button" :disabled="loading" @click="load"><RefreshCw :size="16" />刷新</button></div>
-    <div v-if="message" class="error-box" role="alert">{{ message }}</div>
+    <div class="page-head"><div><span class="eyebrow">VALIDATION / TRACEABLE RESULT</span><h1>验证与回测</h1><p>回测结果、样本外、Monte Carlo 和组合资格分开呈现；任何研究结果都不会直接变成订单或自动推送资格。</p></div><div class="head-actions"><RefreshIndicator :state="refreshing ? 'refreshing' : backtest || validation ? 'live' : 'unavailable'" :label="refreshing ? '保留结果，正在刷新' : '验证工作区'" /><button class="button" :disabled="loading" @click="load"><RefreshCw :size="16" />刷新</button></div></div>
+    <AsyncState v-if="!hasResearchContext" state="empty" title="先选择研究对象" message="从决策中心或单股研究进入，系统会自动继承当前 market、symbol 和研究上下文。" />
+    <template v-else>
+    <div v-if="contextInstrument" class="data-source context-source"><strong>当前研究对象：{{ contextInstrument }}</strong><span>{{ contextStore.context.name || '未命名标的' }}</span></div>
+    <AsyncState v-if="message" state="error" :message="message" @retry="load" />
+    <div v-if="hasResearchContext && backtest" class="data-source validation-next-step"><span>回测结果已写入当前研究对象</span><RouterLink v-if="canPreviewPaper" class="button primary" :to="`/app/paper?market=${contextStore.context.market}&symbol=${encodeURIComponent(contextStore.context.symbol || '')}`">进入模拟盘预览</RouterLink><span v-else>完成资格检查后才可进入模拟盘预览</span></div>
     <section class="panel validation-form"><div class="panel-head"><div><h2>回测参数</h2><p>请求体与旧 /api/backtest/run 兼容，成本和周期显式记录。</p></div><span class="tag warn">研究操作</span></div><div class="panel-body"><div class="field-grid"><div class="field"><label for="validation-strategy">策略</label><select id="validation-strategy" v-model="form.strategy" class="field-select"><option v-for="item in strategies" :key="String(item.name)" :value="String(item.name)">{{ item.label || item.name }}{{ item.legacy_alias_for ? '（兼容别名）' : '' }}</option></select></div><div class="field"><label for="validation-codes">标的代码</label><input id="validation-codes" v-model="form.codes" class="field-input" placeholder="000001,600519" /></div><div class="field"><label for="validation-start">开始日期</label><input id="validation-start" v-model="form.start_date" class="field-input" type="date" /></div><div class="field"><label for="validation-end">结束日期</label><input id="validation-end" v-model="form.end_date" class="field-input" type="date" /></div><div class="field"><label for="validation-cash">初始资金</label><input id="validation-cash" v-model.number="form.initial_cash" class="field-input" type="number" min="1" /></div><div class="field"><label for="validation-period">周期</label><select id="validation-period" v-model="form.period" class="field-select"><option value="daily">日线</option><option value="1m">1 分钟</option><option value="5m">5 分钟</option><option value="15m">15 分钟</option><option value="30m">30 分钟</option><option value="60m">60 分钟</option></select></div><div class="field"><label for="validation-benchmark">基准</label><select id="validation-benchmark" v-model="form.benchmark" class="field-select"><option value="">不设置基准</option><option v-for="item in benchmarks" :key="String(item.code)" :value="String(item.code)">{{ item.name }} · {{ item.code }}</option></select></div><div class="field"><label for="validation-commission">佣金率</label><input id="validation-commission" v-model.number="form.commission_rate" class="field-input" type="number" min="0" step="0.0001" /></div><div class="field"><label for="validation-tax">印花税率</label><input id="validation-tax" v-model.number="form.stamp_tax_rate" class="field-input" type="number" min="0" step="0.0001" /></div><div class="field"><label for="validation-slippage">滑点</label><input id="validation-slippage" v-model.number="form.slippage" class="field-input" type="number" min="0" step="0.0001" /></div><div class="field"><label for="validation-train-ratio">样本外训练比例</label><input id="validation-train-ratio" v-model.number="trainRatio" class="field-input" type="number" min="0.5" max="0.95" step="0.05" /></div><div class="field"><label for="validation-simulations">Monte Carlo 次数</label><input id="validation-simulations" v-model.number="simulations" class="field-input" type="number" min="100" max="10000" step="100" /></div></div><label class="check-control"><input v-model="form.enable_risk" type="checkbox" />启用回测风控</label><div class="form-actions"><button class="button primary" :disabled="loading" @click="runBacktest"><Play :size="15" />运行回测</button><button class="button" :disabled="loading" @click="runRobustness"><ShieldCheck :size="15" />运行稳健性验证</button><button class="button ghost" :disabled="loading" @click="downloadPdf"><Download :size="15" />导出 PDF</button></div></div></section>
 
     <nav class="workspace-tabs" aria-label="验证工作区"><button v-for="item in tabs" :key="item.key" type="button" :class="{ active: workspace === item.key }" @click="workspace = item.key">{{ item.label }}</button></nav>
@@ -249,6 +289,7 @@ onMounted(load)
 
     <template v-else>
       <section class="panel"><div class="panel-head"><div><h2>组合自动推送资格</h2><p>资格检查和手动研究分离；缺失数据、验证不足或未测试目标都会阻断自动化。</p></div><span v-if="eligibility" class="tag" :class="eligibility.eligible ? 'good' : 'bad'">{{ eligibility.eligible ? '可评估' : '阻断' }}</span></div><div class="panel-body"><div v-if="!portfolios.length" class="empty">先在决策中心创建组合。</div><template v-else><div class="field"><label for="portfolio-select">组合</label><select id="portfolio-select" v-model="selected" class="field-select" @change="checkPortfolio"><option v-for="item in portfolios" :key="item.id" :value="item">{{ item.name }} · {{ item.market }}</option></select></div><div class="data-source" style="margin-top:14px"><span>当前版本：{{ selected?.version?.version_no || '未建立' }}</span><span>配置 hash：{{ selected?.version?.config_hash?.slice(0, 12) || '—' }}</span></div><div class="form-actions"><button class="button" :disabled="loading || !selected" @click="previewPortfolio"><Play :size="15" />生成真实预览</button><button class="button primary" :disabled="loading || !selected" @click="checkPortfolio"><RefreshCw :size="15" />运行资格检查</button></div></template></div></section><section class="section-grid two" style="margin-top:18px"><section class="panel"><div class="panel-head"><div><h2>历史验证</h2><p>窗口和成本版本必须可追溯。</p></div><span v-if="validation" class="tag" :class="validation.passed ? 'good' : 'bad'">{{ validation.passed ? '通过' : '未通过' }}</span></div><div class="panel-body"><div v-if="!validation" class="empty">等待资格检查。</div><div v-else class="check-list"><div class="check-row"><div class="check-copy"><strong>样本外窗口</strong><span>{{ validation.windows?.length || 0 }} 个独立窗口</span></div><CheckCircle2 v-if="validation.passed" :size="18" class="good" /><CircleAlert v-else :size="18" class="bad" /></div><div class="check-row"><div class="check-copy"><strong>成本模型</strong><span>{{ validation.cost_model_version || '—' }}</span></div><span class="tag warn">需复核</span></div><div v-for="reason in validation.reasons || []" :key="reason" class="check-row"><span>{{ reason }}</span><CircleAlert :size="17" class="bad" /></div></div></div></section><section class="panel"><div class="panel-head"><div><h2>资格阻断原因</h2><p>资格是版本、市场、健康和通知目标的交集。</p></div></div><div class="panel-body"><div v-if="!eligibility" class="empty">等待检查。</div><div v-else class="check-list"><div v-for="(valueItem, key) in eligibility.checks || {}" :key="String(key)" class="check-row"><span>{{ ({ preview_ok: '真实预览', validation_ok: '历史验证', health_ok: '数据健康', adapter_ok: '盘中能力', target_ok: '通知目标' } as any)[key] || key }}</span><span class="tag" :class="valueItem ? 'good' : 'bad'">{{ valueItem ? '通过' : '阻断' }}</span></div><div v-for="reason in eligibility.reasons || []" :key="reason" class="error-box">{{ reason }}</div></div></div></section></section>
+    </template>
     </template>
   </section>
 </template>

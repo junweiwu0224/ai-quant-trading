@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { CheckCircle2, ChevronDown, CircleAlert, Clock3, Database, Globe2, RefreshCw, ShieldCheck, WifiOff } from 'lucide-vue-next'
 import { getMarketCapabilities } from '../../api/market'
 import type { MarketCapability } from '../../api/market'
 import BaseCard from '../base/BaseCard.vue'
@@ -10,33 +11,6 @@ const isLoading = ref(true)
 const error = ref<string | null>(null)
 const expandedMarkets = ref<Set<string>>(new Set())
 
-const marketIcons: Record<string, string> = {
-  CN: '🇨🇳',
-  HK: '🇭🇰',
-  US: '🇺🇸',
-  JP: '🇯🇵',
-  KR: '🇰🇷',
-  TW: '🇨🇳'
-}
-
-const statusConfig = computed(() => ({
-  active: {
-    label: '运行中',
-    variant: 'success' as const,
-    color: 'var(--color-success)'
-  },
-  limited: {
-    label: '受限',
-    variant: 'warning' as const,
-    color: 'var(--color-warn)'
-  },
-  unavailable: {
-    label: '未接入',
-    variant: 'default' as const,
-    color: 'var(--color-ink-faint)'
-  }
-}))
-
 const capabilityLabels: Record<string, string> = {
   '日线': '日线',
   '分时': '分时',
@@ -46,11 +20,13 @@ const capabilityLabels: Record<string, string> = {
 }
 
 function toggleExpand(marketCode: string) {
-  if (expandedMarkets.value.has(marketCode)) {
-    expandedMarkets.value.delete(marketCode)
+  const next = new Set(expandedMarkets.value)
+  if (next.has(marketCode)) {
+    next.delete(marketCode)
   } else {
-    expandedMarkets.value.add(marketCode)
+    next.add(marketCode)
   }
+  expandedMarkets.value = next
 }
 
 function isExpanded(marketCode: string): boolean {
@@ -68,6 +44,32 @@ function formatTradingHours(hours: MarketCapability['trading_hours']): string {
 
   return `${open}-${close}`
 }
+
+function statusLabel(status: MarketCapability['status']): string {
+  return status === 'active' ? '已配置来源' : status === 'limited' ? '手动研究' : '不可用'
+}
+
+function statusVariant(status: MarketCapability['status']): 'success' | 'warning' | 'default' {
+  return status === 'active' ? 'success' : status === 'limited' ? 'warning' : 'default'
+}
+
+function marketStateLabel(market: MarketCapability): string {
+  return market.data_state_label || (market.data_state === 'configured' ? '已声明来源，运行时待探测' : '市场级自动源未接入')
+}
+
+function providerLabel(provider: NonNullable<MarketCapability['provider_details']>[number]): string {
+  if (provider.qualifies_for_daily_auto_push || provider.qualifies_for_intraday_auto_push) return '已通过资格校验'
+  if (provider.status === 'target_not_integrated') return '目标 provider 未接入'
+  return '已声明，未获自动资格'
+}
+
+function qualificationText(market: MarketCapability): string {
+  if (market.qualification_reasons?.length) return market.qualification_reasons.join('；')
+  if (market.manual_research) return '仅支持手动标的研究；自动推送需独立健康、日历和新鲜度校验'
+  return '资格由运行时 provider 健康与新鲜度决定'
+}
+
+const configuredCount = computed(() => markets.value.filter((market) => market.data_state === 'configured' || market.status === 'active').length)
 
 async function fetchMarkets() {
   try {
@@ -106,24 +108,21 @@ onMounted(() => {
           title="刷新"
           @click="fetchMarkets"
         >
-          <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
-          </svg>
+          <RefreshCw :size="16" :class="{ spin: isLoading }" />
         </button>
       </div>
 
       <!-- Loading State -->
-      <div v-if="isLoading" class="loading-state">
-        <div class="spinner"></div>
-        <span>加载市场数据...</span>
+      <div v-if="isLoading" class="loading-state" aria-live="polite">
+        <div v-for="index in 4" :key="index" class="loading-row"><span /><span /><i /></div>
+        <small>正在读取六市场能力与数据来源…</small>
       </div>
 
       <!-- Error State -->
       <div v-else-if="error" class="error-state">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-        </svg>
+        <CircleAlert :size="18" />
         <span>{{ error }}</span>
+        <button class="button ghost compact-button" type="button" @click="fetchMarkets">重试</button>
       </div>
 
       <!-- Market List -->
@@ -134,9 +133,9 @@ onMounted(() => {
           class="market-item"
           :class="{ 'market-item--expanded': isExpanded(market.code) }"
         >
-          <div class="market-summary" @click="toggleExpand(market.code)">
+          <button class="market-summary" type="button" :aria-expanded="isExpanded(market.code)" @click="toggleExpand(market.code)">
             <div class="market-info">
-              <span class="market-icon">{{ marketIcons[market.code] || '🌐' }}</span>
+              <span class="market-icon"><Globe2 :size="18" /></span>
               <div class="market-name">
                 <span class="name-zh">{{ market.name_zh }}</span>
                 <span class="name-en">{{ market.name_en }}</span>
@@ -145,29 +144,21 @@ onMounted(() => {
 
             <div class="market-status">
               <BaseTag
-                :variant="statusConfig[market.status].variant"
+                :variant="statusVariant(market.status)"
                 size="sm"
               >
-                {{ statusConfig[market.status].label }}
+                {{ statusLabel(market.status) }}
               </BaseTag>
-              <svg
-                class="expand-icon"
-                :class="{ 'expand-icon--expanded': isExpanded(market.code) }"
-                width="16"
-                height="16"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
+              <ChevronDown class="expand-icon" :class="{ 'expand-icon--expanded': isExpanded(market.code) }" :size="16" />
             </div>
-          </div>
+          </button>
+          <div class="market-state-line"><span><Database :size="13" />{{ marketStateLabel(market) }}</span><span v-if="market.runtime_state_label" class="market-runtime"><Clock3 :size="13" />{{ market.runtime_state_label }}</span><span v-if="market.freshness_status" class="market-runtime"><Clock3 :size="13" />{{ market.freshness_status }}</span><span v-if="market.generated_at" class="market-runtime"><Clock3 :size="13" />{{ market.generated_at }}</span><span><Clock3 :size="13" />{{ market.timezone }}</span></div>
 
           <!-- Expanded Details -->
           <div v-if="isExpanded(market.code)" class="market-details">
             <div class="detail-row">
               <span class="detail-label">数据源</span>
-              <span class="detail-value">{{ market.provider || '未接入' }}</span>
+              <span class="detail-value">{{ market.provider || '市场级自动源未接入' }}</span>
             </div>
 
             <div class="detail-row">
@@ -199,6 +190,24 @@ onMounted(() => {
               </div>
             </div>
 
+            <div v-if="market.provider_details?.length" class="detail-row detail-row--full">
+              <span class="detail-label">Provider 边界</span>
+              <div class="provider-list">
+                <span v-for="provider in market.provider_details" :key="provider.name" class="provider-item">
+                  <strong>{{ provider.name }}</strong><small>{{ providerLabel(provider) }}</small>
+                </span>
+              </div>
+            </div>
+
+            <div class="detail-row detail-row--full">
+              <span class="detail-label">自动化资格</span>
+              <div class="capability-status-list">
+                <span :class="market.scheduled_daily_report ? 'good' : 'muted'"><CheckCircle2 :size="13" />{{ market.scheduled_daily_report ? '已通过日报资格' : '日报未获资格' }}</span>
+                <span :class="market.intraday_auto_push ? 'good' : 'muted'"><ShieldCheck :size="13" />{{ market.intraday_auto_push ? '已通过盘中资格' : '盘中未获资格' }}</span>
+              </div>
+              <span class="detail-value detail-value--muted">{{ qualificationText(market) }}</span>
+            </div>
+
             <div v-if="market.reason" class="detail-row detail-row--full">
               <span class="detail-label">说明</span>
               <span class="detail-value detail-value--muted">{{ market.reason }}</span>
@@ -210,8 +219,9 @@ onMounted(() => {
       <!-- Summary Footer -->
       <div v-if="!isLoading && !error && markets.length > 0" class="card-footer">
         <span class="footer-text">
-          共 {{ markets.length }} 个市场，{{ markets.filter(m => m.status === 'active').length }} 个运行中
+          {{ markets.length }} 个市场 · {{ configuredCount }} 个已配置 · {{ markets.length - configuredCount }} 个待接入
         </span>
+        <span class="footer-note"><WifiOff :size="13" />待接入市场仍保留手动研究边界，不伪造行情</span>
       </div>
     </div>
   </BaseCard>
@@ -254,6 +264,12 @@ onMounted(() => {
   transition: all var(--duration-fast) var(--ease-smooth);
 }
 
+.refresh-button:focus-visible,
+.market-summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .refresh-button:hover {
   background-color: var(--color-surface-muted);
   color: var(--color-ink);
@@ -268,26 +284,49 @@ onMounted(() => {
 .loading-state {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: var(--spacing-md);
   padding: var(--spacing-xl) 0;
   color: var(--color-ink-soft);
   font-size: var(--font-size-sm);
 }
 
-.spinner {
+.loading-state small {
+  align-self: center;
+}
+
+.loading-row {
+  display: grid;
+  grid-template-columns: 30px 1fr 56px;
+  gap: 10px;
+  align-items: center;
+}
+
+.loading-row span,
+.loading-row i {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--color-surface-muted), var(--color-bg-tertiary), var(--color-surface-muted));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.loading-row span:first-child {
   width: 24px;
-  height: 24px;
-  border: 3px solid var(--color-surface-muted);
-  border-top-color: var(--color-accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 /* Error State */
@@ -322,12 +361,22 @@ onMounted(() => {
 }
 
 .market-summary {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  text-align: left;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-md);
   cursor: pointer;
   user-select: none;
+  background: transparent;
+  color: inherit;
+}
+
+.market-summary:hover {
+  background: var(--color-surface-muted);
 }
 
 .market-info {
@@ -337,8 +386,13 @@ onMounted(() => {
 }
 
 .market-icon {
-  font-size: var(--font-size-xl);
-  line-height: 1;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--color-accent-strong);
+  border-radius: 7px;
+  background: var(--color-accent-pale);
 }
 
 .market-name {
@@ -363,6 +417,23 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+}
+
+.market-state-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 0 var(--spacing-md) var(--spacing-sm);
+  color: var(--color-ink-faint);
+  font-size: 11px;
+}
+
+.market-state-line span,
+.capability-status-list span,
+.footer-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .expand-icon {
@@ -428,6 +499,38 @@ onMounted(() => {
   gap: var(--spacing-xs);
 }
 
+.provider-list {
+  display: grid;
+  gap: 6px;
+}
+
+.provider-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--color-ink);
+}
+
+.provider-item small {
+  color: var(--color-ink-soft);
+}
+
+.capability-status-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--color-ink-soft);
+  font-size: 12px;
+}
+
+.capability-status-list .good {
+  color: var(--color-success);
+}
+
+.capability-status-list .muted {
+  color: var(--color-ink-faint);
+}
+
 /* Card Footer */
 .card-footer {
   padding-top: var(--spacing-md);
@@ -437,6 +540,12 @@ onMounted(() => {
 .footer-text {
   font-size: var(--font-size-sm);
   color: var(--color-ink-soft);
+}
+
+.footer-note {
+  margin-top: 6px;
+  color: var(--color-ink-faint);
+  font-size: 11px;
 }
 
 /* Responsive */

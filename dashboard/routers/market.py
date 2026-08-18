@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
@@ -25,6 +25,7 @@ from config.settings import MARKETS
 from data.collector.cache import TTLCache
 from data.collector.http_client import fetch_json
 from data.signals.engine import build_signal_context
+from data.providers.market_data import MarketProviderError, fetch_market_news, market_index_ticker
 from data.storage.storage import DataStorage
 
 router = APIRouter()
@@ -59,6 +60,170 @@ class MarketCapability(BaseModel):
     trading_hours: TradingHours
     timezone: str
     currency: str
+
+
+_CANONICAL_MARKET_NAMES = {
+    "CN": ("A股", "China A-shares"),
+    "HK": ("港股", "Hong Kong"),
+    "US": ("美股", "US Stocks"),
+    "JP": ("日股", "Japan"),
+    "KR": ("韩股", "South Korea"),
+    "TW": ("台股", "Taiwan"),
+}
+
+
+def _canonical_market_rows() -> list[dict[str, Any]]:
+    """Build one credential-free market capability projection for all clients.
+
+    The adapter matrix owns capability claims.  Runtime providers are only
+    used to distinguish configured sources from declared target providers;
+    this helper never turns a target provider into live data.
+    """
+    from data.markets import market_capability_matrix
+
+    matrix = market_capability_matrix()
+    rows: list[dict[str, Any]] = []
+    for code in ("CN", "HK", "US", "JP", "KR", "TW"):
+        adapter = matrix.get(code) or {}
+        config = MARKETS.get(code) or {}
+        providers = list(adapter.get("providers") or [])
+        current_providers = [
+            provider for provider in providers
+            if provider.get("status") in {"legacy_current", "integrated"}
+        ]
+        target_providers = [
+            provider for provider in providers
+            if provider.get("status") == "target_not_integrated"
+        ]
+        daily = list(adapter.get("daily_granularities") or [])
+        intraday = list(adapter.get("intraday_granularities") or [])
+        capabilities: list[str] = []
+        if "1d" in daily:
+            capabilities.extend(["日线", "历史"])
+        if intraday:
+            capabilities.append("分时")
+        if not capabilities:
+            capabilities.append("能力声明")
+
+        manual_research = "manual_research" in (adapter.get("report_types") or [])
+        data_state = "configured" if current_providers else "not_integrated"
+        is_cn = code == "CN"
+        rows.append(
+            {
+                "code": code,
+                "name_zh": _CANONICAL_MARKET_NAMES[code][0],
+                "name_en": _CANONICAL_MARKET_NAMES[code][1],
+                # A non-CN provider is a manual-research source, not an
+                # online market feed. Keep that boundary visible in the
+                # primary status field instead of implying live health.
+                "status": "active" if current_providers and is_cn else "limited",
+                "data_state": data_state,
+                "data_state_label": (
+                    "已配置来源" if is_cn and current_providers
+                    else "已声明 provider，运行时未探测" if current_providers
+                    else "待接入 provider"
+                ),
+                "runtime_status": "configured" if is_cn and current_providers else "not_checked" if current_providers else "unavailable",
+                "runtime_state_label": "本地运行中" if is_cn and current_providers else "手动研究 provider，尚未探测" if current_providers else "provider 未接入",
+                "capabilities": capabilities,
+                "daily_granularities": daily,
+                "intraday_granularities": intraday,
+                "provider": ", ".join(
+                    provider.get("name", "")
+                    for provider in (current_providers or target_providers)
+                    if provider.get("name")
+                ) or None,
+                "provider_details": providers,
+                "target_providers": [provider.get("name") for provider in target_providers if provider.get("name")],
+                "reason": (
+                    "当前 provider 可用于手动研究；自动推送仍需健康与资格校验"
+                    if current_providers
+                    else "已声明日线能力，但目标 provider 尚未接入；当前仅保留手动研究边界"
+                ),
+                "manual_research": manual_research,
+                "scheduled_daily_report": bool(
+                    adapter.get("calendar_automation_eligible")
+                    and "scheduled_daily_report" in (adapter.get("report_types") or [])
+                ),
+                "intraday_auto_push": bool(adapter.get("automatic_push_supported") and intraday),
+                "trading_hours": config.get("trading_hours") or {"open": "", "close": "", "lunch_start": None, "lunch_end": None},
+                "timezone": adapter.get("timezone") or config.get("timezone"),
+                "currency": adapter.get("currency") or config.get("currency"),
+                "adapter": adapter,
+            }
+        )
+    return rows
+
+
+def _manual_market_boundary(market: str, operation: str, *, collection_key: str | None = None) -> dict[str, Any] | None:
+    """Project a non-CN provider snapshot onto one market UI component."""
+    code = str(market or "CN").strip().upper() or "CN"
+    if code == "CN":
+        return None
+    try:
+        from data.markets import get_market_adapter
+        from data.providers.market_data import fetch_market_snapshot
+        adapter = get_market_adapter(code)
+        snapshot = fetch_market_snapshot(code)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效市场: {code}") from exc
+    except Exception as exc:
+        snapshot = {"success": False, "available": False, "provider": "Yahoo Finance", "source": "yahoo_finance", "errors": [str(exc)]}
+        adapter = get_market_adapter(code)
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    index = snapshot.get("index") if isinstance(snapshot.get("index"), dict) else {}
+    universe = snapshot.get("universe") if isinstance(snapshot.get("universe"), dict) else {}
+    sectors = snapshot.get("sectors") if isinstance(snapshot.get("sectors"), dict) else {}
+    component_names = {
+        "市场广度": "breadth", "市场雷达": "radar", "板块轮动": "sectors",
+        "板块成分股": "universe", "板块热力": "heatmap", "热点归因": "hotspots",
+        "市场新闻": "news", "北向资金": "breadth",
+    }
+    name = component_names.get(operation)
+    component = snapshot.get(name) if name else None
+    if not isinstance(component, dict):
+        # Index and universe are the provider's explicit proxy snapshots.
+        component = universe if operation == "市场雷达" and universe.get("available") else index if operation in {"市场雷达", "市场广度", "北向资金"} else sectors if operation in {"板块轮动", "板块热力"} else {}
+    available = bool(component.get("available"))
+    items = component.get("items") or component.get("universe") or []
+    if not isinstance(items, list):
+        items = []
+    provider = component.get("provider") or snapshot.get("provider") or "Yahoo Finance"
+    source = component.get("source") or snapshot.get("source") or "yahoo_finance"
+    proxy_type = component.get("proxy_type") or ("index_benchmark" if component is index else "universe_search" if component is universe else "sector_etf" if component is sectors else "ticker_news" if name == "news" else None)
+    as_of = snapshot.get("as_of") or component.get("as_of") or index.get("as_of")
+    coverage_pct = component.get("coverage_pct", snapshot.get("coverage_pct"))
+    reason = component.get("reason") or component.get("error") or f"{code} 当前 provider 未提供 {operation} 数据"
+    result: dict[str, Any] = {
+        "success": available,
+        "available": available,
+        "market": code,
+        "provider": provider,
+        "source": source,
+        "as_of": as_of,
+        "coverage_pct": coverage_pct,
+        "proxy_type": proxy_type,
+        "data_state": "manual_research",
+        "manual_research": adapter.supports_manual_daily_research,
+        "manual_research_only": True,
+        "authoritative": False,
+        "error": None if available else reason,
+        "reason": reason,
+        "source_unavailable": not available,
+        "index": index if operation == "市场雷达" and available else None,
+        "index_snapshot": index.get("index") if operation == "市场雷达" and available else None,
+        "universe": universe if operation in {"市场雷达", "板块成分股"} and available else None,
+        "total_stocks": universe.get("total") if operation in {"市场雷达", "板块成分股"} and available else None,
+        "market_change_pct": (index.get("index") or {}).get("change_pct") if operation == "市场雷达" and available and isinstance(index.get("index"), dict) else None,
+    }
+    if collection_key:
+        result[collection_key] = items if available else []
+    if operation == "市场新闻":
+        result.update({"news": component.get("news", items) if available else [], "articles": items if available else []})
+    if operation == "热点归因":
+        result.update({"concepts": items if available else [], "industries": items if available else [], "hot_concepts": items if available else [], "hot_industries": items if available else [], "fund_flow": component.get("fund_flow", []) if available else []})
+    return result
 
 # 上一次成功数据（休市时回退用）
 _last_radar: dict | None = None
@@ -382,21 +547,30 @@ async def get_markets():
         return cached
 
     try:
+        # Preserve the old field values for existing clients, while attaching
+        # the canonical projection as additive metadata. New UI uses
+        # ``/capabilities``; no second capability matrix is maintained here.
         markets_list = []
-        for market_code, config in MARKETS.items():
-            capability = MarketCapability(
-                code=config["code"],
-                name_zh=config["name_zh"],
-                name_en=config["name_en"],
-                status=config["status"],
-                capabilities=config.get("capabilities", []),
-                provider=config.get("provider"),
-                reason=config.get("reason"),
-                trading_hours=TradingHours(**config["trading_hours"]),
-                timezone=config["timezone"],
-                currency=config["currency"],
-            )
-            markets_list.append(capability.model_dump())
+        for row in _canonical_market_rows():
+            legacy = MARKETS.get(row["code"]) or {}
+            base = MarketCapability(
+                code=legacy.get("code", row["code"]),
+                name_zh=legacy.get("name_zh", row["name_zh"]),
+                name_en=legacy.get("name_en", row["name_en"]),
+                status=legacy.get("status", row["status"]),
+                capabilities=legacy.get("capabilities", []),
+                provider=legacy.get("provider"),
+                reason=legacy.get("reason"),
+                trading_hours=TradingHours(**legacy.get("trading_hours", row["trading_hours"])),
+                timezone=legacy.get("timezone", row["timezone"]),
+                currency=legacy.get("currency", row["currency"]),
+            ).model_dump()
+            base.update({
+                key: value
+                for key, value in row.items()
+                if key not in base and key not in {"code", "name_zh", "name_en", "status", "capabilities", "provider", "reason", "trading_hours", "timezone", "currency"}
+            })
+            markets_list.append(base)
 
         result = {
             "success": True,
@@ -420,9 +594,72 @@ async def get_markets():
         }
 
 
+@router.get("/capabilities")
+async def get_canonical_market_capabilities():
+    """Return the canonical market-adapter contract for the workspace UI.
+
+    ``/markets`` is retained as a legacy compatibility endpoint because older
+    clients depend on its configuration-shaped payload.  This endpoint is the
+    source of truth for new UI: it exposes declared manual/realtime coverage,
+    provider provenance, and automation eligibility without claiming that a
+    target provider is connected merely because an adapter exists.
+    """
+
+    cache_key = "market_adapter_capabilities"
+    hit, cached = _cache.get(cache_key)
+    if hit:
+        return cached
+
+    markets_list = _canonical_market_rows()
+
+    result = {
+        "success": True,
+        "markets": markets_list,
+        "total": len(markets_list),
+        "active_count": len([market for market in markets_list if market["status"] == "active"]),
+        "source": "data.markets.MARKET_ADAPTERS",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _cache.set(cache_key, result, _TTL_MARKETS)
+    return result
+
+
+@router.get("/snapshot")
+async def get_market_snapshot(market: str = "CN", query: str | None = None, limit: int = 50):
+    """Return one market-level provider envelope for the selected workspace.
+
+    CN-wide intelligence remains on its existing providers.  For HK/US/JP/KR/TW
+    this deliberately exposes Yahoo's benchmark and search universe while
+    declaring unavailable breadth, sectors, news and deterministic signals.
+    """
+    code = str(market or "CN").strip().upper() or "CN"
+    try:
+        from data.markets import get_market_adapter
+
+        get_market_adapter(code)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效市场: {code}") from exc
+    if code == "CN":
+        return {
+            "success": False,
+            "available": False,
+            "market": code,
+            "source": "market_snapshot",
+            "data_state": "not_available",
+            "error": "CN 市场级聚合请使用既有雷达、广度和板块 endpoints",
+        }
+    from data.providers.market_data import fetch_market_snapshot
+
+    return await asyncio.to_thread(fetch_market_snapshot, code, query=query, limit=max(1, min(limit, 100)))
+
+
 @router.get("/breadth")
-async def get_market_breadth():
+async def get_market_breadth(market: str = "CN"):
     """市场情绪广度：本地全量覆盖池上涨/下跌/平盘/涨跌停统计。"""
+    boundary = _manual_market_boundary(market, "市场广度")
+    if boundary:
+        boundary.update({"total_stocks": None, "up_count": None, "down_count": None, "flat_count": None, "limit_up": None, "limit_down": None})
+        return boundary
     global _last_breadth
     cache_key = "market_breadth"
     hit, cached = _cache.get(cache_key)
@@ -453,8 +690,12 @@ async def get_market_breadth():
 
 
 @router.get("/radar")
-async def get_market_radar(fast: bool = False):
+async def get_market_radar(fast: bool = False, market: str = "CN"):
     """市场雷达：全A股涨跌幅/振幅/换手率 TOP 10"""
+    boundary = _manual_market_boundary(market, "市场雷达", collection_key="items")
+    if boundary:
+        boundary.update({"fast": fast, "total_stocks": None})
+        return boundary
     global _last_radar
     cache_key = "market_radar:fast" if fast else "market_radar"
     hit, cached = _cache.get(cache_key)
@@ -872,8 +1113,12 @@ def _fetch_sector_ranking(sector_type: str = "industry") -> list[dict]:
 
 
 @router.get("/sectors")
-async def get_sector_ranking(type: str = "industry", fast: bool = False):
+async def get_sector_ranking(type: str = "industry", fast: bool = False, market: str = "CN"):
     """板块轮动排名"""
+    boundary = _manual_market_boundary(market, "板块轮动", collection_key="sectors")
+    if boundary:
+        boundary.update({"type": type, "fast": fast})
+        return boundary
     global _last_sectors
     cache_key = f"sectors:{type}:fast" if fast else f"sectors:{type}"
     hit, cached = _cache.get(cache_key)
@@ -941,8 +1186,12 @@ async def get_sector_ranking(type: str = "industry", fast: bool = False):
 
 
 @router.get("/sector-members")
-async def get_sector_members(name: str, grouping: str = "industry", limit: int = 30):
+async def get_sector_members(name: str, grouping: str = "industry", limit: int = 30, market: str = "CN"):
     """板块成分股（本地 stock_daily 覆盖池，只读联动数据）"""
+    boundary = _manual_market_boundary(market, "板块成分股", collection_key="members")
+    if boundary:
+        boundary.update({"name": name, "grouping": grouping, "limit": limit})
+        return boundary
     normalized_name = str(name or "").strip()
     normalized_grouping = "industry" if str(grouping or "").strip() == "industry" else "exchange_board"
     safe_limit = max(1, min(int(limit or 30), 100))
@@ -1024,8 +1273,12 @@ def _fetch_sector_heatmap() -> dict[str, Any]:
 
 
 @router.get("/heatmap")
-async def get_sector_heatmap(fast: bool = False):
+async def get_sector_heatmap(fast: bool = False, market: str = "CN"):
     """板块热力图（行业板块涨跌幅色块矩阵）"""
+    boundary = _manual_market_boundary(market, "板块热力", collection_key="sectors")
+    if boundary:
+        boundary.update({"fast": fast, "total": None, "fetched": 0})
+        return boundary
     global _last_heatmap
     cache_key = "sector_heatmap:fast" if fast else "sector_heatmap"
     hit, cached = _cache.get(cache_key)
@@ -1150,8 +1403,12 @@ def _fetch_northbound() -> dict:
 
 
 @router.get("/northbound")
-async def get_northbound(fast: bool = False):
+async def get_northbound(fast: bool = False, market: str = "CN"):
     """北向资金净流入"""
+    boundary = _manual_market_boundary(market, "北向资金", collection_key="flow")
+    if boundary:
+        boundary.update({"fast": fast, "today_net": None, "today_sh_net": None, "today_sz_net": None})
+        return boundary
     global _last_northbound
     cache_key = "northbound:fast" if fast else "northbound"
     hit, cached = _cache.get(cache_key)
@@ -1288,8 +1545,12 @@ def _normalize_hotspot_result(data: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/hotspot")
-async def get_hotspot():
+async def get_hotspot(market: str = "CN"):
     """热点归因分析（概念板块+行业+资金流向）"""
+    boundary = _manual_market_boundary(market, "热点归因", collection_key="hotspots")
+    if boundary:
+        boundary.update({"concepts": [], "industries": [], "hot_concepts": [], "hot_industries": [], "fund_flow": []})
+        return boundary
     global _last_hotspot
     cache_key = "hotspot"
     hit, cached = _cache.get(cache_key)
@@ -1336,8 +1597,12 @@ _news_refresh_lock = asyncio.Lock()
 
 
 @router.get("/news")
-async def get_market_news():
+async def get_market_news(market: str = "CN"):
     """市场新闻快讯 + 情绪分析"""
+    boundary = _manual_market_boundary(market, "市场新闻", collection_key="news")
+    if boundary:
+        boundary.update({"market_scoped": True, "automatic_delivery_eligible": False})
+        return boundary
     global _last_news
     cache_key = "market_news"
     hit, cached = _cache.get(cache_key)

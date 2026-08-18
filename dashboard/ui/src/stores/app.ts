@@ -2,10 +2,11 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AccountState, DataHealth, WatchlistItem } from '../types'
 import { api } from '../api/client'
+import type { MarketCode } from '../api/types'
 
 export const useAppStore = defineStore('app', () => {
   const theme = ref<'light' | 'dark' | 'system'>((localStorage.getItem('quant-theme') as 'light' | 'dark' | 'system') || 'light')
-  const market = ref('CN')
+  const market = ref<MarketCode>((localStorage.getItem('quant-market') as MarketCode) || 'CN')
   const selectedPortfolio = ref('watchlist')
   const watchlist = ref<WatchlistItem[]>([])
   const health = ref<DataHealth | null>(null)
@@ -24,6 +25,11 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('quant-theme', next)
     applyTheme()
   }
+  function setMarket(next: MarketCode) {
+    market.value = next
+    localStorage.setItem('quant-market', next)
+  }
+
   async function loadWorkspace() {
     if (!authenticated.value) return
     loading.value = true
@@ -60,5 +66,5 @@ export const useAppStore = defineStore('app', () => {
     health.value = null
   }
   applyTheme()
-  return { theme, market, selectedPortfolio, watchlist, health, loading, error, authLoading, account, authenticated, isDark, setTheme, bootstrapAuth, setAccount, clearAccount, loadWorkspace, applyTheme }
+  return { theme, market, setMarket, selectedPortfolio, watchlist, health, loading, error, authLoading, account, authenticated, isDark, setTheme, bootstrapAuth, setAccount, clearAccount, loadWorkspace, applyTheme }
 })

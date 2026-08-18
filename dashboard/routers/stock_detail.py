@@ -4,6 +4,7 @@ import json
 import math
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from urllib.request import Request, urlopen
 
@@ -16,6 +17,7 @@ from config.settings import DATA_SOURCE_MODE
 from data.collector.cache import TTLCache
 from data.collector.http_client import code_to_secid, fetch_json
 from data.providers.astock_data_adapter import AStockDataAdapter, fetch_kline as _fetch_kline_shared
+from data.providers.market_data import MarketProviderError, fetch_market_history, fetch_market_news, fetch_market_quote
 
 router = APIRouter()
 
@@ -121,8 +123,27 @@ def _filter_stock_records(df, query: str, limit: int) -> list[dict]:
 async def search_stocks(
     q: str = Query("", description="搜索关键词"),
     limit: int = Query(50, ge=1, le=6000, description="返回数量限制"),
+    market: str = Query("CN", description="市场代码"),
 ):
-    """搜索股票（支持全量列表，带内存缓存）"""
+    """搜索股票；非 CN 市场不回落到 A 股列表。"""
+    normalized_market = str(market or "CN").strip().upper() or "CN"
+    if normalized_market != "CN":
+        try:
+            from data.markets import get_market_adapter
+            adapter = get_market_adapter(normalized_market)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, f"无效市场: {normalized_market}") from exc
+        return {
+            "success": False,
+            "available": False,
+            "market": normalized_market,
+            "source": "market_capability",
+            "data_state": "not_integrated",
+            "manual_research_only": adapter.supports_manual_daily_research,
+            "authoritative": False,
+            "results": [],
+            "error": f"{normalized_market} 当前没有已接入的搜索 provider",
+        }
     import time
     query = _normalize_search_query(q)
     try:
@@ -180,6 +201,43 @@ def _validate_code(code: str) -> str:
     return code
 
 
+def _resolve_market_instrument(code: str, market: str = "CN") -> tuple[str, str]:
+    """Normalize a symbol without routing non-CN requests to the A-share feed."""
+
+    normalized_market = str(market or "CN").strip().upper() or "CN"
+    try:
+        from data.markets import get_market_adapter
+
+        adapter = get_market_adapter(normalized_market)
+        instrument = adapter.normalize_instrument(code)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效的市场或标的: {normalized_market}/{code}") from exc
+    # Keep dots inside US tickers (for example BRK.B); only remove the
+    # canonical market prefix. Other markets use a numeric symbol suffix.
+    if normalized_market == "US":
+        return normalized_market, instrument.removeprefix("US.")
+    return normalized_market, instrument.rsplit(".", 1)[-1]
+
+
+def _market_data_unavailable(code: str, market: str, *, operation: str, field: str = "klines") -> dict:
+    """Return an explicit renderable state when a market provider is not integrated."""
+
+    return {
+        "success": False,
+        "available": False,
+        "market": market,
+        "code": code,
+        "source": "market_capability",
+        "provider": None,
+        "data_state": "not_integrated",
+        "manual_research_only": True,
+        "authoritative": False,
+        "degraded": True,
+        "error": f"{market} 当前没有已接入的 {operation} provider",
+        field: [],
+    }
+
+
 def _fmt_cap(v: float) -> str:
     """格式化市值"""
     if not v or v == 0:
@@ -210,6 +268,16 @@ def _safe_float(value, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
     return parsed if math.isfinite(parsed) else default
+
+
+def _optional_float(value) -> float | None:
+    if value in (None, "", "-", "--"):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _plain_code(value) -> str:
@@ -268,6 +336,12 @@ def _load_local_stock_daily_quote(code: str):
     pre_close = _safe_float(previous.get("close")) if previous is not None else _safe_float(latest.get("open"))
     change_pct = round((price - pre_close) / pre_close * 100, 2) if pre_close else 0.0
     latest_date = _date_label(latest.get("date"))
+    quote_age_sec = None
+    try:
+        latest_dt = datetime.fromisoformat(latest_date).replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+        quote_age_sec = max(0.0, time.time() - latest_dt.timestamp())
+    except (TypeError, ValueError):
+        pass
 
     quote = QuoteData(
         code=code,
@@ -289,7 +363,26 @@ def _load_local_stock_daily_quote(code: str):
         "degraded": True,
         "stale": True,
         "latest_local_date": latest_date,
+        "quote_age_sec": round(quote_age_sec, 1) if quote_age_sec is not None else None,
         "degraded_reason": "realtime_quote_unavailable",
+    }
+
+
+def _kline_data_unavailable(code: str, period: str, *, market: str = "CN", error: str = "K 线数据暂不可用") -> dict:
+    """Return one explicit empty-K-line contract instead of a fake success payload."""
+    return {
+        "success": False,
+        "available": False,
+        "degraded": True,
+        "market": market,
+        "code": code,
+        "name": "",
+        "period": period,
+        "klines": [],
+        "source": "market_data_unavailable",
+        "data_state": "unavailable",
+        "source_unavailable": True,
+        "error": error,
     }
 
 
@@ -310,29 +403,31 @@ def _load_local_stock_daily_klines(code: str, count: int) -> dict:
     parsed = []
     previous_close = None
     for row in rows:
-        close = _safe_float(row.get("close"))
-        if previous_close:
+        close = _optional_float(row.get("close"))
+        if close is None:
+            continue
+        if previous_close is not None and previous_close != 0:
             change = round(close - previous_close, 2)
             change_pct = round(change / previous_close * 100, 2)
         else:
             open_price = _safe_float(row.get("open"))
-            change = round(close - open_price, 2) if open_price else 0.0
-            change_pct = round(change / open_price * 100, 2) if open_price else 0.0
-        high = _safe_float(row.get("high"))
-        low = _safe_float(row.get("low"))
-        amplitude = round((high - low) / previous_close * 100, 2) if previous_close else 0.0
+            change = round(close - open_price, 2) if open_price else None
+            change_pct = round(change / open_price * 100, 2) if open_price else None
+        high = _optional_float(row.get("high"))
+        low = _optional_float(row.get("low"))
+        amplitude = round((high - low) / previous_close * 100, 2) if high is not None and low is not None and previous_close not in (None, 0) else None
         parsed.append({
             "date": _date_label(row.get("date")),
-            "open": _safe_float(row.get("open")),
+            "open": _optional_float(row.get("open")),
             "close": close,
             "high": high,
             "low": low,
-            "volume": _safe_float(row.get("volume")),
-            "amount": _safe_float(row.get("amount")),
+            "volume": _optional_float(row.get("volume")),
+            "amount": _optional_float(row.get("amount")),
             "amplitude": amplitude,
             "change_pct": change_pct,
             "change": change,
-            "turnover": 0.0,
+            "turnover": None,
         })
         previous_close = close
 
@@ -352,10 +447,24 @@ def _load_local_stock_daily_klines(code: str, count: int) -> dict:
 
 
 @router.get("/kline/{code}")
-async def get_kline(code: str, period: str = "daily", count: int = 120):
+async def get_kline(code: str, period: str = "daily", count: int = 120, market: str = "CN"):
     """获取 K 线数据（push2his 优先，腾讯回退）"""
-    code = _validate_code(code)
-    cache_key = f"kline:{code}:{period}:{count}"
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        cache_key = f"kline:{market}:{code}:{period}:{count}"
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            return cached
+        try:
+            result = await asyncio.to_thread(fetch_market_history, market, code, count=count, period=period)
+        except (MarketProviderError, ValueError, KeyError) as exc:
+            unavailable = _market_data_unavailable(code, market, operation="K 线")
+            unavailable["provider"] = "Yahoo Finance"
+            unavailable["error"] = str(exc)
+            return unavailable
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+    cache_key = f"kline:{market}:{code}:{period}:{count}"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
@@ -368,7 +477,7 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
             if result:
                 _cache.set(cache_key, result, _TTL_KLINE)
                 return result
-        result = {"code": code, "name": "", "period": period, "klines": []}
+        result = _kline_data_unavailable(code, period)
         _cache.set(cache_key, result, _TTL_KLINE)
         return result
 
@@ -391,15 +500,22 @@ async def get_kline(code: str, period: str = "daily", count: int = 120):
                 "turnover": float(parts[10]) if len(parts) >= 11 else 0,
             })
 
-    result = {"code": code, "name": raw.get("name", ""), "period": period, "klines": parsed, "source": "external"}
+    if not parsed:
+        result = _kline_data_unavailable(code, period, error="行情源返回空 K 线")
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+
+    result = {"success": True, "available": True, "code": code, "name": raw.get("name", ""), "period": period, "klines": parsed, "source": "external"}
     _cache.set(cache_key, result, _TTL_KLINE)
     return result
 
 
 @router.get("/timeline/{code}")
-async def get_timeline(code: str):
+async def get_timeline(code: str, market: str = "CN"):
     """获取今日分时数据"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="分时", field="trends")
     cache_key = f"timeline:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -445,9 +561,11 @@ async def get_timeline(code: str):
 
 
 @router.get("/timeline-multi/{code}")
-async def get_timeline_multi(code: str, days: int = 5):
+async def get_timeline_multi(code: str, days: int = 5, market: str = "CN"):
     """获取多日分时叠加数据（今日分时 + 前几日K线）"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="多日分时", field="days")
     cache_key = f"timeline-multi:{code}:{days}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -530,9 +648,11 @@ async def get_timeline_multi(code: str, days: int = 5):
 
 
 @router.get("/capital-flow/{code}")
-async def get_capital_flow(code: str, days: int = 20):
+async def get_capital_flow(code: str, days: int = 20, market: str = "CN"):
     """获取资金流向（日级别）"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="资金流向", field="flow")
     cache_key = f"capital:{code}:{days}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -578,9 +698,11 @@ async def get_capital_flow(code: str, days: int = 20):
 
 
 @router.get("/order-book/{code}")
-async def get_order_book(code: str):
+async def get_order_book(code: str, market: str = "CN"):
     """获取五档盘口"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="盘口", field="data")
     cache_key = f"orderbook:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -619,27 +741,100 @@ async def get_order_book(code: str):
 
 
 @router.get("/detail/{code}")
-async def get_stock_detail(code: str):
+async def get_stock_detail(code: str, market: str = "CN"):
     """获取股票完整详情（聚合接口）"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        cache_key = f"detail:{market}:{code}"
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            return cached
+        try:
+            external = await asyncio.to_thread(fetch_market_quote, market, code)
+        except (MarketProviderError, ValueError, KeyError) as exc:
+            unavailable = _market_data_unavailable(code, market, operation="行情", field="data")
+            unavailable["provider"] = "Yahoo Finance"
+            unavailable["error"] = str(exc)
+            return unavailable
+        result = {
+            "success": True,
+            "available": True,
+            "market": market,
+            "code": external.get("code", code),
+            "name": external.get("name", code),
+            "source": external.get("source", "yahoo_finance_chart"),
+            "provider": external.get("provider", "Yahoo Finance"),
+            "source_version": external.get("source_version", "chart-v8"),
+            "updated_at": external.get("updated_at"),
+            "as_of": external.get("as_of"),
+            "data_state": "manual_research",
+            "manual_research_only": True,
+            "authoritative": False,
+            "coverage_pct": external.get("coverage_pct"),
+            "price": external.get("price"),
+            "open": external.get("open"),
+            "high": external.get("high"),
+            "low": external.get("low"),
+            "pre_close": external.get("pre_close"),
+            "change": external.get("change"),
+            "change_pct": external.get("change_pct"),
+            "volume": external.get("volume"),
+            "amount": external.get("amount"),
+            "industry": None,
+            "sector": None,
+            "concepts": [],
+            "market_cap": None,
+            "circulating_cap": None,
+            "pe_ratio": None,
+            "pb_ratio": None,
+            "turnover_rate": None,
+            "amplitude": None,
+            "volume_ratio": None,
+            "high_52w": None,
+            "low_52w": None,
+            "avg_volume_5d": None,
+            "avg_volume_10d": None,
+            "eps": None,
+            "bps": None,
+            "revenue": None,
+            "revenue_growth": None,
+            "net_profit": None,
+            "net_profit_growth": None,
+            "gross_margin": None,
+            "net_margin": None,
+            "roe": None,
+            "debt_ratio": None,
+            "total_shares": None,
+            "circulating_shares": None,
+            "pe_ttm": None,
+            "ps_ratio": None,
+            "dividend_yield": None,
+            "limit_up": None,
+            "limit_down": None,
+            "outer_volume": None,
+            "inner_volume": None,
+            "degraded": False,
+        }
+        _cache.set(cache_key, result, _TTL_QUOTE)
+        return result
     from data.collector.quote_service import get_quote_service, _fetch_financial_data, QuoteData
 
     service = get_quote_service()
-    quote = service.get_quote(code)
+    quote = None
     local_meta = {}
-
-    if not quote:
-        if hasattr(service, "get_or_fetch_quote"):
-            try:
-                quote = await asyncio.to_thread(
-                    service.get_or_fetch_quote,
-                    code,
-                    max_age_sec=_DETAIL_QUOTE_STALE_SECONDS,
-                    refresh_timeout_sec=_DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS,
-                )
-            except Exception as exc:
-                logger.debug(f"{code} 短预算实时行情刷新失败，准备使用本地降级: {exc}")
-        else:
+    if hasattr(service, "get_or_fetch_quote"):
+        try:
+            quote = await asyncio.to_thread(
+                service.get_or_fetch_quote,
+                code,
+                max_age_sec=_DETAIL_QUOTE_STALE_SECONDS,
+                refresh_timeout_sec=_DETAIL_QUOTE_REFRESH_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.debug(f"{code} 短预算实时行情刷新失败，准备使用本地降级: {exc}")
+    else:
+        quote = service.get_quote(code)
+        if not quote:
             from data.collector.quote_service import _fetch_single_quote
             quote = await asyncio.to_thread(_fetch_single_quote, code)
     if not quote:
@@ -738,9 +933,11 @@ async def get_stock_detail(code: str):
 
 
 @router.get("/profit-trend/{code}")
-async def get_profit_trend(code: str):
+async def get_profit_trend(code: str, market: str = "CN"):
     """获取近8季度营收和净利润趋势"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="利润趋势", field="trends")
     cache_key = f"profit:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -789,9 +986,11 @@ async def get_profit_trend(code: str):
 
 
 @router.get("/shareholders/{code}")
-async def get_shareholders(code: str):
+async def get_shareholders(code: str, market: str = "CN"):
     """获取十大流通股东"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="股东数据", field="shareholders")
     cache_key = f"shareholders:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -845,9 +1044,11 @@ async def get_shareholders(code: str):
 
 
 @router.get("/dividends/{code}")
-async def get_dividends(code: str):
+async def get_dividends(code: str, market: str = "CN"):
     """获取分红历史"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="分红", field="dividends")
     cache_key = f"dividends:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -897,9 +1098,11 @@ async def get_dividends(code: str):
 
 
 @router.get("/announcements/{code}")
-async def get_announcements(code: str):
+async def get_announcements(code: str, market: str = "CN"):
     """获取最近公告"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="公告", field="announcements")
     cache_key = f"announcements:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -946,9 +1149,11 @@ async def get_announcements(code: str):
 
 
 @router.get("/industry-comparison/{code}")
-async def get_industry_comparison(code: str):
+async def get_industry_comparison(code: str, market: str = "CN"):
     """获取同行业对比数据"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="行业对比", field="stocks")
     cache_key = f"industry:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -1077,9 +1282,11 @@ async def get_industry_comparison(code: str):
 
 
 @router.get("/northbound/{code}")
-async def get_northbound(code: str):
+async def get_northbound(code: str, market: str = "CN"):
     """获取北向资金持仓数据"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="北向持仓", field="records")
     cache_key = f"northbound:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -1137,8 +1344,17 @@ _INDEX_MAP = [
 
 
 @router.get("/market/indices")
-async def market_indices():
+async def market_indices(market: str = "CN"):
     """主要指数实时行情（批量请求 ulist.np/get，15 秒缓存）"""
+    normalized_market = str(market or "CN").strip().upper() or "CN"
+    try:
+        from data.markets import get_market_adapter
+
+        get_market_adapter(normalized_market)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(400, f"无效市场: {normalized_market}") from exc
+    if normalized_market != "CN":
+        return _market_data_unavailable("", normalized_market, operation="市场指数", field="items")
     hit, cached = _cache.get("market:indices")
     if hit:
         return cached
@@ -1182,8 +1398,10 @@ async def market_indices():
 
 
 @router.get("/market/hot-sectors")
-async def market_hot_sectors():
+async def market_hot_sectors(market: str = "CN"):
     """热门行业板块 + 概念板块 TOP10（并发请求，30 秒缓存）"""
+    if str(market or "CN").strip().upper() != "CN":
+        return _market_data_unavailable("", str(market).upper(), operation="热门板块", field="industries")
     hit, cached = _cache.get("market:hot_sectors")
     if hit:
         return cached
@@ -1225,8 +1443,10 @@ async def market_hot_sectors():
 
 
 @router.get("/market/stats")
-async def market_stats():
+async def market_stats(market: str = "CN"):
     """市场涨跌家数统计（15 秒缓存）"""
+    if str(market or "CN").strip().upper() != "CN":
+        return _market_data_unavailable("", str(market).upper(), operation="市场统计", field="stats")
     hit, cached = _cache.get("market:stats")
     if hit:
         return cached
@@ -1290,8 +1510,10 @@ async def market_stats():
 
 
 @router.get("/market/benchmark")
-async def market_benchmark(count: int = 60):
+async def market_benchmark(count: int = 60, market: str = "CN"):
     """获取沪深300基准收益曲线（5 分钟缓存）"""
+    if str(market or "CN").strip().upper() != "CN":
+        return _market_data_unavailable("", str(market).upper(), operation="基准曲线", field="data")
     cache_key = f"market:benchmark:{count}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -1498,13 +1720,15 @@ async def delete_all_drawings(code: str):
 # ── 筹码分布 ──
 
 @router.get("/chips/{code}")
-async def get_chips_distribution(code: str, days: int = 120):
+async def get_chips_distribution(code: str, days: int = 120, market: str = "CN"):
     """筹码分布计算
 
     基于历史 K 线成交量 + 换手率估算筹码在各价格区间的分布。
     返回：各价格区间的筹码占比、获利比例、平均成本、90% 集中度。
     """
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="筹码分布", field="chips")
     cache_key = f"chips:{code}:{days}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -1687,7 +1911,7 @@ def _compute_macd(closes: list[float]) -> dict | None:
 def _analyze_timeframe(closes: list[float]) -> dict:
     """分析单个时间框架的技术指标状态"""
     if len(closes) < 30:
-        return {"trend": "neutral", "signals": [], "strength": 50}
+        return {"trend": "neutral", "signals": [], "strength": 50, "ma5": None, "ma10": None, "ma20": None, "ma60": None, "rsi": None, "macd": None}
 
     ma5 = _compute_ma(closes, 5)
     ma10 = _compute_ma(closes, 10)
@@ -1762,7 +1986,19 @@ def _analyze_timeframe(closes: list[float]) -> dict:
         trend = "bearish"
         strength = 50 - int(50 * bearish / total)
 
-    return {"trend": trend, "signals": signals, "strength": strength}
+    return {
+        "trend": trend,
+        "signals": signals,
+        "strength": strength,
+        "ma5": round(ma5, 4) if ma5 is not None else None,
+        "ma10": round(ma10, 4) if ma10 is not None else None,
+        "ma20": round(ma20, 4) if ma20 is not None else None,
+        "ma60": round(_compute_ma(closes, 60), 4) if _compute_ma(closes, 60) is not None else None,
+        "rsi": round(rsi, 4) if rsi is not None else None,
+        "macd": macd.get("macd") if macd else None,
+        "dif": macd.get("dif") if macd else None,
+        "dea": macd.get("dea") if macd else None,
+    }
 
 
 def _resample_to_weekly(daily_klines: list[dict]) -> list[dict]:
@@ -1821,10 +2057,70 @@ def _resample_to_monthly(daily_klines: list[dict]) -> list[dict]:
     return months
 
 
+def _multi_timeframe_result(code: str, klines: list[dict], *, source: str = "local") -> dict:
+    """Build the shared multi-timeframe indicator payload from normalized bars."""
+
+    if len(klines) < 30:
+        return {"success": False, "code": code, "error": "K线数据不足", "source": source, "timeframes": {}}
+    daily_closes = [k["close"] for k in klines]
+    weekly_klines = _resample_to_weekly(klines)
+    monthly_klines = _resample_to_monthly(klines)
+    weekly_closes = [k["close"] for k in weekly_klines]
+    monthly_closes = [k["close"] for k in monthly_klines]
+
+    daily = _analyze_timeframe(daily_closes)
+    weekly = _analyze_timeframe(weekly_closes)
+    monthly = _analyze_timeframe(monthly_closes)
+    directions = [daily["trend"], weekly["trend"], monthly["trend"]]
+    bullish_count = directions.count("bullish")
+    bearish_count = directions.count("bearish")
+    if bullish_count == 3:
+        resonance, resonance_label = "strong_bullish", "三周期共振看多"
+    elif bullish_count == 2:
+        resonance, resonance_label = "bullish", "偏多共振"
+    elif bearish_count == 3:
+        resonance, resonance_label = "strong_bearish", "三周期共振看空"
+    elif bearish_count == 2:
+        resonance, resonance_label = "bearish", "偏空共振"
+    else:
+        resonance, resonance_label = "neutral", "多空分歧"
+    return {
+        "success": True,
+        "code": code,
+        "daily": daily,
+        "weekly": weekly,
+        "monthly": monthly,
+        "resonance": resonance,
+        "resonance_label": resonance_label,
+        "strength": round((daily["strength"] + weekly["strength"] + monthly["strength"]) / 3),
+        "source": source,
+        "as_of": klines[-1].get("date") if klines else None,
+        "coverage_pct": round(min(100.0, len(klines) / 250 * 100), 1),
+        "manual_research_only": source != "local",
+    }
+
+
 @router.get("/multi-timeframe/{code}")
-async def get_multi_timeframe(code: str):
+async def get_multi_timeframe(code: str, market: str = "CN"):
     """多周期共振分析（日/周/月技术指标状态）"""
-    cache_key = f"multi_tf:{code}"
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        cache_key = f"multi_tf:{market}:{code}"
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            return cached
+        try:
+            external = await asyncio.to_thread(fetch_market_history, market, code, count=250, period="daily")
+        except (MarketProviderError, ValueError, KeyError) as exc:
+            unavailable = _market_data_unavailable(code, market, operation="技术指标", field="timeframes")
+            unavailable["provider"] = "Yahoo Finance"
+            unavailable["error"] = str(exc)
+            return unavailable
+        result = _multi_timeframe_result(code, list(external.get("klines") or []), source=external.get("source", "yahoo_finance_chart"))
+        result["market"] = market
+        _cache.set(cache_key, result, _TTL_KLINE)
+        return result
+    cache_key = f"multi_tf:{market}:{code}"
     hit, cached = _cache.get(cache_key)
     if hit:
         return cached
@@ -1846,49 +2142,7 @@ async def get_multi_timeframe(code: str):
                     "low": float(parts[4]),
                     "volume": float(parts[5]),
                 })
-        if len(klines) < 30:
-            return {"success": False, "error": "K线数据不足"}
-
-        daily_closes = [k["close"] for k in klines]
-        weekly_klines = _resample_to_weekly(klines)
-        monthly_klines = _resample_to_monthly(klines)
-        weekly_closes = [k["close"] for k in weekly_klines]
-        monthly_closes = [k["close"] for k in monthly_klines]
-
-        daily = _analyze_timeframe(daily_closes)
-        weekly = _analyze_timeframe(weekly_closes)
-        monthly = _analyze_timeframe(monthly_closes)
-
-        directions = [daily["trend"], weekly["trend"], monthly["trend"]]
-        bullish_count = directions.count("bullish")
-        bearish_count = directions.count("bearish")
-
-        if bullish_count == 3:
-            resonance = "strong_bullish"
-            resonance_label = "三周期共振看多"
-        elif bullish_count == 2:
-            resonance = "bullish"
-            resonance_label = "偏多共振"
-        elif bearish_count == 3:
-            resonance = "strong_bearish"
-            resonance_label = "三周期共振看空"
-        elif bearish_count == 2:
-            resonance = "bearish"
-            resonance_label = "偏空共振"
-        else:
-            resonance = "neutral"
-            resonance_label = "多空分歧"
-
-        result = {
-            "success": True,
-            "code": code,
-            "daily": daily,
-            "weekly": weekly,
-            "monthly": monthly,
-            "resonance": resonance,
-            "resonance_label": resonance_label,
-            "strength": round((daily["strength"] + weekly["strength"] + monthly["strength"]) / 3),
-        }
+        result = _multi_timeframe_result(code, klines, source="local")
         _cache.set(cache_key, result, _TTL_KLINE)
         return result
     except Exception as e:
@@ -1899,9 +2153,11 @@ async def get_multi_timeframe(code: str):
 # ── 龙虎榜深度分析 ──
 
 @router.get("/dragon-tiger/{code}")
-async def get_dragon_tiger(code: str, days: int = Query(90, ge=1, le=365)):
+async def get_dragon_tiger(code: str, days: int = Query(90, ge=1, le=365), market: str = "CN"):
     """龙虎榜深度分析：上榜记录 + 游资画像 + 收益统计"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        return _market_data_unavailable(code, market, operation="龙虎榜", field="records")
     cache_key = f"dragon-tiger:{code}:{days}"
     hit, cached = _cache.get(cache_key)
     if hit:
@@ -2067,9 +2323,32 @@ async def get_dragon_tiger(code: str, days: int = Query(90, ge=1, le=365)):
 # ── 个股新闻 ──
 
 @router.get("/news/{code}")
-async def get_stock_news(code: str, limit: int = 20):
+async def get_stock_news(code: str, limit: int = 20, market: str = "CN"):
     """获取个股新闻 + 情绪分析"""
-    code = _validate_code(code)
+    market, code = _resolve_market_instrument(code, market)
+    if market != "CN":
+        cache_key = f"news:{market}:{code}:{limit}"
+        hit, cached = _cache.get(cache_key)
+        if hit:
+            return cached
+        try:
+            result = await asyncio.to_thread(fetch_market_news, market, code, limit=limit)
+        except MarketProviderError as exc:
+            result = {
+                "success": False,
+                "available": False,
+                "market": market,
+                "code": code,
+                "source": "yahoo_finance_rss",
+                "data_state": "unavailable",
+                "manual_research_only": True,
+                "authoritative": False,
+                "degraded": True,
+                "error": str(exc),
+                "news": [],
+            }
+        _cache.set(cache_key, result, _TTL_FINANCIAL)
+        return result
     cache_key = f"news:{code}:{limit}"
     hit, cached = _cache.get(cache_key)
     if hit:

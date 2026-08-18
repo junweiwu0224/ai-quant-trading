@@ -63,6 +63,19 @@ export interface DataHealth {
   quality_summary?: Record<string, unknown>
   quote?: { running?: boolean; cache_count?: number; last_update_age_sec?: number | null }
   signal?: { status?: string; provider?: string; latest_date?: string; total?: number; validation?: Record<string, unknown> }
+  markets?: Record<string, {
+    status?: string
+    research_status?: string
+    provider?: string | null
+    coverage?: number | null
+    coverage_pct?: number | null
+    capabilities?: string[]
+    declared_capabilities?: string[]
+    data_state?: string
+    data_state_label?: string
+    stale?: boolean
+    reason?: string
+  }>
   qlib?: { status?: string; cache_age_label?: string }
   providers?: Record<string, string>
 }

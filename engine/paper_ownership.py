@@ -121,11 +121,27 @@ class PaperOwnership:
         interval = interval_seconds or max(0.1, self.ttl_seconds / 3)
         self._renew_stop.clear()
 
+        def _notify_lost() -> None:
+            self._renew_stop.set()
+            self._owned = None
+            if on_lost is None:
+                return
+            try:
+                on_lost()
+            except Exception:
+                # Loss handling must not terminate the renewal thread before
+                # the engine has had a chance to stop.
+                return
+
         def _renew() -> None:
             while not self._renew_stop.wait(interval):
-                if self.renew() is None:
-                    if on_lost:
-                        on_lost()
+                try:
+                    renewed = self.renew()
+                except Exception:
+                    _notify_lost()
+                    return
+                if renewed is None:
+                    _notify_lost()
                     return
 
         self._renew_thread = threading.Thread(target=_renew, daemon=True, name="paper-lease-renewal")

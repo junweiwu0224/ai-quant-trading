@@ -139,6 +139,14 @@ class OrderIntentBatch(_NonEmptyTextMixin):
         idempotency_keys = [intent.idempotency_key for intent in intents]
         if len(idempotency_keys) != len(set(idempotency_keys)):
             raise ValueError("idempotency_key values must be unique within a batch")
+        contexts = {
+            (intent.execution_run_id, intent.account_id, intent.environment)
+            for intent in intents
+        }
+        if len(contexts) != 1:
+            raise ValueError(
+                "all intents in a batch must share execution_run_id, account_id, and environment"
+            )
         object.__setattr__(self, "intents", intents)
 
     @property
@@ -162,6 +170,7 @@ class RiskDecision(_NonEmptyTextMixin):
     policy_version: str
     evaluated_at: datetime
     status: RiskDecisionStatus | str
+    evaluated_intent_keys: tuple[str, ...] | Iterable[str]
     reasons: tuple[str, ...] | Iterable[str] = ()
     approved_intent_keys: tuple[str, ...] | Iterable[str] = ()
     rejected_intent_keys: tuple[str, ...] | Iterable[str] = ()
@@ -177,15 +186,70 @@ class RiskDecision(_NonEmptyTextMixin):
         except ValueError as exc:
             raise ValueError(f"unsupported risk decision status: {self.status!r}") from exc
         object.__setattr__(self, "status", status)
-        object.__setattr__(self, "reasons", _as_tuple(self.reasons, "reason"))
+        evaluated = _as_tuple(self.evaluated_intent_keys, "evaluated_intent_key")
+        if not evaluated:
+            raise ValueError("RiskDecision must identify evaluated intents")
+        if len(evaluated) != len(set(evaluated)):
+            raise ValueError("evaluated_intent_keys must be unique")
         approved = _as_tuple(self.approved_intent_keys, "approved_intent_key")
         rejected = _as_tuple(self.rejected_intent_keys, "rejected_intent_key")
-        if set(approved) & set(rejected):
+        evaluated_set = set(evaluated)
+        approved_set = set(approved)
+        rejected_set = set(rejected)
+        if approved_set & rejected_set:
             raise ValueError("an intent cannot be both approved and rejected")
+        if not approved_set <= evaluated_set or not rejected_set <= evaluated_set:
+            raise ValueError("approved/rejected intents must belong to the evaluated batch")
+        if approved_set | rejected_set != evaluated_set:
+            raise ValueError("approved and rejected intents must cover all evaluated intents")
+        if status is RiskDecisionStatus.APPROVED and (
+            approved_set != evaluated_set or rejected_set
+        ):
+            raise ValueError("approved decision must approve every evaluated intent")
+        if status is RiskDecisionStatus.PARTIALLY_APPROVED and (
+            not approved_set or not rejected_set
+        ):
+            raise ValueError("partial approval must contain both approved and rejected intents")
+        if status is RiskDecisionStatus.REJECTED and (
+            bool(approved_set) or rejected_set != evaluated_set
+        ):
+            raise ValueError("rejected decision must reject every evaluated intent")
+        object.__setattr__(self, "evaluated_intent_keys", evaluated)
         object.__setattr__(self, "approved_intent_keys", approved)
         object.__setattr__(self, "rejected_intent_keys", rejected)
-        if status is RiskDecisionStatus.PARTIALLY_APPROVED and not approved:
-            raise ValueError("partial approval must identify approved intents")
+
+    @classmethod
+    def from_batch(
+        cls,
+        batch: OrderIntentBatch,
+        *,
+        decision_id: str,
+        policy_version: str,
+        evaluated_at: datetime,
+        status: RiskDecisionStatus | str,
+        approved_intent_keys: Iterable[str] = (),
+        rejected_intent_keys: Iterable[str] = (),
+        reasons: Iterable[str] = (),
+    ) -> "RiskDecision":
+        """Create a closed decision whose keys are checked against ``batch``."""
+        if not isinstance(batch, OrderIntentBatch):
+            raise TypeError("batch must be an OrderIntentBatch")
+        evaluated = batch.idempotency_keys
+        approved = tuple(approved_intent_keys)
+        rejected = tuple(rejected_intent_keys)
+        if not set(approved) <= set(evaluated) or not set(rejected) <= set(evaluated):
+            raise ValueError("decision keys must belong to the OrderIntentBatch")
+        return cls(
+            decision_id=decision_id,
+            batch_id=batch.batch_id,
+            policy_version=policy_version,
+            evaluated_at=evaluated_at,
+            status=status,
+            evaluated_intent_keys=evaluated,
+            reasons=reasons,
+            approved_intent_keys=approved,
+            rejected_intent_keys=rejected,
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -217,10 +281,10 @@ class ExecutionPermit(_NonEmptyTextMixin):
         if decision.status is RiskDecisionStatus.REJECTED:
             raise ValueError("a rejected RiskDecision cannot create an ExecutionPermit")
         keys = decision.approved_intent_keys
-        if decision.status is RiskDecisionStatus.APPROVED and not keys:
-            # An all-approved decision can derive its keys only when the caller
-            # provides them; a permit must never silently lose batch coverage.
-            raise ValueError("approved RiskDecision must identify approved intents")
+        if set(keys) | set(decision.rejected_intent_keys) != set(decision.evaluated_intent_keys):
+            raise ValueError("RiskDecision coverage must be closed before creating a permit")
+        if decision.status is RiskDecisionStatus.APPROVED and set(keys) != set(decision.evaluated_intent_keys):
+            raise ValueError("approved RiskDecision must cover every evaluated intent")
         object.__setattr__(self, "permit_id", self._text(permit_id, "permit_id"))
         object.__setattr__(self, "decision_id", decision.decision_id)
         object.__setattr__(self, "batch_id", decision.batch_id)

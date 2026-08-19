@@ -128,8 +128,10 @@ class OperationsStore:
         self._now = now or time.time
         self._id_factory = id_factory or (lambda prefix: f"{prefix}_{uuid.uuid4().hex}")
         self.lease_seconds = float(lease_seconds)
+        database_path = Path(database)
+        database_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(
-            str(database),
+            str(database_path),
             timeout=busy_timeout_ms / 1000,
             isolation_level=None,
         )
@@ -230,6 +232,9 @@ class OperationsStore:
         now = self._timestamp()
 
         with self._write_transaction() as connection:
+            # Sample after BEGIN IMMEDIATE: waiting for the write lock must not
+            # make a lease decision with a stale clock value.
+            now = self._timestamp()
             if task_id is None:
                 task_row = connection.execute(
                     "SELECT * FROM tasks WHERE status = 'queued' OR "
@@ -303,8 +308,8 @@ class OperationsStore:
         duration = self.lease_seconds if lease_seconds is None else float(lease_seconds)
         if duration <= 0:
             raise ValueError("lease_seconds must be positive")
-        now = self._timestamp()
         with self._write_transaction() as connection:
+            now = self._timestamp()
             row = self._current_attempt(connection, attempt_id)
             self._assert_fence(row, owner_id, lease_token, fence, now)
             connection.execute(
@@ -337,8 +342,8 @@ class OperationsStore:
         status: str,
         error: str | None,
     ) -> Attempt:
-        now = self._timestamp()
         with self._write_transaction() as connection:
+            now = self._timestamp()
             row = self._current_attempt(connection, attempt_id)
             self._assert_fence(row, owner_id, lease_token, fence, now)
             task_id = row["task_id"]

@@ -35,6 +35,35 @@ def test_sqlite_is_configured_for_durable_operations(tmp_path):
     store.close()
 
 
+def test_store_creates_nested_database_parent_and_pragmas(tmp_path):
+    database = tmp_path / "nested" / "operations.db"
+    store = OperationsStore(database)
+    try:
+        assert database.exists()
+        assert store.connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+        assert store.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert store.connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        store.close()
+
+
+def test_lease_checks_sample_clock_after_write_transaction_starts(tmp_path):
+    class SamplingClock:
+        def __init__(self):
+            self.values = iter((100.0, 100.0, 106.0, 112.0))
+
+        def __call__(self):
+            return next(self.values)
+
+    store = OperationsStore(tmp_path / "operations.db", now=SamplingClock(), lease_seconds=5)
+    accepted = store.accept_command(idempotency_key="resample", kind="paper.execute")
+    attempt = store.claim_task("worker", task_id=accepted.task.id)
+    assert attempt.started_at == 106.0
+    with pytest.raises(LeaseLostError):
+        store.succeed_attempt(attempt.id, attempt.owner_id, attempt.lease_token, attempt.fence)
+    store.close()
+
+
 def test_command_acceptance_is_idempotent_and_queues_one_task(tmp_path):
     store = make_store(tmp_path)
     first = store.accept_command(

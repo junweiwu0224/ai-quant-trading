@@ -81,6 +81,52 @@ def test_batch_rejects_duplicate_idempotency_keys(intent: OrderIntent) -> None:
         OrderIntentBatch(batch_id="batch-duplicate", intents=(intent, duplicate))
 
 
+def test_batch_rejects_mixed_execution_contexts(intent: OrderIntent) -> None:
+    mismatched = OrderIntent(
+        execution_run_id="run-2",
+        account_id="paper-account",
+        environment=Environment.PAPER,
+        instrument="000001",
+        side=Side.SELL,
+        quantity=1,
+        idempotency_key="intent-2",
+    )
+    with pytest.raises(ValueError, match="execution_run_id"):
+        OrderIntentBatch(batch_id="batch-mixed", intents=(intent, mismatched))
+
+
+def test_risk_decision_requires_closed_batch_coverage(intent: OrderIntent) -> None:
+    second = OrderIntent(
+        execution_run_id="run-1",
+        account_id="paper-account",
+        environment=Environment.PAPER,
+        instrument="000001",
+        side=Side.SELL,
+        quantity=1,
+        idempotency_key="intent-2",
+    )
+    batch = OrderIntentBatch(batch_id="batch-closed", intents=(intent, second))
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValueError, match="cover"):
+        RiskDecision.from_batch(
+            batch,
+            decision_id="decision-incomplete",
+            policy_version="risk-v1",
+            evaluated_at=now,
+            status=RiskDecisionStatus.PARTIAL,
+            approved_intent_keys=("intent-1",),
+        )
+    with pytest.raises(ValueError, match="belong"):
+        RiskDecision.from_batch(
+            batch,
+            decision_id="decision-foreign",
+            policy_version="risk-v1",
+            evaluated_at=now,
+            status=RiskDecisionStatus.REJECTED,
+            rejected_intent_keys=("foreign",),
+        )
+
+
 def test_live_intent_is_fail_closed_even_when_allow_live_is_requested() -> None:
     with pytest.raises(ValueError, match="disabled"):
         OrderIntent(
@@ -103,6 +149,7 @@ def test_risk_decision_can_express_full_partial_and_rejected_batches() -> None:
         policy_version="risk-v1",
         evaluated_at=now,
         status=RiskDecisionStatus.APPROVED,
+        evaluated_intent_keys=("intent-1", "intent-2"),
         approved_intent_keys=("intent-1", "intent-2"),
     )
     partial = RiskDecision(
@@ -111,6 +158,7 @@ def test_risk_decision_can_express_full_partial_and_rejected_batches() -> None:
         policy_version="risk-v1",
         evaluated_at=now,
         status=RiskDecisionStatus.PARTIAL,
+        evaluated_intent_keys=("intent-1", "intent-2"),
         reasons=("cash limit",),
         approved_intent_keys=("intent-1",),
         rejected_intent_keys=("intent-2",),
@@ -121,6 +169,7 @@ def test_risk_decision_can_express_full_partial_and_rejected_batches() -> None:
         policy_version="risk-v1",
         evaluated_at=now,
         status="rejected",
+        evaluated_intent_keys=("intent-1", "intent-2"),
         reasons=("kill switch",),
         rejected_intent_keys=("intent-1", "intent-2"),
     )
@@ -138,6 +187,7 @@ def test_rejected_risk_decision_cannot_create_permit() -> None:
         policy_version="risk-v1",
         evaluated_at=datetime.now(timezone.utc),
         status=RiskDecisionStatus.REJECTED,
+        evaluated_intent_keys=("intent-1",),
         reasons=("risk limit",),
         rejected_intent_keys=("intent-1",),
     )
@@ -167,6 +217,7 @@ def test_permit_preserves_decision_fence_and_idempotency_fields() -> None:
         policy_version="risk-v1",
         evaluated_at=datetime.now(timezone.utc),
         status=RiskDecisionStatus.APPROVED,
+        evaluated_intent_keys=("intent-1", "intent-2"),
         approved_intent_keys=("intent-1", "intent-2"),
     )
     expires_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -195,6 +246,7 @@ def test_partial_permit_contains_only_approved_idempotency_keys() -> None:
         policy_version="risk-v1",
         evaluated_at=datetime.now(timezone.utc),
         status=RiskDecisionStatus.PARTIAL,
+        evaluated_intent_keys=("intent-1", "intent-2"),
         approved_intent_keys=("intent-1",),
         rejected_intent_keys=("intent-2",),
     )

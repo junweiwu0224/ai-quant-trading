@@ -29,10 +29,6 @@ router = APIRouter()
 runtime = AIRuntime.from_environment(Path(DB_DIR) / "ai_runtime.db")
 
 
-def _account_workspace(account: dict[str, Any] | None) -> str:
-    return _workspace_id(account)
-
-
 def _capability_matrix(workspace_id: str | None = None) -> dict[str, Any]:
     """Read provider capabilities without requiring a test adapter to clone every method."""
 
@@ -50,19 +46,6 @@ def _workspace_id(account: dict[str, Any] | None) -> str:
     if os.getenv("APP_ENV", "development").lower() == "test":
         return "default"
     raise HTTPException(status_code=401, detail="请先登录")
-
-
-class AIContextPayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    market: str = "CN"
-    instrument: str = ""
-    symbol: str = ""
-    as_of: str = ""
-    blocks: dict[str, Any] = Field(default_factory=dict)
-    evidence: list[dict[str, Any]] = Field(default_factory=list)
-    quality_status: str = ""
-    source: str = "provided_snapshot"
 
 
 class AITaskPayload(BaseModel):
@@ -155,7 +138,7 @@ async def ai_status(account: dict[str, Any] | None = Depends(optional_account)):
         "providers": runtime.provider_status(workspace_id),
         "capability_matrix": _capability_matrix(workspace_id),
         "worker": worker,
-        "worker_enabled": os.getenv("PI_AGENT_WORKER_ENABLED", os.getenv("AI_WORKER_ENABLED", "false")).lower() in {"1", "true", "yes", "on"},
+        "worker_enabled": os.getenv("PI_AGENT_WORKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
         "decision_effect": "none",
         "degradation_policy": "failed or unavailable AI output remains visible and cannot qualify automatic delivery",
     }

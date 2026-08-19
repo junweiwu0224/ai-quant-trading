@@ -1,8 +1,5 @@
 """策略评估指标"""
 import numpy as np
-import pandas as pd
-from loguru import logger
-
 
 class StrategyEvaluator:
     """策略评估器"""
@@ -93,20 +90,16 @@ class StrategyEvaluator:
 
         sell_trades = [t for t in trades if t.direction == Direction.SHORT]
         total = len(sell_trades)
-
         if total == 0:
             return {"总交易次数": len(trades), "平仓次数": 0}
 
         wins = [t for t in sell_trades if t.entry_price > 0 and t.price > t.entry_price]
         losses = [t for t in sell_trades if t.entry_price > 0 and t.price <= t.entry_price]
-
         win_pnl = [(t.price - t.entry_price) / t.entry_price for t in wins]
         loss_pnl = [(t.entry_price - t.price) / t.entry_price for t in losses]
-
         avg_win = np.mean(win_pnl) if win_pnl else 0.0
         avg_loss = np.mean(loss_pnl) if loss_pnl else 0.0
         profit_factor = (sum(win_pnl) / abs(sum(loss_pnl))) if loss_pnl and sum(loss_pnl) != 0 else float("inf")
-
         return {
             "总交易次数": len(trades),
             "平仓次数": total,

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeft, Check, Download, RefreshCw, Save, ShieldAlert, Square, X } from 'lucide-vue-next'
-import { RouterLink } from 'vue-router'
+import { Download, RefreshCw, Save, ShieldAlert, Square, X } from 'lucide-vue-next'
 import { api } from '../api/client'
 import RefreshIndicator from '../components/base/RefreshIndicator.vue'
 import AsyncState from '../components/base/AsyncState.vue'

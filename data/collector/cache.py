@@ -1,7 +1,7 @@
 """通用 TTL 缓存（线程安全，LRU 淘汰）"""
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

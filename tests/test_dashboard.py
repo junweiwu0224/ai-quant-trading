@@ -1,5 +1,4 @@
 """可视化面板 API 测试"""
-import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.app import app
@@ -7,7 +6,6 @@ from dashboard.session import current_account
 from data.storage.storage import DataStorage
 
 client = TestClient(app)
-
 
 class TestPages:
     def test_index(self):
@@ -22,7 +20,6 @@ class TestPages:
         for path in ["/backtest", "/portfolio", "/risk"]:
             res = client.get(path)
             assert res.status_code == 404
-
 
 class TestBacktestAPI:
     def test_list_strategies(self):
@@ -95,7 +92,6 @@ class TestBacktestAPI:
         data = res.json()
         assert data["total_return"] == 0
 
-
 class TestPortfolioAPI:
     def test_snapshot_no_data(self):
         res = client.get("/api/portfolio/snapshot")
@@ -112,7 +108,6 @@ class TestPortfolioAPI:
     def test_risk_no_data(self):
         res = client.get("/api/portfolio/risk")
         assert res.status_code == 200
-
 
 class TestSystemAPI:
     def test_system_status(self):
@@ -145,7 +140,6 @@ class TestSystemAPI:
             assert "name" in rule
             assert "threshold" in rule
             assert "status" in rule
-
 
 class TestValuationDataHubAPI:
     def test_decision_score_does_not_flag_ai_uncovered_when_qlib_rank_exists(self):

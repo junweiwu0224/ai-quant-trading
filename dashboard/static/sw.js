@@ -7,11 +7,6 @@ const STATIC_ASSETS = [
     '/static/icons/icon-512.svg',
 ];
 
-const CDN_ASSETS = [
-    'https://cdn.jsdelivr.net/npm/chart.js@4',
-    'https://cdn.jsdelivr.net/npm/klinecharts@9/dist/klinecharts.min.js',
-];
-
 // ── Install: 预缓存静态资源 ──
 
 self.addEventListener('install', (event) => {

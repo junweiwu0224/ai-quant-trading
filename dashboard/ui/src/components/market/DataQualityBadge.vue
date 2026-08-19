@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getDataHealth } from '../../api/market'
-import type { DataHealth } from '../../api/types'
 
 interface Props {
   market: string

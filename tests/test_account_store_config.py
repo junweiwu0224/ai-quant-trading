@@ -3,12 +3,10 @@ import pytest
 from config.settings import ACCOUNT_DB_PATH, DB_PATH, parse_bool
 from dashboard.account_store import AccountStore
 
-
 def test_account_store_default_db_is_separate_from_market_data_db():
     assert ACCOUNT_DB_PATH.name == "accounts.db"
     assert ACCOUNT_DB_PATH != DB_PATH
     assert AccountStore.__init__.__defaults__[0] == ACCOUNT_DB_PATH
-
 
 @pytest.mark.parametrize(
     ("value", "expected"),
@@ -28,11 +26,19 @@ def test_account_store_default_db_is_separate_from_market_data_db():
 def test_parse_bool_is_strict_and_fail_closed(value, expected):
     assert parse_bool(value) is expected
 
-
-def test_workspace_settings_strip_retired_provider_and_entry_flags(tmp_path):
+def test_workspace_settings_strip_retired_flags(tmp_path):
     store = AccountStore(tmp_path / "accounts.db")
 
-    normalized = store._normalize_workspace_settings({"native_panel_mode": "native"})
+    normalized = store._normalize_workspace_settings(
+        {
+            "native_panel_mode": "native",
+            "tool_confirmations": {"write_paper_trade": True},
+            "retired_setup_completed": True,
+            "vue_app_default": True,
+        }
+    )
+    assert "native_panel_mode" not in normalized
+    assert "tool_confirmations" not in normalized
     assert "retired_setup_completed" not in normalized
     assert "vue_app_default" not in normalized
 
@@ -43,16 +49,11 @@ def test_workspace_settings_strip_retired_provider_and_entry_flags(tmp_path):
         {
             "native_panel_mode": "native",
             "daily_research_enabled": "false",
-            "tool_confirmations": {"write_paper_trade": "false"},
         },
     )
+    assert "native_panel_mode" not in updated["settings"]
     assert "retired_setup_completed" not in updated["settings"]
     assert updated["settings"]["daily_research_enabled"] is False
-    assert updated["settings"]["tool_confirmations"]["write_paper_trade"] is False
-
-    ordinary_update = store.update_workspace_settings(workspace_id, {"native_panel_mode": "iframe"})
-    assert "retired_setup_completed" not in ordinary_update["settings"]
-
 
 def test_workspace_boolean_settings_reject_truthy_strings(tmp_path):
     store = AccountStore(tmp_path / "accounts.db")
@@ -61,10 +62,8 @@ def test_workspace_boolean_settings_reject_truthy_strings(tmp_path):
         {
             "retired_setup_completed": "enabled",
             "decision_worker_enabled": "yes please",
-            "tool_confirmations": {"manage_skills": "1maybe"},
         }
     )
 
     assert "retired_setup_completed" not in normalized
     assert normalized["decision_worker_enabled"] is False
-    assert normalized["tool_confirmations"]["manage_skills"] is False

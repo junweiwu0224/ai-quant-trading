@@ -25,7 +25,7 @@ from config.settings import MARKETS
 from data.collector.cache import TTLCache
 from data.collector.http_client import fetch_json
 from data.signals.engine import build_signal_context
-from data.providers.market_data import MarketProviderError, fetch_market_news, market_index_ticker
+
 from data.storage.storage import DataStorage
 
 router = APIRouter()
@@ -278,14 +278,6 @@ def _schedule_radar_refresh() -> None:
             logger.warning(f"市场雷达后台刷新失败: {e}")
 
     _radar_refresh_task = asyncio.create_task(_refresh())
-
-
-# ── 全市场行情 TOP N ──
-
-def _fetch_all_stocks() -> list[dict]:
-    """从东方财富获取全市场股票行情（复用 screener 逻辑）"""
-    from alpha.screener import _fetch_market_stocks
-    return _fetch_market_stocks()
 
 
 def _parse_eastmoney_stock(item: dict[str, Any]) -> dict[str, Any]:
@@ -759,10 +751,6 @@ async def get_market_radar(fast: bool = False, market: str = "CN"):
             "stale_reason": "live_and_local_market_unavailable",
             "total_stocks": 0,
         }
-
-
-def _build_local_sector_rows() -> list[dict[str, Any]]:
-    return _build_local_sector_snapshot()["sectors"]
 
 
 def _exchange_board_name(code: str) -> str:

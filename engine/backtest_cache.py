@@ -194,9 +194,3 @@ def get_backtest_cache() -> BacktestCache:
             if _backtest_cache is None:
                 _backtest_cache = BacktestCache(max_size=20, ttl_seconds=300)
     return _backtest_cache
-
-
-def clear_backtest_cache():
-    """清空全局回测缓存"""
-    cache = get_backtest_cache()
-    cache.clear()

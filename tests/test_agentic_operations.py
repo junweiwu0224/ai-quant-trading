@@ -1,10 +1,9 @@
 import pytest
 
 from agentic.operations import OperationConflict
-from agentic.promotion import PromotionContext, PromotionPolicy
+from agentic.promotion import PromotionContext
 from agentic.repository import AgenticRepository
 from agentic.signals import SignalService
-
 
 def _publish(service: SignalService, code: str):
     return service.publish(
@@ -19,20 +18,6 @@ def _publish(service: SignalService, code: str):
         suggested_position=0.1,
     )
 
-
-def _decision():
-    return PromotionPolicy().evaluate(
-        PromotionContext(
-            evidence_count=1,
-            provenance_complete=True,
-            backtest_passed=True,
-            risk_approved=True,
-            signal_validation_passed=True,
-        ),
-        target="paper_pending",
-    )
-
-
 def _context():
     return PromotionContext(
         evidence_count=1,
@@ -41,7 +26,6 @@ def _context():
         risk_approved=True,
         signal_validation_passed=True,
     )
-
 
 def test_paper_gate_persists_policy_decision_without_transition_and_replays(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")
@@ -67,7 +51,6 @@ def test_paper_gate_persists_policy_decision_without_transition_and_replays(tmp_
     assert operation.result["decision"]["approved"] is True
     assert service.ledger.timeline(signal.id)[0].to_status == "new"
 
-
 def test_paper_confirmation_requires_persisted_approved_gate_and_replays(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")
     service = SignalService(repo)
@@ -91,7 +74,6 @@ def test_paper_confirmation_requires_persisted_approved_gate_and_replays(tmp_pat
     assert first.status == "paper_pending"
     assert first.metadata["promotion_approval"]["operation_id"] == "op-gate-1"
     assert len(service.ledger.timeline(signal.id)) == 2
-
 
 def test_paper_confirmation_rejects_unapproved_or_missing_gate(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")
@@ -120,7 +102,6 @@ def test_paper_confirmation_rejects_unapproved_or_missing_gate(tmp_path):
             operation_id="op-confirm-missing-1",
         )
 
-
 def test_signal_transition_persists_operation_and_replays_without_new_ledger_event(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")
     service = SignalService(repo)
@@ -146,7 +127,6 @@ def test_signal_transition_persists_operation_and_replays_without_new_ledger_eve
     assert operation.status == "completed"
     assert operation.result["status"] == "paper_pending"
     assert len(service.ledger.timeline(signal.id)) == 2
-
 
 def test_signal_operation_id_cannot_be_reused_for_another_signal_or_changed_facts(tmp_path):
     repo = AgenticRepository(tmp_path / "agentic.db")

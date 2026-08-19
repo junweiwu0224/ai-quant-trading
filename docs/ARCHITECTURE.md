@@ -33,8 +33,7 @@ quant-trading-system/
 │   ├── backtest.py          # 组合回测引擎（含成本/约束/分配）
 │   ├── screener.py          # 条件选股引擎
 │   ├── llm_client.py        # OpenAI 兼容 LLM 客户端
-│   ├── nl_strategy.py       # 自然语言策略生成 + AI 解读
-│   └── factor_scheduler.py  # 因子动态更新调度器
+│   └── nl_strategy.py       # 自然语言策略生成 + AI 解读
 ├── risk/                    # 风控层
 │   ├── position/            # 仓位管理
 │   ├── stoploss/            # 止损规则（固定/跟踪/ATR/回撤）
@@ -173,7 +172,6 @@ AKShare API → collector → 清洗/标准化 → storage(DB) → 策略/回测
 | cross_sectional.py | 跨截面选股：全市场因子矩阵 → 截面标签 → 集成训练 → TOP N 预测 |
 | backtest.py | 组合回测：等权/风险平价/因子加权分配，含成本模型和行业约束 |
 | screener.py | 条件选股：字段+运算符+值过滤，6 预设策略，批量获取行情 |
-| factor_scheduler.py | 因子调度：交易时段高频（北向15min/板块30min/情绪1h/宏观日更），盘后降频 |
 | llm_client.py | OpenAI 兼容 LLM 客户端（异步调用） |
 | nl_strategy.py | 自然语言→选股条件 JSON + AI 预测结果解读 + 量化对话 |
 

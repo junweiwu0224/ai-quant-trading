@@ -2,7 +2,6 @@
 import numpy as np
 import pandas as pd
 
-
 class TechnicalFactors:
     """技术因子库"""
 

@@ -18,13 +18,11 @@
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
 from config.settings import QLIB_SERVICE_URL
 from strategy.base import Bar, BaseStrategy, Direction, Trade
-
 
 class QlibSignalStrategy(BaseStrategy):
     """基于 AI 信号分数的交易策略

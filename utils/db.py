@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
+
 
 
 def _enable_wal_or_fallback(conn: sqlite3.Connection) -> None:

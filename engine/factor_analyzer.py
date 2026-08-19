@@ -4,11 +4,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+
 from scipy import stats
 
 from data.storage import DataStorage
-
 
 @dataclass
 class FactorAnalysisResult:
@@ -19,7 +18,6 @@ class FactorAnalysisResult:
     avg_ic: float = 0.0
     ic_std: float = 0.0
     quantile_returns: list[float] = field(default_factory=list)
-
 
 # 可用因子列表
 AVAILABLE_FACTORS = {
@@ -44,7 +42,6 @@ AVAILABLE_FACTORS = {
     "market_cap": "市值",
     "turnover_rate": "换手率",
 }
-
 
 class FactorAnalyzer:
     """因子分析器"""
@@ -77,6 +74,7 @@ class FactorAnalyzer:
         return round(ic, 6) if not np.isnan(ic) else 0.0
 
     def calc_factor_ir(self, ic_series: list[float]) -> float:
+
         """Information Ratio = IC均值 / IC标准差"""
         if len(ic_series) < 5:
             return 0.0

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from loguru import logger
+
 from openai import AsyncOpenAI
 
 from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL

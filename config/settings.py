@@ -37,10 +37,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-
 _TRUE_BOOLEAN_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_BOOLEAN_VALUES = frozenset({"", "0", "false", "no", "off"})
-
 
 def parse_bool(value: object, default: bool = False) -> bool:
     """Parse a boolean value without treating arbitrary truthy values as enabled."""
@@ -58,45 +56,11 @@ def parse_bool(value: object, default: bool = False) -> bool:
             return False
     return False
 
-
-def _get_bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    return bool(default) if value is None else parse_bool(value)
-
-
-# AI Runtime is the only provider-facing assistant surface.  It stores
-# references to environment-backed secrets and never persists secret bodies.
-AI_WORKER_ENABLED = _get_bool_env("AI_WORKER_ENABLED", False)
-AI_INLINE_EXECUTION = _get_bool_env("AI_INLINE_EXECUTION", False)
-
 # ── 数据源迁移配置 ──
 # 数据源模式: "legacy"=旧源(东方财富) | "new"=新源(mootdx+腾讯+AKShare) | "shadow"=新源返回+备用源后台对比
 DATA_SOURCE_MODE = os.getenv("DATA_SOURCE_MODE", "new")
 
-
-def _get_float_env(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or value == "":
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
-
-
-
-# mootdx 服务器（逗号分隔，留空则自动选择）
-MOOTDX_SERVERS = os.getenv("MOOTDX_SERVERS", "")
-
-# iwencai Cookie（问财自然语言查询需要登录态）
-IWENCAI_COOKIE = os.getenv("IWENCAI_COOKIE", "")
-
-# 影子流量采样率（0.0-1.0，shadow模式下生效）
-SHADOW_SAMPLE_RATE = _get_float_env("SHADOW_SAMPLE_RATE", 0.1)
-
 # ── qlib ML 集成配置 ──
-QLIB_DATA_DIR = PROJECT_ROOT / "data" / "qlib" / "cn_data"
-QLIB_MODEL_DIR = PROJECT_ROOT / "data" / "qlib" / "models"
 QLIB_SERVICE_URL = os.getenv("QLIB_SERVICE_URL", "http://localhost:8002")
 QLIB_PRED_CACHE = PROJECT_ROOT / "data" / "qlib" / "predictions_cache.json"
 QLIB_SYNC_STATUS = PROJECT_ROOT / "data" / "qlib" / "sync_status.json"

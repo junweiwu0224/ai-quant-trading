@@ -4,9 +4,8 @@ from datetime import date
 import pytest
 
 from engine.backtest_engine import BacktestEngine, BacktestConfig
-from strategy.base import Bar, BaseStrategy, Direction, Portfolio
+from strategy.base import Bar, BaseStrategy, Portfolio
 from strategy.manager import StrategyManager
-
 
 class AlwaysBuyStrategy(BaseStrategy):
     """测试用策略：第一天全仓买入"""
@@ -16,12 +15,10 @@ class AlwaysBuyStrategy(BaseStrategy):
             if volume >= 100:
                 self.buy(bar.code, bar.close, volume)
 
-
 class NeverTradeStrategy(BaseStrategy):
     """测试用策略：不交易"""
     def on_bar(self, bar: Bar):
         pass
-
 
 def make_bars(code: str, closes: list[float], start: date = date(2024, 1, 2)) -> list[Bar]:
     """生成测试K线"""
@@ -39,7 +36,6 @@ def make_bars(code: str, closes: list[float], start: date = date(2024, 1, 2)) ->
             amount=c * 100000,
         ))
     return bars
-
 
 @pytest.fixture
 def db_with_data(tmp_path):
@@ -71,7 +67,6 @@ def db_with_data(tmp_path):
 
     return storage, db_url
 
-
 class TestPortfolio:
     def test_initial_state(self):
         p = Portfolio(cash=100000)
@@ -87,7 +82,6 @@ class TestPortfolio:
         p = Portfolio(cash=50000, positions={"000001": 1000})
         eq = p.get_total_equity({"000001": 10.0})
         assert eq == 60000.0
-
 
 class TestBacktestEngine:
     def test_no_trade_strategy(self, db_with_data):
@@ -125,7 +119,6 @@ class TestBacktestEngine:
         assert "最大回撤" in summary
         assert "夏普比率" in summary
         assert "胜率" in summary
-
 
 class TestStrategyManager:
     def test_import_overrides_ignores_unknown_or_invalid_builtin_overrides(self, tmp_path):

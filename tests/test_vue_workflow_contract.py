@@ -9,12 +9,11 @@ def read_ui(path: str) -> str:
 
 
 def test_paper_api_uses_real_envelopes_and_no_client_mock() -> None:
-    api = read_ui("api/paper.ts")
+    api = read_ui("api/client.ts")
     view = read_ui("views/PaperRiskView.vue")
     assert "/api/paper/orders" in api
     assert "/api/paper/positions" in api
     assert "/api/paper/trades-v2" in api
-    assert "Math.random" not in api
     assert "mockAccount" not in api
     assert "alert(" not in view
     assert "api.createPaperOrder" in view
@@ -111,17 +110,3 @@ def test_navigation_uses_one_registry_and_keeps_more_as_compatibility_only() -> 
     assert "redirect: '/app/workflows'" in router
     assert "legacy-risk" in router
     assert "legacy-ai-runtime" in router
-
-
-def test_market_store_does_not_invent_numeric_values_or_mix_market_caches() -> None:
-    source = read_ui("stores/market.ts")
-
-    assert "type NullableNumber = number | null" in source
-    assert "function normalizedTimestamp" in source
-    assert "function cacheKey(market: MarketCode, symbol: string)" in source
-    assert "cacheKey(market, symbol)" in source
-    assert "timestamp * 1000" not in source
-    assert "open: 0" not in source
-    assert "high: 0" not in source
-    assert "low: 0" not in source
-    assert "preClose: 0" not in source

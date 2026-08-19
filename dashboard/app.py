@@ -377,8 +377,8 @@ def _readiness_state() -> dict[str, object]:
     }
     if os.getenv("DECISION_WORKER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         dependencies["decision_worker"] = _probe_worker("decision-worker")
-    if os.getenv("AI_WORKER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
-        dependencies["ai_worker"] = _probe_worker("ai-worker")
+    if os.getenv("PI_AGENT_WORKER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        dependencies["pi_agent_worker"] = _probe_worker("ai-worker")
 
     failed = [name for name, state in dependencies.items() if not bool(state.get("ready"))]
     status = "ready" if not failed else "degraded" if len(failed) < len(dependencies) else "unavailable"

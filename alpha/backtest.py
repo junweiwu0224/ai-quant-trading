@@ -16,10 +16,8 @@ from typing import Any, Mapping, Optional
 
 import numpy as np
 import pandas as pd
-from loguru import logger
 
 from engine.execution_model import (
-    DEFAULT_A_SHARE_EXECUTION_CONTRACT,
     ExecutionCostModelVersion,
     ExecutionDataContract,
     resolve_execution_contract,
@@ -27,7 +25,6 @@ from engine.execution_model import (
 )
 from data.markets import get_market_adapter
 from engine.market_rules import MarketRule, get_market_rule
-
 
 # ── 交易成本模型 ──
 
@@ -50,7 +47,6 @@ class CostModel:
             min_commission=self.min_commission,
         )
 
-
 @dataclass(frozen=True)
 class PortfolioConstraints:
     """组合约束"""
@@ -59,7 +55,6 @@ class PortfolioConstraints:
     max_weight: float = 0.10       # 单只最高 10%
     max_industry_pct: float = 0.30 # 单行业 ≤30%
     max_annual_vol: float = 0.15   # 年化波动率 ≤15%
-
 
 @dataclass(frozen=True)
 class BacktestConfig:
@@ -75,7 +70,6 @@ class BacktestConfig:
     market: str = "CN"
     market_rule: MarketRule | None = None
     trading_calendar: Any = None
-
 
 @dataclass
 class BacktestResult:
@@ -102,7 +96,6 @@ class BacktestResult:
             "coverage": self.coverage or {},
         }
 
-
 # ── 仓位分配算法 ──
 
 def allocate_equal(selected: list[dict], constraints: PortfolioConstraints) -> dict[str, float]:
@@ -113,7 +106,6 @@ def allocate_equal(selected: list[dict], constraints: PortfolioConstraints) -> d
     weight = 1.0 / n
     weight = max(constraints.min_weight, min(constraints.max_weight, weight))
     return {s["code"]: weight for s in selected[:n]}
-
 
 def allocate_risk_parity(
     selected: list[dict],
@@ -141,7 +133,6 @@ def allocate_risk_parity(
         for code, w in weights.items()
     }
 
-
 def allocate_factor_weighted(
     selected: list[dict],
     constraints: PortfolioConstraints,
@@ -161,7 +152,6 @@ def allocate_factor_weighted(
         code: max(constraints.min_weight, min(constraints.max_weight, w))
         for code, w in weights.items()
     }
-
 
 # ── 回测引擎 ──
 

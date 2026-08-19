@@ -1,7 +1,6 @@
 """数据层单元测试"""
 from datetime import date
 import time
-import tempfile
 from pathlib import Path
 import asyncio
 import threading
@@ -15,13 +14,11 @@ import pytest
 from data.collector import http_client
 from data.collector import quote_service
 from data.collector.quote_service import QuoteData
-from data.collector import shadow_validator
 from data.collector.data_source import Quote
 import data.providers.astock_data_adapter as astock_provider
 from data.providers.astock_data_adapter import AStockDataAdapter
 from data.services.valuation_service import ValuationService
 from data.storage.storage import DataStorage, StockDaily, StockInfo, UserWatchlist
-
 
 @pytest.fixture
 def db(tmp_path):
@@ -30,7 +27,6 @@ def db(tmp_path):
     storage = DataStorage(db_url=db_url)
     storage.init_db()
     return storage
-
 
 @pytest.fixture
 def sample_daily_df():
@@ -47,7 +43,6 @@ def sample_daily_df():
         }
     )
 
-
 @pytest.fixture
 def sample_info_df():
     """示例股票信息"""
@@ -59,7 +54,6 @@ def sample_info_df():
             "list_date": ["1991-04-03", "2001-08-27"],
         }
     )
-
 
 class TestStorage:
     def test_init_db_creates_tables(self, db):
@@ -913,7 +907,6 @@ class TestStorage:
 
     def test_http_client_exposes_transport_helpers_only(self):
         assert hasattr(http_client, "get_client")
-        assert hasattr(http_client, "close_client")
         assert hasattr(http_client, "fetch_json")
         assert hasattr(http_client, "fetch_json_tencent")
         assert hasattr(http_client, "run_sync")
@@ -1574,7 +1567,6 @@ class TestStorage:
         assert health["sources"]["astock"]["latest_version"] == "v2"
         assert health["sources"]["astock"]["active_versions"] == ["v2"]
         assert health["sources"]["eastmoney"]["latest_version"] == "daily-20260524"
-
 
 class TestAStockValuation:
     def test_astock_adapter_imports_in_clean_interpreter(self):

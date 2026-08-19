@@ -1,5 +1,5 @@
 """LightGBM 模型封装"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np

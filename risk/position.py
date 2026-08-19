@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from loguru import logger
+
 
 from strategy.base import Portfolio
 

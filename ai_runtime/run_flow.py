@@ -501,9 +501,3 @@ def build_task_run_flow_snapshot(
         safety_boundary={"authoritative": False, "decision_effect": "none", "automatic_delivery_eligible": False},
     )
     return snapshot.model_dump(mode="json", by_alias=True)
-
-
-def build_run_flow_snapshot(task: Mapping[str, Any], events: Iterable[Mapping[str, Any]] = (), *, report: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Compatibility alias for callers that use the shorter reference name."""
-
-    return build_task_run_flow_snapshot(task, events, report=report)

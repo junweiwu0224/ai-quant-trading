@@ -22,9 +22,7 @@ from typing import Any, Iterator, Mapping
 
 from data.markets import InstrumentNormalizationError, get_market_adapter
 
-
 _PROTECTED_REF_PATTERN = re.compile(r"^env://[A-Za-z_][A-Za-z0-9_]*$")
-
 
 def normalize_protected_ref(value: Any, *, field: str, required: bool) -> str:
     """Accept only environment-variable references, never credential values."""
@@ -38,25 +36,19 @@ def normalize_protected_ref(value: Any, *, field: str, required: bool) -> str:
         raise ValueError(f"{field}_must_use_env_reference")
     return text
 
-
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
 
 def iso_now() -> str:
     return utc_now().isoformat(timespec="seconds")
 
-
 def stable_json(value: Any) -> str:
     return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
 
 def content_hash(value: Any) -> str:
     return hashlib.sha256(stable_json(value).encode("utf-8")).hexdigest()
 
-
 _SCHEDULE_DATE_RE = re.compile(r"(?P<slot>[^:]+):(?P<trade_date>\d{4}-\d{2}-\d{2})$")
-
 
 def scheduled_run_context(run: Mapping[str, Any]) -> dict[str, str | None]:
     """Extract the persisted scheduling business key from a run.
@@ -82,7 +74,6 @@ def scheduled_run_context(run: Mapping[str, Any]) -> dict[str, str | None]:
     if not slot and match:
         slot = match.group("slot")
     return {"schedule_slot": slot or None, "trade_date": trade_date or None}
-
 
 def report_fingerprint(body: Mapping[str, Any]) -> dict[str, Any]:
     """Return the deterministic facts that define a report.
@@ -152,12 +143,10 @@ def report_fingerprint(body: Mapping[str, Any]) -> dict[str, Any]:
         }
     return fingerprint
 
-
 def _canonical_market(value: str) -> str:
     """Resolve aliases once at the storage boundary."""
 
     return get_market_adapter(value).code.value
-
 
 def _canonical_instrument(market: str, value: str) -> tuple[str, str]:
     """Return a stable identity and a provider-compatible display symbol.
@@ -178,7 +167,6 @@ def _canonical_instrument(market: str, value: str) -> tuple[str, str]:
         canonical = raw.upper()
     display = canonical.split(".", 1)[1] if "." in canonical else canonical
     return canonical, display
-
 
 class DecisionStore:
     """Thread/process safe enough for the single-machine SQLite deployment."""
@@ -665,6 +653,7 @@ class DecisionStore:
             return [self._decode(row) or {} for row in rows]
 
     def claim_commands(
+
         self,
         owner_id: str,
         *,
@@ -833,6 +822,7 @@ class DecisionStore:
             return self._decode(conn.execute("SELECT * FROM decision_portfolios WHERE id=?", (portfolio_id,)).fetchone())
 
     def list_members(self, workspace_id: str, portfolio_id: str) -> list[dict[str, Any]]:
+
         with self._connection() as conn:
             rows = conn.execute("SELECT m.* FROM decision_memberships m JOIN decision_portfolios p ON p.id=m.portfolio_id WHERE p.id=? AND p.workspace_id=? ORDER BY m.created_at", (portfolio_id, workspace_id)).fetchall()
             return [self._decode(row) or {} for row in rows]
@@ -1071,6 +1061,10 @@ class DecisionStore:
                 raise ValueError("decision_run_key_conflict")
             return self._decode(row) or {}
 
+    def complete_run(self, run_id: str, status: str = "completed") -> None:
+        with self._connection() as conn:
+            conn.execute("UPDATE decision_runs SET status=? WHERE id=? AND status='running'", (status, run_id))
+
     def get_run_by_key(self, workspace_id: str, run_key: str) -> dict[str, Any] | None:
         """Return one immutable run identity before rebuilding its inputs.
 
@@ -1091,34 +1085,12 @@ class DecisionStore:
             ).fetchone()
             return self._decode(row)
 
-    def complete_run(self, run_id: str, status: str = "completed") -> None:
-        with self._connection() as conn:
-            conn.execute("UPDATE decision_runs SET status=? WHERE id=? AND status='running'", (status, run_id))
-
     def get_run(self, workspace_id: str, run_id: str) -> dict[str, Any] | None:
         with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM decision_runs WHERE id=? AND workspace_id=?",
                 (run_id, workspace_id),
             ).fetchone()
-            return self._decode(row)
-
-    def latest_decision(
-        self,
-        membership_id: str,
-        *,
-        before_run_id: str | None = None,
-        automatic_only: bool = False,
-    ) -> dict[str, Any] | None:
-        with self._connection() as conn:
-            sql = "SELECT d.* FROM decisions d JOIN decision_runs r ON r.id=d.decision_run_id WHERE d.membership_id=? AND r.status='completed'"
-            params: list[Any] = [membership_id]
-            if before_run_id:
-                sql += " AND r.id<>?"
-                params.append(before_run_id)
-            if automatic_only:
-                sql += " AND r.trigger NOT IN ('manual', 'preview')"
-            row = conn.execute(sql + " ORDER BY d.created_at DESC LIMIT 1", params).fetchone()
             return self._decode(row)
 
     def get_member_state(self, membership_id: str) -> dict[str, Any] | None:
@@ -1304,6 +1276,24 @@ class DecisionStore:
                 return self._decode(existing) or {}
             conn.execute("INSERT INTO decisions(id,decision_run_id,membership_id,symbol,action,previous_action,score,valid,stale,risk_veto,confirmed,confirming_bar_end,reason_codes_json,contributions_json,payload_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (decision_id, run_id, membership_id, symbol, payload.get("action", "decision_invalid"), payload.get("previous_action"), payload.get("score"), int(bool(payload.get("valid"))), int(bool(payload.get("stale"))), int(bool(payload.get("risk_veto"))), int(bool(payload.get("confirmed"))), payload.get("confirming_bar_end"), stable_json(payload.get("reason_codes") or []), stable_json(payload.get("contributions") or []), payload_hash, iso_now()))
             return self._decode(conn.execute("SELECT * FROM decisions WHERE decision_run_id=? AND membership_id=?", (run_id, membership_id)).fetchone()) or {}
+
+    def latest_decision(
+        self,
+        membership_id: str,
+        *,
+        before_run_id: str | None = None,
+        automatic_only: bool = False,
+    ) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            sql = "SELECT d.* FROM decisions d JOIN decision_runs r ON r.id=d.decision_run_id WHERE d.membership_id=? AND r.status='completed'"
+            params: list[Any] = [membership_id]
+            if before_run_id:
+                sql += " AND r.id<>?"
+                params.append(before_run_id)
+            if automatic_only:
+                sql += " AND r.trigger NOT IN ('manual', 'preview')"
+            row = conn.execute(sql + " ORDER BY d.created_at DESC LIMIT 1", params).fetchone()
+            return self._decode(row)
 
     def list_decisions(self, run_id: str) -> list[dict[str, Any]]:
         with self._connection() as conn:
@@ -1951,14 +1941,9 @@ class DecisionStore:
                 current["evidence_id"] = str(evidence["id"])
             return current
 
-    def get_validation(self, version_id: str) -> dict[str, Any] | None:
-        with self._connection() as conn:
-            return self._decode(
-                conn.execute(
-                    "SELECT * FROM decision_validations WHERE portfolio_version_id=?",
-                    (version_id,),
-                ).fetchone()
-            )
+
+
+
 
     def list_validations(self, version_id: str) -> list[dict[str, Any]]:
         """Return every immutable validation evidence record for a version."""
@@ -1974,5 +1959,13 @@ class DecisionStore:
             ).fetchall()
             return [self._decode(row) or {} for row in rows]
 
+    def get_validation(self, version_id: str) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            return self._decode(
+                conn.execute(
+                    "SELECT * FROM decision_validations WHERE portfolio_version_id=?",
+                    (version_id,),
+                ).fetchone()
+            )
 
 __all__ = ["DecisionStore", "content_hash", "report_fingerprint", "stable_json"]

@@ -14,19 +14,16 @@ import os
 import time
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Protocol
 
 from loguru import logger
-
 
 class AlertEventOutbox(Protocol):
     """Outbox seam used to make alert delivery durable and replayable."""
 
     def publish(self, event) -> str: ...
 
-
 ALERT_TEST_WORKSPACE_ID = "default"
-
 
 def _resolve_workspace_id(workspace_id: str | None) -> str:
     """Resolve an engine workspace and fail closed outside test compatibility."""
@@ -37,7 +34,6 @@ def _resolve_workspace_id(workspace_id: str | None) -> str:
     if os.getenv("APP_ENV", "development").lower() == "test":
         return ALERT_TEST_WORKSPACE_ID
     raise ValueError("workspace_id is required")
-
 
 # ── 规则定义 ──
 
@@ -54,7 +50,6 @@ class AlertRule:
     cooldown: int = 300  # 冷却秒数，默认 5 分钟
     webhook_url: str = ""  # Webhook 推送地址
     workspace_id: str = ALERT_TEST_WORKSPACE_ID
-
 
 @dataclass
 class Alert:
@@ -81,7 +76,6 @@ class Alert:
             "timestamp": self.timestamp,
             "workspace_id": self.workspace_id,
         }
-
 
 # ── 条件检查器 ──
 
@@ -115,7 +109,6 @@ _CONDITION_LABELS = {
     "amplitude_above": "振幅超过",
 }
 
-
 # ── 预警引擎 ──
 
 class AlertEngine:
@@ -143,6 +136,11 @@ class AlertEngine:
             ]
         logger.info(f"预警规则已更新: {len(self._rules)} 条生效")
 
+    def remove_rule(self, rule_id: int):
+        """移除规则"""
+        with self._lock:
+            self._rules = [r for r in self._rules if r.id != rule_id]
+
     def add_rule(self, rule: AlertRule):
         """添加单条规则"""
         with self._lock:
@@ -150,12 +148,9 @@ class AlertEngine:
             if rule.enabled and self._rule_workspace_id(rule) == self.workspace_id:
                 self._rules.append(rule)
 
-    def remove_rule(self, rule_id: int):
-        """移除规则"""
-        with self._lock:
-            self._rules = [r for r in self._rules if r.id != rule_id]
-
     def check(self, quotes: dict) -> list[Alert]:
+
+
         with self._lock:
             return self._check(quotes)
 
@@ -289,6 +284,7 @@ class AlertEngine:
     def get_condition_labels() -> dict[str, str]:
         """获取条件类型映射"""
         return dict(_CONDITION_LABELS)
+
 
     @staticmethod
     def get_condition_value_field(condition: str) -> str:

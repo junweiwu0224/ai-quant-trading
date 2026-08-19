@@ -2,15 +2,14 @@
 import tempfile
 import time
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from data.collector.quote_service import QuoteData
-from engine.broker import AccountInfo, OrderResult, OrderSide, OrderStatus, PositionInfo, SimulatedBroker
+from engine.broker import OrderSide, OrderStatus, SimulatedBroker
 from engine.live_engine import LiveConfig, LiveTradingEngine, LivePortfolioAdapter
-from strategy.base import Bar, BaseStrategy, Direction, Portfolio
-
+from strategy.base import Bar, BaseStrategy
 
 def make_quote(code: str, price: float) -> QuoteData:
     return QuoteData(
@@ -19,7 +18,6 @@ def make_quote(code: str, price: float) -> QuoteData:
         pre_close=price, volume=100000, amount=price * 100000,
         change_pct=0.0, timestamp=time.time(),
     )
-
 
 class BuyOnceStrategy(BaseStrategy):
     def __init__(self, code="000001", vol=1000):
@@ -32,7 +30,6 @@ class BuyOnceStrategy(BaseStrategy):
         if bar.code == self._code and not self._bought:
             self.buy(bar.code, bar.close, self._vol)
             self._bought = True
-
 
 # ── SimulatedBroker 测试 ──
 
@@ -136,7 +133,6 @@ class TestSimulatedBroker:
         positions = broker.get_positions()
         assert positions[0].available == 1000  # 结算后可卖
 
-
 # ── LivePortfolioAdapter 测试 ──
 
 class TestLivePortfolioAdapter:
@@ -156,7 +152,6 @@ class TestLivePortfolioAdapter:
         adapter = LivePortfolioAdapter(broker)
         adapter.record_equity(datetime.now().date(), 1_000_000)
         assert len(adapter.equity_curve) == 1
-
 
 # ── LiveTradingEngine 测试 ──
 

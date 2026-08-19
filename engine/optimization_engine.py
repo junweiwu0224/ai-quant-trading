@@ -3,12 +3,12 @@ import itertools
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from loguru import logger
 
 from engine.backtest_engine import BacktestConfig, BacktestEngine
-from strategy.base import BaseStrategy
+
 
 
 @dataclass

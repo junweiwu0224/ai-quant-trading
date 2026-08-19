@@ -1,5 +1,3 @@
-export type ApiState = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
-
 export interface ApiEnvelope<T> {
   success?: boolean
   data?: T
@@ -212,12 +210,4 @@ export interface DecisionResearch {
     [key: string]: unknown
   }
   [key: string]: unknown
-}
-
-export interface LegacyLink {
-  label: string
-  description: string
-  href: string
-  group: string
-  status?: string
 }

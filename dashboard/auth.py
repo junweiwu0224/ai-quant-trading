@@ -2,7 +2,7 @@
 import json
 import os
 import secrets
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import Request, WebSocket
 

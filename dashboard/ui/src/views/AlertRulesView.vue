@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BellRing, Check, CircleAlert, Edit3, Plus, RefreshCw, RotateCw, Save, Trash2, X } from 'lucide-vue-next'
+import { BellRing, Check, CircleAlert, Edit3, RefreshCw, RotateCw, Save, Trash2, X } from 'lucide-vue-next'
 import { api } from '../api/client'
 
 type Row = Record<string, any>

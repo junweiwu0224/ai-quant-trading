@@ -3,8 +3,6 @@ import { mount } from '@vue/test-utils'
 import AsyncState from './AsyncState.vue'
 import BaseButton from './BaseButton.vue'
 import BaseCard from './BaseCard.vue'
-import BaseInput from './BaseInput.vue'
-import BaseSelect from './BaseSelect.vue'
 import BaseTabs from './BaseTabs.vue'
 import BaseTag from './BaseTag.vue'
 
@@ -116,86 +114,6 @@ describe('BaseCard', () => {
       props: { hoverable: true }
     })
     expect(wrapper.classes()).toContain('base-card--hoverable')
-  })
-})
-
-describe('BaseInput', () => {
-  it('renders with default props', () => {
-    const wrapper = mount(BaseInput)
-    expect(wrapper.find('input').exists()).toBe(true)
-    expect(wrapper.find('input').classes()).toContain('base-input')
-    expect(wrapper.find('input').classes()).toContain('base-input--md')
-  })
-
-  it('emits update:modelValue when input changes', async () => {
-    const wrapper = mount(BaseInput)
-    const input = wrapper.find('input')
-    await input.setValue('test value')
-    expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['test value'])
-  })
-
-  it('shows error message when error prop is string', () => {
-    const wrapper = mount(BaseInput, {
-      props: { error: 'Error message' }
-    })
-    expect(wrapper.find('.base-input__error').text()).toBe('Error message')
-    expect(wrapper.find('input').classes()).toContain('base-input--error')
-  })
-
-  it('applies disabled state', () => {
-    const wrapper = mount(BaseInput, {
-      props: { disabled: true }
-    })
-    expect(wrapper.find('input').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('input').classes()).toContain('base-input--disabled')
-  })
-
-  it('renders different sizes', () => {
-    const sizes = ['sm', 'md', 'lg'] as const
-    sizes.forEach(size => {
-      const wrapper = mount(BaseInput, {
-        props: { size }
-      })
-      expect(wrapper.find('input').classes()).toContain(`base-input--${size}`)
-    })
-  })
-})
-
-describe('BaseSelect', () => {
-  const options = [
-    { label: 'Option 1', value: '1' },
-    { label: 'Option 2', value: '2' },
-    { label: 'Option 3', value: '3' }
-  ]
-
-  it('renders with options', () => {
-    const wrapper = mount(BaseSelect, {
-      props: { options }
-    })
-    expect(wrapper.find('.base-select').exists()).toBe(true)
-  })
-
-  it('displays placeholder when no value selected', () => {
-    const wrapper = mount(BaseSelect, {
-      props: { options, placeholder: 'Choose option' }
-    })
-    expect(wrapper.find('.base-select__display').text()).toBe('Choose option')
-  })
-
-  it('displays selected option label', () => {
-    const wrapper = mount(BaseSelect, {
-      props: { options, modelValue: '2' }
-    })
-    expect(wrapper.find('.base-select__display').text()).toBe('Option 2')
-  })
-
-  it('shows error state', () => {
-    const wrapper = mount(BaseSelect, {
-      props: { options, error: 'Required field' }
-    })
-    expect(wrapper.find('.base-select').classes()).toContain('base-select--error')
-    expect(wrapper.find('.base-select__error').text()).toBe('Required field')
   })
 })
 

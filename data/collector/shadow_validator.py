@@ -8,9 +8,6 @@
 import json
 import time
 from pathlib import Path
-from typing import Any
-
-from loguru import logger
 
 # 对比日志目录
 _SHADOW_LOG_DIR = Path(__file__).parent.parent.parent / "logs" / "shadow"
@@ -70,49 +67,6 @@ def validate_quote_consistency(code: str, old_data: dict, new_data: dict) -> lis
             diffs.append(diff)
 
     return diffs
-
-
-def log_shadow_result(
-    code: str,
-    diffs: list[dict],
-    old_data: dict,
-    new_data: dict,
-    storage: Any | None = None,
-):
-    """将对比结果写入日志文件"""
-    if not diffs:
-        return
-
-    date_str = time.strftime("%Y%m%d")
-    log_file = _SHADOW_LOG_DIR / f"shadow_{date_str}.jsonl"
-
-    entry = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "code": code,
-        "diff_count": len(diffs),
-        "diffs": diffs,
-        "old_price": old_data.get("price"),
-        "new_price": new_data.get("price"),
-    }
-
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    logger.warning(f"[SHADOW] {code}: {len(diffs)} 项差异 — "
-                   f"价格 old={old_data.get('price')} new={new_data.get('price')}")
-
-    if storage is not None:
-        try:
-            storage.save_data_quality_record(
-                code=code,
-                domain="quote",
-                check_name="shadow_compare",
-                status="diff",
-                details={"diff_count": len(diffs), "diffs": diffs, "old": old_data, "new": new_data},
-                diff_count=len(diffs),
-            )
-        except Exception as exc:
-            logger.debug(f"[SHADOW] 写入质量台账失败 {code}: {exc}")
 
 
 def get_shadow_stats(date_str: str | None = None) -> dict:

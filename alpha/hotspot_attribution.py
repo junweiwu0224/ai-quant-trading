@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from urllib.parse import quote
 
 from loguru import logger
 
@@ -131,38 +130,6 @@ async def get_sector_fund_flow(top_n: int = 20) -> list[dict]:
         return await asyncio.to_thread(_fetch_sector_fund_flow, top_n)
     except Exception as e:
         logger.warning(f"获取行业资金流失败: {e}")
-        return []
-
-
-async def get_concept_for_stock(code: str) -> list[str]:
-    """获取个股所属概念列表。"""
-    normalized = str(code).strip()
-    if len(normalized) != 6 or not normalized.isdigit():
-        return []
-
-    try:
-        market = "SH" if normalized.startswith(("6", "9")) else "SZ"
-        secucode = quote(f"{normalized}.{market}", safe="")
-        url = (
-            "https://datacenter.eastmoney.com/securities/api/data/v1/get"
-            "?reportName=RPT_F10_CORETHEME_BOARDTYPE"
-            "&columns=SECURITY_CODE%2CBOARD_NAME%2CBOARD_TYPE"
-            f"&filter=(SECURITY_CODE%3D%22{secucode}%22)"
-            "&pageNumber=1&pageSize=50&source=HSF10&client=PC"
-        )
-
-        def fetch() -> list[str]:
-            data = fetch_json(url, timeout=10, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Referer": "https://emweb.securities.eastmoney.com/",
-            })
-            rows = ((data.get("result") or {}).get("data") or [])
-            concepts = [str(row.get("BOARD_NAME", "") or "") for row in rows]
-            return [name for name in concepts if name]
-
-        return await asyncio.to_thread(fetch)
-    except Exception as e:
-        logger.warning(f"获取个股概念失败({code}): {e}")
         return []
 
 

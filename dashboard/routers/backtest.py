@@ -236,7 +236,7 @@ def _get_cached_backtest_result(req: BacktestRequest) -> dict:
 def _ensure_benchmark_data(benchmark_code: str, start_date: str, end_date: str):
     """确保基准指数数据已入库，没有则自动采集"""
     import pandas as pd
-    from datetime import date
+
     start = pd.Timestamp(start_date).date()
     end = pd.Timestamp(end_date).date()
     existing = storage.get_stock_daily(benchmark_code, start, end)
@@ -1055,31 +1055,6 @@ async def get_periods():
             {"value": "60m", "label": "60分钟", "description": "60分钟K线回测"},
         ]
     }
-
-
-@router.get("/tick-info")
-async def get_tick_info(code: str = Query(..., description="股票代码")):
-    """获取某股票的 Tick/分钟线数据可用性"""
-    try:
-        from data.storage.tick_storage import TickStorage
-        tick_storage = TickStorage()
-        info = tick_storage.get_data_range(code)
-        return {
-            "code": code,
-            "tick_data": info.get("tick", {}),
-            "minute_data": info.get("minute", {}),
-            "has_tick_data": (info.get("tick", {}).get("count", 0)) > 0,
-            "has_minute_data": (info.get("minute", {}).get("count", 0)) > 0,
-        }
-    except Exception as e:
-        return {
-            "code": code,
-            "tick_data": {"start": None, "end": None, "count": 0},
-            "minute_data": {"start": None, "end": None, "count": 0},
-            "has_tick_data": False,
-            "has_minute_data": False,
-            "error": str(e),
-        }
 
 
 @router.websocket("/ws/run")

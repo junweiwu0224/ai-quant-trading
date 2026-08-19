@@ -1,4 +1,4 @@
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.datetime_utils import now_beijing
 """自选股管理 API"""
 import threading
 
@@ -207,7 +207,7 @@ async def remove_from_watchlist(code: str, account: dict = Depends(current_accou
 @router.post("/sync")
 async def sync_watchlist(account: dict = Depends(current_account)):
     """手动触发自选股数据同步"""
-    from datetime import datetime
+
     from data.collector import StockCollector
     from loguru import logger
 

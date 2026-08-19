@@ -15,7 +15,7 @@
 - 前端修改：同时检查 Vue view/router/store、Service Worker 缓存清单、TypeScript 单测和 Vue 契约测试。
 - Signal/Qlib 修改：先读 `docs/decisions/0001-signal-engine-v2.md`，避免把 legacy Qlib 字段当成新语义。
 - 数据展示问题：优先使用 `scripts/dashboard_data_health.py` 和 `scripts/frontend_data_render_audit.py` 收集证据。
-- E2E：先启动 Dashboard，再用 `scripts/e2e-local.sh smoke|data-health|all`；不要直接跑占位 `npm test`。
+- E2E：先启动 Dashboard，再用 `scripts/e2e-local.sh smoke|data-health|all`；前端单测使用 `npm run ui:test`。
 
 ## 搜索和定位技巧
 
@@ -28,9 +28,9 @@
 
 ## 常见坑和规避方式
 
-- 坑：`npm test` 是占位脚本，会直接失败。
+- 坑：根目录不提供 `npm test` 脚本。
   - 触发场景：想跑前端/项目默认测试。
-  - 正确处理：根据改动选择 pytest、`scripts/e2e-local.sh` 或 `npm run e2e:*`。
+  - 正确处理：前端使用 `npm run ui:test`，后端使用 `.venv/bin/python -m pytest -q`，E2E 使用 `scripts/e2e-local.sh` 或 `npm run e2e:*`。
   - 相关文件：`package.json`、`docs/commands.md`。
 
 - 坑：当前 shell 没有 `python` 命令。

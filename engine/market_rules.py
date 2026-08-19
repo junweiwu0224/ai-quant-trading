@@ -14,14 +14,12 @@ from typing import Any, Optional
 
 from data.markets import TradingCalendar, WeekdayTradingCalendar
 
-
 @dataclass(frozen=True)
 class MarketSession:
     """一个交易时段"""
     open: dtime
     close: dtime
     label: str = ""  # "早盘" / "午盘" / "夜盘"
-
 
 @dataclass(frozen=True)
 class FeeStructure:
@@ -33,7 +31,6 @@ class FeeStructure:
     transfer_fee: float = 0.0          # 过户费
     margin_rate: float = 0.0           # 保证金率（期货）
     version: str = "generic-assumption-v1"
-
 
 class MarketRule(ABC):
     """市场规则接口"""
@@ -115,6 +112,7 @@ class MarketRule(ABC):
         return False
 
     def round_volume(self, code: str, volume: int) -> int:
+
         """将下单量调整为合法手数"""
         lot = self.lot_size(code)
         return (volume // lot) * lot
@@ -184,6 +182,10 @@ class MarketRule(ABC):
             return "limit_down"
         return None
 
+
+
+# ── A 股规则 ──
+
     def is_bar_tradable(self, code: str, *, open_price: Any, close_price: Any, volume: Any, **kwargs: Any) -> bool:
         return self.execution_block_reason(
             code,
@@ -193,9 +195,6 @@ class MarketRule(ABC):
             volume=volume,
             **kwargs,
         ) is None
-
-
-# ── A 股规则 ──
 
 class CNStockRule(MarketRule):
     """中国 A 股交易规则"""
@@ -250,7 +249,6 @@ class CNStockRule(MarketRule):
     def is_t_plus_1(self) -> bool:
         return True
 
-
 # ── 港股规则 ──
 
 class HKStockRule(MarketRule):
@@ -291,7 +289,6 @@ class HKStockRule(MarketRule):
 
     def is_t_plus_1(self) -> bool:
         return False  # 港股 T+0
-
 
 # ── 期货规则 ──
 
@@ -340,7 +337,6 @@ class FuturesRule(MarketRule):
     def is_t_plus_1(self) -> bool:
         return False  # 期货 T+0
 
-
 # ── 市场规则注册表 ──
 
 _RULES: dict[str, MarketRule] = {
@@ -348,7 +344,6 @@ _RULES: dict[str, MarketRule] = {
     "HK": HKStockRule(),
     "FUTURES": FuturesRule(),
 }
-
 
 def get_market_rule(market: str) -> MarketRule:
     """获取市场规则"""
@@ -358,7 +353,6 @@ def get_market_rule(market: str) -> MarketRule:
     if not rule:
         raise ValueError(f"未知市场: {market}，可用: {list(_RULES.keys())}")
     return rule
-
 
 def get_rule_for_code(code: str) -> MarketRule:
     """根据股票代码自动推断市场"""
@@ -375,7 +369,6 @@ def get_rule_for_code(code: str) -> MarketRule:
     if normalized.isalpha() or (len(normalized) > 6 and not normalized.isdigit()):
         return _RULES["FUTURES"]
     return _RULES["CN"]  # 默认 A 股
-
 
 def list_markets() -> list[dict]:
     """列出所有支持的市场"""

@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -17,14 +17,12 @@ from loguru import logger
 
 from config.datetime_utils import now_beijing
 
-
 @dataclass(frozen=True)
 class OrderBookLevel:
     """单档报价"""
     price: float
     volume: int       # 挂单量（手）
     order_count: int  # 委托笔数
-
 
 @dataclass(frozen=True)
 class OrderBook:
@@ -61,6 +59,10 @@ class OrderBook:
             "total_ask_volume": self.total_ask_volume,
         }
 
+
+
+
+
     @property
     def bid_ask_spread(self) -> float:
         """买卖价差"""
@@ -74,7 +76,6 @@ class OrderBook:
         if self.bids and self.asks:
             return round((self.bids[0].price + self.asks[0].price) / 2, 2)
         return self.last_price
-
 
 class OrderBookSimulator:
     """L2 十档行情模拟器
@@ -198,10 +199,8 @@ class OrderBookSimulator:
             total_ask_volume=sum(l.volume for l in asks),
         )
 
-
 # ── 全局单例 ──
 _l2_simulator: Optional[OrderBookSimulator] = None
-
 
 def get_l2_simulator() -> OrderBookSimulator:
     """获取 L2 模拟器单例"""

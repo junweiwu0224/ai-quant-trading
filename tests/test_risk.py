@@ -4,22 +4,19 @@ from datetime import date
 import pytest
 
 from risk.position import PositionLimit, PositionManager
-from risk.stoploss import StopLossConfig, StopLossManager, StopSignal
-from risk.monitor import AlertLevel, RiskMonitor
+from risk.stoploss import StopLossConfig, StopLossManager
+from risk.monitor import RiskMonitor
 from strategy.base import Portfolio
-
 
 @pytest.fixture
 def portfolio():
     """初始投资组合"""
     return Portfolio(cash=1_000_000.0)
 
-
 @pytest.fixture
 def prices():
     """股票价格"""
     return {"000001": 10.0, "000002": 20.0, "600519": 1800.0}
-
 
 # ── 仓位管理测试 ──
 
@@ -107,7 +104,6 @@ class TestPositionManager:
         mgr = PositionManager()
         vol = mgr.calc_volatility_position(10.0, 0.0, 1_000_000)
         assert vol == 0
-
 
 # ── 止损止盈测试 ──
 
@@ -222,7 +218,6 @@ class TestStopLossManager:
         mgr.update_equity(date(2024, 1, 2), 970_000)
         signal = mgr.check_daily_loss(960_000)
         assert signal is None  # 1% < 3%
-
 
 # ── 风险监控测试 ──
 

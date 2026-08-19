@@ -1,7 +1,6 @@
 """PDF 回测报告生成器"""
 import io
-from datetime import datetime
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.datetime_utils import now_beijing
 from typing import Any
 
 from reportlab.lib import colors
@@ -10,10 +9,9 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    Image, PageBreak, HRFlowable,
+    HRFlowable,
 )
-from reportlab.graphics.shapes import Drawing, Line
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER
 
 
 def generate_backtest_report(data: dict[str, Any]) -> bytes:

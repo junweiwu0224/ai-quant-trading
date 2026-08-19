@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.datetime_utils import now_beijing, now_beijing_iso
 from engine.models import (
     Direction, EquityCurvePoint, PaperTrade, PerformanceMetrics
 )
@@ -13,7 +13,6 @@ from utils.db import get_connection
 
 DEFAULT_DB_PATH = str(PROJECT_ROOT / "data" / "paper_trading.db")
 MAX_DISPLAY_RATIO = 1000
-
 
 class PerformanceAnalyzer:
     """绩效分析器"""
@@ -205,6 +204,7 @@ class PerformanceAnalyzer:
             conn.close()
 
     def save_equity_point(self, point: EquityCurvePoint):
+
         """保存资金曲线点"""
         conn = self._get_conn()
         try:

@@ -25,7 +25,6 @@ const ensembleForm = ref({ codes: '000001', start_date: '2023-01-01', end_date: 
 const ensembleSelection = ref<string[]>([])
 
 const isEditing = computed(() => Boolean(form.value.name))
-const customStrategies = computed(() => strategies.value.filter((item) => !item.builtin))
 
 function codes(value: string) {
   return [...new Set(value.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean))]

@@ -76,31 +76,6 @@ _SYSTEM_CHAT = """你是 AI Quant Trading 的 AI Research Copilot，一个面向
 - 如果用户问与量化投资无关的问题，简短回应后引导回市场研究、策略、数据或风控主题。"""
 
 
-# ── 可用字段描述（给 generate_filters 用） ──
-
-AVAILABLE_FIELDS = {
-    "code": "股票代码",
-    "name": "股票名称",
-    "industry": "所属行业",
-    "price": "最新价(元)",
-    "change_pct": "涨跌幅(%)",
-    "pe_ratio": "市盈率(动态)",
-    "pb_ratio": "市净率",
-    "roe": "净资产收益率(%)",
-    "market_cap": "总市值(亿元)",
-    "circulating_cap": "流通市值(亿元)",
-    "turnover_rate": "换手率(%)",
-    "volume_ratio": "量比",
-    "amplitude": "振幅(%)",
-    "high": "最高价",
-    "low": "最低价",
-    "open": "开盘价",
-    "prev_close": "昨收价",
-    "volume": "成交量(手)",
-    "amount": "成交额(万元)",
-}
-
-
 async def generate_filters(description: str) -> list[dict]:
     """自然语言 → 选股条件 JSON 列表
 
@@ -191,19 +166,6 @@ async def chat(
     messages.append({"role": "user", "content": user_message})
 
     return chat_completion_stream(messages, temperature=0.7)
-
-
-async def chat_sync(
-    user_message: str,
-    history: list[dict[str, str]] | None = None,
-) -> str:
-    """通用量化对话（非流式，返回完整文本）"""
-    messages = [{"role": "system", "content": _SYSTEM_CHAT}]
-    if history:
-        messages.extend(history[-20:])
-    messages.append({"role": "user", "content": user_message})
-
-    return await chat_completion(messages, temperature=0.7)
 
 
 # ── 策略代码生成 + 回测诊断 ──

@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from loguru import logger
+
 
 
 @dataclass(frozen=True)

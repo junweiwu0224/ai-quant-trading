@@ -11,10 +11,8 @@ from agentic.operations import OperationConflict, OperationRecord, normalize_ope
 from config.settings import DB_DIR
 from utils.db import get_connection
 
-
 DEFAULT_WORKSPACE_ID = "default"
 WORKSPACE_ID_MAX_LENGTH = 128
-
 
 def normalize_workspace_id(workspace_id: str | None) -> str:
     """Return a stable, non-empty workspace key suitable for routing/storage."""
@@ -26,13 +24,11 @@ def normalize_workspace_id(workspace_id: str | None) -> str:
         raise ValueError("invalid workspace id")
     return value
 
-
 def _workspace_file_stem(workspace_id: str) -> str:
     normalized = normalize_workspace_id(workspace_id)
     readable = re.sub(r"[^A-Za-z0-9_-]+", "-", normalized).strip("-_") or "workspace"
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
     return f"{readable[:64]}-{digest}"
-
 
 def agentic_db_path(workspace_id: str | None, base_dir: str | Path = DB_DIR) -> Path:
     """Map a workspace to its isolated Agentic SQLite file.
@@ -49,7 +45,6 @@ def agentic_db_path(workspace_id: str | None, base_dir: str | Path = DB_DIR) -> 
         return root / "agentic.db"
     return root / "agentic" / f"{_workspace_file_stem(normalized)}.db"
 
-
 def paper_db_path(workspace_id: str | None, base_dir: str | Path | None = None) -> Path:
     """Map a workspace to the paper-order SQLite file used by Agentic paper flows."""
 
@@ -58,7 +53,6 @@ def paper_db_path(workspace_id: str | None, base_dir: str | Path | None = None) 
     if normalized == DEFAULT_WORKSPACE_ID:
         return root / "paper_trading.db"
     return root / "paper" / f"{_workspace_file_stem(normalized)}.db"
-
 
 class AgenticRepository:
     def __init__(self, db_path: str | Path, *, workspace_id: str | None = None):
@@ -1519,7 +1513,6 @@ class AgenticRepository:
             )
             return drafts
 
-
     def save_agentic_order_draft(self, draft: AgenticPaperOrderDraft) -> None:
         with get_connection(self.db_path) as conn:
             conn.execute(
@@ -1689,22 +1682,18 @@ class AgenticRepository:
             ).fetchall()
         return [_row_to_paper_strategy_candidate(row) for row in rows]
 
-
 def _to_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
-
 
 def _operation_now() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-
 def _from_json(value: str | None, default: Any) -> Any:
     if value is None:
         return default
     return json.loads(value)
-
 
 def _outcome_dimensions(
     source: str,
@@ -1741,7 +1730,6 @@ def _outcome_dimensions(
     )
     return str(source or "unknown"), str(profile), horizon, str(market_phase)
 
-
 def _accumulate_outcome_group(group: dict[str, Any], row: Any, metadata: dict[str, Any]) -> None:
     group["sample_count"] += 1
     for metric, key in (
@@ -1763,7 +1751,6 @@ def _accumulate_outcome_group(group: dict[str, Any], row: Any, metadata: dict[st
         result["sample_count"] += 1
         result["average"] = (result["average"] or 0.0) + float(row["max_drawdown"])
 
-
 def _finalize_outcome_group(group: dict[str, Any], min_samples: int) -> None:
     for metric in ("direction", "take_profit", "stop_loss", "executability"):
         result = group[metric]
@@ -1779,7 +1766,6 @@ def _finalize_outcome_group(group: dict[str, Any], min_samples: int) -> None:
     group["rank"] = None
     group["ranking_status"] = "ranked" if group["rankable"] else "insufficient_sample"
 
-
 def _row_to_agentic_order_draft(row: Any) -> AgenticPaperOrderDraft:
     return AgenticPaperOrderDraft(
         id=row["id"],
@@ -1793,7 +1779,6 @@ def _row_to_agentic_order_draft(row: Any) -> AgenticPaperOrderDraft:
         signal_reason=row["signal_reason"],
         created_at=row["created_at"],
     )
-
 
 def _row_to_paper_strategy_execution(row: Any) -> PaperStrategyExecution:
     return PaperStrategyExecution(
@@ -1809,7 +1794,6 @@ def _row_to_paper_strategy_execution(row: Any) -> PaperStrategyExecution:
         created_at=row["created_at"],
     )
 
-
 def _row_to_paper_strategy_candidate(row: Any) -> PaperStrategyCandidate:
     return PaperStrategyCandidate(
         id=row["id"],
@@ -1823,7 +1807,6 @@ def _row_to_paper_strategy_candidate(row: Any) -> PaperStrategyCandidate:
         requires_confirmation=bool(row["requires_confirmation"]),
         created_at=row["created_at"],
     )
-
 
 def _row_to_signal(row: Any) -> TradingSignal:
     metadata = _from_json(row["metadata"], {})
@@ -1864,7 +1847,6 @@ def _row_to_signal(row: Any) -> TradingSignal:
         model_metadata=decision.get("model_metadata") or {},
     )
 
-
 def _row_to_research_job(row: Any) -> ResearchJob:
     return ResearchJob(
         row["id"],
@@ -1884,7 +1866,6 @@ def _row_to_research_job(row: Any) -> ResearchJob:
         _from_json(row["decision_signal_json"], {}) if "decision_signal_json" in row.keys() else {},
     )
 
-
 def _row_to_daily_brief(row: Any) -> dict[str, Any]:
     return {
         "run_key": row["run_key"],
@@ -1898,7 +1879,6 @@ def _row_to_daily_brief(row: Any) -> dict[str, Any]:
         "report_count": int(row["report_count"] or 0),
         "markdown": row["markdown"] or "",
     }
-
 
 def _screening_run_from_row(row: Any) -> dict[str, Any]:
     return {

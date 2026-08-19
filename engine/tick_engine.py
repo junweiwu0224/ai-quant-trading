@@ -1,13 +1,11 @@
 """Tick 级回测引擎
 
-支持日线/分钟线多粒度回测。Tick 数据可从外部导入，
-也可以通过聚合器从分钟线生成更粗粒度的 Bar。
+支持日线/分钟线多粒度回测，并从日线数据模拟分钟级 Bar。
 """
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
-from datetime import date, datetime, time as dtime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, time as dtime
 from enum import Enum
 from typing import Optional
 
@@ -21,12 +19,10 @@ from risk.stoploss import StopLossManager
 from risk.monitor import RiskMonitor
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 
-
 # ── 数据模型 ──
 
 class BarPeriod(Enum):
     """K线周期"""
-    TICK = "tick"          # 逐笔
     MIN_1 = "1m"           # 1 分钟
     MIN_5 = "5m"           # 5 分钟
     MIN_15 = "15m"         # 15 分钟
@@ -38,7 +34,7 @@ class BarPeriod(Enum):
     def minutes(self) -> int:
         """周期对应的分钟数"""
         _map = {
-            "tick": 0, "1m": 1, "5m": 5, "15m": 15,
+            "1m": 1, "5m": 5, "15m": 15,
             "30m": 30, "60m": 60, "daily": 240,
         }
         return _map.get(self.value, 0)
@@ -46,32 +42,11 @@ class BarPeriod(Enum):
     @property
     def label(self) -> str:
         _map = {
-            "tick": "逐笔", "1m": "1分钟", "5m": "5分钟",
+            "1m": "1分钟", "5m": "5分钟",
             "15m": "15分钟", "30m": "30分钟", "60m": "60分钟",
             "daily": "日线",
         }
         return _map.get(self.value, self.value)
-
-
-@dataclass(frozen=True)
-class TickData:
-    """逐笔数据"""
-    code: str
-    datetime: datetime
-    price: float
-    volume: int
-    amount: float = 0.0
-    bid_price: float = 0.0       # 买一价
-    ask_price: float = 0.0       # 卖一价
-    bid_volume: int = 0          # 买一量
-    ask_volume: int = 0          # 卖一量
-
-    def __post_init__(self):
-        if self.price <= 0:
-            raise ValueError(f"Tick 价格必须为正: {self.price}")
-        if self.volume < 0:
-            raise ValueError(f"Tick 成交量不能为负: {self.volume}")
-
 
 @dataclass(frozen=True)
 class IntradayBar:
@@ -99,200 +74,6 @@ class IntradayBar:
             amount=self.amount,
         )
 
-
-# ── 聚合器 ──
-
-class TickAggregator:
-    """将 Tick 数据聚合为指定周期的 K 线"""
-
-    @staticmethod
-    def aggregate_ticks(ticks: list[TickData], period: BarPeriod) -> list[IntradayBar]:
-        """将 Tick 数据聚合为 K 线
-
-        Args:
-            ticks: 已按时间排序的 Tick 列表
-            period: 目标周期（1m/5m/15m/30m/60m）
-
-        Returns:
-            聚合后的 IntradayBar 列表
-        """
-        if not ticks or period == BarPeriod.TICK:
-            return []
-
-        if period == BarPeriod.DAILY:
-            return TickAggregator._aggregate_to_daily(ticks)
-
-        minutes = period.minutes
-        if minutes <= 0:
-            return []
-
-        bars: list[IntradayBar] = []
-        current_bucket: list[TickData] = []
-        bucket_start: Optional[datetime] = None
-
-        for tick in ticks:
-            # 计算当前 tick 所属的时间桶
-            tick_bucket = TickAggregator._floor_datetime(tick.datetime, minutes)
-
-            if bucket_start is None:
-                bucket_start = tick_bucket
-
-            if tick_bucket != bucket_start and current_bucket:
-                # 当前桶结束，生成 Bar
-                bar = TickAggregator._ticks_to_bar(
-                    current_bucket, bucket_start, period
-                )
-                if bar:
-                    bars.append(bar)
-                current_bucket = []
-                bucket_start = tick_bucket
-
-            current_bucket.append(tick)
-
-        # 最后一个桶
-        if current_bucket and bucket_start:
-            bar = TickAggregator._ticks_to_bar(
-                current_bucket, bucket_start, period
-            )
-            if bar:
-                bars.append(bar)
-
-        return bars
-
-    @staticmethod
-    def aggregate_bars(bars: list[IntradayBar], target_period: BarPeriod) -> list[IntradayBar]:
-        """将细粒度 K 线聚合为粗粒度（如 1m → 5m）
-
-        Args:
-            bars: 已排序的细粒度 IntradayBar
-            target_period: 目标周期
-
-        Returns:
-            聚合后的 IntradayBar 列表
-        """
-        if not bars:
-            return []
-
-        target_minutes = target_period.minutes
-        if target_minutes <= 0:
-            return []
-
-        result: list[IntradayBar] = []
-        current_bucket: list[IntradayBar] = []
-        bucket_start: Optional[datetime] = None
-
-        for bar in bars:
-            bar_bucket = TickAggregator._floor_datetime(bar.datetime, target_minutes)
-
-            if bucket_start is None:
-                bucket_start = bar_bucket
-
-            if bar_bucket != bucket_start and current_bucket:
-                merged = TickAggregator._merge_bars(
-                    current_bucket, bucket_start, target_period
-                )
-                if merged:
-                    result.append(merged)
-                current_bucket = []
-                bucket_start = bar_bucket
-
-            current_bucket.append(bar)
-
-        if current_bucket and bucket_start:
-            merged = TickAggregator._merge_bars(
-                current_bucket, bucket_start, target_period
-            )
-            if merged:
-                result.append(merged)
-
-        return result
-
-    @staticmethod
-    def _floor_datetime(dt: datetime, minutes: int) -> datetime:
-        """将时间向下取整到最近的分钟桶"""
-        total_minutes = dt.hour * 60 + dt.minute
-        floored = (total_minutes // minutes) * minutes
-        return dt.replace(
-            hour=floored // 60,
-            minute=floored % 60,
-            second=0,
-            microsecond=0,
-        )
-
-    @staticmethod
-    def _ticks_to_bar(
-        ticks: list[TickData], bucket_start: datetime, period: BarPeriod
-    ) -> Optional[IntradayBar]:
-        """将一批 Tick 聚合为一根 Bar"""
-        if not ticks:
-            return None
-
-        first = ticks[0]
-        code = first.code
-        prices = [t.price for t in ticks]
-        volumes = [t.volume for t in ticks]
-        amounts = [t.amount for t in ticks]
-
-        return IntradayBar(
-            code=code,
-            datetime=bucket_start,
-            open=prices[0],
-            high=max(prices),
-            low=min(prices),
-            close=prices[-1],
-            volume=sum(volumes),
-            amount=sum(amounts),
-            period=period,
-        )
-
-    @staticmethod
-    def _merge_bars(
-        bars: list[IntradayBar], bucket_start: datetime, period: BarPeriod
-    ) -> Optional[IntradayBar]:
-        """合并多根细粒度 Bar 为一根粗粒度 Bar"""
-        if not bars:
-            return None
-
-        return IntradayBar(
-            code=bars[0].code,
-            datetime=bucket_start,
-            open=bars[0].open,
-            high=max(b.high for b in bars),
-            low=min(b.low for b in bars),
-            close=bars[-1].close,
-            volume=sum(b.volume for b in bars),
-            amount=sum(b.amount for b in bars),
-            period=period,
-        )
-
-    @staticmethod
-    def _aggregate_to_daily(ticks: list[TickData]) -> list[IntradayBar]:
-        """将 Tick 聚合为日线"""
-        by_date: dict[date, list[TickData]] = {}
-        for tick in ticks:
-            d = tick.datetime.date()
-            by_date.setdefault(d, []).append(tick)
-
-        bars = []
-        for d in sorted(by_date.keys()):
-            day_ticks = by_date[d]
-            if not day_ticks:
-                continue
-            prices = [t.price for t in day_ticks]
-            bars.append(IntradayBar(
-                code=day_ticks[0].code,
-                datetime=datetime(d.year, d.month, d.day, 15, 0),
-                open=prices[0],
-                high=max(prices),
-                low=min(prices),
-                close=prices[-1],
-                volume=sum(t.volume for t in day_ticks),
-                amount=sum(t.amount for t in day_ticks),
-                period=BarPeriod.DAILY,
-            ))
-        return bars
-
-
 # ── Tick 级回测引擎 ──
 
 class TickBacktestEngine:
@@ -300,9 +81,9 @@ class TickBacktestEngine:
 
     核心思路：
     1. 从存储层加载数据（日线或分钟线）
-    2. 如果目标周期比数据源粗，通过聚合器合并
+    2. 分钟周期由日线数据生成可重复的模拟 Bar
     3. 使用与 BacktestEngine 相同的撮合和风控逻辑
-    4. Bar.date 统一使用 datetime.date()，Bar 的 datetime 信息保留在 IntradayBar 中
+    4. Bar.date 统一使用 datetime.date()
     """
 
     def __init__(
@@ -896,15 +677,3 @@ class TickBacktestEngine:
             risk_alerts=[],
             warmup_days=0,
         )
-
-    @staticmethod
-    def _trade_to_dict(trade: Trade) -> dict:
-        return {
-            "code": trade.code,
-            "direction": trade.direction.value,
-            "price": trade.price,
-            "volume": trade.volume,
-            "datetime": str(trade.datetime) if trade.datetime else None,
-            "entry_price": trade.entry_price,
-            "entry_date": str(trade.entry_date) if trade.entry_date else None,
-        }

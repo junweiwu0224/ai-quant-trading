@@ -147,7 +147,7 @@ export type AIChannelInput = Omit<AIProviderChannel, 'secret_available' | 'confi
   name: string
 }
 
-export interface AIWorkerStatus {
+export interface PiAgentWorkerStatus {
   owner_id?: string
   lease_name?: string
   healthy?: boolean
@@ -166,7 +166,7 @@ export interface AIStatusResponse {
     readiness?: AIProviderReadiness
     [key: string]: unknown
   }>
-  worker?: AIWorkerStatus | Record<string, unknown>
+  worker?: PiAgentWorkerStatus | Record<string, unknown>
   worker_enabled?: boolean
   decision_effect?: 'none' | string
   degradation_policy?: string
@@ -529,11 +529,6 @@ export interface AIStreamOptions<T = AIStreamEvent> {
 
 export interface AIChatStreamOptions extends AIStreamOptions<AIStreamEvent> {}
 
-export interface AIListResponse<T> {
-  items: T[]
-  [key: string]: unknown
-}
-
 export interface AIDeleteSessionResponse {
   deleted: boolean
   [key: string]: unknown
@@ -573,9 +568,6 @@ export function parseAiSseData(data: string): AIStreamEvent | null {
   }
   return { type: 'message', data: parsed }
 }
-
-// Upper-case alias keeps the helper discoverable for callers using SSE terminology.
-export const parseSSEData = parseAiSseData
 
 function parseSseFrame(frame: string): AIStreamEvent | null {
   let eventName = ''

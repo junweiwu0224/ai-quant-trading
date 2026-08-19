@@ -7,19 +7,19 @@ import pytest
 from ai_runtime import AIRuntime
 from ai_runtime.providers import ProviderRouter
 from ai_runtime.repository import AIRuntimeRepository
-from engine.ai_worker import AIWorker, ai_worker_enabled
+from engine.ai_worker import PiAgentWorker
 from engine.decision_worker import SQLiteWorkerLease, utc_now
 
 
 def _runtime(tmp_path) -> AIRuntime:
-    return AIRuntime(AIRuntimeRepository(tmp_path / "ai-worker-runtime.db"), provider_router=ProviderRouter([]))
+    return AIRuntime(AIRuntimeRepository(tmp_path / "pi-agent-worker-runtime.db"), provider_router=ProviderRouter([]))
 
 
-def test_ai_worker_acquires_an_exclusive_lease(tmp_path) -> None:
+def test_pi_agent_worker_acquires_an_exclusive_lease(tmp_path) -> None:
     runtime_one = _runtime(tmp_path)
-    runtime_two = AIRuntime(AIRuntimeRepository(tmp_path / "ai-worker-runtime.db"), provider_router=ProviderRouter([]))
-    worker_one = AIWorker(runtime_one, SQLiteWorkerLease(tmp_path / "worker-leases.db"), owner_id="ai-owner-a")
-    worker_two = AIWorker(runtime_two, SQLiteWorkerLease(tmp_path / "worker-leases.db"), owner_id="ai-owner-b")
+    runtime_two = AIRuntime(AIRuntimeRepository(tmp_path / "pi-agent-worker-runtime.db"), provider_router=ProviderRouter([]))
+    worker_one = PiAgentWorker(runtime_one, SQLiteWorkerLease(tmp_path / "worker-leases.db"), owner_id="pi-owner-a")
+    worker_two = PiAgentWorker(runtime_two, SQLiteWorkerLease(tmp_path / "worker-leases.db"), owner_id="pi-owner-b")
     try:
         assert worker_one.acquire() is True
         assert worker_two.acquire() is False
@@ -33,7 +33,7 @@ def test_ai_worker_acquires_an_exclusive_lease(tmp_path) -> None:
         worker_two.close()
 
 
-def test_ai_worker_tick_claims_and_completes_a_queued_task(tmp_path) -> None:
+def test_pi_agent_worker_tick_claims_and_completes_a_queued_task(tmp_path) -> None:
     runtime = _runtime(tmp_path)
     task, _ = runtime.submit_task(
         workspace_id="workspace-1",
@@ -41,10 +41,10 @@ def test_ai_worker_tick_claims_and_completes_a_queued_task(tmp_path) -> None:
         profile="quick",
         request={"question": "fixture"},
     )
-    worker = AIWorker(
+    worker = PiAgentWorker(
         runtime,
         SQLiteWorkerLease(tmp_path / "worker-leases.db"),
-        owner_id="ai-owner",
+        owner_id="pi-owner",
         batch_size=1,
     )
     try:
@@ -62,15 +62,15 @@ def test_ai_worker_tick_claims_and_completes_a_queued_task(tmp_path) -> None:
         worker.close()
 
 
-def test_ai_worker_rejects_a_reclaimed_fence_before_publishing_work(tmp_path) -> None:
+def test_pi_agent_worker_rejects_a_reclaimed_fence_before_publishing_work(tmp_path) -> None:
     runtime = _runtime(tmp_path)
     primary_lease = SQLiteWorkerLease(tmp_path / "worker-leases.db", lease_name="ai-worker")
     replacement_lease = SQLiteWorkerLease(tmp_path / "worker-leases.db", lease_name="ai-worker")
-    worker = AIWorker(runtime, primary_lease, owner_id="ai-owner-a", lease_ttl_seconds=30)
+    worker = PiAgentWorker(runtime, primary_lease, owner_id="pi-owner-a", lease_ttl_seconds=30)
     try:
         assert worker.acquire() is True
         replacement = replacement_lease.acquire(
-            "ai-owner-b",
+            "pi-owner-b",
             ttl_seconds=30,
             now=utc_now() + timedelta(seconds=31),
         )
@@ -86,19 +86,19 @@ def test_ai_worker_rejects_a_reclaimed_fence_before_publishing_work(tmp_path) ->
         replacement_lease.close()
 
 
-def test_ai_worker_tick_aborts_when_lease_is_reclaimed_during_processing(tmp_path) -> None:
+def test_pi_agent_worker_tick_aborts_when_lease_is_reclaimed_during_processing(tmp_path) -> None:
     runtime = _runtime(tmp_path)
     replacement_lease = SQLiteWorkerLease(tmp_path / "worker-leases.db", lease_name="ai-worker")
-    worker = AIWorker(
+    worker = PiAgentWorker(
         runtime,
         SQLiteWorkerLease(tmp_path / "worker-leases.db", lease_name="ai-worker"),
-        owner_id="ai-owner-a",
+        owner_id="pi-owner-a",
         lease_ttl_seconds=30,
     )
 
     def steal_fence(**_kwargs):
         replacement = replacement_lease.acquire(
-            "ai-owner-b",
+            "pi-owner-b",
             ttl_seconds=30,
             now=utc_now() + timedelta(seconds=31),
         )
@@ -114,13 +114,3 @@ def test_ai_worker_tick_aborts_when_lease_is_reclaimed_during_processing(tmp_pat
     finally:
         worker.close()
         replacement_lease.close()
-
-
-def test_ai_worker_requires_an_explicit_enabled_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("AI_WORKER_ENABLED", raising=False)
-    assert ai_worker_enabled() is False
-
-    monkeypatch.setenv("AI_WORKER_ENABLED", "false")
-    assert ai_worker_enabled() is False
-    monkeypatch.setenv("AI_WORKER_ENABLED", "true")
-    assert ai_worker_enabled() is True

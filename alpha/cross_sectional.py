@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+
 from pathlib import Path
 from typing import Optional
 
@@ -19,8 +19,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from alpha.screener import _fetch_market_stocks, _DIV100_FIELDS, _DIV1E8_FIELDS
-
+from alpha.screener import _fetch_market_stocks
 
 # ── 常量 ──
 
@@ -38,7 +37,6 @@ _CROSS_SECTIONAL_FEATURES = [
 _LABEL_COL = "label"
 _TOP_QUANTILE = 0.3   # 正样本：未来收益排名前 30%
 _BOTTOM_QUANTILE = 0.3  # 负样本：未来收益排名后 30%
-
 
 # ── 数据类 ──
 
@@ -63,7 +61,6 @@ class PredictionResult:
             "risk_score": round(self.risk_score, 4),
             "key_factors": {k: round(v, 4) for k, v in self.key_factors.items()},
         }
-
 
 # ── 工具函数 ──
 
@@ -106,7 +103,6 @@ def _compute_cross_sectional_features(stocks: list[dict]) -> pd.DataFrame:
     feature_cols = [c for c in _CROSS_SECTIONAL_FEATURES if c in df.columns]
     return df[feature_cols].replace([np.inf, -np.inf], np.nan)
 
-
 def _compute_labels(stocks: list[dict], forward_days: int = 5) -> pd.Series:
     """基于截面收益排名生成标签
 
@@ -128,7 +124,6 @@ def _compute_labels(stocks: list[dict], forward_days: int = 5) -> pd.Series:
     labels[ret <= bottom_threshold] = 0.0
 
     return labels.dropna()
-
 
 # ── 核心类 ──
 
@@ -329,6 +324,7 @@ class CrossSectionalPipeline:
         return imp.head(15).to_dict("records")
 
     def walk_forward_validate(
+
         self,
         codes: list[str],
         start_date: str,

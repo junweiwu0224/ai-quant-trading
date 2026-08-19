@@ -1,6 +1,6 @@
 """AI Alpha API — 全功能版"""
 import hashlib
-from datetime import date, datetime
+
 from pathlib import Path
 from typing import Optional
 
@@ -13,9 +13,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from alpha.feature_pipeline import FeaturePipeline
-from alpha.models.lightgbm_model import LGBConfig, LGBModel
-from alpha.models.xgb_model import XGBConfig, XGBModel
-from alpha.models.ensemble_model import EnsembleModel, EnsembleConfig
+from alpha.models.lightgbm_model import LGBModel
+from alpha.models.xgb_model import XGBModel
+from alpha.models.ensemble_model import EnsembleModel
 from alpha.evaluator import StrategyEvaluator
 from alpha.optimizer import HyperOptimizer, ModelType
 from alpha.basket import BasketBuilder
@@ -41,13 +41,6 @@ class PredictRequest(BaseModel):
     model_type: str = "lightgbm"
     buy_threshold: float = 0.6
     sell_threshold: float = 0.4
-
-
-class TrainRequest(BaseModel):
-    code: str = "000001"
-    start_date: str = "2023-01-01"
-    end_date: str = "2024-12-31"
-    model_type: str = "lightgbm"
 
 
 class PerformanceRequest(BaseModel):

@@ -1,6 +1,6 @@
 """回测指标计算工具模块"""
 from collections import defaultdict
-from typing import Optional
+
 
 from strategy.base import Direction, Trade
 
@@ -99,7 +99,7 @@ def calc_per_stock_pnl(trades: list[Trade]) -> list[dict]:
 
 def calc_holding_period_stats(trades: list[Trade]) -> dict:
     """计算持仓周期统计"""
-    from datetime import timedelta
+
     sell_trades = [t for t in trades if t.direction == Direction.SHORT and t.entry_date]
     if not sell_trades:
         return {"avg": 0, "median": 0, "max": 0, "min": 0}

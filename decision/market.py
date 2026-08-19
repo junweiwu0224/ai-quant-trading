@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 from data.markets import MARKET_ADAPTERS as CANONICAL_MARKETS
 from data.markets import MarketAdapter as CanonicalMarketAdapter
-from data.markets import MarketCode, ProviderHealth
+from data.markets import ProviderHealth
 
 
 @dataclass(frozen=True)

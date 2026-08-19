@@ -13,7 +13,7 @@ from loguru import logger
 from sqlalchemy import Column, Date, Float, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-from config.settings import DB_PATH, DB_URL
+from config.settings import DB_URL
 from utils.db import get_connection
 
 Base = declarative_base()
@@ -1848,10 +1848,6 @@ class DataStorage:
             session.close()
 
     # ── 自选股管理 ──
-
-    def _next_watchlist_id(self, session) -> int:
-        row = session.execute(text("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM user_watchlist")).mappings().first()
-        return int(row["next_id"]) if row and row["next_id"] else 1
 
     def add_to_watchlist(self, code: str, workspace_id: str = "") -> bool:
         """添加自选股，返回是否新增（False=已存在）"""

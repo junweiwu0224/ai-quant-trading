@@ -14,7 +14,7 @@ import pandas as pd
 from loguru import logger
 
 from alpha.factors.technical import TechnicalFactors
-from alpha.factors.fundamental import FundamentalFactors, RealFundamentalFactors
+from alpha.factors.fundamental import FundamentalFactors
 
 
 class FeaturePipeline:

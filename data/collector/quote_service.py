@@ -17,11 +17,10 @@ from typing import Callable, Optional
 from loguru import logger
 
 from data.collector.cache import TTLCache
-from data.collector.data_source import DataSource, Quote
+from data.collector.data_source import DataSource
 from data.collector.http_client import calculate_limit_prices, code_to_secid, fetch_json, get_client, normalize_stock_code
 from data.providers.astock_data_adapter import AStockDataAdapter, fetch_concepts_batch, fetch_industry_batch, fetch_kline
 from config.settings import DATA_SOURCE_MODE
-
 
 @dataclass(frozen=True)
 class QuoteData:
@@ -71,7 +70,6 @@ class QuoteData:
     outer_volume: float = 0.0
     inner_volume: float = 0.0
 
-
 # ── 财务数据 TTL 缓存（30 分钟）──
 _financial_cache = TTLCache(max_size=200)
 
@@ -81,7 +79,6 @@ _industry_cache = TTLCache(max_size=2000)
 # ── 高频降级日志节流 ──
 _last_mootdx_fallback_log = 0.0
 _stock_info_cache: dict[str, dict] | None = None
-
 
 def _run_provider_call(coro_factory):
     """Run an async provider method from sync service code."""
@@ -108,7 +105,6 @@ def _run_provider_call(coro_factory):
         raise result["error"]
     return result.get("value")
 
-
 def _safe_number(value, default: float = 0.0) -> float:
     if value in (None, "", "-", "--"):
         return default
@@ -116,7 +112,6 @@ def _safe_number(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
-
 
 def _provider_quote_to_quote_data(raw_quote, stock_info: dict[str, dict] | None = None) -> QuoteData | None:
     if isinstance(raw_quote, QuoteData):
@@ -150,7 +145,6 @@ def _provider_quote_to_quote_data(raw_quote, stock_info: dict[str, dict] | None 
         limit_down=limit_down,
     )
 
-
 def _fetch_batch_quotes_provider(
     codes: list[str],
     provider: DataSource,
@@ -182,7 +176,6 @@ def _fetch_batch_quotes_provider(
         _enrich_with_industry(result, active_codes)
     return result
 
-
 def _load_stock_info_map() -> dict[str, dict]:
     """从 DB 加载股票名称和行业信息（模块级补全用）"""
     global _stock_info_cache
@@ -204,7 +197,6 @@ def _load_stock_info_map() -> dict[str, dict]:
         _stock_info_cache = {}
     return _stock_info_cache
 
-
 def _log_mootdx_fallback(count: int) -> None:
     global _last_mootdx_fallback_log
     now = time.time()
@@ -212,7 +204,6 @@ def _log_mootdx_fallback(count: int) -> None:
         return
     _last_mootdx_fallback_log = now
     logger.warning(f"mootdx 部分行情缺失，回退 push2delay({count}只)")
-
 
 def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
     """获取内外盘数据（push2delay stock/get，当前 502，优雅降级返回 0）"""
@@ -231,7 +222,6 @@ def _fetch_inner_outer_volume(code: str) -> tuple[float, float]:
         return float(d.get("f164", 0) or 0) / 100, float(d.get("f165", 0) or 0) / 100
     except Exception:
         return 0.0, 0.0
-
 
 def _fetch_batch_quotes_mootdx(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:
     """通过 mootdx 批量获取行情（新数据源主路径）"""
@@ -295,7 +285,6 @@ def _fetch_batch_quotes_mootdx(codes: list[str], stock_info: dict[str, dict] | N
         logger.debug(f"mootdx 行情获取失败: {e}")
         return {}
 
-
 def _fetch_financial_data_mootdx(code: str) -> dict:
     """通过 mootdx 获取财务数据（新数据源路径）"""
     hit, cached = _financial_cache.get(f"fin:{code}")
@@ -348,7 +337,6 @@ def _fetch_financial_data_mootdx(code: str) -> dict:
     _financial_cache.set(f"fin:{code}", result, ttl=1800)
     return result
 
-
 def _fetch_batch_quotes_push2(codes: list[str]) -> dict[str, QuoteData]:
     """通过 push2delay 为缺失股票逐只补位行情（备用）"""
     if not codes:
@@ -360,8 +348,6 @@ def _fetch_batch_quotes_push2(codes: list[str]) -> dict[str, QuoteData]:
         if quote:
             result[code] = quote
     return result
-
-
 
 def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
     """从东方财富 push2delay API 获取单只股票行情（备用）"""
@@ -423,7 +409,6 @@ def _fetch_single_quote_push2(code: str) -> Optional[QuoteData]:
         logger.debug(f"获取 {code} push2行情失败: {e}")
         return None
 
-
 def _fetch_financial_data(code: str, provider: DataSource | None = None) -> dict:
     """获取股票财务数据（根据 DATA_SOURCE_MODE 选择数据源）"""
     normalized = normalize_stock_code(code)
@@ -451,7 +436,6 @@ def _fetch_financial_data(code: str, provider: DataSource | None = None) -> dict
 
     _financial_cache.set(f"fin:{normalized}", result, ttl=1800)
     return result
-
 
 def _fetch_financial_data_legacy(code: str) -> dict:
     """通过东方财富获取财务数据（legacy 模式）"""
@@ -543,7 +527,6 @@ def _fetch_financial_data_legacy(code: str) -> dict:
 
     return result
 
-
 def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
     """用 DB 数据 + datacenter 批量 API + push2delay 补充行业/板块/概念"""
     # 从缓存查找
@@ -578,7 +561,6 @@ def _enrich_with_industry(result: dict[str, QuoteData], codes: list[str]):
         q = result[code]
         result[code] = QuoteData(**{**q.__dict__, **merged})
         _industry_cache.set(f"ind:{code}", merged, ttl=86400)
-
 
 def _enrich_with_tencent(result: dict[str, QuoteData], codes: list[str]):
     """用腾讯财经数据补充 PE/PB/市值/换手率/涨跌停价（mootdx 不提供这些字段）
@@ -660,7 +642,6 @@ def _enrich_with_tencent(result: dict[str, QuoteData], codes: list[str]):
     except Exception as e:
         logger.debug(f"腾讯行情补充异常: {e}")
 
-
 def _fetch_batch_quotes(codes: list[str], stock_info: dict[str, dict] | None = None) -> dict[str, QuoteData]:
     """批量获取行情（mootdx 主源，腾讯和行业数据补充，push2delay 备用）"""
     valid_codes = [code for code in (normalize_stock_code(c) for c in codes) if code]
@@ -680,8 +661,6 @@ def _fetch_batch_quotes(codes: list[str], stock_info: dict[str, dict] | None = N
         _enrich_with_industry(result, active_codes)
     return result
 
-
-
 def _fetch_single_quote(code: str) -> Optional[QuoteData]:
     """获取单只股票行情（复用批量主路径并补充财务数据）"""
     normalized = normalize_stock_code(code)
@@ -697,7 +676,6 @@ def _fetch_single_quote(code: str) -> Optional[QuoteData]:
     if fin:
         return _merge_financial(quote, fin)
     return quote
-
 
 def _merge_financial(quote: QuoteData, fin: dict) -> QuoteData:
     """合并财务数据到 QuoteData"""
@@ -725,7 +703,6 @@ def _merge_financial(quote: QuoteData, fin: dict) -> QuoteData:
            }
     )
 
-
 def get_financial_cache(code: str) -> dict | None:
     """获取预缓存的财务数据（供 stock_detail 等外部模块使用）"""
     normalized = normalize_stock_code(code)
@@ -733,7 +710,6 @@ def get_financial_cache(code: str) -> dict | None:
         return None
     hit, cached = _financial_cache.get(f"fin:{normalized}")
     return cached if hit else None
-
 
 class QuoteService:
     """后台实时行情服务（单例）
@@ -951,6 +927,7 @@ class QuoteService:
             return {c: q.price for c, q in self._cache.items()}
 
     def get_financial_data(self, code: str) -> dict | None:
+
         """获取预缓存的财务数据"""
         return get_financial_cache(code)
 
@@ -1078,11 +1055,9 @@ class QuoteService:
 
         logger.info(f"财务数据刷新完成: 成功 {success}, 失败 {fail}, 共 {len(codes)} 只")
 
-
 # ── 全局单例 ──
 _quote_service: Optional[QuoteService] = None
 _service_lock = threading.Lock()
-
 
 def get_quote_service(interval: float = 5.0) -> QuoteService:
     """获取全局行情服务单例（线程安全）"""

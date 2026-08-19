@@ -1,13 +1,12 @@
 """模拟盘数据模型"""
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime
 from enum import Enum
-from pathlib import Path
+
 from typing import Optional
 
 from config.settings import PROJECT_ROOT
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
-
+from config.datetime_utils import now_beijing
 
 class Direction(Enum):
     """交易方向"""
@@ -31,14 +30,12 @@ class Direction(Enum):
 
         raise ValueError(f"{value!r} is not a valid Direction")
 
-
 class OrderType(Enum):
     """订单类型"""
     MARKET = "market"           # 市价单
     LIMIT = "limit"             # 限价单
     STOP_LOSS = "stop_loss"     # 止损单
     TAKE_PROFIT = "take_profit" # 止盈单
-
 
 class OrderStatus(Enum):
     """订单状态"""
@@ -47,7 +44,6 @@ class OrderStatus(Enum):
     PARTIAL = "partial"      # 部分成交
     CANCELLED = "cancelled"  # 已撤销
     REJECTED = "rejected"    # 已拒绝
-
 
 @dataclass
 class PaperOrder:
@@ -70,6 +66,7 @@ class PaperOrder:
     updated_at: datetime = field(default_factory=now_beijing)
 
     def to_dict(self) -> dict:
+
         return {
             "order_id": self.order_id,
             "code": self.code,
@@ -88,7 +85,6 @@ class PaperOrder:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
-
 
 @dataclass
 class PaperPosition:
@@ -131,7 +127,6 @@ class PaperPosition:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
-
 @dataclass
 class PaperTrade:
     """增强版交易记录"""
@@ -169,7 +164,6 @@ class PaperTrade:
             "signal_reason": self.signal_reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
-
 
 @dataclass
 class PerformanceMetrics:
@@ -217,7 +211,6 @@ class PerformanceMetrics:
             "information_ratio": round(self.information_ratio, 4),
         }
 
-
 @dataclass
 class EquityCurvePoint:
     """资金曲线点"""
@@ -238,7 +231,6 @@ class EquityCurvePoint:
             "drawdown": round(self.drawdown, 4),
         }
 
-
 @dataclass
 class RiskEvent:
     """风控事件"""
@@ -258,7 +250,6 @@ class RiskEvent:
             "reason": self.reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
-
 
 @dataclass
 class PaperConfig:

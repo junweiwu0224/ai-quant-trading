@@ -588,26 +588,6 @@ async function submitTask(runNow = false) {
   }
 }
 
-async function runQuickSkill(skill: QuickSkill) {
-  taskMessage.value = ''
-  taskSubmitting.value = true
-  try {
-    const response = await skill.run({ context: snapshot.value, query: taskQuestion.value.trim(), question: taskQuestion.value.trim() })
-    activeTask.value = response.task
-    activeTaskId.value = response.task.id
-    taskKind.value = skill.kind
-    taskProfile.value = skill.profile
-    taskMessage.value = response.execution === 'inline' ? `${skill.name} 已完成当前进程运行。` : `${skill.name} 已提交。`
-    activeTab.value = 'tasks'
-    await loadTasks()
-    await loadTask(response.task.id)
-  } catch (reason) {
-    taskMessage.value = reason instanceof Error ? reason.message : `${skill.name} 运行失败`
-  } finally {
-    taskSubmitting.value = false
-  }
-}
-
 async function loadTasks() {
   try {
     const response = await api.aiTasks({ limit: 100 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ArrowLeft, Edit3, Plus, RefreshCw, Save, ShieldCheck, Trash2, X } from 'lucide-vue-next'
+import { ArrowLeft, Edit3, RefreshCw, Save, ShieldCheck, Trash2, X } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
 import BrokerDisableGuard from '../components/guards/BrokerDisableGuard.vue'

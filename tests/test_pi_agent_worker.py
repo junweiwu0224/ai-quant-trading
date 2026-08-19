@@ -7,7 +7,7 @@ import pytest
 
 from ai_runtime.models import GenerationError, GenerationErrorCode, ProviderChannel
 from ai_runtime.providers import PiAgentProvider
-from engine.ai_worker import PiAgentWorker, ai_worker_enabled, pi_agent_worker_enabled
+from engine.ai_worker import PiAgentWorker, pi_agent_worker_enabled
 
 
 def test_pi_agent_provider_runs_without_tools_or_project_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,14 +70,11 @@ def test_pi_agent_worker_forces_the_pi_router(monkeypatch: pytest.MonkeyPatch, t
         worker.close()
 
 
-def test_pi_agent_worker_requires_explicit_new_or_legacy_enable_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pi_agent_worker_requires_explicit_enable_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PI_AGENT_WORKER_ENABLED", raising=False)
-    monkeypatch.delenv("AI_WORKER_ENABLED", raising=False)
     assert pi_agent_worker_enabled() is False
-    assert ai_worker_enabled() is False
 
-    monkeypatch.setenv("AI_WORKER_ENABLED", "true")
+    monkeypatch.setenv("PI_AGENT_WORKER_ENABLED", "true")
     assert pi_agent_worker_enabled() is True
-
     monkeypatch.setenv("PI_AGENT_WORKER_ENABLED", "false")
     assert pi_agent_worker_enabled() is False

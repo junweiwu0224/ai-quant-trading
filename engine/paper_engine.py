@@ -1,15 +1,14 @@
 """模拟盘引擎"""
 import json
 import time
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
 
-from config.settings import LOG_DIR, PROJECT_ROOT
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.settings import LOG_DIR
+from config.datetime_utils import now_beijing, now_beijing_iso
 from utils.db import get_connection
 
 
@@ -21,7 +20,7 @@ def _is_trading_hours() -> bool:
     t = now.hour * 60 + now.minute
     return (570 <= t <= 690) or (780 <= t <= 900)  # 9:30-11:30, 13:00-15:00
 from data.collector.quote_service import QuoteData, get_quote_service
-from engine.backtest_engine import BacktestConfig
+
 from engine.models import EquityCurvePoint, PaperConfig as NewPaperConfig
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer

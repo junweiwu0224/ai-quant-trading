@@ -1,4 +1,4 @@
-"""User, workspace, permission, audit, and Agent metadata storage."""
+"""User, workspace, permission, and audit storage."""
 from __future__ import annotations
 
 import hashlib
@@ -18,25 +18,17 @@ from loguru import logger
 from config.settings import ACCOUNT_DB_PATH, parse_bool
 from utils.db import get_connection
 
-
 INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 INVITE_CODE_LEN = 6
 SESSION_DAYS = 14
 
 DEFAULT_PERMISSIONS = {
-    "chat": True,
-    "read_market": True,
-    "read_portfolio": True,
-    "write_watchlist": True,
-    "write_paper_trade": True,
-    "manage_skills": True,
     "manage_workspace": True,
     "admin": False,
 }
 
 ADMIN_PERMISSIONS = {key: True for key in DEFAULT_PERMISSIONS}
 DEFAULT_WORKSPACE_SETTINGS = {
-    "native_panel_mode": "iframe",
     "daily_research_enabled": True,
     "screening_enabled": True,
     "daily_brief_notifications_enabled": False,
@@ -44,37 +36,26 @@ DEFAULT_WORKSPACE_SETTINGS = {
     # verified preview, validated history, healthy data, and tested targets.
     "decision_worker_enabled": False,
     "decision_auto_push_enabled": False,
-    "tool_confirmations": {
-        "write_paper_trade": True,
-        "manage_skills": True,
-        "write_watchlist": True,
-    },
 }
-
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
-
 def iso_now() -> str:
     return utc_now().isoformat()
-
 
 def normalize_invite_code(code: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9]", "", code or "").upper()
     return cleaned[:INVITE_CODE_LEN]
 
-
 def generate_invite_code() -> str:
     return "".join(secrets.choice(INVITE_CHARS) for _ in range(INVITE_CODE_LEN))
-
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     iterations = 240_000
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
-
 
 def verify_password(password: str, stored_hash: str) -> bool:
     try:
@@ -91,19 +72,15 @@ def verify_password(password: str, stored_hash: str) -> bool:
     except Exception:
         return False
 
-
 def hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
 
 def hash_invite_code(code: str) -> str:
     return hashlib.sha256(normalize_invite_code(code).encode("utf-8")).hexdigest()
 
-
 def mask_invite_code(code: str) -> str:
     normalized = normalize_invite_code(code)
     return f"{normalized[:2]}****" if normalized else "****"
-
 
 def safe_json_loads(value: str | None, default: Any) -> Any:
     if not value:
@@ -112,7 +89,6 @@ def safe_json_loads(value: str | None, default: Any) -> Any:
         return json.loads(value)
     except Exception:
         return default
-
 
 class AccountStore:
     """SQLite-backed account store kept separate from market data storage."""
@@ -207,69 +183,12 @@ class AccountStore:
                     created_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS research_memories (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    workspace_id TEXT NOT NULL,
-                    code TEXT NOT NULL DEFAULT '',
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    tags_json TEXT NOT NULL DEFAULT '[]',
-                    source TEXT NOT NULL DEFAULT 'manual',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS daily_reports (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    workspace_id TEXT NOT NULL,
-                    trade_date TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    content_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    UNIQUE (workspace_id, trade_date)
-                );
-
-                CREATE TABLE IF NOT EXISTS agent_skill_records (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    version TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'installed',
-                    source TEXT NOT NULL DEFAULT '',
-                    permissions_json TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE (workspace_id, name)
-                );
-
-                CREATE TABLE IF NOT EXISTS skill_install_requests (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    skill_name TEXT NOT NULL,
-                    version TEXT NOT NULL DEFAULT '',
-                    source TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    reason TEXT NOT NULL DEFAULT '',
-                    note TEXT NOT NULL DEFAULT '',
-                    decided_by_user_id TEXT,
-                    decided_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
                 CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created
                     ON audit_logs(workspace_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_research_memories_workspace_updated
-                    ON research_memories(workspace_id, updated_at DESC);
                 """
             )
             self._migrate_workspace_schema(conn)
-            self._migrate_agent_skill_schema(conn)
             self._migrate_invite_schema(conn)
-            self._migrate_skill_request_schema(conn)
             self._clean_workspace_settings(conn)
             conn.commit()
             self._bootstrap_invite_code(conn)
@@ -306,28 +225,6 @@ class AccountStore:
         )
         conn.execute("DROP TABLE user_workspaces")
         conn.execute("ALTER TABLE user_workspaces_new RENAME TO user_workspaces")
-
-    def _migrate_agent_skill_schema(self, conn) -> None:
-        """Preserve historical skill records while removing retired table names."""
-
-        tables = {
-            row["name"]
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-        retired_tables = sorted(
-            name for name in tables
-            if name.endswith("_skill_records") and name != "agent_skill_records"
-        )
-        for table in retired_tables:
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
-                continue
-            conn.execute(
-                f"""INSERT OR IGNORE INTO agent_skill_records
-                (id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at)
-                SELECT id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at
-                FROM \"{table}\""""
-            )
-            conn.execute(f'DROP TABLE "{table}"')
 
     def _clean_workspace_settings(self, conn) -> None:
         for row in conn.execute("SELECT id, settings_json FROM user_workspaces").fetchall():
@@ -427,24 +324,6 @@ class AccountStore:
             if "reason" not in usage_columns:
                 conn.execute("ALTER TABLE invite_code_usages ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
 
-    def _migrate_skill_request_schema(self, conn) -> None:
-        columns = self._table_columns(conn, "skill_install_requests")
-        if not columns:
-            return
-        for column, ddl in {
-            "version": "ALTER TABLE skill_install_requests ADD COLUMN version TEXT NOT NULL DEFAULT ''",
-            "source": "ALTER TABLE skill_install_requests ADD COLUMN source TEXT NOT NULL DEFAULT ''",
-            "status": "ALTER TABLE skill_install_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
-            "reason": "ALTER TABLE skill_install_requests ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
-            "note": "ALTER TABLE skill_install_requests ADD COLUMN note TEXT NOT NULL DEFAULT ''",
-            "decided_by_user_id": "ALTER TABLE skill_install_requests ADD COLUMN decided_by_user_id TEXT",
-            "decided_at": "ALTER TABLE skill_install_requests ADD COLUMN decided_at TEXT",
-            "created_at": "ALTER TABLE skill_install_requests ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
-            "updated_at": "ALTER TABLE skill_install_requests ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
-        }.items():
-            if column not in columns:
-                conn.execute(ddl)
-
     def _bootstrap_invite_code(self, conn) -> None:
         row = conn.execute("SELECT COUNT(*) FROM invite_codes").fetchone()
         if row and row[0] > 0:
@@ -499,22 +378,12 @@ class AccountStore:
     def _normalize_workspace_settings(self, settings: dict[str, Any] | None) -> dict[str, Any]:
         source = dict(settings or {})
         for key in tuple(source):
-            if key == "vue_app_default" or key.endswith("_setup_completed"):
+            if key in {"vue_app_default", "native_panel_mode", "tool_confirmations"} or key.endswith("_setup_completed"):
                 source.pop(key, None)
         merged = {
             **DEFAULT_WORKSPACE_SETTINGS,
             **source,
         }
-        source_confirmations = source.get("tool_confirmations")
-        if not isinstance(source_confirmations, dict):
-            source_confirmations = {}
-        confirmations = {
-            **DEFAULT_WORKSPACE_SETTINGS["tool_confirmations"],
-            **source_confirmations,
-        }
-        for key, default in DEFAULT_WORKSPACE_SETTINGS["tool_confirmations"].items():
-            confirmations[key] = parse_bool(source_confirmations[key]) if key in source_confirmations else default
-        merged["tool_confirmations"] = confirmations
         for key in (
             "daily_research_enabled",
             "screening_enabled",
@@ -1063,406 +932,5 @@ class AccountStore:
             ]
         finally:
             conn.close()
-
-    def create_memory(
-        self,
-        user_id: str,
-        workspace_id: str,
-        title: str,
-        content: str,
-        code: str = "",
-        tags: list[str] | None = None,
-        source: str = "manual",
-    ) -> dict:
-        memory_id = str(uuid.uuid4())
-        now = iso_now()
-        conn = self._conn()
-        try:
-            conn.execute(
-                """INSERT INTO research_memories
-                (id, user_id, workspace_id, code, title, content, tags_json, source, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    user_id,
-                    workspace_id,
-                    code or "",
-                    title.strip()[:160] or "研究记忆",
-                    content.strip(),
-                    json.dumps(tags or [], ensure_ascii=False),
-                    source or "manual",
-                    now,
-                    now,
-                ),
-            )
-            conn.commit()
-            return self.get_memory(memory_id) or {}
-        finally:
-            conn.close()
-
-    def get_memory(self, memory_id: str) -> dict | None:
-        conn = self._conn()
-        try:
-            row = conn.execute("SELECT * FROM research_memories WHERE id = ?", (memory_id,)).fetchone()
-            if not row:
-                return None
-            item = dict(row)
-            item["tags"] = safe_json_loads(item.pop("tags_json"), [])
-            return item
-        finally:
-            conn.close()
-
-    def list_memories(self, workspace_id: str, query: str = "", limit: int = 50) -> list[dict]:
-        query = (query or "").strip()
-        conn = self._conn()
-        try:
-            if query:
-                like = f"%{query}%"
-                rows = conn.execute(
-                    """SELECT * FROM research_memories
-                    WHERE workspace_id = ?
-                    AND (title LIKE ? OR content LIKE ? OR code LIKE ? OR tags_json LIKE ?)
-                    ORDER BY updated_at DESC
-                    LIMIT ?""",
-                    (workspace_id, like, like, like, like, max(1, min(int(limit), 200))),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT * FROM research_memories
-                    WHERE workspace_id = ?
-                    ORDER BY updated_at DESC
-                    LIMIT ?""",
-                    (workspace_id, max(1, min(int(limit), 200))),
-                ).fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                item["tags"] = safe_json_loads(item.pop("tags_json"), [])
-                result.append(item)
-            return result
-        finally:
-            conn.close()
-
-    def delete_memory(self, workspace_id: str, memory_id: str) -> bool:
-        conn = self._conn()
-        try:
-            cur = conn.execute(
-                "DELETE FROM research_memories WHERE workspace_id = ? AND id = ?",
-                (workspace_id, memory_id),
-            )
-            conn.commit()
-            return cur.rowcount > 0
-        finally:
-            conn.close()
-
-    def save_daily_report(
-        self,
-        user_id: str,
-        workspace_id: str,
-        trade_date: str,
-        title: str,
-        content: dict[str, Any],
-    ) -> dict:
-        report_id = str(uuid.uuid4())
-        now = iso_now()
-        conn = self._conn()
-        try:
-            conn.execute(
-                """INSERT INTO daily_reports
-                (id, user_id, workspace_id, trade_date, title, content_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(workspace_id, trade_date) DO UPDATE SET
-                    title=excluded.title,
-                    content_json=excluded.content_json,
-                    created_at=excluded.created_at""",
-                (
-                    report_id,
-                    user_id,
-                    workspace_id,
-                    trade_date,
-                    title,
-                    json.dumps(content, ensure_ascii=False),
-                    now,
-                ),
-            )
-            conn.commit()
-            return self.get_daily_report(workspace_id, trade_date) or {}
-        finally:
-            conn.close()
-
-    def get_daily_report(self, workspace_id: str, trade_date: str) -> dict | None:
-        conn = self._conn()
-        try:
-            row = conn.execute(
-                "SELECT * FROM daily_reports WHERE workspace_id = ? AND trade_date = ?",
-                (workspace_id, trade_date),
-            ).fetchone()
-            if not row:
-                return None
-            item = dict(row)
-            item["content"] = safe_json_loads(item.pop("content_json"), {})
-            return item
-        finally:
-            conn.close()
-
-    def list_daily_reports(self, workspace_id: str, limit: int = 30) -> list[dict]:
-        conn = self._conn()
-        try:
-            rows = conn.execute(
-                """SELECT * FROM daily_reports
-                WHERE workspace_id = ?
-                ORDER BY trade_date DESC
-                LIMIT ?""",
-                (workspace_id, max(1, min(int(limit), 120))),
-            ).fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                item["content"] = safe_json_loads(item.pop("content_json"), {})
-                result.append(item)
-            return result
-        finally:
-            conn.close()
-
-    def upsert_skill(
-        self,
-        workspace_id: str,
-        name: str,
-        version: str = "",
-        status: str = "installed",
-        source: str = "",
-        permissions: list[str] | None = None,
-    ) -> dict:
-        skill_id = str(uuid.uuid4())
-        now = iso_now()
-        conn = self._conn()
-        try:
-            conn.execute(
-                """INSERT INTO agent_skill_records
-                (id, workspace_id, name, version, status, source, permissions_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(workspace_id, name) DO UPDATE SET
-                    version=excluded.version,
-                    status=excluded.status,
-                    source=excluded.source,
-                    permissions_json=excluded.permissions_json,
-                    updated_at=excluded.updated_at""",
-                (
-                    skill_id,
-                    workspace_id,
-                    name.strip(),
-                    version or "",
-                    status or "installed",
-                    source or "",
-                    json.dumps(permissions or [], ensure_ascii=False),
-                    now,
-                    now,
-                ),
-            )
-            conn.commit()
-            return self.get_skill(workspace_id, name) or {}
-        finally:
-            conn.close()
-
-    def get_skill(self, workspace_id: str, name: str) -> dict | None:
-        conn = self._conn()
-        try:
-            row = conn.execute(
-                "SELECT * FROM agent_skill_records WHERE workspace_id = ? AND name = ?",
-                (workspace_id, name),
-            ).fetchone()
-            if not row:
-                return None
-            item = dict(row)
-            item["permissions"] = safe_json_loads(item.pop("permissions_json"), [])
-            return item
-        finally:
-            conn.close()
-
-    def list_skills(self, workspace_id: str) -> list[dict]:
-        conn = self._conn()
-        try:
-            rows = conn.execute(
-                "SELECT * FROM agent_skill_records WHERE workspace_id = ? ORDER BY updated_at DESC",
-                (workspace_id,),
-            ).fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                item["permissions"] = safe_json_loads(item.pop("permissions_json"), [])
-                result.append(item)
-            return result
-        finally:
-            conn.close()
-
-    def _row_to_skill_request(self, row) -> dict | None:
-        if not row:
-            return None
-        return dict(row)
-
-    def create_skill_install_request(
-        self,
-        workspace_id: str,
-        user_id: str,
-        skill_name: str,
-        version: str = "",
-        source: str = "",
-        reason: str = "",
-        note: str = "",
-        status: str = "pending",
-        decided_by_user_id: str | None = None,
-        decided_at: str | None = None,
-    ) -> dict:
-        request_id = str(uuid.uuid4())
-        now = iso_now()
-        conn = self._conn()
-        try:
-            conn.execute(
-                """INSERT INTO skill_install_requests
-                (id, workspace_id, user_id, skill_name, version, source, status, reason, note,
-                 decided_by_user_id, decided_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    request_id,
-                    workspace_id,
-                    user_id,
-                    skill_name.strip(),
-                    version or "",
-                    source or "",
-                    status or "pending",
-                    reason or "",
-                    note or "",
-                    decided_by_user_id,
-                    decided_at,
-                    now,
-                    now,
-                ),
-            )
-            conn.commit()
-            return self.get_skill_install_request(request_id) or {}
-        finally:
-            conn.close()
-
-    def get_skill_install_request(self, request_id: str, workspace_id: str | None = None) -> dict | None:
-        conn = self._conn()
-        try:
-            if workspace_id:
-                row = conn.execute(
-                    "SELECT * FROM skill_install_requests WHERE id = ? AND workspace_id = ?",
-                    (request_id, workspace_id),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    "SELECT * FROM skill_install_requests WHERE id = ?",
-                    (request_id,),
-                ).fetchone()
-            return self._row_to_skill_request(row)
-        finally:
-            conn.close()
-
-    def get_latest_skill_install_request(
-        self,
-        workspace_id: str,
-        skill_name: str,
-        status: str | None = None,
-    ) -> dict | None:
-        conn = self._conn()
-        try:
-            params: list[Any] = [workspace_id, skill_name.strip()]
-            status_clause = ""
-            if status:
-                status_clause = " AND status = ?"
-                params.append(status)
-            row = conn.execute(
-                f"""SELECT * FROM skill_install_requests
-                WHERE workspace_id = ? AND skill_name = ?{status_clause}
-                ORDER BY created_at DESC
-                LIMIT 1""",
-                tuple(params),
-            ).fetchone()
-            return self._row_to_skill_request(row)
-        finally:
-            conn.close()
-
-    def list_skill_install_requests(
-        self,
-        workspace_id: str,
-        status: str | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        conn = self._conn()
-        try:
-            params: list[Any] = [workspace_id]
-            where = "workspace_id = ?"
-            if status:
-                where += " AND status = ?"
-                params.append(status)
-            rows = conn.execute(
-                f"""SELECT * FROM skill_install_requests
-                WHERE {where}
-                ORDER BY created_at DESC
-                LIMIT ?""",
-                (*params, max(1, min(int(limit), 300))),
-            ).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
-
-    def update_skill_install_request(
-        self,
-        request_id: str,
-        workspace_id: str,
-        **updates: Any,
-    ) -> dict | None:
-        current = self.get_skill_install_request(request_id, workspace_id=workspace_id)
-        if not current:
-            return None
-        allowed = {
-            "skill_name",
-            "version",
-            "source",
-            "status",
-            "reason",
-            "note",
-            "decided_by_user_id",
-            "decided_at",
-        }
-        changes = {key: updates[key] for key in allowed if key in updates}
-        if not changes:
-            return current
-        merged = {**current, **changes, "updated_at": iso_now()}
-        conn = self._conn()
-        try:
-            conn.execute(
-                """UPDATE skill_install_requests SET
-                skill_name = ?,
-                version = ?,
-                source = ?,
-                status = ?,
-                reason = ?,
-                note = ?,
-                decided_by_user_id = ?,
-                decided_at = ?,
-                updated_at = ?
-                WHERE id = ? AND workspace_id = ?""",
-                (
-                    merged["skill_name"],
-                    merged["version"],
-                    merged["source"],
-                    merged["status"],
-                    merged["reason"],
-                    merged["note"],
-                    merged["decided_by_user_id"],
-                    merged["decided_at"],
-                    merged["updated_at"],
-                    request_id,
-                    workspace_id,
-                ),
-            )
-            conn.commit()
-            return self.get_skill_install_request(request_id, workspace_id=workspace_id)
-        finally:
-            conn.close()
-
 
 account_store = AccountStore()

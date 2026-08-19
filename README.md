@@ -144,8 +144,7 @@ quant-trading-system/
 │   ├── backtest.py          # 组合回测引擎
 │   ├── screener.py          # 条件选股引擎
 │   ├── llm_client.py        # LLM 客户端（OpenAI 兼容）
-│   ├── nl_strategy.py       # 自然语言策略生成
-│   └── factor_scheduler.py  # 因子动态更新调度器
+│   └── nl_strategy.py       # 自然语言策略生成
 ├── risk/                    # 风控层（仓位/止损/监控）
 ├── dashboard/               # Web 面板（FastAPI + Vue 同源托管）
 │   ├── routers/             # API 路由（17 组，120+ 端点）

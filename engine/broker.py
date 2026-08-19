@@ -1,8 +1,7 @@
 """券商网关接口"""
 import threading
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 

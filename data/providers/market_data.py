@@ -16,7 +16,7 @@ from urllib.parse import quote, urlparse
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
-from loguru import logger
+
 
 from data.collector.cache import TTLCache
 from data.collector.http_client import get_client

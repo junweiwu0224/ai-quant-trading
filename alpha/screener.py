@@ -5,8 +5,7 @@
 """
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -34,9 +33,6 @@ _FIELD_MAP = {
     "industry": "f100",
     "volume_ratio": "f50",
 }
-
-# 反向映射：API 字段 → 业务字段
-_REVERSE_MAP = {v: k for k, v in _FIELD_MAP.items()}
 
 # 需要除以100的字段（API 返回值放大了100倍）
 # 注意：f3/f7/f8 已经是百分比，f9/f23 已经是实际比率，无需再除

@@ -6,11 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-import pandas as pd
+
 from loguru import logger
 
-from engine.backtest_engine import BacktestConfig, BacktestEngine, BacktestResult
-from strategy.base import BaseStrategy
+from engine.backtest_engine import BacktestConfig, BacktestEngine
 
 
 @dataclass(frozen=True)

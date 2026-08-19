@@ -43,27 +43,6 @@ def _clean_volume_share_to_lot(val: Any) -> float | None:
     return None
 
 
-def _clean_volume_lot_to_share(val: Any) -> float | None:
-    """成交量字段（手→股）：保留给需要股数语义的调用方"""
-    v = _clean_volume(val)
-    if v is not None:
-        return v * 100
-    return None
-
-
-def _clean_ratio(val: Any) -> float | None:
-    """比率字段（PE/PB/换手率）：NaN / None / 0 → None"""
-    if val is None:
-        return None
-    try:
-        v = float(val)
-        if math.isnan(v) or math.isinf(v) or v == 0:
-            return None
-        return v
-    except (ValueError, TypeError):
-        return None
-
-
 def _clean_string(val: Any) -> str:
     """字符串字段：None → 空字符串"""
     if val is None:
@@ -134,46 +113,4 @@ def map_mootdx_quote(row: dict) -> dict:
         result["change_pct"] = round((price - pre_close) / pre_close * 100, 2)
     else:
         result["change_pct"] = None
-    return result
-
-
-# ── 腾讯 K线字段映射 ──
-
-TENCENT_KLINE_MAP: dict[str, tuple[str, Callable]] = {
-    "0": ("date",   _clean_string),
-    "1": ("open",   _clean_price),
-    "2": ("close",  _clean_price),
-    "3": ("high",   _clean_price),
-    "4": ("low",    _clean_price),
-    "5": ("volume", _clean_volume),
-}
-
-
-def map_tencent_kline(row: list) -> dict:
-    """将腾讯 K线数组映射为系统标准格式"""
-    result = {}
-    for idx, (dst_key, cleaner) in TENCENT_KLINE_MAP.items():
-        raw = row[int(idx)] if int(idx) < len(row) else None
-        result[dst_key] = cleaner(raw)
-    return result
-
-
-# ── mootdx K线字段映射 ──
-
-MOOTDX_KLINE_MAP: dict[str, tuple[str, Callable]] = {
-    "open":     ("open",   _clean_price),
-    "close":    ("close",  _clean_price),
-    "high":     ("high",   _clean_price),
-    "low":      ("low",    _clean_price),
-    "vol":      ("volume", _clean_volume),
-    "amount":   ("amount", _clean_amount),
-}
-
-
-def map_mootdx_kline(row: dict) -> dict:
-    """将 mootdx bars() 返回的一行映射为系统标准格式"""
-    result = {}
-    for src_key, (dst_key, cleaner) in MOOTDX_KLINE_MAP.items():
-        raw = row.get(src_key)
-        result[dst_key] = cleaner(raw)
     return result

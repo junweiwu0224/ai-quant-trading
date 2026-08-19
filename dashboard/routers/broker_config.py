@@ -1,9 +1,6 @@
 """券商账户配置 API"""
 import json
-from pathlib import Path
-from typing import Optional
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from loguru import logger
 

@@ -16,12 +16,10 @@ from loguru import logger
 # ── 线程池（独立于 FastAPI 的事件循环）──
 _executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="mootdx")
 
-
 async def run_sync(func, *args, **kwargs):
     """将同步阻塞调用包装为异步，防止阻塞 FastAPI 事件循环"""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, lambda: func(*args, **kwargs))
-
 
 class MootdxManager:
     """mootdx 连接管理器（线程安全）
@@ -130,6 +128,8 @@ class MootdxManager:
             return self._with_retry(lambda c: c.quotes(symbol=symbols))
         return await run_sync(_fetch)
 
+
+
     async def bars(self, symbol: str, frequency: int = 9,
                    start: int = 0, offset: int = 800) -> pd.DataFrame:
         """获取K线数据"""
@@ -183,6 +183,8 @@ class MootdxManager:
             return self._with_retry(lambda c: c.stocks(market=market))
         return await run_sync(_fetch)
 
+# ── 全局单例 ──
+
     async def get_all_stocks(self) -> pd.DataFrame:
         """获取全市场股票列表"""
         sh = await self.stocks(market=1)
@@ -196,11 +198,8 @@ class MootdxManager:
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
 
-
-# ── 全局单例 ──
 _mootdx_manager: MootdxManager | None = None
 _manager_lock = threading.Lock()
-
 
 def get_mootdx_manager() -> MootdxManager:
     """获取全局 mootdx 管理器单例"""

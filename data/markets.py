@@ -15,7 +15,6 @@ from enum import Enum
 from typing import Any, Mapping, Optional
 from zoneinfo import ZoneInfo
 
-
 class MarketCode(str, Enum):
     CN = "CN"
     HK = "HK"
@@ -24,12 +23,10 @@ class MarketCode(str, Enum):
     KR = "KR"
     TW = "TW"
 
-
 class ProviderStatus(str, Enum):
     LEGACY_CURRENT = "legacy_current"
     INTEGRATED = "integrated"
     TARGET_NOT_INTEGRATED = "target_not_integrated"
-
 
 @dataclass(frozen=True)
 class TradingCalendar:
@@ -108,9 +105,7 @@ class TradingCalendar:
             day += timedelta(days=1)
         return None
 
-
 WeekdayTradingCalendar = TradingCalendar
-
 
 @dataclass(frozen=True)
 class ProviderCapability:
@@ -122,7 +117,6 @@ class ProviderCapability:
     purpose: str
     qualifies_for_intraday_auto_push: bool = False
     qualifies_for_daily_auto_push: bool = False
-
 
 @dataclass(frozen=True)
 class ProviderHealth:
@@ -151,7 +145,6 @@ class ProviderHealth:
     def qualified_daily(self) -> bool:
         return self.healthy and self.validated and self.coverage_complete and bool(self.field_sources)
 
-
 @dataclass(frozen=True)
 class AutomaticPushEligibility:
     eligible: bool
@@ -160,16 +153,13 @@ class AutomaticPushEligibility:
     qualified_provider: Optional[str] = None
     reasons: tuple[str, ...] = ()
 
-
 class InstrumentNormalizationError(ValueError):
     pass
-
 
 _CN_SYMBOL_RE = re.compile(r"^(?:(?:SH|SZ)[.]?)?(\d{6})$", re.IGNORECASE)
 _HK_SYMBOL_RE = re.compile(r"^(?:HK[.]?)?(\d{1,5})(?:[.]HK)?$", re.IGNORECASE)
 _US_SYMBOL_RE = re.compile(r"^(?:US[.]?)?([A-Z][A-Z0-9.-]{0,14})$", re.IGNORECASE)
 _FOUR_DIGIT_SYMBOL_RE = re.compile(r"^(?:[A-Z]{2}[.]?)?(\d{4,6})$", re.IGNORECASE)
-
 
 @dataclass(frozen=True)
 class MarketAdapter:
@@ -213,6 +203,7 @@ class MarketAdapter:
         return str(granularity) in self.daily_granularities | self.intraday_granularities
 
     def is_trading_day(self, when: datetime | date, *, holidays: set[date] | frozenset[date] = frozenset()) -> bool:
+
         """Return the answer from the adapter's explicit calendar seam."""
 
         return bool(self.calendar.is_trading_day(when, holidays=holidays))
@@ -310,6 +301,7 @@ class MarketAdapter:
         return self.automatic_push_supported and self.calendar_verified and bool(self.intraday_granularities)
 
     def normalize_instrument(self, symbol: str) -> str:
+
         """Canonicalize only identifier syntax; never perform symbol lookup."""
 
         value = str(symbol or "").strip().upper()
@@ -472,7 +464,6 @@ class MarketAdapter:
             ],
         }
 
-
 def _coerce_health(value: ProviderHealth | Mapping[str, Any] | None) -> ProviderHealth | None:
     if isinstance(value, ProviderHealth):
         return value
@@ -491,7 +482,6 @@ def _coerce_health(value: ProviderHealth | Mapping[str, Any] | None) -> Provider
         )
     return None
 
-
 def _provider(
     name: str,
     status: ProviderStatus,
@@ -509,7 +499,6 @@ def _provider(
         qualifies_for_intraday_auto_push=qualified_intraday,
         qualifies_for_daily_auto_push=qualified_daily,
     )
-
 
 A_SHARE_MARKET_ADAPTER = MarketAdapter(
     code=MarketCode.CN,
@@ -538,7 +527,6 @@ A_SHARE_MARKET_ADAPTER = MarketAdapter(
     automatic_push_supported=False,
 )
 
-
 def _longbridge_market(code: MarketCode, display_name: str, currency: str, calendar: str, benchmark: str) -> MarketAdapter:
     return MarketAdapter(
         code=code,
@@ -561,10 +549,8 @@ def _longbridge_market(code: MarketCode, display_name: str, currency: str, calen
         automatic_push_supported=True,
     )
 
-
 HONG_KONG_MARKET_ADAPTER = _longbridge_market(MarketCode.HK, "Hong Kong", "HKD", "HKEX", "Hang Seng total return")
 US_MARKET_ADAPTER = _longbridge_market(MarketCode.US, "United States", "USD", "NYSE/NASDAQ", "S&P 500 total return")
-
 
 def _manual_daily_market(code: MarketCode, display_name: str, timezone_name: str, currency: str, calendar: str, benchmark: str) -> MarketAdapter:
     return MarketAdapter(
@@ -587,11 +573,9 @@ def _manual_daily_market(code: MarketCode, display_name: str, timezone_name: str
         automatic_push_supported=False,
     )
 
-
 JAPAN_MARKET_ADAPTER = _manual_daily_market(MarketCode.JP, "Japan", "Asia/Tokyo", "JPY", "TSE", "TOPIX total return")
 KOREA_MARKET_ADAPTER = _manual_daily_market(MarketCode.KR, "Korea", "Asia/Seoul", "KRW", "KRX", "KOSPI total return")
 TAIWAN_MARKET_ADAPTER = _manual_daily_market(MarketCode.TW, "Taiwan", "Asia/Taipei", "TWD", "TWSE", "TAIEX total return")
-
 
 MARKET_ADAPTERS: Mapping[MarketCode, MarketAdapter] = {
     adapter.code: adapter
@@ -623,7 +607,6 @@ _MARKET_ALIASES = {
     "台股": MarketCode.TW,
 }
 
-
 def get_market_adapter(market: MarketCode | str) -> MarketAdapter:
     if isinstance(market, MarketCode):
         return MARKET_ADAPTERS[market]
@@ -633,10 +616,8 @@ def get_market_adapter(market: MarketCode | str) -> MarketAdapter:
         raise KeyError("unknown market: %r" % market)
     return MARKET_ADAPTERS[code]
 
-
 def market_capability_matrix() -> dict[str, dict[str, Any]]:
     return {code.value: adapter.capability_matrix() for code, adapter in MARKET_ADAPTERS.items()}
-
 
 __all__ = [
     "A_SHARE_MARKET_ADAPTER",

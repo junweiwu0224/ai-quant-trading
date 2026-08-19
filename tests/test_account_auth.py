@@ -5,9 +5,7 @@ import json
 import pytest
 
 from dashboard.account_store import AccountStore, normalize_invite_code
-from dashboard.app import app
 from utils.db import get_connection
-
 
 @pytest.fixture(autouse=True)
 def isolated_account_store(monkeypatch, tmp_path):
@@ -24,7 +22,6 @@ def isolated_account_store(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "account_store", store)
     yield store
 
-
 def _register(client, username, invite_code="LOCAL1", password="Playwright123!", **extra):
     payload = {
         "username": username,
@@ -36,7 +33,6 @@ def _register(client, username, invite_code="LOCAL1", password="Playwright123!",
     }
     return client.post("/api/account/register", json=payload)
 
-
 def test_register_bootstraps_workspace_session_and_audit(client, isolated_account_store):
     resp = _register(client, "alice", display_name="Alice")
 
@@ -45,7 +41,7 @@ def test_register_bootstraps_workspace_session_and_audit(client, isolated_accoun
     assert body["authenticated"] is True
     assert body["user"]["username"] == "alice"
     assert not any(key.endswith("_workspace_id") for key in body["workspace"])
-    assert body["permissions"]["chat"] is True
+    assert body["permissions"] == {"manage_workspace": True, "admin": True}
     assert "quant_session=" in resp.headers["set-cookie"]
 
     audit_rows = isolated_account_store.list_audit_logs(body["workspace"]["id"], limit=10)
@@ -53,13 +49,11 @@ def test_register_bootstraps_workspace_session_and_audit(client, isolated_accoun
     assert register_audit["user_id"] == body["user"]["id"]
     assert "invite_code" not in register_audit["metadata"]
 
-
 def test_account_me_reports_unauthenticated_without_session(client):
     resp = client.get("/api/account/me")
 
     assert resp.status_code == 200
     assert resp.json() == {"authenticated": False}
-
 
 def test_invite_and_permission_endpoints_are_admin_only(client):
     admin_resp = _register(client, "admin")
@@ -84,9 +78,8 @@ def test_invite_and_permission_endpoints_are_admin_only(client):
         ).status_code == 403
         assert client.put(
             "/api/account/permissions",
-            json={"permission_key": "chat", "allowed": False},
+            json={"permission_key": "manage_workspace", "allowed": False},
         ).status_code == 403
-
 
 def test_invite_codes_store_only_hash_and_remain_lookupable(isolated_account_store):
     invite = isolated_account_store.create_invite_code(None, code="Ab12cD", max_uses=2, note="bootstrap")
@@ -105,7 +98,6 @@ def test_invite_codes_store_only_hash_and_remain_lookupable(isolated_account_sto
     assert row["code_display"] == "AB****"
     assert invite["code"] == "AB12CD"
 
-
 def test_failed_invite_attempt_is_recorded(isolated_account_store):
     before = isolated_account_store.list_invite_code_usages(limit=10)
 
@@ -120,7 +112,6 @@ def test_failed_invite_attempt_is_recorded(isolated_account_store):
     assert latest["user_id"] is None
     assert latest["code_hash"] == hashlib.sha256(b"AAAAAA").hexdigest()
     assert latest["code_display"] == "AA****"
-
 
 def test_plaintext_invite_databases_migrate_to_hash_lookup(tmp_path):
     db_path = tmp_path / "legacy.db"
@@ -164,7 +155,6 @@ def test_plaintext_invite_databases_migrate_to_hash_lookup(tmp_path):
     assert "code_hash" in columns
     assert "invite_code" not in json.loads(audit["metadata_json"])
 
-
 def test_disabled_user_session_is_not_authenticated(isolated_account_store):
     bundle = isolated_account_store.create_user("disableduser", "Password123!", "LOCAL1")
     token, _ = isolated_account_store.create_session(bundle["user"]["id"])
@@ -178,13 +168,11 @@ def test_disabled_user_session_is_not_authenticated(isolated_account_store):
 
     assert isolated_account_store.get_user_by_session(token) is None
 
-
 def test_duplicate_invite_code_raises_value_error(isolated_account_store):
     isolated_account_store.create_invite_code(None, code="DUPL01")
 
     with pytest.raises(ValueError, match="邀请码已存在"):
         isolated_account_store.create_invite_code(None, code="dupl01")
-
 
 def test_production_does_not_bootstrap_known_default_invite(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_ENV", "production")
@@ -193,7 +181,6 @@ def test_production_does_not_bootstrap_known_default_invite(monkeypatch, tmp_pat
     store = AccountStore(tmp_path / "prod.db")
 
     assert store.get_invite_code("LOCAL1") is None
-
 
 def test_session_cookie_is_secure_in_production(monkeypatch):
     import dashboard.session as session_module

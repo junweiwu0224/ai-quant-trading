@@ -24,7 +24,7 @@
 - Vue 构建和前端契约：`npm run ui:build`、`.venv/bin/python -m pytest tests/test_vue_*_contract.py -q`。
 - Worker/备份恢复：显式设置 `DECISION_WORKER_ENABLED=true` 后运行 `scripts/run_worker.py`；恢复前先运行 `scripts/restore_decisions.py --verify-only`。
 - E2E：先启动 Dashboard，再运行 `scripts/e2e-local.sh all` 或 `npm run e2e:docker`。
-- `npm test` 当前是占位脚本，会直接失败；不要把它当作项目验证命令。
+- 根目录不提供 `npm test`；前端测试使用 `npm run ui:test`，后端测试使用 `.venv/bin/python -m pytest -q`。
 
 ## 仓库地图
 

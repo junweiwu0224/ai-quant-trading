@@ -5,11 +5,9 @@ from datetime import date
 from enum import Enum
 from typing import Optional
 
-
 class Direction(Enum):
     LONG = "long"
     SHORT = "short"
-
 
 @dataclass
 class Bar:
@@ -29,7 +27,6 @@ class Bar:
         if self.volume < 0:
             raise ValueError(f"negative volume({self.volume}) on {self.date}")
 
-
 @dataclass
 class Order:
     """委托（市价单，price 为参考价，实际成交价由引擎撮合）"""
@@ -39,7 +36,6 @@ class Order:
     volume: int
     order_id: int = 0
     status: str = "pending"  # pending / filled / partial / cancelled
-
 
 @dataclass
 class Trade:
@@ -53,7 +49,6 @@ class Trade:
     datetime: Optional[date] = None
     entry_price: float = 0.0  # 卖出时记录买入均价
     entry_date: Optional[date] = None  # 卖出时记录买入日期
-
 
 @dataclass
 class Portfolio:
@@ -90,7 +85,6 @@ class Portfolio:
             "total_equity": self.get_total_equity(prices),
             "positions": dict(self.positions),
         }
-
 
 class BaseStrategy(ABC):
     """策略基类，所有策略继承此类"""

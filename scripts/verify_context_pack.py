@@ -141,13 +141,13 @@ def check_context_pack(root: str | Path = ".") -> list[ContextPackIssue]:
                 message="Use docs/ARCHITECTURE.md, not docs/architecture.md.",
             )
         )
-    if "npm test" not in agents_text or "占位" not in agents_text:
+    if "npm test" not in agents_text or not any(marker in agents_text for marker in ("不提供", "占位")):
         issues.append(
             ContextPackIssue(
                 severity="error",
                 code="missing-npm-test-warning",
                 path="AGENTS.md",
-                message="AGENTS.md must warn that npm test is a placeholder failure.",
+                message="AGENTS.md must document that the root npm test command is unavailable.",
             )
         )
 

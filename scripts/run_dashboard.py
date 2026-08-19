@@ -49,11 +49,6 @@ def _start_signal_service(signal_port: int, signal_host: str = "127.0.0.1") -> s
         return None
 
 
-def _start_qlib_service(qlib_port: int, qlib_host: str = "127.0.0.1") -> subprocess.Popen | None:
-    """兼容旧调用：启动 AI 信号兼容服务。"""
-    return _start_signal_service(qlib_port, qlib_host)
-
-
 @click.command()
 @click.option("--host", "-h", default="0.0.0.0", help="监听地址")
 @click.option("--port", "-p", default=8000, help="监听端口")

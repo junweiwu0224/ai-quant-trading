@@ -41,7 +41,7 @@ Dashboard API
   -> non-authoritative AI report artifact
 ```
 
-`PiAgentWorker` 是唯一消费 AI 队列的生产进程。它复用当前 SQLite lease/fence、worker heartbeat、任务取消、失败持久化、workspace 隔离和报告仓储；旧 `AIWorker` 仅保留短期 Python import 和环境变量兼容。
+`PiAgentWorker` 是唯一消费 AI 队列的生产进程。它复用当前 SQLite lease/fence、worker heartbeat、任务取消、失败持久化、workspace 隔离和报告仓储；旧 AI Worker 兼容层已删除。
 
 Pi 在第一期通过 CLI 单任务运行：
 
@@ -112,8 +112,8 @@ URL 是 `market`、`symbol`、`portfolioId`、`runId`、`reportId` 的主恢复�
 
 - [x] 新增 `pi_agent` provider protocol，强制无工具、无 session 的 Pi CLI 调用。
 - [x] 将生产 AI 队列消费者改为 `PiAgentWorker`，保留 fence/lease 语义。
-- [x] 新增 `scripts/run_pi_agent_worker.py`；旧 `run_ai_worker.py` 仅兼容转发。
-- [x] Docker `ai-worker` 服务改名为 `pi-agent`，使用含 Pi CLI 的专用 image target。
+- [x] 新增 `scripts/run_pi_agent_worker.py`，旧兼容入口已移除。
+- [x] Docker Compose 仅保留 `pi-agent` AI worker 服务，使用含 Pi CLI 的专用 image target。
 - [x] API 和 UI 明确显示 Pi Agent worker 状态。
 - [x] 增加 provider、worker、配置与安全 flag 定向测试。
 
@@ -164,19 +164,15 @@ URL 是 `market`、`symbol`、`portfolioId`、`runId`、`reportId` 的主恢复�
 
 ```text
 PI_AGENT_WORKER_ENABLED=true
+PI_AGENT_WORKER_LEASE_TTL_SECONDS=30
+PI_AGENT_WORKER_POLL_INTERVAL_SECONDS=2
+PI_AGENT_WORKER_BATCH_SIZE=4
 PI_AGENT_COMMAND=pi
 PI_AGENT_MODEL=<optional provider/model>
 PI_AGENT_TIMEOUT_SECONDS=90
 ```
 
-兼容配置：
-
-```text
-AI_WORKER_ENABLED=true
-AI_LLM_PROTOCOL=pi_agent
-```
-
-迁移窗口内，`AI_WORKER_ENABLED` 仍可启用 Pi Agent worker；新部署优先使用 `PI_AGENT_WORKER_ENABLED`。`AI_INLINE_EXECUTION` 仅用于明确的开发环境测试，生产环境始终由 Pi Agent worker 消费队列。
+`AI_INLINE_EXECUTION` 仅用于明确的开发环境测试，生产环境始终由 Pi Agent worker 消费队列。
 
 ## 验收标准
 
@@ -192,4 +188,4 @@ AI_LLM_PROTOCOL=pi_agent
 
 发布前：构建 `pi-agent` target，使用开发 workspace 和非生产 provider 跑一个冻结 fixture。生产发布保持 `DECISION_EXTERNAL_DELIVERY_ENABLED=false`，不运行真实交易。
 
-回滚时：停止 `pi-agent` 服务，设置 `PI_AGENT_WORKER_ENABLED=false`。任务留在队列中，不自动改写为成功或失败。恢复旧 provider worker 仅作为受控兼容措施，不能同时运行两个 lease owner。
+回滚时：停止 `pi-agent` 服务，设置 `PI_AGENT_WORKER_ENABLED=false`。任务留在队列中，不自动改写为成功或失败。

@@ -66,39 +66,3 @@ async def query_iwencai(query: str, cookie: str = "") -> pd.DataFrame:
     except Exception as e:
         logger.warning(f"问财查询失败: {e}")
         return pd.DataFrame()
-
-
-async def query_stock_info(code: str, cookie: str = "") -> dict:
-    """通过问财获取股票综合信息
-
-    Args:
-        code: 股票代码
-        cookie: 可选 Cookie
-
-    Returns:
-        包含各项信息的字典
-    """
-    df = await query_iwencai(f"{code}股票基本面", cookie=cookie)
-    if df.empty:
-        return {}
-
-    result = {}
-    try:
-        row = df.iloc[0]
-        for col in df.columns:
-            val = row[col]
-            if pd.notna(val):
-                result[str(col)] = val
-    except Exception as e:
-        logger.warning(f"解析问财结果失败: {e}")
-
-    return result
-
-
-async def query_hot_stocks(cookie: str = "") -> pd.DataFrame:
-    """查询当前热门股票
-
-    Returns:
-        热门股票 DataFrame
-    """
-    return await query_iwencai("今日热门股票", cookie=cookie)

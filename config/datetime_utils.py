@@ -19,11 +19,6 @@ def now_beijing_iso() -> str:
     return now_beijing().isoformat()
 
 
-def today_beijing() -> str:
-    """返回北京时间日期字符串 YYYY-MM-DD"""
-    return now_beijing().strftime("%Y-%m-%d")
-
-
 def today_beijing_compact() -> str:
     """返回北京时间日期字符串 YYYYMMDD"""
     return now_beijing().strftime("%Y%m%d")

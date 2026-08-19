@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from ai_runtime import AIRuntime
 from ai_runtime.models import GenerationResult
 from ai_runtime.repository import AIRuntimeRepository
 from dashboard.routers import ai as ai_router
-
 
 class APIProviderRouter:
     """Provider double used by API tests; it exposes no credential value."""
@@ -39,7 +37,6 @@ class APIProviderRouter:
             return GenerationResult(text="not-json fixture output", provider="fixture-provider", model="fixture-model")
         return GenerationResult(text="fixture chat answer", provider="fixture-provider", model="fixture-model")
 
-
 def _install_runtime(monkeypatch, tmp_path) -> APIProviderRouter:
     provider = APIProviderRouter()
     monkeypatch.setattr(
@@ -50,7 +47,6 @@ def _install_runtime(monkeypatch, tmp_path) -> APIProviderRouter:
     monkeypatch.setattr(ai_router, "DB_DIR", tmp_path / "dashboard-db")
     return provider
 
-
 def _context() -> dict[str, Any]:
     return {
         "market": "CN",
@@ -60,7 +56,6 @@ def _context() -> dict[str, Any]:
         "evidence": [{"source": "api-fixture", "claim": "input"}],
         "quality_status": "available",
     }
-
 
 def test_ai_status_channels_models_and_skills_are_queryable_without_external_calls(client, monkeypatch, tmp_path) -> None:
     _install_runtime(monkeypatch, tmp_path)
@@ -80,7 +75,6 @@ def test_ai_status_channels_models_and_skills_are_queryable_without_external_cal
     assert models.json()["items"][0]["model"] == "fixture-model"
     skill_ids = {item["id"] for item in skills.json()["items"]}
     assert {"multi_agent_analysis", "deep_research", "screening_query", "strategy_generation"} <= skill_ids
-
 
 def test_ai_channel_api_only_handles_secret_references_and_never_echoes_secret(client, monkeypatch, tmp_path) -> None:
     _install_runtime(monkeypatch, tmp_path)
@@ -114,7 +108,6 @@ def test_ai_channel_api_only_handles_secret_references_and_never_echoes_secret(c
     )
     assert raw_secret.status_code in {400, 422}
     assert secret not in raw_secret.text
-
 
 def test_ai_task_api_supports_idempotency_run_and_event_history(client, monkeypatch, tmp_path) -> None:
     _install_runtime(monkeypatch, tmp_path)
@@ -161,7 +154,6 @@ def test_ai_task_api_supports_idempotency_run_and_event_history(client, monkeypa
         assert report_flow.status_code == 200, report_flow.text
         assert report_flow.json()["task_id"] == task_id
 
-
 def test_ai_cancel_api_marks_queued_task_cancelled_and_records_event(client, monkeypatch, tmp_path) -> None:
     _install_runtime(monkeypatch, tmp_path)
     created = client.post(
@@ -176,7 +168,6 @@ def test_ai_cancel_api_marks_queued_task_cancelled_and_records_event(client, mon
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert "task_cancelled" in [item["event_type"] for item in events.json()["items"]]
-
 
 def test_ai_chat_session_and_stream_are_available_through_api(client, monkeypatch, tmp_path) -> None:
     provider = _install_runtime(monkeypatch, tmp_path)
@@ -201,7 +192,6 @@ def test_ai_chat_session_and_stream_are_available_through_api(client, monkeypatc
     stored = client.get(f"/api/ai/chat/sessions/{session_id}")
     assert stored.status_code == 200
     assert len(stored.json()["messages"]) == 4
-
 
 def test_ai_skill_endpoint_returns_a_task_without_executing_external_provider(client, monkeypatch, tmp_path) -> None:
     _install_runtime(monkeypatch, tmp_path)

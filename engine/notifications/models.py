@@ -8,32 +8,25 @@ from typing import Any, Mapping, Optional, Protocol
 
 from engine.events.models import DomainEvent
 
-
 class DeliveryStatus(str, Enum):
     DELIVERED = "delivered"
     RETRYABLE = "retryable"
     PERMANENT_FAILURE = "permanent_failure"
 
-
 class FailureKind(str, Enum):
     RETRYABLE = "retryable"
     PERMANENT = "permanent"
 
-
 FailureClass = FailureKind
-
 
 class DeliveryFailure(RuntimeError):
     """Base exception for an Adapter that classifies transport failure."""
 
-
 class RetryableDeliveryError(DeliveryFailure):
     pass
 
-
 class PermanentDeliveryError(DeliveryFailure):
     pass
-
 
 class AmbiguousDeliveryError(DeliveryFailure):
     """The provider request may have been accepted, but its outcome is unknown.
@@ -41,7 +34,6 @@ class AmbiguousDeliveryError(DeliveryFailure):
     Callers must persist this state for operator review instead of retrying it
     automatically, because a second request could create a duplicate message.
     """
-
 
 @dataclass(frozen=True)
 class DeliveryResult:
@@ -117,7 +109,6 @@ class DeliveryResult:
             response_body=response_body,
             details=dict(details or {}),
         )
-
 
 class NotificationAdapter(Protocol):
     def send(self, event: DomainEvent) -> DeliveryResult: ...

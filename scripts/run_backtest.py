@@ -27,7 +27,7 @@ STRATEGIES = {
 @click.option("--cash", default=1000000, type=float, help="初始资金")
 def backtest(code, strategy, start, end, cash):
     """运行回测"""
-    from datetime import datetime
+
 
     setup_logging()
 

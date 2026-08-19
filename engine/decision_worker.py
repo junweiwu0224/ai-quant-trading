@@ -6,18 +6,18 @@ import os
 import socket
 import sqlite3
 import threading
-import time
+
 import uuid
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+
 from loguru import logger
 
 from engine.events.outbox import SQLiteOutbox
@@ -56,22 +56,6 @@ def feature_enabled(name: str, *, default: bool = False) -> bool:
     if not raw:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-class DecisionWorkerCallbacks(Protocol):
-    """Minimal seam the future decision package must provide to this worker."""
-
-    def is_trading_day(self, when: datetime) -> bool: ...
-
-    def prepare(self, *, slot: str, scheduled_for: datetime) -> Any: ...
-
-    def send_prepared(self, *, slot: str, scheduled_for: datetime) -> Any: ...
-
-    def poll_completed_bars(self, *, observed_at: datetime) -> Any: ...
-
-    def process_commands(self, *, owner_id: str, limit: int, now: datetime) -> Any: ...
-
-    def schedule_contexts(self, now: datetime) -> Iterable[tuple[str, datetime]]: ...
 
 
 @dataclass(frozen=True)
@@ -1063,7 +1047,6 @@ __all__ = [
     "MONTHLY_RECOVERY_DRILL_SLOTS",
     "PREPARATION_SLOTS",
     "DecisionWorker",
-    "DecisionWorkerCallbacks",
     "Lease",
     "SQLiteWorkerLease",
     "WorkerCallbacks",

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import socket
 import threading
-import time
+
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,12 +53,11 @@ class PiAgentWorker:
         )
         return cls(
             runtime=AIRuntime(AIRuntimeRepository(database), channels=[channel], force_default_router=True),
-            # Keep the lease name stable through the migration so an old
-            # worker and Pi Agent cannot consume the same queue concurrently.
+            # Keep this persisted lease key stable across worker implementation changes.
             lease=SQLiteWorkerLease(Path(DB_DIR) / "worker_leases.db", lease_name="ai-worker"),
-            lease_ttl_seconds=float(os.getenv("AI_WORKER_LEASE_TTL_SECONDS", "30")),
-            poll_interval_seconds=float(os.getenv("AI_WORKER_POLL_INTERVAL_SECONDS", "2")),
-            batch_size=max(1, min(int(os.getenv("AI_WORKER_BATCH_SIZE", "4")), 20)),
+            lease_ttl_seconds=float(os.getenv("PI_AGENT_WORKER_LEASE_TTL_SECONDS", "30")),
+            poll_interval_seconds=float(os.getenv("PI_AGENT_WORKER_POLL_INTERVAL_SECONDS", "2")),
+            batch_size=max(1, min(int(os.getenv("PI_AGENT_WORKER_BATCH_SIZE", "4")), 20)),
         )
 
     @property
@@ -147,14 +146,5 @@ class PiAgentWorker:
 
 
 def pi_agent_worker_enabled() -> bool:
-    return feature_enabled("PI_AGENT_WORKER_ENABLED", default=feature_enabled("AI_WORKER_ENABLED", default=False))
-
-
-# Compatibility import for callers during the worker migration.  The only
-# production runner is scripts/run_pi_agent_worker.py.
-AIWorker = PiAgentWorker
-
-
-def ai_worker_enabled() -> bool:
-    return pi_agent_worker_enabled()
+    return feature_enabled("PI_AGENT_WORKER_ENABLED", default=False)
 

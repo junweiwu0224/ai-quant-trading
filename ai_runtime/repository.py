@@ -12,14 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-
 def encode(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
 
 def decode(value: str | None, default: Any) -> Any:
     if not value:
@@ -28,7 +25,6 @@ def decode(value: str | None, default: Any) -> Any:
         return json.loads(value)
     except (TypeError, ValueError):
         return default
-
 
 class AIRuntimeRepository:
     def __init__(self, database: str | Path) -> None:
@@ -325,14 +321,6 @@ class AIRuntimeRepository:
             ).rowcount
         return updated == 1
 
-    def reclaim_expired_tasks(self, *, limit: int = 100) -> int:
-        now = time.time()
-        with self._connection() as conn:
-            rows = conn.execute("SELECT id FROM ai_tasks WHERE status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at<=? LIMIT ?", (now, max(1, min(int(limit), 500)))).fetchall()
-            for row in rows:
-                self._insert_event(conn, row[0], "task_lease_expired", {})
-            return len(rows)
-
     def start_task(self, task_id: str, *, owner_id: str | None = None) -> dict[str, Any] | None:
         """Atomically transition a queued task to running for inline execution."""
 
@@ -385,12 +373,6 @@ class AIRuntimeRepository:
         with self._connection() as conn:
             rows = conn.execute("SELECT e.id,e.task_id,e.event_type,e.payload_json,e.created_at FROM ai_task_events e JOIN ai_tasks t ON t.id=e.task_id WHERE e.task_id=? AND t.workspace_id=? AND e.id>? ORDER BY e.id LIMIT ?", (task_id, workspace_id, after_id, max(1, min(limit, 500)))).fetchall()
         return [{"id": row[0], "task_id": row[1], "event_type": row[2], "payload": decode(row[3], {}), "created_at": row[4]} for row in rows]
-
-    def save_report(self, *, task_id: str, workspace_id: str, status: str, body: dict[str, Any], context_hash: str, provenance: dict[str, Any], usage: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
-        report_id = uuid.uuid4().hex
-        with self._connection() as conn:
-            conn.execute("INSERT INTO ai_reports(id,task_id,workspace_id,status,body_json,context_hash,provenance_json,usage_json,diagnostics_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (report_id, task_id, workspace_id, status, encode(body), context_hash, encode(provenance), encode(usage), encode(diagnostics), now_iso()))
-        return self.get_report(report_id, workspace_id) or {}
 
     def save_report_if_active(self, *, task_id: str, workspace_id: str, status: str, body: dict[str, Any], context_hash: str, provenance: dict[str, Any], usage: dict[str, Any], diagnostics: list[dict[str, Any]], owner_id: str | None = None, lease_token: str | None = None) -> dict[str, Any] | None:
         """Persist a report only while the task is still cancellable/running.

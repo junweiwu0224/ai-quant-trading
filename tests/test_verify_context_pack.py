@@ -132,13 +132,25 @@ def test_check_context_pack_requires_usage_review_mechanism(tmp_path):
     ) in issues
 
 
-def test_check_context_pack_requires_npm_test_warning(tmp_path):
+def test_check_context_pack_requires_npm_test_availability_note(tmp_path):
     _minimal_context_pack(tmp_path)
     _write(tmp_path / "AGENTS.md", "架构文档：`docs/ARCHITECTURE.md`。\n")
 
     issues = check_context_pack(tmp_path)
 
     assert any(issue.code == "missing-npm-test-warning" for issue in issues)
+
+
+def test_check_context_pack_accepts_npm_test_unavailable_note(tmp_path):
+    _minimal_context_pack(tmp_path)
+    _write(
+        tmp_path / "AGENTS.md",
+        "架构文档：`docs/ARCHITECTURE.md`。\n根目录不提供 `npm test`；前端测试使用 `npm run ui:test`。\n",
+    )
+
+    issues = check_context_pack(tmp_path)
+
+    assert not any(issue.code == "missing-npm-test-warning" for issue in issues)
 
 
 def test_check_context_pack_flags_secret_patterns(tmp_path):

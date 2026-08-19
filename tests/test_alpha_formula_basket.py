@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 
 from alpha.basket import BasketBuilder
 from alpha.formula_engine import FormulaEngine
-
 
 class FakeStorage:
     def __init__(self):
@@ -37,7 +34,6 @@ class FakeStorage:
     def get_all_stock_codes(self):
         return ["000001"]
 
-
 class TestFormulaEngine:
     def test_catalog_exposes_expected_functions(self):
         engine = FormulaEngine(storage=FakeStorage())
@@ -58,7 +54,6 @@ class TestFormulaEngine:
         assert result["success"] is True
         assert result["total"] == 1
         assert result["matches"][0]["code"] == "000001"
-
 
 class TestBasketBuilder:
     def test_build_plan_generates_legs(self):

@@ -54,7 +54,6 @@ BUILTIN_SCREENING_STRATEGIES: dict[str, dict[str, Any]] = {
 # Public alias for callers that use the shorter name.
 SCREENING_STRATEGIES = BUILTIN_SCREENING_STRATEGIES
 
-
 @dataclass(frozen=True)
 class ScreeningRun:
     run_id: str

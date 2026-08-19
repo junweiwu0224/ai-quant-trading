@@ -20,13 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, runtime_checkable
 
-
 MANIFEST_VERSION = 1
 MANIFEST_FILENAME = "manifest.json"
 BACKUP_FORMAT = "ai-quant-decision-backup"
 RECOVERY_DRILL_FORMAT = "ai-quant-decision-recovery-drill"
 RECOVERY_DRILL_VERSION = 1
-# Kept as an import-compatible name for older callers.  Worker lease state is
+# Kept as an import-compatible name for older callers. Worker lease state is
 # now included in backups; no SQLite database is excluded automatically.
 TRANSIENT_WORKER_DATABASE_NAMES: frozenset[str] = frozenset()
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -49,14 +48,11 @@ _DATA_QUALITY_KEYS = (
 )
 _QUALITY_STATUSES = {"ok", "stale", "invalid"}
 
-
 class BackupError(RuntimeError):
     """Raised when a backup or restore cannot satisfy its invariants."""
 
-
 class BackupVerificationError(BackupError):
     """Raised when a backup manifest, payload hash, or SQLite file is invalid."""
-
 
 @runtime_checkable
 class WriteBarrier(Protocol):
@@ -80,7 +76,6 @@ class WriteBarrier(Protocol):
     def resume(self) -> None:
         """Release the write barrier after the manifest is durable."""
 
-
 class NoopWriteBarrier:
     """No-op barrier used only when backing up one standalone SQLite file."""
 
@@ -93,24 +88,19 @@ class NoopWriteBarrier:
     def resume(self) -> None:
         return None
 
-
 FenceCheck = Callable[[], None]
-
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
-
 def _mtime_iso(mtime_ns: int) -> str:
     return datetime.fromtimestamp(mtime_ns / 1_000_000_000, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
 
 def _as_path(value: str | os.PathLike[str]) -> Path:
     try:
         return Path(value).expanduser()
     except TypeError as exc:
         raise TypeError(f"path must be str or os.PathLike, got {type(value).__name__}") from exc
-
 
 def _as_path_tuple(values: Iterable[str | os.PathLike[str]], label: str) -> tuple[Path, ...]:
     if isinstance(values, (str, bytes, os.PathLike)):
@@ -119,7 +109,6 @@ def _as_path_tuple(values: Iterable[str | os.PathLike[str]], label: str) -> tupl
         return tuple(_as_path(value) for value in values)
     except TypeError as exc:
         raise TypeError(f"{label} must be an iterable of explicit paths") from exc
-
 
 def _guard_explicit_path(
     value: str | os.PathLike[str],
@@ -135,18 +124,15 @@ def _guard_explicit_path(
         raise BackupError(f"refusing to access the repository data/db path: {resolved}")
     return resolved
 
-
 def _reject_source_package_path(path: Path, label: str) -> None:
     """Keep generated backup/restore data out of the importable source package."""
 
     if path == _SOURCE_BACKUP_PACKAGE or path.is_relative_to(_SOURCE_BACKUP_PACKAGE):
         raise BackupError(f"{label} must not be inside the source backup package: {path}")
 
-
 def _safe_component(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
     return (cleaned or fallback)[:120]
-
 
 def _safe_relative_path(value: Any, label: str) -> PurePosixPath:
     if not isinstance(value, str) or not value:
@@ -160,11 +146,9 @@ def _safe_relative_path(value: Any, label: str) -> PurePosixPath:
         raise BackupVerificationError(f"{label} is not canonical: {value!r}")
     return path
 
-
 def _ensure_regular_file(path: Path, label: str) -> None:
     if path.is_symlink() or not path.is_file():
         raise BackupVerificationError(f"{label} is not a regular file: {path}")
-
 
 def _hash_file(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
@@ -174,7 +158,6 @@ def _hash_file(path: Path) -> tuple[str, int]:
             digest.update(chunk)
             size += len(chunk)
     return digest.hexdigest(), size
-
 
 def _copy_file_with_hash(source: Path, destination: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
@@ -187,14 +170,12 @@ def _copy_file_with_hash(source: Path, destination: Path) -> tuple[str, int]:
             size += len(chunk)
     return digest.hexdigest(), size
 
-
 def _directory_digest(records: Iterable[Mapping[str, Any]]) -> str:
     digest = hashlib.sha256()
     for record in sorted(records, key=lambda item: str(item["relative_path"])):
         line = f"{record['relative_path']}\0{record['size']}\0{record['sha256']}\n"
         digest.update(line.encode("utf-8"))
     return digest.hexdigest()
-
 
 def _metadata_copy(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     if metadata is None:
@@ -206,15 +187,12 @@ def _metadata_copy(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise TypeError("metadata must be JSON serializable") from exc
 
-
 def _declared_filename_hash(name: str) -> str | None:
     match = _HASH_NAME_RE.fullmatch(name)
     return match.group(1).lower() if match else None
 
-
 def _read_only_uri(path: Path) -> str:
     return f"{path.as_uri()}?mode=ro"
-
 
 def _json_value(raw: Any, label: str) -> Any:
     if not isinstance(raw, str):
@@ -224,13 +202,11 @@ def _json_value(raw: Any, label: str) -> Any:
     except json.JSONDecodeError as exc:
         raise BackupVerificationError(f"{label} is not valid JSON: {exc}") from exc
 
-
 def _json_object(raw: Any, label: str) -> dict[str, Any]:
     value = _json_value(raw, label)
     if not isinstance(value, Mapping):
         raise BackupVerificationError(f"{label} must contain a JSON object")
     return dict(value)
-
 
 def _json_list(raw: Any, label: str) -> list[Any]:
     value = _json_value(raw, label)
@@ -238,10 +214,8 @@ def _json_list(raw: Any, label: str) -> list[Any]:
         raise BackupVerificationError(f"{label} must contain a JSON array")
     return value
 
-
 def _snapshot_data_quality(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {key: payload[key] for key in _DATA_QUALITY_KEYS if key in payload}
-
 
 def _replay_quality_flags(member: Mapping[str, Any], label: str) -> tuple[bool, bool]:
     """Mirror DecisionRuntime's frozen member quality interpretation.
@@ -259,7 +233,6 @@ def _replay_quality_flags(member: Mapping[str, Any], label: str) -> tuple[bool, 
         raise BackupVerificationError(f"{label}.coverage is invalid")
     return quality_status == "stale", quality_status == "invalid" or coverage < 30
 
-
 def _decision_payload_from_row(row: sqlite3.Row, label: str) -> dict[str, Any]:
     reason_codes = _json_list(row["reason_codes_json"], f"{label}.reason_codes_json")
     contributions = _json_list(row["contributions_json"], f"{label}.contributions_json")
@@ -275,7 +248,6 @@ def _decision_payload_from_row(row: sqlite3.Row, label: str) -> dict[str, Any]:
         "previous_action": row["previous_action"],
         "confirmed": bool(row["confirmed"]),
     }
-
 
 def _assert_sqlite_readable(path: Path) -> None:
     _ensure_regular_file(path, "SQLite payload")
@@ -293,7 +265,6 @@ def _assert_sqlite_readable(path: Path) -> None:
     finally:
         if connection is not None:
             connection.close()
-
 
 def _verify_decision_references(path: Path) -> dict[str, Any]:
     """Validate frozen hashes and the complete decision/report reference graph."""
@@ -509,7 +480,6 @@ def _verify_decision_references(path: Path) -> dict[str, Any]:
         if connection is not None:
             connection.close()
 
-
 def _replay_report_from_database(path: Path, decision_id: str) -> dict[str, Any]:
     """Replay one stored report using only its frozen snapshot and version."""
 
@@ -627,7 +597,6 @@ def _replay_report_from_database(path: Path, decision_id: str) -> dict[str, Any]
         if connection is not None:
             connection.close()
 
-
 def _find_replay_database(paths: Iterable[Path], decision_id: str) -> Path:
     candidates: list[Path] = []
     for path in paths:
@@ -653,7 +622,6 @@ def _find_replay_database(paths: Iterable[Path], decision_id: str) -> Path:
         raise BackupVerificationError(f"decision_id is present in multiple restored databases: {decision_id}")
     return candidates[0]
 
-
 def _first_replay_decision_id(paths: Iterable[Path]) -> str | None:
     """Return a stable local sample for a scheduled recovery drill."""
 
@@ -677,7 +645,6 @@ def _first_replay_decision_id(paths: Iterable[Path]) -> str | None:
                 connection.close()
     return min(candidates) if candidates else None
 
-
 def _latest_backup_directory(backup_root: Path) -> Path:
     """Pick the latest explicitly named backup without consulting external state."""
 
@@ -696,7 +663,6 @@ def _latest_backup_directory(backup_root: Path) -> Path:
         raise BackupVerificationError(f"daily backup root contains no manifest directories: {backup_root}")
     return candidates[0].resolve()
 
-
 def _iter_regular_files(directory: Path, error_type: type[BackupError] = BackupError) -> Iterator[tuple[Path, Path]]:
     for root, directory_names, file_names in os.walk(directory, followlinks=False):
         root_path = Path(root)
@@ -711,11 +677,9 @@ def _iter_regular_files(directory: Path, error_type: type[BackupError] = BackupE
                 raise error_type(f"artifact directory contains a non-regular file: {candidate}")
             yield candidate, candidate.relative_to(directory)
 
-
 def _iter_payload_files(directory: Path) -> Iterator[Path]:
     for file_path, _ in _iter_regular_files(directory, BackupVerificationError):
         yield file_path
-
 
 def _payload_files(backup_dir: Path) -> set[str]:
     paths: set[str] = set()
@@ -728,7 +692,6 @@ def _payload_files(backup_dir: Path) -> set[str]:
         for file_path in _iter_payload_files(root):
             paths.add(file_path.relative_to(backup_dir).as_posix())
     return paths
-
 
 class BackupManager:
     """Create and verify local backups using explicit input paths only."""
@@ -1673,7 +1636,6 @@ class BackupManager:
             replay_decision_id=replay_decision_id,
             scheduled_for=scheduled_for,
         )
-
 
 __all__ = [
     "BACKUP_FORMAT",

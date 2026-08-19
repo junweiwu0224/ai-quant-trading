@@ -3,7 +3,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from data.collector.quote_service import QuoteData
 from dashboard.routers.paper_control import _create_builtin_strategy
 from engine.paper_engine import PaperConfig, PaperEngine, PaperStateManager, PaperTradeLog
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
-
 
 def make_quote(code: str, price: float, **kwargs) -> QuoteData:
     """创建测试用行情"""
@@ -30,7 +29,6 @@ def make_quote(code: str, price: float, **kwargs) -> QuoteData:
         timestamp=time.time(),
     )
 
-
 class BuyOnceStrategy(BaseStrategy):
     """测试策略：首次收到行情时买入"""
 
@@ -44,7 +42,6 @@ class BuyOnceStrategy(BaseStrategy):
         if bar.code == self._buy_code and not self._bought:
             self.buy(bar.code, bar.close, self._buy_volume)
             self._bought = True
-
 
 class SellAfterBuyStrategy(BaseStrategy):
     """测试策略：买入后下一轮卖出"""
@@ -62,7 +59,6 @@ class SellAfterBuyStrategy(BaseStrategy):
             if pos > 0:
                 self.sell(bar.code, bar.close, pos)
 
-
 # ── QuoteData 测试 ──
 
 class TestQuoteData:
@@ -75,7 +71,6 @@ class TestQuoteData:
         q = make_quote("000001", 10.0)
         with pytest.raises(AttributeError):
             q.price = 11.0
-
 
 # ── PaperTradeLog 测试 ──
 
@@ -108,7 +103,6 @@ class TestPaperTradeLog:
             log.record(trade, 1_000_000)
             assert len(log.today_trades) == 1
 
-
 # ── PaperStateManager 测试 ──
 
 class TestPaperStateManager:
@@ -135,7 +129,6 @@ class TestPaperStateManager:
             state_file = Path(tmpdir) / "portfolio_state.json"
             state_file.write_text("not valid json")
             assert mgr.load() is None
-
 
 # ── PaperEngine 测试 ──
 

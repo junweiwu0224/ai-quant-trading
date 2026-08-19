@@ -9,7 +9,7 @@ XTP (Xtang Trading Platform) 是中泰证券提供的极速交易接口，
 from __future__ import annotations
 
 import threading
-import time
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -24,7 +24,6 @@ from engine.broker import (
     PositionInfo,
 )
 
-
 @dataclass(frozen=True)
 class XTPConfig:
     """XTP 连接配置"""
@@ -38,7 +37,6 @@ class XTPConfig:
     auth_code: str = ""              # 认证码
     app_id: int = 0                  # AppID
     sock_type: int = 1               # 1=TCP, 2=UDP
-
 
 class XTPGateway(BrokerGateway):
     """XTP 券商网关
@@ -217,6 +215,7 @@ class XTPGateway(BrokerGateway):
     def get_order_status(self, order_id: str) -> Optional[OrderResult]:
         """查询委托状态"""
         return self._orders.get(order_id)
+
 
     def get_market_code(self, code: str) -> int:
         """根据股票代码判断市场

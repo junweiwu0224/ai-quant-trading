@@ -11,7 +11,6 @@ from loguru import logger
 # ── 异步包装器（防止 mootdx/akshare 阻塞 FastAPI 事件循环）──
 _sync_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="datasource")
 
-
 async def run_sync(func, *args, **kwargs):
     """将同步阻塞调用包装为异步"""
     loop = asyncio.get_event_loop()
@@ -19,7 +18,6 @@ async def run_sync(func, *args, **kwargs):
 
 # ── 连接池客户端 ──
 _client: httpx.Client | None = None
-
 
 _TRANSIENT_HTTP_ERRORS = (
     httpx.TimeoutException,
@@ -29,7 +27,6 @@ _TRANSIENT_HTTP_ERRORS = (
 _WARNING_THROTTLE_SECONDS = 60
 _warning_throttle: dict[str, float] = {}
 
-
 def _should_log_warning(key: str, interval: float = _WARNING_THROTTLE_SECONDS) -> bool:
     now = time.time()
     last = _warning_throttle.get(key, 0.0)
@@ -38,11 +35,9 @@ def _should_log_warning(key: str, interval: float = _WARNING_THROTTLE_SECONDS) -
     _warning_throttle[key] = now
     return True
 
-
 def _log_throttled_warning(key: str, message: str) -> None:
     if _should_log_warning(key):
         logger.warning(message)
-
 
 def _request_json(
     url: str,
@@ -54,7 +49,6 @@ def _request_json(
     resp = client.get(url, params=params, timeout=timeout, headers=headers)
     resp.raise_for_status()
     return resp.json()
-
 
 def _request_json_with_retry(
     url: str,
@@ -79,7 +73,6 @@ def _request_json_with_retry(
         raise last_error
     raise RuntimeError("request failed unexpectedly")
 
-
 def get_client() -> httpx.Client:
     """获取共享 httpx 客户端（懒初始化，连接池复用）"""
     global _client
@@ -94,15 +87,14 @@ def get_client() -> httpx.Client:
         )
     return _client
 
-
 def close_client():
     global _client
     if _client is not None:
         _client.close()
         _client = None
 
-
 def fetch_json(url: str, params: dict | None = None, timeout: float = 8.0,
+
                headers: dict | None = None) -> dict:
     """统一 JSON 请求，返回解析后的 dict"""
     _validate_request_url(url)
@@ -113,7 +105,6 @@ def fetch_json(url: str, params: dict | None = None, timeout: float = 8.0,
         headers=headers,
         retry_key=f"http-json:{urlparse(url).netloc}{urlparse(url).path}",
     )
-
 
 def fetch_json_tencent(url: str, timeout: float = 8.0) -> dict:
     """腾讯 API 专用（HTTP，不同 Referer）"""
@@ -128,11 +119,9 @@ def fetch_json_tencent(url: str, timeout: float = 8.0) -> dict:
         retry_key=f"http-json-tencent:{urlparse(url).netloc}{urlparse(url).path}",
     )
 
-
 # ── 股票代码转换 ──
 
 _STOCK_CODE_RE = re.compile(r"^(?:[sS][hH]|[sS][zZ])?(\d{6})$")
-
 
 def _validate_request_url(url: str) -> None:
     parsed = urlparse(url)
@@ -142,13 +131,11 @@ def _validate_request_url(url: str) -> None:
     if not host.endswith((".eastmoney.com", ".gtimg.cn")):
         raise ValueError(f"unsupported request host: {host!r}")
 
-
 def normalize_stock_code(code: str) -> str | None:
     """规范化股票代码，非法输入返回 None"""
     normalized = str(code).strip()
     match = _STOCK_CODE_RE.fullmatch(normalized)
     return match.group(1) if match else None
-
 
 def code_to_secid(code: str) -> str:
     """股票代码 → 东方财富 secid（沪市 1.x，深市 0.x）"""
@@ -156,7 +143,6 @@ def code_to_secid(code: str) -> str:
     if not normalized:
         raise ValueError(f"invalid stock code: {code!r}")
     return f"1.{normalized}" if normalized.startswith(("6", "9")) else f"0.{normalized}"
-
 
 def calculate_limit_prices(code: str, pre_close: float) -> tuple[float, float]:
     """计算涨跌停价（主板 ±10%，创业板/科创板 ±20%）"""

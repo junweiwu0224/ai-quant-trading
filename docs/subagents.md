@@ -45,7 +45,7 @@
 - 前端公共运行时/导航/加载链：`dashboard/ui/src/App.vue`、`router.ts`、`stores/app.ts`、`styles.css`、`dashboard/static/sw.js`。
 - Service worker/cache busting：`dashboard/static/sw.js`、`dashboard/ui/src/main.ts` 和 Vite hashed asset 路径必须统一处理。
 - 全局共享状态和跨页动作：Pinia workspace store、Vue Router、`api/client.ts`、AI task/report 状态和各 view 的安全边界。
-- 共享市场数据 DB/schema/storage：`data/storage/storage.py`、`data/storage/tick_storage.py`、`data/sync/*` 和依赖 `DataStorage` 返回结构的 routers。
+- 共享市场数据 DB/schema/storage：`data/storage/storage.py`、`data/sync/*` 和依赖 `DataStorage` 返回结构的 routers。
 - Dashboard app lifecycle / TestClient health：`dashboard/app.py`、`tests/conftest.py`、`scripts/dashboard_data_health.py`、`tests/test_dashboard_data_health.py`。
 - Paper trading / conditional orders / risk / migration chain：`engine/models.py`、`engine/migrate.py`、`engine/order_manager.py`、`engine/risk_manager.py`、`engine/conditional_order.py`、`dashboard/routers/paper_trading.py`、`dashboard/routers/conditional_orders.py`。
 - Live/broker/external services：`engine/live_engine.py`、`engine/broker.py`、`engine/brokers/*`、AI Runtime/LLM routers/providers。

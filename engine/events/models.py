@@ -9,10 +9,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping, Optional
 
-
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
 
 @dataclass(frozen=True)
 class DomainEvent:
@@ -51,9 +49,10 @@ class DomainEvent:
             "payload": dict(self.payload),
         }
 
+
+
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, default=str)
-
 
 class OutboxStatus(str, Enum):
     PENDING = "pending"
@@ -61,11 +60,9 @@ class OutboxStatus(str, Enum):
     DELIVERED = "delivered"
     DEAD = "dead"
 
-
 class FailureKind(str, Enum):
     RETRYABLE = "retryable"
     PERMANENT = "permanent"
-
 
 @dataclass(frozen=True)
 class OutboxRecord:

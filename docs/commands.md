@@ -129,7 +129,7 @@ scripts/e2e-local.sh all
 npm run e2e:docker
 ```
 
-`package.json` 中 `npm run e2e` 和 `npm run e2e:data-health` 依赖 Playwright 配置；`npm test` 当前是占位脚本，会直接失败。
+`package.json` 中 `npm run e2e` 和 `npm run e2e:data-health` 依赖 Playwright 配置；根目录不提供 `npm test`，前端测试使用 `npm run ui:test`。
 
 ## Pi Agent Worker
 
@@ -138,7 +138,7 @@ PI_AGENT_WORKER_ENABLED=true .venv/bin/python scripts/run_pi_agent_worker.py --o
 PI_AGENT_WORKER_ENABLED=true .venv/bin/python scripts/run_pi_agent_worker.py
 ```
 
-`PiAgentWorker` 复用原 AI task lease 名称以防旧进程与新进程同时消费队列。每个 Pi 调用都禁用 tools、session、extensions、skills、prompt templates 和项目 context，并在空临时目录运行。旧 `scripts/run_ai_worker.py` 仅保留兼容入口；新部署使用 `scripts/run_pi_agent_worker.py` 和 Compose `pi-agent` 服务。
+`PiAgentWorker` 是 AI task queue 的唯一生产消费者，复用 SQLite lease/fence、workspace 隔离、任务取消和审计。每个 Pi 调用都禁用 tools、session、extensions、skills、prompt templates 和项目 context，并在空临时目录运行。新部署使用 `scripts/run_pi_agent_worker.py` 和 Compose `pi-agent` 服务。
 
 ## 决策 Worker 与备份
 

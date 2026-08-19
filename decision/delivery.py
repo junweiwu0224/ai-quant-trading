@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from engine.events.models import DomainEvent
 from engine.events.outbox import SQLiteOutbox
-from engine.notifications.models import DeliveryResult
+
 from engine.notifications.channels import (
     FeishuRobotNotificationAdapter,
     PushPlusNotificationAdapter,
@@ -24,16 +24,13 @@ from engine.notifications.channels import (
 
 from .store import DecisionStore
 
-
 def _enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
 
 def _secret_ref(value: str) -> str:
     if not value.startswith("env://"):
         return ""
     return os.getenv(value.removeprefix("env://"), "")
-
 
 def _transport(endpoint: str, payload: Mapping[str, Any], headers: Mapping[str, str], timeout: float) -> dict[str, Any]:
     request = Request(endpoint, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers=dict(headers), method="POST")
@@ -45,7 +42,6 @@ def _transport(endpoint: str, payload: Mapping[str, Any], headers: Mapping[str, 
         return {"status_code": exc.code, "body": exc.read().decode("utf-8", errors="replace"), "headers": dict(exc.headers or {})}
     except URLError as exc:
         raise ConnectionError(str(exc.reason)) from exc
-
 
 @dataclass
 class DecisionDeliveryService:
@@ -331,6 +327,7 @@ class DecisionDeliveryService:
         return self._deliver_event(workspace_id, report_id, self._event(report, event_type, report_url))
 
     def enqueue_report(self, workspace_id: str, report_id: str, event_type: str, *, report_url: str = "") -> str | None:
+
         """Persist a report event; only the Worker may perform external I/O."""
 
         if self.outbox is None or not self.worker_owned:
@@ -380,7 +377,6 @@ class DecisionDeliveryService:
             self._assert_fence()
             updated = self.store.mark_target_test(workspace_id, target_id, "failed")
             return {"status": "failed", "target": updated, "error": str(exc)}
-
 
 class DecisionOutboxDispatcher:
     """Worker-owned dispatcher for report events and per-target attempts."""
@@ -432,6 +428,5 @@ class DecisionOutboxDispatcher:
 
     def test_target(self, workspace_id: str, target_id: str) -> dict[str, Any]:
         return self.service.test_target(workspace_id, target_id)
-
 
 __all__ = ["DecisionDeliveryService", "DecisionOutboxDispatcher"]

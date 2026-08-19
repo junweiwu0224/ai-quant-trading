@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-
 os.environ.setdefault("APP_ENV", "test")
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,17 +102,10 @@ _AUDIT_ACCOUNT = {
         "updated_at": "1970-01-01T00:00:00+00:00",
     },
     "permissions": {
-        "chat": True,
-        "read_market": True,
-        "read_portfolio": True,
-        "write_watchlist": False,
-        "write_paper_trade": False,
-        "manage_skills": False,
         "manage_workspace": False,
         "admin": True,
     },
 }
-
 
 @dataclass(frozen=True)
 class AuditFinding:
@@ -130,7 +122,6 @@ class AuditFinding:
             "severity": self.severity,
         }
 
-
 def normalize_path_for_name(path: str) -> str:
     parsed = urlsplit(path)
     pieces = [parsed.path]
@@ -142,13 +133,11 @@ def normalize_path_for_name(path: str) -> str:
     raw = re.sub(r"[^A-Za-z0-9]+", "_", raw)
     return raw.strip("_") or "root"
 
-
 def _string_finding(value: str, path: str) -> AuditFinding | None:
     normalized = value.strip().lower()
     if normalized in HARD_BAD_STRINGS:
         return AuditFinding(path=path, kind="bad_display_string", value=value, severity="hard")
     return None
-
 
 def _next_path(parent: str, key: Any) -> str:
     if isinstance(key, str) and _IDENTIFIER_RE.match(key):
@@ -156,7 +145,6 @@ def _next_path(parent: str, key: Any) -> str:
     if isinstance(key, str):
         return f"{parent}[{json.dumps(key, ensure_ascii=False)}]"
     return f"{parent}[{key}]"
-
 
 def find_json_anomalies(value: Any, path: str = "$") -> list[AuditFinding]:
     findings: list[AuditFinding] = []
@@ -192,7 +180,6 @@ def find_json_anomalies(value: Any, path: str = "$") -> list[AuditFinding]:
 
     return findings
 
-
 def _payload_has(payload: dict[str, Any], field_path: str) -> bool:
     current: Any = payload
     for piece in field_path.split("."):
@@ -200,7 +187,6 @@ def _payload_has(payload: dict[str, Any], field_path: str) -> bool:
             return False
         current = current[piece]
     return True
-
 
 def _missing_metadata(field_path: str) -> AuditFinding:
     return AuditFinding(
@@ -210,7 +196,6 @@ def _missing_metadata(field_path: str) -> AuditFinding:
         severity="soft",
     )
 
-
 def _missing_degradation(value: str) -> AuditFinding:
     return AuditFinding(
         path="$.source_unavailable",
@@ -218,7 +203,6 @@ def _missing_degradation(value: str) -> AuditFinding:
         value=value,
         severity="soft",
     )
-
 
 def _add_missing_fields(
     findings: list[AuditFinding],
@@ -229,7 +213,6 @@ def _add_missing_fields(
         if not _payload_has(payload, field_path):
             findings.append(_missing_metadata(field_path))
 
-
 def _add_item_missing_fields(
     findings: list[AuditFinding],
     item: dict[str, Any],
@@ -239,7 +222,6 @@ def _add_item_missing_fields(
     for field in fields:
         if field not in item:
             findings.append(_missing_metadata(f"items[{index}].{field}"))
-
 
 def _has_degradation_context(payload: dict[str, Any]) -> bool:
     return any(
@@ -252,7 +234,6 @@ def _has_degradation_context(payload: dict[str, Any]) -> bool:
             "degradation_reason",
         )
     )
-
 
 def find_metadata_findings(endpoint_path: str, payload: Any) -> list[AuditFinding]:
     """Find trust-context gaps for high-value read paths.
@@ -444,7 +425,6 @@ def find_metadata_findings(endpoint_path: str, payload: Any) -> list[AuditFindin
 
     return findings
 
-
 def find_stock_info_integrity_findings(audit: dict[str, Any]) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     duplicate_plain_count = int(audit.get("duplicate_plain_count") or 0)
@@ -508,17 +488,14 @@ def find_stock_info_integrity_findings(audit: dict[str, Any]) -> list[AuditFindi
         )
     return findings
 
-
 def _response_payload(response) -> tuple[bool, Any, str]:
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type.lower():
         return False, None, content_type
     return True, response.json(), content_type
 
-
 async def _audit_account_override() -> dict[str, Any]:
     return _AUDIT_ACCOUNT
-
 
 def _import_dashboard_session():
     try:
@@ -527,7 +504,6 @@ def _import_dashboard_session():
         if exc.name == "dashboard.session":
             return None
         raise
-
 
 def _install_account_overrides(app) -> dict[Any, Any]:
     session = _import_dashboard_session()
@@ -544,7 +520,6 @@ def _install_account_overrides(app) -> dict[Any, Any]:
         app.dependency_overrides[dependency] = _audit_account_override
     return previous
 
-
 def _restore_account_overrides(app, previous: dict[Any, Any]) -> None:
     session = _import_dashboard_session()
     if session is None:
@@ -558,7 +533,6 @@ def _restore_account_overrides(app, previous: dict[Any, Any]) -> None:
             app.dependency_overrides[dependency] = previous[dependency]
         else:
             app.dependency_overrides.pop(dependency, None)
-
 
 def run_api_audit(paths: list[str] | None = None) -> dict[str, Any]:
     from fastapi.testclient import TestClient
@@ -654,11 +628,9 @@ def run_api_audit(paths: list[str] | None = None) -> dict[str, Any]:
         "endpoints": endpoints,
     }
 
-
 def write_report(report: dict[str, Any], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit read-only dashboard API data health.")
@@ -682,7 +654,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.fail_on_hard and (report["failed_endpoint_count"] or report["hard_finding_count"]):
         return 1
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

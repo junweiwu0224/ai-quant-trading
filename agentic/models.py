@@ -58,16 +58,6 @@ def _optional_float(name: str, value: object) -> float | None:
     return _as_float(name, value)  # type: ignore[arg-type]
 
 
-def _legacy_direction_for_action(action: str) -> SignalDirection:
-    if action in {"buy", "add"}:
-        return "buy"
-    if action in {"sell", "reduce"}:
-        return "sell"
-    if action in {"avoid", "alert"}:
-        return "risk"
-    return "hold"
-
-
 def _decision_action_for_direction(direction: SignalDirection) -> DecisionAction:
     return {
         "buy": "buy",
@@ -109,8 +99,7 @@ class TradingSignal:
     created_at: str
     expires_at: str | None = None
     metadata: dict = field(default_factory=dict)
-    # Structured Decision Signal fields. The legacy fields above remain the
-    # canonical lifecycle projection used by PaperBridge and OrderIntent.
+    # Structured Decision Signal fields extend the legacy lifecycle projection.
     action: DecisionAction | str | None = None
     score: float | None = None
     entry_low: float | None = None

@@ -8,7 +8,6 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "ui:dev": "npm run dev --prefix dashboard/ui",
     "ui:build": "npm run build --prefix dashboard/ui",
     "ui:test": "npm run test --prefix dashboard/ui",

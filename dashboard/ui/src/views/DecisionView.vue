@@ -93,8 +93,6 @@ function actionLabel(action: unknown): string {
 }
 
 const decisions = computed(() => result.value?.decisions || [])
-const readyCount = computed(() => decisions.value.filter((item: AnyRecord) => item.valid).length)
-const riskCount = computed(() => decisions.value.filter((item: AnyRecord) => item.action === 'major_risk').length)
 const activeMatrix = computed(() => opportunityScope.value === 'signal' ? signalMatrix.value : watchlistMatrix.value)
 const matrixItems = computed<AnyRecord[]>(() => (activeMatrix.value?.items || []) as AnyRecord[])
 const matrixSummary = computed<AnyRecord>(() => (activeMatrix.value?.summary || {}) as AnyRecord)

@@ -4,9 +4,7 @@ Mobile Responsiveness Test Suite
 Tests mobile viewport handling, touch targets, responsive breakpoints,
 and navigation behavior across all pages.
 """
-import pytest
 from pathlib import Path
-
 
 def test_viewport_meta_tag_exists():
     """Verify viewport meta tag exists in index.html for mobile scaling"""
@@ -17,7 +15,6 @@ def test_viewport_meta_tag_exists():
     assert '<meta name="viewport"' in content, "Viewport meta tag missing"
     assert 'width=device-width' in content, "Viewport should include width=device-width"
     assert 'initial-scale=1.0' in content, "Viewport should include initial-scale=1.0"
-
 
 def test_responsive_breakpoints_defined():
     """Verify responsive breakpoints are defined in CSS"""
@@ -41,7 +38,6 @@ def test_responsive_breakpoints_defined():
     # At least some files should have responsive breakpoints
     assert len(files_with_breakpoints) > 0, "No responsive breakpoints found in Vue files"
 
-
 def test_mobile_nav_component_exists():
     """Verify MobileNav component exists for bottom navigation"""
     mobile_nav = Path(__file__).parent.parent / "dashboard" / "ui" / "src" / "components" / "MobileNav.vue"
@@ -49,7 +45,6 @@ def test_mobile_nav_component_exists():
 
     content = mobile_nav.read_text()
     assert "nav" in content.lower(), "MobileNav should contain navigation elements"
-
 
 def test_button_touch_target_size():
     """Verify button components have adequate touch target size (44px minimum)"""
@@ -71,7 +66,6 @@ def test_button_touch_target_size():
     # This is a heuristic test - manual verification still needed
     assert button_height_found, "Button height styles should be defined"
 
-
 def test_no_horizontal_scroll_on_mobile():
     """Verify no elements force horizontal scroll on mobile viewport"""
     # Check for common overflow issues
@@ -88,7 +82,6 @@ def test_no_horizontal_scroll_on_mobile():
 
     # Tables should have scroll containers
     assert len(files_with_overflow) > 0, "Tables should have overflow handling"
-
 
 def test_responsive_grid_layouts():
     """Verify grid layouts adapt to mobile viewports"""
@@ -107,7 +100,6 @@ def test_responsive_grid_layouts():
     # Some components should have responsive grids
     assert len(responsive_grids) > 0, "Some grids should be responsive"
 
-
 def test_research_view_has_mobile_styles():
     """Verify ResearchView has mobile responsive styles"""
     research_view = Path(__file__).parent.parent / "dashboard" / "ui" / "src" / "views" / "ResearchView.vue"
@@ -117,7 +109,6 @@ def test_research_view_has_mobile_styles():
     assert "@media (max-width: 768px)" in content, "ResearchView should have tablet breakpoint"
     assert "@media (max-width: 480px)" in content or "max-width: 768px" in content, "ResearchView should have mobile styles"
 
-
 def test_decision_view_exists_and_responsive():
     """Verify DecisionView exists and has responsive considerations"""
     decision_view = Path(__file__).parent.parent / "dashboard" / "ui" / "src" / "views" / "DecisionView.vue"
@@ -126,7 +117,6 @@ def test_decision_view_exists_and_responsive():
     content = decision_view.read_text()
     # DecisionView should have complex layouts that adapt
     assert "panel" in content or "section" in content, "DecisionView should have panel layouts"
-
 
 def test_workspace_modules_are_discoverable_without_more_view():
     """Verify advanced workflows belong to visible workspace navigation."""
@@ -147,7 +137,6 @@ def test_workspace_modules_are_discoverable_without_more_view():
     assert "WORKSPACE_DEFINITIONS" in source
     assert "workspace.tabs" in workspace_nav.read_text()
 
-
 def test_mobile_specific_breakpoints():
     """Verify specific mobile breakpoints are used (320px, 375px, 768px)"""
     ui_src = Path(__file__).parent.parent / "dashboard" / "ui" / "src"
@@ -165,7 +154,6 @@ def test_mobile_specific_breakpoints():
 
     assert len(files_with_mobile_breakpoints) > 0, "Mobile breakpoints should be defined in components"
 
-
 def test_text_readability_no_fixed_small_sizes():
     """Verify text doesn't use overly small fixed sizes"""
     ui_src = Path(__file__).parent.parent / "dashboard" / "ui" / "src"
@@ -181,7 +169,6 @@ def test_text_readability_no_fixed_small_sizes():
 
     # CSS variables indicate proper responsive typography
     assert len(files_with_css_vars) > 0, "Components should use CSS variables for font sizes"
-
 
 def test_card_components_stack_on_mobile():
     """Verify card/grid layouts stack on mobile"""
@@ -199,7 +186,6 @@ def test_card_components_stack_on_mobile():
 
     assert len(stacking_patterns) > 0, "Some grids should stack to single column on mobile"
 
-
 def test_form_inputs_stack_vertically():
     """Verify forms stack inputs vertically on mobile"""
     ui_src = Path(__file__).parent.parent / "dashboard" / "ui" / "src"
@@ -213,7 +199,6 @@ def test_form_inputs_stack_vertically():
             forms_found += 1
 
     assert forms_found > 0, "Forms should exist in the application"
-
 
 def test_modal_responsive_behavior():
     """Verify modals adapt to mobile viewports"""
@@ -230,7 +215,6 @@ def test_modal_responsive_behavior():
     # Modals should exist
     assert len(modals_found) > 0, "Application should have modal dialogs"
 
-
 def test_icons_sized_appropriately():
     """Verify icon sizes are defined and reasonable"""
     ui_src = Path(__file__).parent.parent / "dashboard" / "ui" / "src"
@@ -246,7 +230,6 @@ def test_icons_sized_appropriately():
 
     assert len(files_with_icons) > 0, "Icons should have explicit sizes"
 
-
 def test_navigation_accessible_on_mobile():
     """Verify navigation is accessible on mobile devices"""
     mobile_nav = Path(__file__).parent.parent / "dashboard" / "ui" / "src" / "components" / "MobileNav.vue"
@@ -258,7 +241,6 @@ def test_navigation_accessible_on_mobile():
     # Check that MobileNav is referenced in AppShell
     app_shell_content = app_shell.read_text()
     assert "MobileNav" in app_shell_content, "AppShell should reference MobileNav"
-
 
 def test_no_console_logs_in_production_code():
     """Verify console.log statements are removed from production code"""
@@ -278,7 +260,6 @@ def test_no_console_logs_in_production_code():
     # Demo files are allowed to have console.log
     # This test will be strict after cleanup
     assert True, "Console.log check (allowed in demo files)"
-
 
 def test_viewport_units_used_sparingly():
     """Verify viewport units (vh, vw) are used appropriately"""

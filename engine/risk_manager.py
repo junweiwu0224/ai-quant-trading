@@ -1,18 +1,15 @@
 """风险管理器"""
 import json
-from datetime import datetime, date
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from loguru import logger
 
 from config.settings import PROJECT_ROOT
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.datetime_utils import now_beijing, now_beijing_iso
 from engine.models import (
-    Direction, OrderStatus, PaperConfig, PaperOrder, PaperPosition, RiskEvent
+    PaperConfig, PaperPosition, RiskEvent
 )
 from utils.db import get_connection
-
 
 class RiskManager:
     """风险管理器"""

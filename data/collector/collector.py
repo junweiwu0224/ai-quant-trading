@@ -1,7 +1,6 @@
 """AKShare 数据采集"""
 import time
-from datetime import date, datetime
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+
 from typing import Optional
 
 import akshare as ak
@@ -9,7 +8,6 @@ import pandas as pd
 from loguru import logger
 
 from config.settings import AKSHARE_RETRY_COUNT, AKSHARE_RETRY_DELAY, DEFAULT_START_DATE
-
 
 class StockCollector:
     """A股数据采集器"""
@@ -156,6 +154,7 @@ class StockCollector:
         return results
 
     def get_index_daily(
+
         self,
         code: str,
         start_date: str = DEFAULT_START_DATE,

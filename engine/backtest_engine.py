@@ -10,10 +10,9 @@ from loguru import logger
 from data.storage import DataStorage
 from risk.position import PositionManager
 from risk.stoploss import StopLossManager
-from risk.monitor import RiskAlert, RiskMonitor
+from risk.monitor import RiskMonitor
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
 from engine.execution_model import (
-    DEFAULT_A_SHARE_EXECUTION_CONTRACT,
     ExecutionCostModelVersion,
     ExecutionDataContract,
     resolve_execution_contract,

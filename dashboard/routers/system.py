@@ -99,7 +99,7 @@ async def get_risk_rules():
     """返回风控规则及当前状态"""
     state = None
     try:
-        from pathlib import Path
+
         from config.settings import LOG_DIR
         state_file = LOG_DIR / "paper" / "portfolio_state.json"
         if state_file.exists():

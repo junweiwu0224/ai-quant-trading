@@ -1,16 +1,15 @@
 """模拟盘完整API路由"""
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
-from typing import Optional, List
+from config.datetime_utils import now_beijing, now_beijing_iso
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from engine.models import (
-    Direction, OrderStatus, OrderType,
-    PaperConfig, PaperOrder, PaperPosition, PaperTrade
+    Direction, OrderType, PaperConfig
 )
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer

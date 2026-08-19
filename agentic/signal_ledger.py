@@ -10,19 +10,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Union
 
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
 
 def _dump(value: Mapping[str, Any]) -> str:
     return json.dumps(dict(value), ensure_ascii=False, sort_keys=True, default=str)
 
-
 def _load(value: str) -> Dict[str, Any]:
     loaded = json.loads(value or "{}")
     return loaded if isinstance(loaded, dict) else {}
-
 
 VALID_LEDGER_STATUSES = {
     "new",
@@ -46,10 +42,8 @@ ALLOWED_LEDGER_TRANSITIONS = {
     "closed": set(),
 }
 
-
 class SignalLedgerConflict(RuntimeError):
     """Raised when a transition was based on a stale current status."""
-
 
 @dataclass(frozen=True)
 class SignalEvent:
@@ -64,7 +58,6 @@ class SignalEvent:
     evidence_snapshot_id: Optional[str]
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-
 @dataclass(frozen=True)
 class SignalProvenance:
     provenance_id: str
@@ -75,7 +68,6 @@ class SignalProvenance:
     recorded_at: str
     details: Mapping[str, Any] = field(default_factory=dict)
 
-
 @dataclass(frozen=True)
 class SignalOutcome:
     outcome_id: str
@@ -85,7 +77,6 @@ class SignalOutcome:
     realized_return: Optional[float] = None
     max_drawdown: Optional[float] = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
-
 
 class SignalLedger:
     """SQLite Adapter for signal history and attribution."""
@@ -191,6 +182,7 @@ class SignalLedger:
         return row is not None
 
     def canonical_signal_exists(self, signal_id: str) -> Optional[bool]:
+
         """Check the canonical projection without mutating the read model.
 
         ``None`` means the legacy/in-memory database has no projection table;
@@ -210,6 +202,7 @@ class SignalLedger:
         return self.canonical_signal_exists(signal_id) is True
 
     def ensure_status(
+
         self,
         signal_id: str,
         current_status: str,
@@ -413,6 +406,7 @@ class SignalLedger:
         return self.provenance(signal_id)
 
     def record_outcome(
+
         self,
         signal_id: str,
         *,
@@ -488,5 +482,6 @@ class SignalLedger:
         ]
 
     def close(self) -> None:
+
         if self._owns_connection:
             self.connection.close()

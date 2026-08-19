@@ -49,10 +49,10 @@
 | 多角色研究 | `agentic/research_pipeline.py` | 从当前 signal/market/theme/bear/decision 骨架扩展为可验证角色编排 |
 | DecisionSignal | `agentic/models.py`、`agentic/signals.py`、`agentic/signal_ledger.py` | 丰富现有 `TradingSignal` 契约，保持旧 `direction/status` 兼容，不再新增第二套生命周期 |
 | 选股策略 | `alpha/screener.py`、`strategy/` | 保持“筛选策略”和“单股分析策略”分离，选择性移植 DSA/AlphaSift 策略定义并保留来源 |
-| 后验验证 | Signal Ledger outcome / `agentic/performance.py` | 新增 Decision Signal T+N evaluator；不改写 `engine/backtest_engine.py` |
+| 后验验证 | Signal Ledger outcome / `agentic/outcome_evaluator.py` | 使用 Decision Signal T+N evaluator；不改写 `engine/backtest_engine.py` |
 | 每日任务 | `data/scheduler/`、`agentic/daily_workflow.py` | 在现有调度器接入可取消、可重试、可审计的 daily research run |
 | 通知 | `engine/events/`、`engine/notifications/` | 研究完成只写 Outbox，由通知 Adapter 投递；不在研究流程内直接发 Webhook |
-| 模拟交易 | `engine/paper_engine.py`、`engine/order_manager.py`、`agentic/order_intent.py` | 仅允许通过现有晋级和人工确认流程进入 PaperEngine |
+| 模拟交易 | `engine/paper_engine.py`、`engine/order_manager.py`、`agentic/paper_strategy_candidates.py` | 仅允许通过现有晋级和人工确认流程进入 PaperEngine |
 | 真实回测 | `engine/backtest_engine.py`、`alpha/backtest.py` | 继续作为策略/组合回测唯一真源 |
 
 ## 4. 核心数据契约

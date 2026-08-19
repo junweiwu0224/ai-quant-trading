@@ -8,7 +8,7 @@ import type { MarketCode } from '../api/types'
 import { COMMAND_WORKFLOWS } from '../navigation/workflows'
 import WorkspaceNav from './WorkspaceNav.vue'
 
-const emit = defineEmits<{
+defineEmits<{
   toggleMenu: []
 }>()
 

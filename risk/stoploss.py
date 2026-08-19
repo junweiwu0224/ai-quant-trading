@@ -3,11 +3,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from loguru import logger
-
-from strategy.base import Direction, Portfolio, Trade
-
-
 @dataclass(frozen=True)
 class StopLossConfig:
     """止损止盈配置"""
@@ -18,7 +13,6 @@ class StopLossConfig:
     fixed_stop_pct: float = 0.05        # 固定止损 5%
     take_profit_pct: float = 0.20       # 固定止盈 20%
 
-
 @dataclass
 class StopSignal:
     """止损/止盈信号"""
@@ -26,7 +20,6 @@ class StopSignal:
     reason: str
     action: str  # "sell" or "reduce"
     urgency: int  # 1=最高, 5=最低
-
 
 class StopLossManager:
     """止损止盈管理器"""

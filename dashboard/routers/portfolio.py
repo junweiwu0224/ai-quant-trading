@@ -6,8 +6,7 @@ import json
 import os
 import statistics
 import tempfile
-from datetime import date, datetime, timedelta
-from enum import Enum
+from datetime import date, timedelta
 from math import sqrt
 from pathlib import Path
 from typing import Optional
@@ -18,7 +17,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from config.settings import LOG_DIR
-from config.datetime_utils import now_beijing, now_beijing_iso, now_beijing_str, today_beijing, today_beijing_compact
+from config.datetime_utils import now_beijing, now_beijing_iso
 from data.storage.storage import DataStorage
 from data.collector.cache import TTLCache
 
@@ -54,13 +53,6 @@ INITIAL_EQUITY = 50000
 # ══════════════════════════════════════════
 # 数据模型
 # ══════════════════════════════════════════
-
-class PositionAction(str, Enum):
-    NEW = "new"
-    ADD = "add"
-    REDUCE = "reduce"
-    CLOSE = "close"
-
 
 class PositionInfo(BaseModel):
     """持仓详情（扩展版）"""

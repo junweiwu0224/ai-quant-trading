@@ -7,7 +7,6 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from scripts.dashboard_data_health import (
-    HARD_BAD_STRINGS,
     SAFE_GET_PATHS,
     AuditFinding,
     find_stock_info_integrity_findings,
@@ -16,7 +15,6 @@ from scripts.dashboard_data_health import (
     normalize_path_for_name,
     run_api_audit,
 )
-
 
 PLAN_BASELINE_SAFE_GET_PATHS = [
     "/api/system/status",
@@ -58,13 +56,11 @@ PLAN_BASELINE_SAFE_GET_PATHS = [
     "/api/qlib/health",
 ]
 
-
 def test_normalize_path_for_name_makes_stable_filename_piece():
     assert (
         normalize_path_for_name("/api/stock/kline/600519?period=daily&count=30")
         == "api_stock_kline_600519_period_daily_count_30"
     )
-
 
 def test_find_json_anomalies_flags_hard_bad_strings_and_nonfinite_numbers():
     payload = {
@@ -92,7 +88,6 @@ def test_find_json_anomalies_flags_hard_bad_strings_and_nonfinite_numbers():
     assert ("$.items[0].ratio", "non_finite_number", "inf") in rendered
     assert not any(item.path == "$.quote.valid_placeholder" for item in findings)
 
-
 def test_audit_finding_is_json_serializable():
     finding = AuditFinding(path="$.x", kind="bad_display_string", value="nan", severity="hard")
 
@@ -102,7 +97,6 @@ def test_audit_finding_is_json_serializable():
         "value": "nan",
         "severity": "hard",
     }
-
 
 def test_stock_info_integrity_findings_report_soft_metadata_risks():
     findings = find_stock_info_integrity_findings(
@@ -142,7 +136,6 @@ def test_stock_info_integrity_findings_report_soft_metadata_risks():
         "soft",
     ) in rendered
 
-
 def test_metadata_findings_warn_when_market_news_empty_lacks_trust_context():
     findings = find_metadata_findings(
         "/api/market/news",
@@ -166,7 +159,6 @@ def test_metadata_findings_warn_when_market_news_empty_lacks_trust_context():
         "soft",
     ) in rendered
 
-
 def test_metadata_findings_warn_when_hotspot_empty_lacks_trust_context():
     findings = find_metadata_findings(
         "/api/market/hotspot",
@@ -189,7 +181,6 @@ def test_metadata_findings_warn_when_hotspot_empty_lacks_trust_context():
         "empty_hotspot_requires_degradation_context",
         "soft",
     ) in rendered
-
 
 def test_run_api_audit_counts_soft_metadata_findings_without_failing_endpoint(monkeypatch):
     app = FastAPI()
@@ -215,7 +206,6 @@ def test_run_api_audit_counts_soft_metadata_findings_without_failing_endpoint(mo
     assert report["hard_finding_count"] == 0
     assert report["soft_finding_count"] >= 3
     assert any(finding["kind"] == "missing_metadata" for finding in endpoint["findings"])
-
 
 def test_run_api_audit_includes_stock_info_integrity_soft_findings(monkeypatch):
     app = FastAPI()
@@ -264,7 +254,6 @@ def test_run_api_audit_includes_stock_info_integrity_soft_findings(monkeypatch):
     )
     assert report["soft_finding_count"] >= 3
 
-
 def test_metadata_findings_warn_when_decision_matrix_items_lack_trust_context():
     findings = find_metadata_findings(
         "/api/datahub/decision-matrix?scope=codes&codes=600519&limit=3&fast=true",
@@ -307,7 +296,6 @@ def test_metadata_findings_warn_when_decision_matrix_items_lack_trust_context():
         "soft",
     ) in rendered
 
-
 def test_metadata_findings_warn_when_signal_health_lacks_validation_evidence():
     findings = find_metadata_findings(
         "/api/signals/health?fast=true",
@@ -341,7 +329,6 @@ def test_metadata_findings_warn_when_signal_health_lacks_validation_evidence():
         "soft",
     ) in rendered
 
-
 def test_metadata_findings_warn_when_signal_validation_lacks_core_evidence():
     findings = find_metadata_findings(
         "/api/signals/validation?top_n=5",
@@ -356,18 +343,15 @@ def test_metadata_findings_warn_when_signal_validation_lacks_core_evidence():
     assert ("$.sample_days", "missing_metadata", "sample_days", "soft") in rendered
     assert ("$.metrics.1d", "missing_metadata", "metrics.1d", "soft") in rendered
 
-
 def test_safe_get_paths_cover_user_selected_data_areas():
     assert SAFE_GET_PATHS == PLAN_BASELINE_SAFE_GET_PATHS
     assert all("{" not in path and "}" not in path for path in SAFE_GET_PATHS)
     assert all(not path.startswith("/api/account/") for path in SAFE_GET_PATHS)
 
-
 def _install_fake_dashboard_app(monkeypatch, app: FastAPI) -> None:
     app_module = types.ModuleType("dashboard.app")
     app_module.app = app
     monkeypatch.setitem(sys.modules, "dashboard.app", app_module)
-
 
 def test_run_api_audit_installs_test_account_overrides_before_client_creation(monkeypatch):
     app = FastAPI()
@@ -388,7 +372,6 @@ def test_run_api_audit_installs_test_account_overrides_before_client_creation(mo
         return {
             "user_id": account["id"],
             "workspace_id": account["workspace"]["id"],
-            "read_market": account["permissions"]["read_market"],
         }
 
     @app.get("/needs-optional")
@@ -398,7 +381,6 @@ def test_run_api_audit_installs_test_account_overrides_before_client_creation(mo
         return {
             "user_id": account["id"],
             "workspace_id": account["workspace"]["id"],
-            "read_market": account["permissions"]["read_market"],
         }
 
     _install_fake_dashboard_app(monkeypatch, app)
@@ -409,7 +391,6 @@ def test_run_api_audit_installs_test_account_overrides_before_client_creation(mo
     assert [endpoint["status_code"] for endpoint in report["endpoints"]] == [200, 200]
     assert all(endpoint["ok"] for endpoint in report["endpoints"])
     assert all(endpoint["json"] for endpoint in report["endpoints"])
-
 
 def test_run_api_audit_skips_account_overrides_when_dashboard_session_missing(monkeypatch):
     app = FastAPI()
@@ -441,7 +422,6 @@ def test_run_api_audit_skips_account_overrides_when_dashboard_session_missing(mo
     assert endpoint["json"] is True
     assert report["failed_endpoint_count"] == 0
 
-
 def test_run_api_audit_counts_2xx_non_json_responses_as_failed(monkeypatch):
     app = FastAPI()
 
@@ -459,7 +439,6 @@ def test_run_api_audit_counts_2xx_non_json_responses_as_failed(monkeypatch):
     assert endpoint["json"] is False
     assert endpoint["error"].startswith("non-json response:")
     assert report["failed_endpoint_count"] == 1
-
 
 def test_run_api_audit_counts_success_false_json_responses_as_failed(monkeypatch):
     app = FastAPI()

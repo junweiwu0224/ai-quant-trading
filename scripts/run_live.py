@@ -26,30 +26,27 @@ STRATEGIES = {
 @click.option("--codes", "-c", multiple=True, required=True, help="股票代码")
 @click.option("--interval", "-i", default=30, help="轮询间隔（秒）")
 @click.option("--cash", default=1_000_000, help="初始资金（模拟盘）")
-@click.option("--no-risk", is_flag=True, help="禁用风控")
-@click.option("--live", is_flag=True, help="实盘模式（默认模拟盘）")
-def main(strategy: str, codes: tuple, interval: int, cash: float, no_risk: bool, live: bool):
+@click.option("--live", is_flag=True, help="实盘模式（V2 Live disabled）")
+def main(strategy: str, codes: tuple, interval: int, cash: float, live: bool):
     """启动实盘/模拟盘交易"""
+    if live:
+        raise click.ClickException("V2 Live disabled")
+
     setup_logging()
 
     codes_list = list(codes)
-    mode = "实盘" if live else "模拟盘"
-    logger.info(f"[{mode}] 策略: {strategy}, 标的: {codes_list}, 间隔: {interval}s")
+    logger.info(f"[模拟盘] 策略: {strategy}, 标的: {codes_list}, 间隔: {interval}s")
 
     strategy_cls = STRATEGIES[strategy]
     strat = strategy_cls()
 
     config = LiveConfig(
         interval_seconds=interval,
-        enable_risk=not no_risk,
-        dry_run=not live,
+        enable_risk=True,
+        dry_run=True,
     )
 
-    broker = SimulatedBroker(initial_cash=cash) if not live else None
-
-    if live and broker is None:
-        logger.error("实盘模式需要提供 broker 实例，请修改脚本")
-        return
+    broker = SimulatedBroker(initial_cash=cash)
 
     engine = LiveTradingEngine(
         strategy=strat,

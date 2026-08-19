@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import sqlite3
+
+import pytest
+
+from engine.operations_store import (
+    IdempotencyConflictError,
+    LeaseLostError,
+    OperationsStore,
+    TaskNotClaimableError,
+)
+
+
+class Clock:
+    def __init__(self, value: float = 100.0) -> None:
+        self.value = value
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+def make_store(tmp_path, clock: Clock | None = None) -> OperationsStore:
+    return OperationsStore(tmp_path / "operations.db", now=clock or Clock())
+
+
+def test_sqlite_is_configured_for_durable_operations(tmp_path):
+    store = make_store(tmp_path)
+    assert store.connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+    assert store.connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    assert store.connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    store.close()
+
+
+def test_command_acceptance_is_idempotent_and_queues_one_task(tmp_path):
+    store = make_store(tmp_path)
+    first = store.accept_command(
+        idempotency_key="order-1",
+        kind="paper.execute",
+        payload={"symbol": "600000.SH", "side": "buy"},
+    )
+    replay = store.accept_command(
+        idempotency_key="order-1",
+        kind="paper.execute",
+        payload={"side": "buy", "symbol": "600000.SH"},
+    )
+
+    assert replay == first
+    assert first.command.id != first.task.id
+    assert first.task.command_id == first.command.id
+    assert first.task.status == "queued"
+    assert store.connection.execute("SELECT COUNT(*) FROM commands").fetchone()[0] == 1
+    assert store.connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+
+    with pytest.raises(IdempotencyConflictError):
+        store.accept_command(idempotency_key="order-1", kind="different", payload={})
+
+    with pytest.raises(ValueError, match="idempotency_key"):
+        store.accept_command(idempotency_key="  ", kind="paper.execute")
+
+
+def test_attempt_lifecycle_writes_success_and_failure_terminal_states(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    success = store.accept_command(idempotency_key="success", kind="paper.execute")
+    success_attempt = store.claim_attempt("worker-a", task_id=success.task.id)
+    completed = store.succeed_attempt(
+        success_attempt.id,
+        success_attempt.owner_id,
+        success_attempt.lease_token,
+        success_attempt.fence,
+    )
+    assert completed.status == "succeeded"
+    assert store.get_task(success.task.id).status == "succeeded"
+
+    failed = store.accept_command(idempotency_key="failure", kind="paper.execute")
+    failed_attempt = store.claim_task("worker-b", task_id=failed.task.id)
+    completed = store.fail_attempt(
+        failed_attempt.id,
+        failed_attempt.owner_id,
+        failed_attempt.lease_token,
+        failed_attempt.fence,
+        "adapter rejected order",
+    )
+    assert completed.status == "failed"
+    assert completed.error == "adapter rejected order"
+    assert store.get_task(failed.task.id).status == "failed"
+
+
+def test_expired_lease_reclaims_with_new_fence_and_old_owner_cannot_finish(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    accepted = store.accept_command(idempotency_key="reclaim", kind="paper.execute")
+    old = store.claim_task("worker-old", task_id=accepted.task.id, lease_seconds=10)
+
+    with pytest.raises(TaskNotClaimableError):
+        store.claim_task("worker-new", task_id=accepted.task.id)
+
+    clock.advance(10)
+    new = store.claim_attempt("worker-new", task_id=accepted.task.id)
+    assert new.fence == old.fence + 1
+    assert store.get_attempt(old.id).status == "reclaimed"
+    assert store.get_task(accepted.task.id).status == "running"
+
+    with pytest.raises(LeaseLostError):
+        store.succeed_attempt(old.id, old.owner_id, old.lease_token, old.fence)
+    with pytest.raises(LeaseLostError):
+        store.fail_attempt(old.id, old.owner_id, old.lease_token, old.fence, "late failure")
+
+    completed = store.succeed_attempt(new.id, new.owner_id, new.lease_token, new.fence)
+    assert completed.status == "succeeded"
+    assert store.get_task(accepted.task.id).status == "succeeded"
+
+
+def test_expired_current_lease_cannot_write_terminal_state_until_reclaimed(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    accepted = store.submit_command(idempotency_key="expired", kind="paper.execute")
+    attempt = store.claim_attempt("worker", task_id=accepted.task.id, lease_seconds=5)
+    clock.advance(5)
+
+    with pytest.raises(LeaseLostError):
+        store.succeed_attempt(attempt.id, attempt.owner_id, attempt.lease_token, attempt.fence)
+    assert store.get_task(accepted.task.id).status == "running"
+
+
+def test_foreign_key_rejects_orphan_rows(tmp_path):
+    store = make_store(tmp_path)
+    with pytest.raises(sqlite3.IntegrityError):
+        store.connection.execute(
+            "INSERT INTO tasks(id, command_id, status, created_at, updated_at) "
+            "VALUES ('orphan', 'missing', 'queued', 1, 1)"
+        )

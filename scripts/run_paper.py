@@ -9,7 +9,9 @@ import click
 from loguru import logger
 
 from config.logging import setup_logging
+from config.settings import DB_DIR
 from engine.paper_engine import PaperConfig, PaperEngine
+from engine.paper_ownership import PaperOwnership
 from strategy.dual_ma import DualMAStrategy
 from strategy.bollinger import BollingerStrategy
 from strategy.momentum import MomentumStrategy
@@ -27,36 +29,46 @@ STRATEGIES = {
 @click.option("--codes", "-c", multiple=True, required=True, help="股票代码（可多次指定）")
 @click.option("--interval", "-i", default=30, help="行情轮询间隔（秒）")
 @click.option("--cash", default=1_000_000, help="初始资金")
-@click.option("--no-risk", is_flag=True, help="禁用风控")
-def main(strategy: str, codes: tuple, interval: int, cash: float, no_risk: bool):
-    """启动模拟盘交易"""
+@click.option("--account-id", default="paper-default", show_default=True, help="Paper 账户标识")
+def main(strategy: str, codes: tuple, interval: int, cash: float, account_id: str):
+    """启动模拟盘交易（风控始终启用）"""
     setup_logging()
 
     codes_list = list(codes)
     logger.info(f"策略: {strategy}, 标的: {codes_list}, 间隔: {interval}s, 资金: {cash:,.0f}")
 
-    # 创建策略
-    strategy_cls = STRATEGIES[strategy]
-    strat = strategy_cls()
+    ownership = PaperOwnership(DB_DIR / "worker_leases.db", account_id=account_id)
+    if ownership.acquire() is None:
+        ownership.close()
+        raise click.ClickException(f"Paper 账户已被其他 owner 占用: {account_id}")
 
-    # 配置
-    config = PaperConfig(
-        interval_seconds=interval,
-        enable_risk=not no_risk,
-    )
+    engine = None
+    try:
+        # 创建策略
+        strategy_cls = STRATEGIES[strategy]
+        strat = strategy_cls()
 
-    # 启动
-    engine = PaperEngine(
-        strategy=strat,
-        codes=codes_list,
-        config=config,
-    )
+        # Paper CLI 不提供关闭风控的旁路。
+        config = PaperConfig(
+            interval_seconds=interval,
+            enable_risk=True,
+        )
 
-    # 如果有恢复的状态，覆盖初始资金
-    if engine.portfolio.cash != cash and engine.portfolio.cash != 1_000_000:
-        logger.info(f"使用恢复状态: 现金={engine.portfolio.cash:,.0f}")
+        engine = PaperEngine(
+            strategy=strat,
+            codes=codes_list,
+            config=config,
+        )
+        ownership.start_renewal(on_lost=engine.stop)
 
-    engine.run_loop()
+        # 如果有恢复的状态，覆盖初始资金
+        if engine.portfolio.cash != cash and engine.portfolio.cash != 1_000_000:
+            logger.info(f"使用恢复状态: 现金={engine.portfolio.cash:,.0f}")
+
+        engine.run_loop()
+    finally:
+        ownership.release()
+        ownership.close()
 
 
 if __name__ == "__main__":

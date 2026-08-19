@@ -5,8 +5,11 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from loguru import logger
+
+from config.settings import DB_DIR
+from engine.paper_ownership import PaperOwnership
 
 router = APIRouter()
 
@@ -70,101 +73,148 @@ class StartRequest(BaseModel):
     interval: int = 30
     cash: float = 50_000
     enable_risk: bool = True
+    account_id: str = "paper-default"
     params: Optional[dict] = None
     custom_code: Optional[str] = None
+
+    @field_validator("enable_risk")
+    @classmethod
+    def require_risk(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("Paper 模拟盘必须启用风控")
+        return value
+
+    @field_validator("account_id")
+    @classmethod
+    def require_account_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("account_id 不能为空")
+        return value
 
 
 class PaperManager:
     """模拟盘进程管理器（单例）"""
 
-    def __init__(self):
+    def __init__(self, ownership_factory=None):
         self._engine = None
         self._thread: Optional[threading.Thread] = None
         self._config: Optional[dict] = None
         self._start_time: Optional[float] = None
+        self._ownership: Optional[PaperOwnership] = None
+        self._ownership_factory = ownership_factory or PaperOwnership
 
     @property
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def _new_ownership(self, account_id: str) -> PaperOwnership:
+        return self._ownership_factory(DB_DIR / "worker_leases.db", account_id=account_id)
+
     def start(self, req: StartRequest):
         if self.is_running:
             raise RuntimeError("模拟盘已在运行中")
 
-        from engine.paper_engine import PaperEngine, PaperConfig
-        from strategy.loader import load_strategy_from_code
-        from strategy.manager import StrategyManager
-        from config.settings import LOG_DIR
+        ownership = self._new_ownership(req.account_id)
+        if ownership.acquire() is None:
+            ownership.close()
+            raise RuntimeError(f"Paper 账户已被其他 owner 占用: {req.account_id}")
 
-        builtin_classes = _get_builtin_classes()
-        strategy_mgr = StrategyManager()
+        try:
+            from engine.paper_engine import PaperEngine, PaperConfig
+            from strategy.loader import load_strategy_from_code
+            from strategy.manager import StrategyManager
+            from config.settings import LOG_DIR
 
-        # 优先使用自定义代码
-        if req.custom_code:
-            strategy = load_strategy_from_code(req.custom_code, params=req.params)
-            if not strategy:
-                raise ValueError("自定义策略代码加载失败")
-        else:
-            # 从策略管理系统查找策略
-            strategy_info = strategy_mgr.get(req.strategy)
-            if not strategy_info:
-                raise ValueError(f"未知策略: {req.strategy}")
+            builtin_classes = _get_builtin_classes()
+            strategy_mgr = StrategyManager()
 
-            if strategy_info.get("code"):
-                # 自定义代码策略：从管理系统加载
-                merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
-                strategy = load_strategy_from_code(strategy_info["code"], params=merged_params)
+            # 优先使用自定义代码
+            if req.custom_code:
+                strategy = load_strategy_from_code(req.custom_code, params=req.params)
                 if not strategy:
-                    raise ValueError(f"自定义策略 {req.strategy} 代码加载失败")
+                    raise ValueError("自定义策略代码加载失败")
             else:
-                # 内置策略：使用管理系统保存的参数覆盖 + 请求参数
-                cls = builtin_classes.get(req.strategy)
-                if not cls:
-                    raise ValueError(f"未找到策略类: {req.strategy}")
-                # 参数优先级：请求参数 > 管理系统覆盖 > 默认值
-                merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
-                strategy = _create_builtin_strategy(req.strategy, cls, merged_params)
+                # 从策略管理系统查找策略
+                strategy_info = strategy_mgr.get(req.strategy)
+                if not strategy_info:
+                    raise ValueError(f"未知策略: {req.strategy}")
 
-        config = PaperConfig(
-            interval_seconds=req.interval,
-            state_dir=str(LOG_DIR / "paper"),
-            enable_risk=req.enable_risk,
-        )
+                if strategy_info.get("code"):
+                    # 自定义代码策略：从管理系统加载
+                    merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
+                    strategy = load_strategy_from_code(strategy_info["code"], params=merged_params)
+                    if not strategy:
+                        raise ValueError(f"自定义策略 {req.strategy} 代码加载失败")
+                else:
+                    # 内置策略：使用管理系统保存的参数覆盖 + 请求参数
+                    cls = builtin_classes.get(req.strategy)
+                    if not cls:
+                        raise ValueError(f"未找到策略类: {req.strategy}")
+                    # 参数优先级：请求参数 > 管理系统覆盖 > 默认值
+                    merged_params = {**(strategy_info.get("params") or {}), **(req.params or {})}
+                    strategy = _create_builtin_strategy(req.strategy, cls, merged_params)
 
-        engine = PaperEngine(strategy=strategy, codes=req.codes, config=config)
-        # 设置策略名称（用于 portfolio.strategies 记录）
-        engine.strategy_name = req.strategy
-        # 恢复或重置资金
-        if not engine._state_mgr.load():
-            engine._portfolio.cash = req.cash
+            config = PaperConfig(
+                interval_seconds=req.interval,
+                state_dir=str(LOG_DIR / "paper"),
+                enable_risk=True,
+            )
 
-        self._engine = engine
-        self._config = {
-            "strategy": req.strategy,
-            "codes": req.codes,
-            "interval": req.interval,
-            "cash": req.cash,
-            "enable_risk": req.enable_risk,
-        }
-        self._start_time = time.time()
+            engine = PaperEngine(strategy=strategy, codes=req.codes, config=config)
+            # 设置策略名称（用于 portfolio.strategies 记录）
+            engine.strategy_name = req.strategy
+            # 恢复或重置资金
+            if not engine._state_mgr.load():
+                engine._portfolio.cash = req.cash
 
-        def _run():
-            try:
-                engine.run_loop()
-            except Exception as e:
-                logger.error(f"模拟盘线程异常: {e}")
+            self._engine = engine
+            self._ownership = ownership
+            self._config = {
+                "strategy": req.strategy,
+                "codes": req.codes,
+                "interval": req.interval,
+                "cash": req.cash,
+                "enable_risk": True,
+                "account_id": req.account_id,
+            }
+            self._start_time = time.time()
 
-        self._thread = threading.Thread(target=_run, daemon=True, name="paper-engine")
-        self._thread.start()
-        logger.info(f"模拟盘启动: {req.strategy} {req.codes}")
+            def _run():
+                try:
+                    ownership.start_renewal(on_lost=engine.stop)
+                    engine.run_loop()
+                except Exception as e:
+                    logger.error(f"模拟盘线程异常: {e}")
+                finally:
+                    ownership.release()
+                    ownership.close()
+                    if self._ownership is ownership:
+                        self._ownership = None
+
+            self._thread = threading.Thread(target=_run, daemon=True, name="paper-engine")
+            self._thread.start()
+            logger.info(f"模拟盘启动: {req.strategy} {req.codes}")
+        except Exception:
+            ownership.release()
+            ownership.close()
+            raise
 
     def stop(self):
         if not self.is_running:
+            if self._ownership:
+                self._ownership.release()
+                self._ownership.close()
+                self._ownership = None
             return
         if self._engine:
             self._engine.stop()
         if self._thread:
             self._thread.join(timeout=10)
+        if self._ownership:
+            self._ownership.release()
+            self._ownership.close()
+            self._ownership = None
         self._thread = None
         logger.info("模拟盘已停止")
 

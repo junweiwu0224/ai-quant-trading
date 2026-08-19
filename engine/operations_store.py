@@ -272,7 +272,7 @@ class OperationsStore:
             attempt_id = self._new_id("attempt")
             lease_token = self._new_id("lease")
             connection.execute(
-                "INSERT INTO task_attempts(" 
+                "INSERT INTO task_attempts("
                 "id, task_id, owner_id, lease_token, fence, status, leased_until, started_at) "
                 "VALUES (?, ?, ?, ?, ?, 'running', ?, ?)",
                 (attempt_id, task_row["id"], owner, lease_token, fence, now + duration, now),

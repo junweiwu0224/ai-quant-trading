@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { ChevronRight, Menu, Moon, Search, Sun, X } from 'lucide-vue-next'
+import { Boxes, ChevronRight, LockKeyhole, Menu, Moon, MoreHorizontal, Search, Settings, Sparkles, Sun, UserRound, X } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
+import { useResearchContextStore } from '../stores/researchContext'
 import type { MarketCode } from '../api/types'
 import { COMMAND_WORKFLOWS } from '../navigation/workflows'
+import WorkspaceNav from './WorkspaceNav.vue'
 
 const emit = defineEmits<{
   toggleMenu: []
@@ -15,6 +17,7 @@ const props = defineProps<{
 }>()
 
 const store = useAppStore()
+const researchContext = useResearchContextStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -22,10 +25,20 @@ const paletteOpen = ref(false)
 const paletteQuery = ref('')
 const paletteIndex = ref(0)
 const paletteInput = ref<HTMLInputElement | null>(null)
+const palettePanel = ref<HTMLElement | null>(null)
 const paletteTrigger = ref<HTMLButtonElement | null>(null)
 const menuTrigger = ref<HTMLButtonElement | null>(null)
+const moreOpen = ref(false)
 
 const themeIcon = computed(() => store.isDark ? Sun : Moon)
+const workspaceName = computed(() => store.account?.workspace?.name || store.account?.workspace?.slug || '当前工作区')
+const contextInstrument = computed(() => researchContext.hasInstrument ? `${researchContext.context.market} / ${researchContext.context.symbol}` : '未选择标的')
+const freshnessLabel = computed(() => ({
+  live: '数据新鲜', delayed: '数据延迟', stale: '数据过期', unavailable: '数据不可用',
+} as Record<string, string>)[String(researchContext.context.freshness || '')] || '数据未知')
+const freshnessClass = computed(() => ({ live: 'good', delayed: 'warn', stale: 'bad', unavailable: 'muted' } as Record<string, string>)[String(researchContext.context.freshness || '')] || 'muted')
+const qualificationLabel = computed(() => researchContext.context.eligibility?.eligible === true ? '资格通过' : researchContext.context.eligibility ? '资格阻断' : '资格未检查')
+const qualificationClass = computed(() => researchContext.context.eligibility?.eligible === true ? 'good' : researchContext.context.eligibility ? 'bad' : 'muted')
 
 const paletteItems = COMMAND_WORKFLOWS.map(({ label, description, to }) => ({ label, hint: description, to }))
 
@@ -44,6 +57,7 @@ watch(() => props.menuOpen, (open, previous) => {
 })
 
 function openPalette() {
+  moreOpen.value = false
   paletteOpen.value = true
   paletteQuery.value = ''
   paletteIndex.value = 0
@@ -70,7 +84,21 @@ function movePalette(delta: number) {
 }
 
 function handlePaletteKeydown(event: KeyboardEvent) {
-  if (event.key === 'ArrowDown') {
+  if (event.key === 'Tab') {
+    const focusable = Array.from(palettePanel.value?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), a[href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) || []).filter((element) => element.offsetParent !== null)
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!first || !last) return
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  } else if (event.key === 'ArrowDown') {
     event.preventDefault()
     movePalette(1)
   } else if (event.key === 'ArrowUp') {
@@ -92,6 +120,8 @@ function handleMarketChange(event: Event) {
       path: `/app/research/${nextMarket}/${encodeURIComponent(currentSymbol)}`,
       query: { ...route.query, market: nextMarket },
     })
+  } else if (researchContext.hasInstrument && researchContext.context.market !== nextMarket) {
+    researchContext.clear()
   }
 }
 
@@ -101,6 +131,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     openPalette()
   } else if (event.key === 'Escape' && paletteOpen.value) {
     closePalette()
+  } else if (event.key === 'Escape' && moreOpen.value) {
+    moreOpen.value = false
   }
 }
 
@@ -141,6 +173,15 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
           </select>
         </label>
 
+        <RouterLink
+          class="icon-button ai-global-link"
+          to="/app/ai"
+          title="打开 AI 研究工作台"
+          aria-label="打开 AI 研究工作台"
+        >
+          <Sparkles :size="18" />
+        </RouterLink>
+
         <button
           ref="paletteTrigger"
         class="icon-button palette-trigger"
@@ -160,14 +201,34 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
           <component :is="themeIcon" :size="18" />
         </button>
 
-        <RouterLink class="avatar" to="/app/settings" title="打开账户设置">
-          研究
+        <div class="more-menu desktop-only">
+          <button class="icon-button" type="button" aria-label="打开系统菜单" :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
+            <MoreHorizontal :size="18" />
+          </button>
+          <div v-if="moreOpen" class="more-menu-popover" role="menu">
+            <RouterLink to="/app/workflows" role="menuitem" @click="moreOpen = false"><Boxes :size="16" />工作流地图</RouterLink>
+            <RouterLink to="/app/broker" role="menuitem" @click="moreOpen = false"><LockKeyhole :size="16" />Broker 安全</RouterLink>
+            <RouterLink to="/app/settings" role="menuitem" @click="moreOpen = false"><Settings :size="16" />设置与账户</RouterLink>
+          </div>
+        </div>
+
+        <RouterLink class="avatar" to="/app/settings" title="打开账户设置" aria-label="打开账户设置">
+          <UserRound :size="17" />
         </RouterLink>
       </div>
     </header>
 
+    <div class="workspace-bar" aria-label="当前研究上下文">
+      <span class="workspace-bar-item workspace-bar-secondary"><span>工作区</span><strong>{{ workspaceName }}</strong></span>
+      <span class="workspace-bar-item"><span>标的</span><strong>{{ contextInstrument }}</strong></span>
+      <span class="workspace-bar-item workspace-bar-secondary"><span>数据</span><strong class="workspace-status" :class="freshnessClass">{{ freshnessLabel }}</strong></span>
+      <span class="workspace-bar-item"><span>资格</span><strong class="workspace-status" :class="qualificationClass">{{ qualificationLabel }}</strong></span>
+    </div>
+
+    <WorkspaceNav />
+
     <div v-if="paletteOpen" class="palette-backdrop" @click.self="closePalette">
-      <section class="command-palette panel" role="dialog" aria-modal="true" aria-labelledby="palette-title" @keydown="handlePaletteKeydown">
+      <section ref="palettePanel" class="command-palette panel" role="dialog" aria-modal="true" aria-labelledby="palette-title" @keydown="handlePaletteKeydown">
         <div class="command-palette-head">
           <div>
             <span class="context-label">快捷导航</span>
@@ -236,7 +297,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
     <div class="content-wrap">
       <RouterView v-slot="{ Component, route: routedComponent }">
         <Transition name="workspace-route" mode="out-in">
-          <component :is="Component" :key="routedComponent.fullPath" />
+          <component :is="Component" :key="routedComponent.name || routedComponent.path" />
         </Transition>
       </RouterView>
     </div>
@@ -248,255 +309,33 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
   flex: 1;
   display: flex;
   flex-direction: column;
-  margin-left: 240px;
-  min-height: 100vh;
 }
 
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  height: 56px;
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  padding: 0 var(--spacing-4);
-  gap: var(--spacing-4);
-}
+.topbar-context { flex: 1; }
+.content-wrap { flex: 1; overflow-y: auto; }
 
-.topbar-context {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
-  flex: 1;
-}
-
-.context-label {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.topbar-context strong {
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-}
-
-.icon-button {
-  background: none;
-  border: none;
-  padding: var(--spacing-2);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.icon-button:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
-.market-select select {
-  padding: var(--spacing-2) var(--spacing-3);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.content-wrap {
-  flex: 1;
-  padding: var(--spacing-6);
-  overflow-y: auto;
-}
-
-.palette-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 15vh;
-}
-
-.command-palette {
-  width: 90%;
-  max-width: 640px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
-}
-
-.command-palette-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.command-palette-head h2 {
-  font-size: 16px;
-  margin: 0;
-  color: var(--color-text-primary);
-}
-
-.palette-search {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.palette-search input {
-  flex: 1;
-  border: none;
-  background: none;
-  outline: none;
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-
-.palette-search kbd {
-  padding: var(--spacing-1) var(--spacing-2);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-}
-
-.palette-list {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.palette-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  width: 100%;
-  padding: var(--spacing-3) var(--spacing-4);
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.palette-item:hover, .palette-item:focus-visible, .palette-item.selected {
-  background: var(--color-accent-pale);
-  color: var(--color-accent-strong);
-}
-
-.palette-item strong {
-  display: block;
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-
-.palette-item small {
-  display: block;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.palette-item-icon {
-  color: var(--color-accent);
-}
-
-.faint {
-  color: var(--color-text-tertiary);
-  margin-left: auto;
-}
-
-.palette-empty {
-  padding: var(--spacing-6);
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.palette-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-3) var(--spacing-4);
-  border-top: 1px solid var(--color-border);
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+.workspace-bar { display:flex; align-items:center; min-height:40px; padding:6px var(--spacing-4); overflow-x:auto; border-bottom:1px solid var(--color-border); background:var(--color-bg-secondary); }
+.workspace-bar-item { display:flex; align-items:baseline; gap:6px; min-width:0; padding:0 14px; border-right:1px solid var(--color-border); white-space:nowrap; }
+.workspace-bar-item:first-child { padding-left:0; }
+.workspace-bar-item:last-child { border-right:0; }
+.workspace-bar-item > span { color:var(--color-text-tertiary); font-size:10px; }
+.workspace-bar-item > strong { max-width:220px; overflow:hidden; color:var(--color-text-secondary); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-status.good { color:var(--color-success); }
+.workspace-status.warn { color:var(--color-warn); }
+.workspace-status.bad { color:var(--color-danger); }
+.workspace-status.muted { color:var(--color-text-tertiary); }
 
 @media (max-width: 767px) {
-  .main-shell {
-    margin-left: 0;
-    padding-bottom: 64px;
-  }
-
-  .mobile-only {
-    display: flex;
-  }
-
-  .desktop-only {
-    display: none;
-  }
-
-  .content-wrap {
-    padding: var(--spacing-4);
-  }
+  .mobile-only { display: grid; }
+  .desktop-only { display: none; }
+  .workspace-bar { min-height:38px; padding:5px 12px; }
+  .workspace-bar-item { flex:1 1 0; justify-content:center; padding:0 8px; }
+  .workspace-bar-secondary { display:none; }
+  .workspace-bar-item > strong { max-width:130px; }
 }
 
 @media (min-width: 768px) {
-  .mobile-only {
-    display: none;
-  }
-
-  .desktop-only {
-    display: flex;
-  }
+  .mobile-only { display: none; }
+  .desktop-only { display: flex; }
 }
 </style>

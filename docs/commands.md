@@ -28,16 +28,16 @@ http://127.0.0.1:8001
 
 ### 全量本地部署（默认）
 
-本项目中“部署”默认指全量本地 Docker 栈，不是只启动 Dashboard。该命令会构建并启动 Dashboard、独立决策 Worker、AI Worker、paper 模拟盘、live 模拟模式和 backtest 任务：
+本项目中“部署”默认指全量本地 Docker 栈，不是只启动 Dashboard。该命令会构建并启动 Dashboard、独立决策 Worker、Pi Agent Worker、paper 模拟盘、live 模拟模式和 backtest 任务：
 
 ```bash
 DECISION_WORKER_ENABLED=true \
 DECISION_EXTERNAL_DELIVERY_ENABLED=false \
-AI_WORKER_ENABLED=true \
+PI_AGENT_WORKER_ENABLED=true \
 docker compose --profile ai --profile trading up -d --build
 ```
 
-`live` 服务使用 Compose 中未传 `--live` 的模拟券商模式；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 AI Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
+`live` 服务使用 Compose 中未传 `--live` 的模拟券商模式；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 Pi Agent Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
 
 `cloudflared` 不属于默认本地全量栈，因为它会改变网络暴露边界。只有在 `.env` 配置 `CLOUDFLARED_TUNNEL_TOKEN` 并明确确认外部暴露范围后，才单独执行：
 
@@ -53,16 +53,16 @@ docker compose --profile ai --profile trading down
 
 部署会挂载 `data/` 和 `logs/` 并写入本地运行数据；执行前确认影响范围。若只需要 Dashboard 控制面做静态开发，才使用不带 profile 的 `docker compose up -d dashboard`，这不称为完整部署。
 
-默认 Dashboard/Worker 镜像使用当前 Docker 平台，并排除测试依赖、`pyqlib` 和按需的 LiteLLM；BuildKit 会缓存 npm/pip 包。需要启用多厂商 LiteLLM 后端时构建可选 profile：
+默认 Dashboard/Worker 镜像使用当前 Docker 平台，并排除测试依赖、`pyqlib` 和按需的 LiteLLM；BuildKit 会缓存 npm/pip 包。Pi Agent 使用独立的 `pi-agent` target，内置 Pi CLI：
 
 ```bash
 docker compose build dashboard
-docker compose --profile ai build ai-worker
+docker compose --profile ai build pi-agent
 ```
 
 跨平台构建时显式设置 Docker 平台，例如 `DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose build dashboard`；不要把 amd64 模拟运行作为 Apple Silicon 的默认部署平台。
 
-AI Runtime 使用显式 provider 配置和受保护的 secret reference；没有配置时保持未就绪，不会把 AI 输出写入确定性动作或自动推送资格。Dashboard 与 `ai-worker` 通过 `data/db/ai_runtime.db` 共享脱敏 provider readiness 和有限尝试记录。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
+Pi Agent Worker 是 AI 任务队列的唯一生产消费者。它通过 `data/db/ai_runtime.db` 复用冻结上下文、任务、报告、脱敏 provider readiness 和有限尝试记录，但 Pi 子进程在空目录、无工具、无 session、无项目扩展的模式下运行。Pi 的模型凭据仍来自它支持的环境变量或运行时配置，不写入项目数据库；AI 输出不会写入确定性动作或自动推送资格。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
 
 ## 测试
 
@@ -130,6 +130,15 @@ npm run e2e:docker
 ```
 
 `package.json` 中 `npm run e2e` 和 `npm run e2e:data-health` 依赖 Playwright 配置；`npm test` 当前是占位脚本，会直接失败。
+
+## Pi Agent Worker
+
+```bash
+PI_AGENT_WORKER_ENABLED=true .venv/bin/python scripts/run_pi_agent_worker.py --once
+PI_AGENT_WORKER_ENABLED=true .venv/bin/python scripts/run_pi_agent_worker.py
+```
+
+`PiAgentWorker` 复用原 AI task lease 名称以防旧进程与新进程同时消费队列。每个 Pi 调用都禁用 tools、session、extensions、skills、prompt templates 和项目 context，并在空临时目录运行。旧 `scripts/run_ai_worker.py` 仅保留兼容入口；新部署使用 `scripts/run_pi_agent_worker.py` 和 Compose `pi-agent` 服务。
 
 ## 决策 Worker 与备份
 

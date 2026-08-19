@@ -86,7 +86,7 @@ class ProviderChannel(BaseModel):
 
     id: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=120)
-    protocol: Literal["openai_compatible", "litellm", "local_cli"] = "openai_compatible"
+    protocol: Literal["openai_compatible", "litellm", "local_cli", "pi_agent"] = "openai_compatible"
     base_url: str = ""
     model: str = ""
     secret_ref: str = ""

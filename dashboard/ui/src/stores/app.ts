@@ -3,9 +3,10 @@ import { defineStore } from 'pinia'
 import type { AccountState, DataHealth, WatchlistItem } from '../types'
 import { api } from '../api/client'
 import type { MarketCode } from '../api/types'
+import { useResearchContextStore } from './researchContext'
 
 export const useAppStore = defineStore('app', () => {
-  const theme = ref<'light' | 'dark' | 'system'>((localStorage.getItem('quant-theme') as 'light' | 'dark' | 'system') || 'light')
+  const theme = ref<'light' | 'dark' | 'system'>((localStorage.getItem('quant-theme') as 'light' | 'dark' | 'system') || 'dark')
   const market = ref<MarketCode>((localStorage.getItem('quant-market') as MarketCode) || 'CN')
   const selectedPortfolio = ref('watchlist')
   const watchlist = ref<WatchlistItem[]>([])
@@ -64,6 +65,7 @@ export const useAppStore = defineStore('app', () => {
     account.value = null
     watchlist.value = []
     health.value = null
+    useResearchContextStore().clear()
   }
   applyTheme()
   return { theme, market, setMarket, selectedPortfolio, watchlist, health, loading, error, authLoading, account, authenticated, isDark, setTheme, bootstrapAuth, setAccount, clearAccount, loadWorkspace, applyTheme }

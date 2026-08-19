@@ -13,16 +13,17 @@ def test_use_theme_exports():
     assert 'theme.value' in content
 
 def test_use_theme_class_names():
-    """验证主题类名与 Task 1 约定一致"""
-    content = open('dashboard/ui/src/composables/useTheme.ts').read()
+    """验证主题由 App Store 的 data-theme 属性统一应用"""
+    content = open('dashboard/ui/src/stores/app.ts').read()
 
-    # 必须使用 .theme-light 和 .theme-dark 类名
-    assert 'theme-dark' in content
-    assert 'theme-light' in content
+    assert "document.documentElement.dataset.theme" in content
+    assert "'dark'" in content
+    assert "'light'" in content
+
 
 def test_use_theme_storage_key():
-    """验证使用正确的 localStorage key"""
-    content = open('dashboard/ui/src/composables/useTheme.ts').read()
+    """验证 App Store 使用正确的 localStorage key"""
+    content = open('dashboard/ui/src/stores/app.ts').read()
 
     assert 'quant-theme' in content
     assert 'localStorage' in content

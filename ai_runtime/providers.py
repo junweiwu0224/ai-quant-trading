@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Iterable, Mapping
@@ -209,6 +210,92 @@ class LiteLLMProvider:
         )
 
 
+class PiAgentProvider:
+    """Run Pi as an isolated, tool-free research artifact generator."""
+
+    REQUIRED_FLAGS = (
+        "--print",
+        "--no-session",
+        "--no-tools",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+    )
+
+    def __init__(self, channel: ProviderChannel) -> None:
+        self.channel = channel
+
+    def _command(self) -> list[str]:
+        command = list(self.channel.command) or [os.getenv("PI_AGENT_COMMAND", "pi")]
+        if not command or not command[0]:
+            raise GenerationError(GenerationErrorCode.BACKEND_NOT_CONFIGURED, "Pi Agent command is not configured", provider=self.channel.id)
+        return [*command, *self.REQUIRED_FLAGS]
+
+    @staticmethod
+    def _environment() -> dict[str, str]:
+        # Never pass the application environment wholesale: it may contain
+        # broker, webhook, database, or unrelated provider secrets.
+        allowed = {
+            "PATH",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "TERM",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
+            "OPENROUTER_API_KEY",
+        }
+        environment = {key: value for key, value in os.environ.items() if key in allowed}
+        environment.update({"PI_OFFLINE": "1", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"})
+        return environment
+
+    def generate(self, messages: list[dict[str, str]], *, json_mode: bool = True) -> GenerationResult:
+        prompt = "\n\n".join(f"{item['role']}: {item['content']}" for item in messages)
+        command = self._command()
+        if self.channel.model:
+            command.extend(["--model", self.channel.model])
+        command.append(prompt)
+        try:
+            # The Pi process cannot discover project context even if a future
+            # CLI release changes its defaults: it starts in an empty temp dir.
+            with tempfile.TemporaryDirectory(prefix="ai-quant-pi-agent-") as working_dir:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.channel.timeout_seconds,
+                    check=False,
+                    cwd=working_dir,
+                    env=self._environment(),
+                )
+        except FileNotFoundError as exc:
+            raise GenerationError(GenerationErrorCode.COMMAND_NOT_FOUND, "Pi Agent command was not found", provider=self.channel.id) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise GenerationError(GenerationErrorCode.TIMEOUT, "Pi Agent timed out", provider=self.channel.id, model=self.channel.model, retryable=True) from exc
+        if completed.returncode != 0:
+            raise GenerationError(
+                GenerationErrorCode.NON_ZERO_EXIT,
+                "Pi Agent failed",
+                provider=self.channel.id,
+                model=self.channel.model,
+                details={"returncode": completed.returncode, "stderr": _redact_error(completed.stderr)},
+            )
+        text = completed.stdout.strip()
+        if not text:
+            raise GenerationError(GenerationErrorCode.EMPTY_OUTPUT, "Pi Agent returned empty output", provider=self.channel.id, model=self.channel.model)
+        return GenerationResult(
+            text=text,
+            provider=self.channel.id,
+            model=self.channel.model or "pi-agent",
+            backend="pi_agent",
+            diagnostics={"execution": "pi_cli", "tool_access": "disabled", "session_persistence": "disabled", "json_requested": json_mode},
+        )
+
+
 class LocalCliProvider:
     """Optional non-interactive local backend, matching the reference project."""
 
@@ -242,6 +329,8 @@ class LocalCliProvider:
 def adapter_for(channel: ProviderChannel) -> ProviderAdapter:
     if channel.protocol == "litellm":
         return LiteLLMProvider(channel)
+    if channel.protocol == "pi_agent":
+        return PiAgentProvider(channel)
     if channel.protocol == "local_cli":
         return LocalCliProvider(channel)
     return OpenAICompatibleProvider(channel)
@@ -286,14 +375,15 @@ class ProviderRouter:
     def _channel_readiness(self, channel: ProviderChannel) -> dict[str, Any]:
         configuration = "ready"
         config_error = ""
-        credential = "not_required" if channel.protocol == "local_cli" else "missing"
+        local_protocol = channel.protocol in {"local_cli", "pi_agent"}
+        credential = "not_required" if local_protocol else "missing"
         try:
-            secret_available = bool(resolve_secret_ref(channel.secret_ref)) if channel.secret_ref else channel.protocol == "local_cli"
+            secret_available = bool(resolve_secret_ref(channel.secret_ref)) if channel.secret_ref else local_protocol
         except GenerationError as exc:
             secret_available = False
             configuration = "invalid"
             config_error = str(exc)
-        if channel.protocol == "local_cli":
+        if local_protocol:
             if not channel.command:
                 configuration = "missing"
                 config_error = "local CLI command is not configured"
@@ -302,7 +392,7 @@ class ProviderRouter:
             config_error = "provider model is not configured"
         elif channel.secret_ref:
             credential = "available" if secret_available else "missing"
-        if configuration == "ready" and channel.protocol != "local_cli" and not secret_available:
+        if configuration == "ready" and not local_protocol and not secret_available:
             credential = "missing"
         runtime = self._stored_runtime_state(channel.id)
         configured = channel.enabled and configuration == "ready" and credential in {"available", "not_required"}
@@ -340,7 +430,7 @@ class ProviderRouter:
             "structured_json": structured,
             "stream": bool(channel.supports_stream),
             "structured_report": structured,
-            "provider_trace": channel.protocol in {"litellm", "openai_compatible"},
+            "provider_trace": channel.protocol in {"litellm", "openai_compatible", "pi_agent"},
             "decision_effect": "none",
             "human_review_only": True,
         }
@@ -559,12 +649,15 @@ class ProviderRouter:
 
 def default_channel_from_environment() -> ProviderChannel | None:
     protocol = (os.getenv("AI_LLM_PROTOCOL") or "openai_compatible").strip().lower()
-    if protocol not in {"openai_compatible", "litellm", "local_cli"}:
+    if protocol not in {"openai_compatible", "litellm", "local_cli", "pi_agent"}:
         protocol = "openai_compatible"
     base_url = os.getenv("AI_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
     model = os.getenv("AI_LLM_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
     secret_ref = os.getenv("AI_LLM_SECRET_REF") or ("env://OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY") else "")
     command = [item for item in (os.getenv("AI_LLM_COMMAND") or "").split() if item]
+    if protocol == "pi_agent":
+        command = command or [os.getenv("PI_AGENT_COMMAND", "pi")]
+        return ProviderChannel(id="pi-agent", name="Pi Agent", protocol=protocol, model=os.getenv("PI_AGENT_MODEL") or model, command=command, timeout_seconds=float(os.getenv("PI_AGENT_TIMEOUT_SECONDS", "90")), supports_stream=False)
     if not base_url and not secret_ref and not command:
         return None
     return ProviderChannel(id="env-default", name="Environment provider", protocol=protocol, base_url=base_url, model=model, secret_ref=secret_ref, command=command)

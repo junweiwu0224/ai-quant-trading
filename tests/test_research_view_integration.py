@@ -246,19 +246,17 @@ def test_tab2_renders_evidence_and_decision():
         "evidence tab should render DecisionCard"
 
 
-def test_tab3_renders_draft_and_preview():
-    """Verify Tab 3 renders BacktestDraft and BacktestPreview."""
+def test_tab3_renders_validation_handoff():
+    """Verify the backtest tab hands off to the real validation workflow."""
     view_path = UI_ROOT / "views" / "ResearchView.vue"
     content = read_vue_file(view_path)
 
     script = extract_section(content, "script")
     template = extract_section(content, "template")
 
-    # Check imports
     assert "BacktestDraft" in script, "Should import BacktestDraft"
-    assert "BacktestPreview" in script, "Should import BacktestPreview"
+    assert "BacktestPreview" not in script, "Should not import the removed placeholder preview"
 
-    # Check template usage in backtest tab
     backtest_section = re.search(
         r"activeTab\s*===\s*['\"]backtest['\"].*?</div>",
         template,
@@ -267,10 +265,12 @@ def test_tab3_renders_draft_and_preview():
     assert backtest_section, "Should have backtest tab section"
 
     backtest_content = backtest_section.group(0)
-    assert "<BacktestDraft" in backtest_content, \
-        "backtest tab should render BacktestDraft"
-    assert "<BacktestPreview" in backtest_content, \
-        "backtest tab should render BacktestPreview"
+    assert "<BacktestDraft" in backtest_content, "backtest tab should render the validation handoff"
+    assert "<BacktestPreview" not in backtest_content
+
+    handoff = read_vue_file(UI_ROOT / "components" / "research" / "BacktestDraft.vue")
+    assert "打开验证工作区" in handoff
+    assert "不会保存本地草案或生成占位结果" in handoff
 
 
 def test_components_receive_market_symbol_props():
@@ -280,14 +280,12 @@ def test_components_receive_market_symbol_props():
 
     template = extract_section(content, "template")
 
-    # All 6 components should receive market and symbol
     components = [
         "KLineChart",
         "TechnicalIndicators",
         "EvidenceChain",
         "DecisionCard",
-        "BacktestDraft",
-        "BacktestPreview"
+        "BacktestDraft"
     ]
 
     for component in components:
@@ -332,37 +330,15 @@ def test_responsive_breakpoint_480px():
         "Should have @media query for 480px breakpoint"
 
 
-def test_backtest_layout_responsive():
-    """Verify backtest tab layout is responsive (grid to stacked)."""
-    view_path = UI_ROOT / "views" / "ResearchView.vue"
-    content = read_vue_file(view_path)
+def test_backtest_handoff_is_responsive():
+    """Verify the real validation handoff remains usable on narrow screens."""
+    component = read_vue_file(UI_ROOT / "components" / "research" / "BacktestDraft.vue")
+    style = extract_section(component, "style")
 
-    style = extract_section(content, "style")
-
-    # Check desktop grid layout
-    assert re.search(
-        r"\.backtest-layout\s*{[^}]*grid-template-columns",
-        style,
-        re.DOTALL
-    ), "backtest-layout should use grid on desktop"
-
-    # Accept the production-safe minmax split as well as the legacy 60/40 form.
-    assert ("60%" in style and "40%" in style) or "minmax(0, 3fr) minmax(0, 2fr)" in style, \
-        "backtest-layout should use a bounded two-column split"
-
-    # Check mobile stacked layout
-    mobile_section = re.search(
-        r"@media.*max-width.*768px.*?{(.*?)}(?=\s*(?:@media|/\*|$))",
-        style,
-        re.DOTALL
-    )
-    if mobile_section:
-        mobile_styles = mobile_section.group(0)
-        if "backtest-layout" in mobile_styles:
-            assert re.search(
-                r"grid-template-columns:\s*1fr",
-                mobile_styles
-            ), "backtest-layout should stack on mobile (1fr)"
+    assert ".backtest-handoff" in style
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in style
+    assert re.search(r"@media.*max-width.*600px", style)
+    assert "grid-template-columns: 1fr" in style
 
 
 def test_research_header_responsive():
@@ -539,8 +515,7 @@ def test_layout_container_classes():
     # Check layout classes
     layout_classes = [
         ".research-layout",
-        ".evidence-layout",
-        ".backtest-layout"
+        ".evidence-layout"
     ]
 
     for cls in layout_classes:
@@ -552,7 +527,7 @@ def test_layout_container_classes():
 # ============================================================================
 
 def test_all_child_components_exist():
-    """Verify all 6 child components exist."""
+    """Verify all research child components exist."""
     components_dir = UI_ROOT / "components" / "research"
 
     components = [
@@ -560,8 +535,7 @@ def test_all_child_components_exist():
         "TechnicalIndicators.vue",
         "EvidenceChain.vue",
         "DecisionCard.vue",
-        "BacktestDraft.vue",
-        "BacktestPreview.vue"
+        "BacktestDraft.vue"
     ]
 
     for component in components:
@@ -578,8 +552,7 @@ def test_child_components_have_props():
         "TechnicalIndicators.vue",
         "EvidenceChain.vue",
         "DecisionCard.vue",
-        "BacktestDraft.vue",
-        "BacktestPreview.vue"
+        "BacktestDraft.vue"
     ]
 
     for component_name in components:
@@ -608,8 +581,7 @@ def test_child_components_use_design_tokens():
         "TechnicalIndicators.vue",
         "EvidenceChain.vue",
         "DecisionCard.vue",
-        "BacktestDraft.vue",
-        "BacktestPreview.vue"
+        "BacktestDraft.vue"
     ]
 
     for component_name in components:

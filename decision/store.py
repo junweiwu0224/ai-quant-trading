@@ -570,6 +570,11 @@ class DecisionStore:
                 (report_id,),
             ).fetchall()
         ]
+        share_row = conn.execute(
+            "SELECT id, expires_at, revoked, created_at FROM report_share_links WHERE report_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
+            (report_id,),
+        ).fetchone()
+        report["share_link"] = self._decode(share_row) if share_row else None
         report["ai_commentary_status"] = "available" if report["ai_commentary"] else "not_available"
         return report
 

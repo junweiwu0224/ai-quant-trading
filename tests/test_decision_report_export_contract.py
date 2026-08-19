@@ -12,21 +12,12 @@ def test_report_api_and_vue_expose_all_evidence_formats() -> None:
         assert f'"{format_name}"' in router
 
 
-def test_more_view_maps_legacy_capabilities_and_marks_live_trading_disabled() -> None:
-    source = (ROOT / "dashboard/ui/src/views/MoreView.vue").read_text(encoding="utf-8")
-    for key in (
-        "conditional-orders",
-        "screener",
-        "portfolio-risk",
-        "strategies-backtest",
-        "alpha-factors",
-        "formula-basket",
-        "paper",
-        "agents",
-        "broker-live",
-    ):
-        assert f"key: '{key}'" in source
-    for field in ("api:", "route:", "historicalPath:", "capability:", "mobile:"):
-        assert field in source
-    assert "capability: 'disabled'" in source
-    assert "真实下单" in source
+def test_system_navigation_keeps_reports_visible_and_live_trading_disabled() -> None:
+    registry = (ROOT / "dashboard/ui/src/navigation/workflows.ts").read_text(encoding="utf-8")
+    main = (ROOT / "dashboard/ui/src/components/MainContent.vue").read_text(encoding="utf-8")
+    broker = (ROOT / "dashboard/ui/src/views/BrokerLiveView.vue").read_text(encoding="utf-8")
+
+    for label in ("报告审计", "通知路由", "告警规则"):
+        assert f"label: '{label}'" in registry
+    assert "/app/broker" in main and "/app/settings" in main
+    assert "禁止真实下单" in broker

@@ -135,6 +135,29 @@ const capabilityMessage = computed(() => {
   return currentCapability.value.fallback_reason || currentCapability.value.reason || '当前市场仅支持受控手动研究，自动推送不可用。'
 })
 const alertCountLabel = computed(() => alertLoaded.value ? String(alertHistory.value.length) : '—')
+const outcome = computed(() => {
+  if (busy.value && !result.value) return { label: '正在冻结输入', tone: 'pending', detail: '正在读取组合、数据质量和策略版本。' }
+  if (!selected.value) return { label: '等待组合', tone: 'pending', detail: '从自选池创建或选择一个策略组合后再生成结论。' }
+  if (!result.value) return { label: '尚未生成结论', tone: 'pending', detail: '当前组合已选择，等待预览返回可追溯输入。' }
+  if (result.value.eligibility?.eligible === true) return { label: '可进入下一步', tone: 'ready', detail: '当前预览已通过资格检查；仍需人工确认后续研究操作。' }
+  return { label: '研究可用，自动化受阻', tone: 'blocked', detail: result.value.eligibility?.reasons?.[0] || '资格检查尚未满足，自动投递保持关闭。' }
+})
+const primaryNextStep = computed(() => result.value?.eligibility?.eligible === true ? '查看冻结报告' : '进入验证')
+const decisionTrace = computed(() => {
+  const current = result.value || {}
+  const eligibility = current.eligibility || null
+  const validationKnown = eligibility?.checks && 'validation_ok' in eligibility.checks
+  return [
+    { label: '输入快照', status: current.snapshot ? 'done' : busy.value ? 'running' : 'waiting', meta: current.snapshot?.payload_hash ? `${String(current.snapshot.payload_hash).slice(0, 10)}…` : '等待冻结输入' },
+    { label: '数据质量', status: !current.snapshot ? 'waiting' : current.snapshot.quality_status === 'ok' ? 'done' : 'blocked', meta: current.snapshot?.quality_status || '未检查' },
+    { label: '策略版本', status: current.version ? 'done' : 'waiting', meta: current.version?.config_hash ? `${String(current.version.config_hash).slice(0, 10)}…` : '等待版本' },
+    { label: '验证', status: !validationKnown ? 'waiting' : eligibility.checks.validation_ok ? 'done' : 'blocked', meta: !validationKnown ? '尚未验证' : eligibility.checks.validation_ok ? '已通过' : '未通过' },
+    { label: '资格', status: !eligibility ? 'waiting' : eligibility.eligible === true ? 'done' : 'blocked', meta: !eligibility ? '尚未检查' : eligibility.eligible === true ? '已通过' : '受阻' },
+    { label: '冻结结论', status: current.run?.status === 'completed' || current.report ? 'done' : 'waiting', meta: current.run?.id ? String(current.run.id).slice(0, 10) : '等待运行' },
+    { label: '报告', status: current.report ? 'done' : 'waiting', meta: current.report?.id ? String(current.report.id).slice(0, 10) : '尚未生成' },
+    { label: '投递', status: 'waiting', meta: '前往通知审计确认' },
+  ]
+})
 
 function researchPath(code: unknown): string {
   const normalized = plainCode(code)
@@ -307,12 +330,30 @@ onMounted(load)
 
 <template>
   <section>
-    <div class="page-head">
-      <div><h1>把自选池变成可追溯决策</h1><p>先选策略组合，再查看冻结输入、策略贡献和数据资格。自动推送资格与手动分析完全分开。</p></div>
-      <div class="head-actions"><button class="button" :disabled="busy || researchBusy" @click="load"><RefreshCw :size="16" :class="{ spin: busy || researchBusy }" />刷新</button><button class="button primary" @click="showCreate = true"><Plus :size="16" />从自选池创建组合</button></div>
+    <div class="page-head decision-head">
+      <div><h1>决策运行台</h1><p>确定性结论、数据资格与研究解释分层呈现。自动投递从不因手动研究而默认开启。</p></div>
+      <div class="head-actions"><button class="button" :disabled="busy || researchBusy" @click="load"><RefreshCw :size="16" :class="{ spin: busy || researchBusy }" />刷新</button><button class="button primary" @click="showCreate = true"><Plus :size="16" />创建组合</button></div>
     </div>
     <div v-if="message" class="error-box" role="alert"><CircleAlert :size="16" />{{ message }}</div>
     <div v-if="researchError" class="error-box decision-research-error" role="status"><Database :size="16" />{{ researchError }}</div>
+
+    <section class="decision-outcome" :class="`outcome-${outcome.tone}`" aria-live="polite">
+      <div class="outcome-main"><span class="outcome-label">当前结论</span><strong>{{ outcome.label }}</strong><p>{{ outcome.detail }}</p></div>
+      <dl class="outcome-facts"><div><dt>组合</dt><dd>{{ selected?.name || '未选择' }}</dd></div><div><dt>资格</dt><dd>{{ result?.eligibility?.eligible === true ? '已通过' : result ? '受阻' : '未检查' }}</dd></div><div><dt>数据</dt><dd>{{ result?.snapshot?.quality_status === 'ok' ? '有效' : result ? '待复核' : '未知' }}</dd></div></dl>
+      <RouterLink v-if="result?.eligibility?.eligible === true" class="button primary" to="/app/reports">{{ primaryNextStep }}</RouterLink>
+      <RouterLink v-else class="button primary" to="/app/validation">{{ primaryNextStep }}</RouterLink>
+    </section>
+
+    <section class="decision-trace" aria-labelledby="decision-trace-title">
+      <div class="decision-trace-head"><div><h2 id="decision-trace-title">决策链路</h2><p>节点状态只来自当前冻结结果；投递需要在通知审计中单独确认。</p></div><RouterLink class="button ghost compact-button" to="/app/notifications">通知审计</RouterLink></div>
+      <ol class="decision-trace-list">
+        <li v-for="(node, index) in decisionTrace" :key="node.label" class="decision-trace-node" :class="`trace-${node.status}`">
+          <span class="decision-trace-marker"><CheckCircle2 v-if="node.status === 'done'" :size="15" /><CircleAlert v-else-if="node.status === 'blocked'" :size="15" /><RefreshCw v-else-if="node.status === 'running'" :size="15" class="spin" /><Clock3 v-else :size="15" /></span>
+          <span><strong>{{ node.label }}</strong><small>{{ node.meta }}</small></span>
+          <ArrowRight v-if="index < decisionTrace.length - 1" class="decision-trace-arrow" :size="14" aria-hidden="true" />
+        </li>
+      </ol>
+    </section>
 
     <section class="panel decision-capability-panel">
       <div class="panel-body capability-state">
@@ -327,7 +368,7 @@ onMounted(load)
       <div class="summary-item"><span>当前组合</span><strong>{{ selected?.name || '未选择' }}</strong><small>{{ selected?.members?.length == null ? '—' : `${selected.members.length} 个成员` }}</small></div>
       <div class="summary-item"><span>研究池</span><strong>{{ matrixSummary.total == null ? '—' : matrixSummary.total }}</strong><small>{{ opportunityScope === 'signal' ? 'AI 信号范围' : '当前工作区自选' }}</small></div>
       <div class="summary-item"><span>预警历史</span><strong>{{ alertCountLabel }}</strong><small>最近读取结果</small></div>
-      <div class="summary-item"><span>自动推送</span><strong>{{ result?.eligibility?.eligible ? '可申请' : '未达标' }}</strong><small>{{ result?.eligibility?.reasons?.[0] || '等待组合资格检查' }}</small></div>
+      <div class="summary-item"><span>自动推送</span><strong>{{ result?.eligibility?.eligible === true ? '可申请' : '未达标' }}</strong><small>{{ result?.eligibility?.reasons?.[0] || '等待组合资格检查' }}</small></div>
     </div>
 
     <div class="section-grid two">
@@ -399,3 +440,27 @@ onMounted(load)
     <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate = false"><section class="modal panel"><div class="panel-head"><div><h2>创建策略组合</h2><p>默认导入当前 workspace 的自选股。</p></div><button class="icon-button" title="关闭" aria-label="关闭" @click="showCreate = false">×</button></div><div class="panel-body"><div class="field"><label for="portfolio-name">组合名称</label><input id="portfolio-name" v-model="createName" /></div><div class="form-actions"><button class="button" @click="showCreate = false">取消</button><button class="button primary" :disabled="busy || !createName.trim()" @click="createPortfolio">创建并预览</button></div></div></section></div>
   </section>
 </template>
+
+<style scoped>
+.decision-trace { margin-bottom:18px; border:1px solid var(--color-line); border-radius:var(--radius-lg); background:var(--color-surface); }
+.decision-trace-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:14px 16px; border-bottom:1px solid var(--color-line); }
+.decision-trace-head h2 { margin:0; font-size:14px; }
+.decision-trace-head p { margin:4px 0 0; color:var(--color-ink-soft); font-size:11px; }
+.decision-trace-list { display:grid; grid-template-columns:repeat(8, minmax(128px, 1fr)); overflow-x:auto; padding:14px 10px; }
+.decision-trace-node { position:relative; display:grid; grid-template-columns:24px minmax(0, 1fr); align-items:start; gap:7px; min-width:128px; padding:0 10px; }
+.decision-trace-node > span:nth-child(2) { min-width:0; }
+.decision-trace-node strong, .decision-trace-node small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.decision-trace-node strong { font-size:11px; }
+.decision-trace-node small { margin-top:3px; color:var(--color-ink-faint); font-family:var(--font-family-mono); font-size:9px; }
+.decision-trace-marker { display:grid; width:22px; height:22px; place-items:center; border:1px solid var(--color-line); border-radius:50%; color:var(--color-ink-faint); background:var(--color-surface-muted); }
+.trace-done .decision-trace-marker { border-color:color-mix(in srgb, var(--color-success) 55%, var(--color-line)); color:var(--color-success); }
+.trace-blocked .decision-trace-marker { border-color:color-mix(in srgb, var(--color-warn) 55%, var(--color-line)); color:var(--color-warn); }
+.trace-running .decision-trace-marker { border-color:color-mix(in srgb, var(--color-accent) 55%, var(--color-line)); color:var(--color-accent); }
+.decision-trace-arrow { position:absolute; top:4px; right:-7px; color:var(--color-line-strong); }
+@media (max-width:767px) {
+  .decision-trace-head { align-items:stretch; flex-direction:column; }
+  .decision-trace-head .button { width:100%; }
+  .decision-trace-list { grid-template-columns:repeat(8, 142px); padding-right:14px; padding-left:14px; scroll-snap-type:x proximity; }
+  .decision-trace-node { min-width:142px; scroll-snap-align:start; }
+}
+</style>

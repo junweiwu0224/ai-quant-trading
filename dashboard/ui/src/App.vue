@@ -59,7 +59,7 @@ watch(() => store.market, (market) => {
   <RouterView v-if="standalone || authRoute" />
   <AuthView v-else-if="!store.authLoading && !store.authenticated" />
   <main v-else-if="store.authLoading" class="auth-loading">
-    <div class="loading-orb" aria-hidden="true" />
+    <div class="loading-line" aria-hidden="true" />
     <strong>正在准备工作区…</strong>
     <span>读取会话与工作区状态</span>
   </main>
@@ -77,17 +77,20 @@ watch(() => store.market, (market) => {
   background: var(--color-bg-primary);
 }
 
-.loading-orb {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-accent);
-  animation: spin 1s linear infinite;
+.loading-line {
+  width: 140px;
+  height: 3px;
+  overflow: hidden;
+  background: var(--color-border);
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.loading-line::after {
+  content: "";
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: var(--color-accent);
+  transform: translateX(58%);
 }
 
 .auth-loading strong {

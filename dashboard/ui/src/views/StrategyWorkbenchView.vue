@@ -234,7 +234,7 @@ onMounted(load)
 
 <template>
   <section>
-    <div class="page-head"><div><RouterLink to="/app/workflows" class="muted small"><ArrowLeft :size="14" />返回工作流目录</RouterLink><h1>策略工作台</h1><p>策略目录、代码、版本、优化和 ensemble 回测统一在这里；所有结果仍需验证，不会自动进入订单或推送资格。</p></div><div class="head-actions"><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="15" :class="{ spin: loading }" />刷新</button><RouterLink class="button ghost" to="/app/ai"><Code2 :size="15" />AI 研究助手</RouterLink></div></div>
+    <div class="page-head"><div><RouterLink to="/app/validation" class="muted small"><ArrowLeft :size="14" />验证工作区</RouterLink><h1>策略工作台</h1><p>策略目录、代码、版本、优化和 ensemble 回测统一在这里；所有结果仍需验证，不会自动进入订单或推送资格。</p></div><div class="head-actions"><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="15" :class="{ spin: loading }" />刷新</button><RouterLink class="button ghost" to="/app/ai"><Code2 :size="15" />AI 研究助手</RouterLink></div></div>
     <div v-if="message" class="error-box" role="status">{{ message }}</div>
     <nav class="workspace-tabs" aria-label="策略工作台视图"><button type="button" :class="{ active: tab === 'catalog' }" @click="tab = 'catalog'"><FlaskConical :size="15" />策略目录</button><button type="button" :class="{ active: tab === 'editor' }" @click="tab = 'editor'"><Edit3 :size="15" />编辑与版本</button><button type="button" :class="{ active: tab === 'optimization' }" @click="tab = 'optimization'"><Play :size="15" />参数优化</button><button type="button" :class="{ active: tab === 'ensemble' }" @click="tab = 'ensemble'"><ShieldCheck :size="15" />组合回测</button><button type="button" :class="{ active: tab === 'history' }" @click="tab = 'history'; loadHistory()"><RotateCcw :size="15" />版本与记录</button></nav>
 

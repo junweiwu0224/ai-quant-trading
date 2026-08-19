@@ -41,7 +41,12 @@ const copy = stateCopy[props.state]
 </script>
 
 <template>
-  <div class="async-state" :class="[`async-state--${copy.tone}`, { 'async-state--compact': compact }]" role="status" :aria-live="state === 'refreshing' ? 'polite' : 'off'">
+  <div
+    class="async-state"
+    :class="[`async-state--${copy.tone}`, { 'async-state--compact': compact }]"
+    :role="state === 'error' ? 'alert' : 'status'"
+    :aria-live="state === 'error' ? 'assertive' : ['refreshing', 'success', 'partial', 'rollback'].includes(state) ? 'polite' : 'off'"
+  >
     <component :is="copy.icon" class="async-state__icon" :class="{ spin: state === 'loading' || state === 'refreshing' || state === 'submitting' }" :size="compact ? 14 : 16" aria-hidden="true" />
     <div class="async-state__copy">
       <strong>{{ title || copy.label }}</strong>

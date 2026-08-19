@@ -1,8 +1,8 @@
-"""Independent worker for queued AI research tasks.
+"""Independent Pi Agent worker for queued AI research tasks.
 
-This process has its own lease and never owns decision, order, or notification
-state.  It is intentionally small because task orchestration belongs to
-``ai_runtime.AIRuntime`` while process ownership belongs here.
+This process owns the AI task lease but never owns decision, order, or
+notification state.  ``ai_runtime`` keeps task orchestration and audit;
+Pi only generates non-authoritative research artifacts from frozen input.
 """
 
 from __future__ import annotations
@@ -19,14 +19,16 @@ from typing import Any
 from loguru import logger
 
 from ai_runtime import AIRuntime
+from ai_runtime.models import ProviderChannel
+from ai_runtime.repository import AIRuntimeRepository
 from engine.decision_worker import SQLiteWorkerLease, feature_enabled, utc_now
 
 
 @dataclass
-class AIWorker:
+class PiAgentWorker:
     runtime: AIRuntime
     lease: SQLiteWorkerLease
-    owner_id: str = field(default_factory=lambda: f"{socket.gethostname()}:{os.getpid()}:ai:{uuid.uuid4().hex}")
+    owner_id: str = field(default_factory=lambda: f"{socket.gethostname()}:{os.getpid()}:pi-agent:{uuid.uuid4().hex}")
     lease_ttl_seconds: float = 30.0
     poll_interval_seconds: float = 2.0
     batch_size: int = 4
@@ -35,12 +37,24 @@ class AIWorker:
     _stop_event: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
 
     @classmethod
-    def from_environment(cls) -> "AIWorker":
+    def from_environment(cls) -> "PiAgentWorker":
         from config.settings import DB_DIR
 
         database = Path(DB_DIR) / "ai_runtime.db"
+        command = [item for item in os.getenv("PI_AGENT_COMMAND", "pi").split() if item] or ["pi"]
+        channel = ProviderChannel(
+            id="pi-agent",
+            name="Pi Agent",
+            protocol="pi_agent",
+            model=os.getenv("PI_AGENT_MODEL", ""),
+            command=command,
+            timeout_seconds=float(os.getenv("PI_AGENT_TIMEOUT_SECONDS", "90")),
+            supports_stream=False,
+        )
         return cls(
-            runtime=AIRuntime.from_environment(database),
+            runtime=AIRuntime(AIRuntimeRepository(database), channels=[channel], force_default_router=True),
+            # Keep the lease name stable through the migration so an old
+            # worker and Pi Agent cannot consume the same queue concurrently.
             lease=SQLiteWorkerLease(Path(DB_DIR) / "worker_leases.db", lease_name="ai-worker"),
             lease_ttl_seconds=float(os.getenv("AI_WORKER_LEASE_TTL_SECONDS", "30")),
             poll_interval_seconds=float(os.getenv("AI_WORKER_POLL_INTERVAL_SECONDS", "2")),
@@ -132,6 +146,15 @@ class AIWorker:
         self.runtime.repository.close()
 
 
+def pi_agent_worker_enabled() -> bool:
+    return feature_enabled("PI_AGENT_WORKER_ENABLED", default=feature_enabled("AI_WORKER_ENABLED", default=False))
+
+
+# Compatibility import for callers during the worker migration.  The only
+# production runner is scripts/run_pi_agent_worker.py.
+AIWorker = PiAgentWorker
+
+
 def ai_worker_enabled() -> bool:
-    return feature_enabled("AI_WORKER_ENABLED", default=False)
+    return pi_agent_worker_enabled()
 

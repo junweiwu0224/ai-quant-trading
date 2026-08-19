@@ -4,15 +4,11 @@
 
 import { api } from './client'
 import type {
-  Decision,
-  DecisionFilters,
   DecisionPortfolio,
   DecisionMember,
   DecisionVersion,
   DecisionReport,
   DecisionCommand,
-  CreateDecisionRequest,
-  UpdateDecisionRequest,
   CreatePortfolioRequest,
   AddMemberRequest,
   CreateVersionRequest,

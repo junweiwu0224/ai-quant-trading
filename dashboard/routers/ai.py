@@ -151,10 +151,11 @@ async def ai_status(account: dict[str, Any] | None = Depends(optional_account)):
     return {
         "success": True,
         "runtime": "ready",
+        "executor": "pi_agent_worker",
         "providers": runtime.provider_status(workspace_id),
         "capability_matrix": _capability_matrix(workspace_id),
         "worker": worker,
-        "worker_enabled": os.getenv("AI_WORKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        "worker_enabled": os.getenv("PI_AGENT_WORKER_ENABLED", os.getenv("AI_WORKER_ENABLED", "false")).lower() in {"1", "true", "yes", "on"},
         "decision_effect": "none",
         "degradation_policy": "failed or unavailable AI output remains visible and cannot qualify automatic delivery",
     }

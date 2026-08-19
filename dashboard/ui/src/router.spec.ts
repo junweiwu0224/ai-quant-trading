@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import router from './router'
+import { workspaceForPath } from './navigation/workflows'
 
 describe('Vue route compatibility', () => {
   beforeAll(() => {
@@ -49,5 +50,15 @@ describe('Vue route compatibility', () => {
     await router.push('/app/more/stock-detail?code=AAPL&market=US&source=matrix')
     expect(router.currentRoute.value.path).toBe('/app/research/US/AAPL')
     expect(router.currentRoute.value.query).toEqual({ code: 'AAPL', market: 'US', source: 'matrix' })
+  })
+
+  it('maps every canonical workflow into a visible workspace', () => {
+    expect(workspaceForPath('/app/intelligence')?.id).toBe('decision')
+    expect(workspaceForPath('/app/research/US/AAPL')?.id).toBe('research')
+    expect(workspaceForPath('/app/ai')?.id).toBe('research')
+    expect(workspaceForPath('/app/strategy')?.id).toBe('validation')
+    expect(workspaceForPath('/app/paper')?.id).toBe('portfolio')
+    expect(workspaceForPath('/app/notifications')?.id).toBe('reports')
+    expect(workspaceForPath('/app/settings')).toBeNull()
   })
 })

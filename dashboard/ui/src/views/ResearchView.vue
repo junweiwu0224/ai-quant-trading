@@ -10,7 +10,6 @@ import TechnicalIndicators from '../components/research/TechnicalIndicators.vue'
 import EvidenceChain from '../components/research/EvidenceChain.vue'
 import DecisionCard from '../components/research/DecisionCard.vue'
 import BacktestDraft from '../components/research/BacktestDraft.vue'
-import BacktestPreview from '../components/research/BacktestPreview.vue'
 import DataQualityBadge from '../components/market/DataQualityBadge.vue'
 import ResearchStatePanel from '../components/research/ResearchStatePanel.vue'
 import { getEvidence, getKLineData, getTechnicalIndicators, type SourceState } from '../api/research'
@@ -139,7 +138,7 @@ onUnmounted(() => controller?.abort())
     <BaseTabs v-model="activeTab" :tabs="tabs" size="md" class="research-tabs">
       <div v-if="activeTab === 'kline-tech'" class="tab-content"><div class="research-layout"><KLineChart :market="market" :symbol="symbol" :bars="bars" :state="klineState" :source="klineSource" :as-of="klineAsOf" :error="klineError" /><TechnicalIndicators :market="market" :symbol="symbol" :indicators="indicators" :state="indicatorState" :error="indicatorError" /></div></div>
       <div v-else-if="activeTab === 'evidence'" class="tab-content"><div class="evidence-layout"><EvidenceChain :market="market" :symbol="symbol" :evidence="evidence" :sources="sources" :state="evidenceState" /><DecisionCard :market="market" :symbol="symbol" :state="evidenceState" :error="evidenceError" /><span v-if="evidenceSnapshotId" class="research-evidence-meta">新闻与情绪 · 证据快照 {{ evidenceSnapshotId }}</span></div></div>
-      <div v-else-if="activeTab === 'backtest'" class="tab-content"><div class="backtest-layout"><BacktestDraft :market="market" :symbol="symbol" /><BacktestPreview :market="market" :symbol="symbol" /></div></div>
+      <div v-else-if="activeTab === 'backtest'" class="tab-content"><BacktestDraft :market="market" :symbol="symbol" /></div>
     </BaseTabs>
   </section>
 </template>

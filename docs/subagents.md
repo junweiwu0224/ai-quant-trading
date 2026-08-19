@@ -30,7 +30,7 @@
 
 - 决策/报告/验证/研究：`dashboard/ui/src/views/DecisionView.vue`、`ReportsView.vue`、`ValidationView.vue`、`ResearchView.vue`，配套 `tests/test_vue_*_contract.py` 和 `dashboard/ui/src/*.spec.ts`。
 - Agent/AI 工作台：`dashboard/ui/src/views/AgentOpsView.vue`、`dashboard/routers/ai.py`、`ai_runtime/*`，配套 `tests/test_ai_*.py`、`tests/test_ai_runtime.py` 和 Vue 契约测试。
-- 更多工具：`dashboard/ui/src/views/MoreView.vue` 与各工具 view；必须保持导航矩阵和安全禁用状态一致。
+- 工作区导航：`dashboard/ui/src/navigation/workflows.ts`、`dashboard/ui/src/components/WorkspaceNav.vue` 与各 canonical view；必须保持五个一级工作区、页面内模块归属、兼容重定向和安全禁用状态一致。
 
 后端/API/data 可以按独立业务域拆分，但共享状态和生命周期必须由主 agent 串行控制：
 

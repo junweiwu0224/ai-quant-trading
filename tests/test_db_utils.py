@@ -3,7 +3,7 @@ import sqlite3
 from utils.db import get_connection
 
 
-def test_get_connection_falls_back_when_wal_is_unavailable(monkeypatch, tmp_path):
+def test_get_connection_preserves_journal_mode_when_wal_is_unavailable(monkeypatch, tmp_path):
     db_path = tmp_path / "fallback.db"
     real_connect = sqlite3.connect
     calls = []
@@ -51,7 +51,7 @@ def test_get_connection_falls_back_when_wal_is_unavailable(monkeypatch, tmp_path
     conn = get_connection(db_path)
     try:
         assert "PRAGMA journal_mode=WAL" in calls
-        assert "PRAGMA journal_mode=DELETE" in calls
+        assert "PRAGMA journal_mode=DELETE" not in calls
         assert "PRAGMA busy_timeout=5000" in calls
         conn.execute("CREATE TABLE smoke (id INTEGER PRIMARY KEY)")
     finally:

@@ -103,7 +103,11 @@ def test_report_freezes_data_quality_and_replays_with_the_same_hash(tmp_path: Pa
     assert enriched is not None
     assert enriched["ai_commentary_status"] == "available"
     assert enriched["ai_commentary"][0]["content"] == "补充说明"
-    token, _link = store.issue_share_link("workspace-1", report["id"])
+    token, link = store.issue_share_link("workspace-1", report["id"])
+    enriched = store.get_report("workspace-1", report["id"])
+    assert enriched is not None
+    assert enriched["share_link"]["id"] == link["id"]
+    assert "token_hash" not in enriched["share_link"]
     shared = store.resolve_share(token)
     assert shared is not None
     assert shared["ai_commentary"][0]["content"] == "补充说明"

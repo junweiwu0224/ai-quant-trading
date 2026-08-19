@@ -1,662 +1,161 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import BaseCard from '../../components/base/BaseCard.vue'
-import BaseButton from '../../components/base/BaseButton.vue'
-import BaseTag from '../../components/base/BaseTag.vue'
-import { PieChart, RefreshCw, TrendingUp, AlertTriangle } from 'lucide-vue-next'
-import { getPortfolioAnalysis } from '../../api/portfolio'
-import type { PortfolioAnalysis } from '../../api/portfolio'
+import { computed, onMounted, ref } from 'vue'
+import { ArrowLeft, BarChart3, Play, RefreshCw, ShieldCheck } from 'lucide-vue-next'
+import { RouterLink } from 'vue-router'
+import AsyncState from '../../components/base/AsyncState.vue'
+import { getPortfolioMethods, optimizePortfolio, type PortfolioOptimizationMethod, type PortfolioOptimizationResult } from '../../api/portfolio'
+import { useAppStore } from '../../stores/app'
 
-const title = '持仓优化'
-const description = '基于现代投资组合理论的持仓分析与优化建议'
-
-// State
+const app = useAppStore()
+const methods = ref<PortfolioOptimizationMethod[]>([])
+const result = ref<PortfolioOptimizationResult | null>(null)
 const loading = ref(false)
-const error = ref<string | null>(null)
-const analysis = ref<PortfolioAnalysis | null>(null)
-
-// Computed
-const positionChartData = computed(() => {
-  if (!analysis.value) return []
-  return analysis.value.positions.map(p => ({
-    label: p.name,
-    value: p.weight,
-    color: getColorForWeight(p.weight)
-  }))
+const error = ref('')
+const form = ref({
+  codes: '',
+  start_date: '2024-01-01',
+  end_date: '2024-12-31',
+  method: 'max_sharpe',
+  risk_free: 0.03,
 })
 
-// Methods
-async function loadData() {
-  loading.value = true
-  error.value = null
+const codes = computed(() => [...new Set(form.value.codes.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean))])
+const weightEntries = computed(() => Object.entries(result.value?.weights || {})
+  .map(([code, weight]) => ({ code, weight: Number(weight) }))
+  .filter((item) => Number.isFinite(item.weight))
+  .sort((left, right) => right.weight - left.weight))
+const methodLabel = computed(() => methods.value.find((item) => item.name === result.value?.method)?.label || result.value?.method || '—')
 
+function number(value: unknown, digits = 2) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—'
+  return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false })
+}
+
+function percent(value: unknown, digits = 2) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—'
+  return `${(Number(value) * 100).toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false })}%`
+}
+
+async function loadMethods() {
+  error.value = ''
   try {
-    analysis.value = await getPortfolioAnalysis()
-  } catch (err) {
-    console.error('Failed to load portfolio analysis:', err)
-    error.value = '加载数据失败，请稍后重试'
+    methods.value = await getPortfolioMethods()
+    if (!methods.value.some((item) => item.name === form.value.method) && methods.value[0]) form.value.method = methods.value[0].name
+    if (!form.value.codes && app.watchlist.length) form.value.codes = app.watchlist.map((item) => item.code).slice(0, 20).join(',')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '组合优化方法加载失败'
+  }
+}
+
+async function runOptimization() {
+  if (codes.value.length < 2) {
+    error.value = '至少输入 2 只股票代码'
+    return
+  }
+  if (codes.value.length > 20) {
+    error.value = '单次最多优化 20 只股票'
+    return
+  }
+  if (form.value.start_date > form.value.end_date) {
+    error.value = '开始日期不能晚于结束日期'
+    return
+  }
+  loading.value = true
+  error.value = ''
+  result.value = null
+  try {
+    result.value = await optimizePortfolio({ ...form.value, codes: codes.value })
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '组合优化失败'
   } finally {
     loading.value = false
   }
 }
 
-function formatNumber(num: number): string {
-  return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function formatPercent(num: number): string {
-  return num.toFixed(2) + '%'
-}
-
-function getColorForWeight(weight: number): string {
-  if (weight > 25) return 'var(--color-danger)'
-  if (weight > 15) return 'var(--color-warn)'
-  return 'var(--color-accent)'
-}
-
-function getSuggestionIcon(type: string) {
-  return type === 'add' ? TrendingUp : AlertTriangle
-}
-
-function getSuggestionVariant(priority: string) {
-  if (priority === 'high') return 'danger'
-  if (priority === 'medium') return 'warning'
-  return 'info'
-}
-
-function getCorrelationColor(value: number): string {
-  const intensity = Math.abs(value)
-  if (value > 0.7) return '#ef4444'
-  if (value > 0.3) return '#f59e0b'
-  if (value > -0.3) return '#6b7280'
-  if (value > -0.7) return '#3b82f6'
-  return '#8b5cf6'
-}
-
-onMounted(() => {
-  loadData()
-})
+onMounted(loadMethods)
 </script>
 
 <template>
-  <div class="page-container">
+  <section class="portfolio-opt-view">
     <div class="page-head">
-      <div>
-        <h1>{{ title }}</h1>
-        <p>{{ description }}</p>
+      <div><RouterLink class="muted small portfolio-opt-back" to="/app/portfolio-risk"><ArrowLeft :size="14" />组合工作区</RouterLink><h1>持仓优化</h1><p>基于真实历史收益率运行等权、风险平价、最小方差或最大夏普研究；结果不会自动调仓或创建订单。</p></div>
+      <button class="button" type="button" :disabled="loading" @click="loadMethods"><RefreshCw :size="16" />刷新方法</button>
+    </div>
+
+    <AsyncState v-if="error" state="error" :message="error" @retry="loadMethods" />
+
+    <section class="panel portfolio-opt-form">
+      <div class="panel-head"><div><h2>优化输入</h2><p>股票代码、时间范围、方法与无风险利率会原样提交到 `/api/portfolio-opt/optimize`。</p></div><span class="tag warn">研究操作</span></div>
+      <div class="panel-body">
+        <div class="field-grid">
+          <div class="field portfolio-opt-codes"><label for="portfolio-opt-codes">股票代码</label><input id="portfolio-opt-codes" v-model="form.codes" placeholder="600519,000001；2–20 只" /></div>
+          <div class="field"><label for="portfolio-opt-method">优化方法</label><select id="portfolio-opt-method" v-model="form.method" class="field-select"><option v-for="method in methods" :key="method.name" :value="method.name">{{ method.label }}</option></select></div>
+          <div class="field"><label for="portfolio-opt-start">开始日期</label><input id="portfolio-opt-start" v-model="form.start_date" type="date" /></div>
+          <div class="field"><label for="portfolio-opt-end">结束日期</label><input id="portfolio-opt-end" v-model="form.end_date" type="date" /></div>
+          <div class="field"><label for="portfolio-opt-risk-free">无风险利率</label><input id="portfolio-opt-risk-free" v-model.number="form.risk_free" type="number" min="0" max="1" step="0.001" /></div>
+        </div>
+        <div v-if="methods.length" class="portfolio-methods"><span v-for="method in methods" :key="method.name" :class="{ active: form.method === method.name }"><strong>{{ method.label }}</strong>{{ method.description }}</span></div>
+        <div class="security-note"><ShieldCheck :size="16" /><span>优化结果只用于人工研究，不修改持仓、不改变自动推送资格，也不会进入 Broker 或模拟盘订单。</span></div>
+        <div class="form-actions"><button class="button primary" type="button" :disabled="loading || methods.length === 0" @click="runOptimization"><Play :size="15" />{{ loading ? '优化中' : '运行优化' }}</button><span class="muted small">当前 {{ codes.length }} 只股票</span></div>
       </div>
-      <div class="head-actions">
-        <BaseButton
-          variant="ghost"
-          size="sm"
-          :loading="loading"
-          @click="loadData"
-        >
-          <RefreshCw :size="16" />
-          刷新
-        </BaseButton>
+    </section>
+
+    <template v-if="result">
+      <div class="portfolio-opt-summary" aria-label="优化结果摘要">
+        <div><span>方法</span><strong>{{ methodLabel }}</strong></div>
+        <div><span>预期年化收益</span><strong>{{ percent(result.expected_return) }}</strong></div>
+        <div><span>预期年化波动</span><strong>{{ percent(result.expected_volatility) }}</strong></div>
+        <div><span>夏普比率</span><strong>{{ number(result.sharpe_ratio) }}</strong></div>
       </div>
-    </div>
 
-    <!-- Error State -->
-    <div v-if="error" class="error-banner">
-      {{ error }}
-    </div>
-
-    <!-- Loading State -->
-    <div v-if="loading && !analysis" class="loading-state">
-      <div class="spinner"></div>
-      <p>加载中...</p>
-    </div>
-
-    <!-- Main Content -->
-    <div v-else-if="analysis" class="content-grid">
-      <!-- Portfolio Composition -->
-      <BaseCard padding="lg">
-        <h2 class="section-title">持仓结构</h2>
-        <div class="composition-layout">
-          <div class="composition-chart">
-            <div class="pie-placeholder">
-              <PieChart :size="48" class="chart-icon" />
-              <p class="chart-label">持仓分布图</p>
-              <p class="chart-note">可视化功能开发中</p>
-            </div>
-          </div>
-          <div class="composition-list">
-            <div v-for="position in analysis.positions" :key="position.symbol" class="position-item">
-              <div class="position-info">
-                <span class="position-name">{{ position.name }}</span>
-                <span class="position-code">{{ position.symbol }}</span>
-              </div>
-              <div class="position-bar">
-                <div
-                  class="position-bar-fill"
-                  :style="{ width: position.weight + '%', backgroundColor: getColorForWeight(position.weight) }"
-                ></div>
-              </div>
-              <div class="position-stats">
-                <span class="position-weight">{{ formatPercent(position.weight) }}</span>
-                <span class="position-value">¥{{ formatNumber(position.value) }}</span>
-              </div>
-            </div>
-          </div>
+      <section class="panel">
+        <div class="panel-head"><div><h2>建议权重</h2><p>权重来自当前 API 响应；没有足够历史数据时保持空状态，不回退到演示数据。</p></div><BarChart3 :size="18" class="faint" /></div>
+        <div v-if="!weightEntries.length" class="panel-body"><div class="empty"><strong>没有可用权重</strong><span>当前代码范围可能缺少至少 30 个共同交易日的本地历史数据。</span></div></div>
+        <div v-else class="portfolio-weight-list">
+          <div v-for="item in weightEntries" :key="item.code" class="portfolio-weight-row"><div><strong>{{ item.code }}</strong><span>{{ percent(item.weight) }}</span></div><div class="portfolio-weight-track"><i :style="{ width: `${Math.max(0, Math.min(100, item.weight * 100))}%` }" /></div></div>
         </div>
-      </BaseCard>
+      </section>
+    </template>
 
-      <!-- Risk Metrics -->
-      <BaseCard padding="lg">
-        <h2 class="section-title">风险收益指标</h2>
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-label">Beta</div>
-            <div class="metric-value">{{ analysis.risk_metrics.beta.toFixed(2) }}</div>
-            <div class="metric-desc">市场相关性</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Sharpe Ratio</div>
-            <div class="metric-value positive">{{ analysis.risk_metrics.sharpe_ratio.toFixed(2) }}</div>
-            <div class="metric-desc">风险调整收益</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Max Drawdown</div>
-            <div class="metric-value negative">{{ analysis.risk_metrics.max_drawdown.toFixed(1) }}%</div>
-            <div class="metric-desc">最大回撤</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">VaR (95%)</div>
-            <div class="metric-value">¥{{ formatNumber(analysis.risk_metrics.var_95) }}</div>
-            <div class="metric-desc">风险价值</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Volatility</div>
-            <div class="metric-value">{{ analysis.risk_metrics.volatility.toFixed(1) }}%</div>
-            <div class="metric-desc">年化波动率</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Alpha</div>
-            <div class="metric-value positive">{{ analysis.risk_metrics.alpha.toFixed(1) }}%</div>
-            <div class="metric-desc">超额收益</div>
-          </div>
-        </div>
-      </BaseCard>
-
-      <!-- Optimization Suggestions -->
-      <BaseCard padding="lg">
-        <h2 class="section-title">优化建议</h2>
-        <div class="suggestions-list">
-          <div v-for="suggestion in analysis.suggestions" :key="suggestion.symbol" class="suggestion-item">
-            <div class="suggestion-header">
-              <BaseTag :variant="getSuggestionVariant(suggestion.priority)" size="sm">
-                {{ suggestion.priority === 'high' ? '高优先级' : suggestion.priority === 'medium' ? '中优先级' : '低优先级' }}
-              </BaseTag>
-              <div class="suggestion-title">
-                <component :is="getSuggestionIcon(suggestion.type)" :size="18" />
-                <strong>{{ suggestion.name }}</strong>
-                <span class="suggestion-code">{{ suggestion.symbol }}</span>
-              </div>
-            </div>
-            <div class="suggestion-body">
-              <div class="suggestion-weights">
-                <div class="weight-item">
-                  <span class="weight-label">当前权重</span>
-                  <span class="weight-value">{{ formatPercent(suggestion.current_weight) }}</span>
-                </div>
-                <div class="weight-arrow">→</div>
-                <div class="weight-item">
-                  <span class="weight-label">建议权重</span>
-                  <span class="weight-value suggested">{{ formatPercent(suggestion.suggested_weight) }}</span>
-                </div>
-              </div>
-              <p class="suggestion-reason">{{ suggestion.reason }}</p>
-            </div>
-            <div class="suggestion-actions">
-              <BaseButton variant="secondary" size="sm" :disabled="true">
-                应用建议（功能开发中）
-              </BaseButton>
-            </div>
-          </div>
-        </div>
-      </BaseCard>
-
-      <!-- Correlation Matrix -->
-      <BaseCard padding="lg">
-        <h2 class="section-title">相关性矩阵</h2>
-        <div class="correlation-container">
-          <div class="correlation-matrix">
-            <div class="correlation-row header-row">
-              <div class="correlation-cell empty"></div>
-              <div
-                v-for="symbol in analysis.correlation.symbols"
-                :key="'h-' + symbol"
-                class="correlation-cell header"
-              >
-                {{ symbol.split('.')[0] }}
-              </div>
-            </div>
-            <div
-              v-for="(row, i) in analysis.correlation.matrix"
-              :key="'r-' + i"
-              class="correlation-row"
-            >
-              <div class="correlation-cell header">
-                {{ analysis.correlation.symbols[i].split('.')[0] }}
-              </div>
-              <div
-                v-for="(value, j) in row"
-                :key="'c-' + j"
-                class="correlation-cell"
-                :style="{ backgroundColor: getCorrelationColor(value) }"
-              >
-                {{ value.toFixed(2) }}
-              </div>
-            </div>
-          </div>
-          <div class="correlation-legend">
-            <span>负相关 -1</span>
-            <div class="legend-gradient"></div>
-            <span>正相关 +1</span>
-          </div>
-        </div>
-      </BaseCard>
-    </div>
-
-    <!-- Empty State -->
-    <div v-else class="empty-state">
-      暂无数据
-    </div>
-  </div>
+    <div v-else-if="!loading" class="empty portfolio-opt-empty"><strong>等待显式运行</strong><span>页面不会显示虚构持仓、风险指标或优化建议。</span></div>
+  </section>
 </template>
 
 <style scoped>
-.page-container {
-  padding: var(--spacing-xl);
-  max-width: 1400px;
-  margin: 0 auto;
+.portfolio-opt-back { display:inline-flex; align-items:center; gap:5px; margin-bottom:9px; }
+.portfolio-opt-form { margin-bottom:18px; }
+.portfolio-opt-codes { grid-column:span 2; }
+.portfolio-methods { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; margin-top:15px; }
+.portfolio-methods span { min-width:0; padding:10px; border:1px solid var(--color-line); border-radius:var(--radius-md); color:var(--color-ink-soft); font-size:11px; line-height:1.45; }
+.portfolio-methods span.active { border-color:var(--color-accent); background:var(--color-accent-pale); color:var(--color-accent-strong); }
+.portfolio-methods strong { display:block; margin-bottom:3px; color:var(--color-ink); font-size:12px; }
+.portfolio-opt-summary { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); margin-bottom:18px; border:1px solid var(--color-line); background:var(--color-surface); }
+.portfolio-opt-summary > div { display:grid; gap:5px; min-width:0; padding:14px 16px; border-right:1px solid var(--color-line); }
+.portfolio-opt-summary > div:last-child { border-right:0; }
+.portfolio-opt-summary span { color:var(--color-ink-soft); font-size:12px; }
+.portfolio-opt-summary strong { overflow:hidden; font:600 15px/1.2 var(--font-family-mono); text-overflow:ellipsis; white-space:nowrap; }
+.portfolio-weight-list { display:grid; padding:7px 18px 14px; }
+.portfolio-weight-row { display:grid; grid-template-columns:150px minmax(0, 1fr); align-items:center; gap:16px; padding:11px 0; border-bottom:1px solid var(--color-line); }
+.portfolio-weight-row:last-child { border-bottom:0; }
+.portfolio-weight-row > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.portfolio-weight-row strong { font-family:var(--font-family-mono); font-size:12px; }
+.portfolio-weight-row span { color:var(--color-ink-soft); font-size:11px; }
+.portfolio-weight-track { height:8px; overflow:hidden; border-radius:4px; background:var(--color-surface-strong); }
+.portfolio-weight-track i { display:block; height:100%; border-radius:inherit; background:var(--color-accent); }
+.portfolio-opt-empty { margin-top:18px; }
+@media (max-width:900px) { .portfolio-methods { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:767px) {
+  .portfolio-opt-codes { grid-column:auto; }
+  .portfolio-opt-summary { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .portfolio-opt-summary > div:nth-child(2n) { border-right:0; }
+  .portfolio-opt-summary > div { border-bottom:1px solid var(--color-line); }
+  .portfolio-opt-summary > div:nth-last-child(-n + 2) { border-bottom:0; }
+  .portfolio-weight-row { grid-template-columns:1fr; gap:7px; }
 }
-
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--spacing-lg);
-}
-
-.page-head h1 {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
-  margin-bottom: var(--spacing-xs);
-}
-
-.page-head p {
-  font-size: var(--font-size-base);
-  color: var(--color-ink-soft);
-  margin: 0;
-}
-
-.head-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.error-banner {
-  padding: var(--spacing-md) var(--spacing-lg);
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
-  border-left: 3px solid var(--color-danger);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-3xl);
-  color: var(--color-ink-soft);
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--color-line);
-  border-top-color: var(--color-accent);
-  border-radius: var(--radius-full);
-  animation: spin 0.8s linear infinite;
-  margin-bottom: var(--spacing-md);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.content-grid {
-  display: grid;
-  gap: var(--spacing-lg);
-}
-
-.section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
-  margin: 0 0 var(--spacing-lg) 0;
-}
-
-/* Portfolio Composition */
-.composition-layout {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: var(--spacing-xl);
-}
-
-.composition-chart {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pie-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 200px;
-  height: 200px;
-  border: 2px dashed var(--color-line);
-  border-radius: var(--radius-full);
-  text-align: center;
-}
-
-.chart-icon {
-  color: var(--color-ink-faint);
-  margin-bottom: var(--spacing-sm);
-}
-
-.chart-label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-ink-soft);
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.chart-note {
-  font-size: var(--font-size-xs);
-  color: var(--color-ink-faint);
-  margin: 0;
-}
-
-.composition-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.position-item {
-  display: grid;
-  grid-template-columns: 140px 1fr 140px;
-  gap: var(--spacing-md);
-  align-items: center;
-}
-
-.position-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.position-name {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-ink);
-}
-
-.position-code {
-  font-size: var(--font-size-xs);
-  font-family: var(--font-family-mono);
-  color: var(--color-ink-soft);
-}
-
-.position-bar {
-  height: 24px;
-  background-color: var(--color-surface-muted);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-.position-bar-fill {
-  height: 100%;
-  border-radius: var(--radius-sm);
-  transition: width var(--duration-normal) var(--ease-smooth);
-}
-
-.position-stats {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  font-size: var(--font-size-sm);
-}
-
-.position-weight {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
-}
-
-.position-value {
-  color: var(--color-ink-soft);
-}
-
-/* Risk Metrics */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--spacing-lg);
-}
-
-.metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-lg);
-  background-color: var(--color-surface-muted);
-  border-radius: var(--radius-md);
-}
-
-.metric-label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-ink-soft);
-}
-
-.metric-value {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
-}
-
-.metric-value.positive {
-  color: var(--color-success);
-}
-
-.metric-value.negative {
-  color: var(--color-danger);
-}
-
-.metric-desc {
-  font-size: var(--font-size-xs);
-  color: var(--color-ink-faint);
-}
-
-/* Suggestions */
-.suggestions-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-.suggestion-item {
-  padding: var(--spacing-lg);
-  background-color: var(--color-surface-muted);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--color-accent);
-}
-
-.suggestion-header {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-}
-
-.suggestion-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: var(--font-size-base);
-  color: var(--color-ink);
-}
-
-.suggestion-code {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-sm);
-  color: var(--color-ink-soft);
-}
-
-.suggestion-body {
-  margin-bottom: var(--spacing-md);
-}
-
-.suggestion-weights {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  margin-bottom: var(--spacing-md);
-}
-
-.weight-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.weight-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-ink-soft);
-}
-
-.weight-value {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-ink);
-}
-
-.weight-value.suggested {
-  color: var(--color-accent);
-}
-
-.weight-arrow {
-  font-size: var(--font-size-xl);
-  color: var(--color-ink-faint);
-}
-
-.suggestion-reason {
-  font-size: var(--font-size-sm);
-  color: var(--color-ink-soft);
-  margin: 0;
-}
-
-.suggestion-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-/* Correlation Matrix */
-.correlation-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-.correlation-matrix {
-  display: flex;
-  flex-direction: column;
-  overflow-x: auto;
-}
-
-.correlation-row {
-  display: flex;
-}
-
-.correlation-cell {
-  min-width: 80px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  border: 1px solid var(--color-line);
-  color: var(--color-surface);
-}
-
-.correlation-cell.empty {
-  background-color: transparent;
-  border: none;
-}
-
-.correlation-cell.header {
-  background-color: var(--color-surface-muted);
-  color: var(--color-ink);
-  font-size: var(--font-size-xs);
-}
-
-.correlation-legend {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  font-size: var(--font-size-sm);
-  color: var(--color-ink-soft);
-}
-
-.legend-gradient {
-  flex: 1;
-  height: 20px;
-  background: linear-gradient(to right, #8b5cf6, #3b82f6, #6b7280, #f59e0b, #ef4444);
-  border-radius: var(--radius-sm);
-}
-
-.empty-state {
-  text-align: center;
-  padding: var(--spacing-3xl);
-  color: var(--color-ink-soft);
-  font-size: var(--font-size-base);
-}
-
-@media (max-width: 768px) {
-  .page-container {
-    padding: var(--spacing-lg);
-  }
-
-  .composition-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .position-item {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-sm);
-  }
-
-  .metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .suggestion-weights {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .weight-arrow {
-    transform: rotate(90deg);
-  }
+@media (max-width:430px) {
+  .portfolio-methods, .portfolio-opt-summary { grid-template-columns:1fr; }
+  .portfolio-opt-summary > div { border-right:0; border-bottom:1px solid var(--color-line); }
+  .portfolio-opt-summary > div:nth-last-child(-n + 2) { border-bottom:1px solid var(--color-line); }
+  .portfolio-opt-summary > div:last-child { border-bottom:0; }
 }
 </style>

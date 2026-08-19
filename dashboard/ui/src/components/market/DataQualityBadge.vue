@@ -88,9 +88,12 @@ const tooltipContent = computed(() => {
   const { provider, lastUpdate, coverage, capabilities } = qualityData.value
 
   const boundary = qualityData.value.status === 'manual' ? '\n边界: 仅供手动研究，不具备自动推送资格' : ''
+  const coverageLabel = typeof coverage === 'number' && Number.isFinite(coverage)
+    ? coverage.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }) + '%'
+    : '未知'
   return `数据源: ${provider}
 最后更新: ${lastUpdate}
-覆盖率: ${coverage == null ? '未知' : `${coverage.toFixed(1)}%`}
+覆盖率: ${coverageLabel}
 能力: ${capabilities.join('、') || '无'}${boundary}`
 })
 

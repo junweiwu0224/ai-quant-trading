@@ -50,6 +50,19 @@ describe('API client hardening', () => {
     expect(parseAiSseData('not-json')).toMatchObject({ type: 'error', error: 'invalid_sse_json' })
   })
 
+  it('rejects a non-terminal decision command when polling times out', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"id":"cmd-1","status":"running"}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.waitDecisionCommand('cmd-1', 0)).rejects.toMatchObject({
+      status: 408,
+      message: '决策命令等待超时（当前状态：running）',
+    })
+  })
+
   it('uses the unified AI Runtime status endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{"runtime":"ready"}', {
       status: 200,

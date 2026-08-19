@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "NODE_ENV=test vitest run --no-file-parallelism --no-cache"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "6.0.8",

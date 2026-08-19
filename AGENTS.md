@@ -17,7 +17,7 @@
 
 - 安装依赖：`python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt`。
 - 本地开发：`.venv/bin/python scripts/run_dashboard.py --port 8001 --no-signal-service`。
-- Docker 全量部署（默认）：`DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false AI_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`；不要把只启动默认服务的 `docker compose up -d` 当作完整部署。
+- Docker 全量部署（默认）：`DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false PI_AGENT_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`；不要把只启动默认服务的 `docker compose up -d` 当作完整部署。
 - 后端/API/核心测试：`.venv/bin/python -m pytest -q`。
 - 语法检查：`.venv/bin/python -m compileall -q .`。
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
@@ -44,7 +44,7 @@
 - 修改前先阅读相关模块、`docs/ARCHITECTURE.md` 和对应测试，不要只按文件名猜测。
 - 前端是 `dashboard/ui/` 下的 Vue 多模块结构，修改页面逻辑时同步检查对应 view、`dashboard/ui/src/router.ts`、`dashboard/static/sw.js` 和 Vue 契约测试。
 - API 改动优先保持旧字段兼容；尤其是 `qlib_*` legacy 字段和新的 Signal Engine 语义并存区域。
-- 涉及数据源、行情、交易、模拟盘、权限、AI Runtime/LLM 或实盘接口时，先明确安全边界和验证方式。
+- 涉及数据源、行情、交易、模拟盘、权限、AI Runtime/Pi Agent 或实盘接口时，先明确安全边界和验证方式。
 - 不要提交或展示 `.env`、API key、券商凭证、真实交易账号、生产数据和本地数据库内容。
 - 运行会写数据库、同步外部数据、启动交易/实盘、调用外部 LLM 或下单相关脚本前，先确认影响范围。
 
@@ -88,7 +88,7 @@
 - `.env`、`.env.local`、`data/broker_config.json`、`data/db/`、`logs/`、`models/`、AI Runtime 的 provider 配置。
 - `docker-compose.yml` 中的 LLM/API key 环境变量。
 - `engine/live_engine.py`、`engine/broker.py`、`scripts/run_live.py` 和实盘/券商相关配置。
-- 自定义策略执行、AI Runtime/LLM 调用和 WebSocket/API key 认证。
+- 自定义策略执行、Pi Agent 调用和 WebSocket/API key 认证。
 
 ## 文档和知识沉淀
 

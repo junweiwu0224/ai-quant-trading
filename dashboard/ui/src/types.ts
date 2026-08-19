@@ -147,6 +147,12 @@ export interface DecisionReport {
   ai_commentary?: Array<Record<string, unknown>>
   ai_commentary_status?: string
   delivery_attempts?: Array<Record<string, unknown>>
+  share_link?: {
+    id?: string
+    expires_at?: string
+    created_at?: string
+    revoked?: boolean
+  } | null
 }
 
 export interface DecisionShareResponse {

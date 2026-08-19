@@ -16,7 +16,10 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - DECISION_WORKER_ENABLED=${DECISION_WORKER_ENABLED:-false}
-      - AI_WORKER_ENABLED=${AI_WORKER_ENABLED:-false}
+      - PI_AGENT_WORKER_ENABLED=${PI_AGENT_WORKER_ENABLED:-false}
+      - AI_LLM_PROTOCOL=pi_agent
+      - PI_AGENT_COMMAND=pi
+      - PI_AGENT_MODEL=${PI_AGENT_MODEL:-}
       - AI_INLINE_EXECUTION=false
       - QUANT_SYSTEM_API_KEY=${QUANT_SYSTEM_API_KEY:-}
       - APP_ENV=${APP_ENV:-development}
@@ -55,12 +58,10 @@ services:
       disable: true
     restart: unless-stopped
 
-  ai-worker:
+  pi-agent:
     build:
       context: .
-      args:
-        INSTALL_OPTIONAL_AI: "true"
-    command: ["python", "scripts/run_ai_worker.py"]
+      target: pi-agent
     profiles:
       - ai
     volumes:
@@ -69,7 +70,11 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - TZ=Asia/Shanghai
-      - AI_WORKER_ENABLED=${AI_WORKER_ENABLED:-false}
+      - PI_AGENT_WORKER_ENABLED=${PI_AGENT_WORKER_ENABLED:-false}
+      - AI_LLM_PROTOCOL=pi_agent
+      - PI_AGENT_COMMAND=pi
+      - PI_AGENT_MODEL=${PI_AGENT_MODEL:-}
+      - PI_AGENT_TIMEOUT_SECONDS=${PI_AGENT_TIMEOUT_SECONDS:-90}
       - AI_WORKER_LEASE_TTL_SECONDS=${AI_WORKER_LEASE_TTL_SECONDS:-30}
       - AI_WORKER_POLL_INTERVAL_SECONDS=${AI_WORKER_POLL_INTERVAL_SECONDS:-2}
       - AI_WORKER_BATCH_SIZE=${AI_WORKER_BATCH_SIZE:-4}

@@ -8,33 +8,34 @@ const REPORT_PATH = path.join(process.cwd(), 'test-results', 'data-display-audit
 const HARD_BAD_TEXT = /(?:\b(?:NaN|undefined|Infinity)\b|\[object Object\]|\bInvalid Date\b)/gi;
 
 const ROUTES = [
-    { path: '/app/decision', heading: /把自选池变成可追溯决策/ },
+    { path: '/app/decision', heading: /决策运行台/ },
     { path: '/app/intelligence', heading: /市场情报/ },
-    { path: '/app/reports', heading: /报告/ },
-    { path: '/app/research/CN/600519', heading: /600519/ },
-    { path: '/app/validation', heading: /验证/ },
-    { path: '/app/notifications', heading: /通知/ },
+    { path: '/app/reports', heading: /报告与投递审计/ },
+    { path: '/app/research/CN/600519', heading: /单股研究/ },
+    { path: '/app/validation?market=CN&symbol=600519', heading: /验证与回测/ },
+    { path: '/app/notifications', heading: /通知路由/ },
     { path: '/app/settings', heading: /工作区设置/ },
-    { path: '/app/more', heading: /更多工具/ },
-    { path: '/app/more/screener', heading: /条件筛选与 AI 选股/ },
-    { path: '/app/more/portfolio-risk', heading: /持仓、绩效与风控/ },
-    { path: '/app/more/paper', heading: /模拟盘与风控执行/ },
-    { path: '/app/more/agents', heading: /AI 研究工作台/ },
-    { path: '/app/more/conditional-orders', heading: /条件单/ },
-    { path: '/app/more/alerts', heading: /告警规则/ },
-    { path: '/app/more/strategies', heading: /策略工作台/ },
-    { path: '/app/more/alpha-factors', heading: /Alpha/ },
-    { path: '/app/more/formula-basket', heading: /公式系统与篮子计划/ },
-    { path: '/app/more/broker-live', heading: /Broker 与实盘设置/ },
+    { path: '/app/workflows', heading: /从这里进入每个能力/ },
+    { path: '/app/research/screener', heading: /条件筛选与 AI 选股/ },
+    { path: '/app/portfolio-risk', heading: /持仓、绩效与风控/ },
+    { path: '/app/portfolio', heading: /持仓优化/ },
+    { path: '/app/paper', heading: /模拟盘与风控执行/ },
+    { path: '/app/ai', heading: /AI 研究工作台/ },
+    { path: '/app/conditional-orders', heading: /条件单/ },
+    { path: '/app/alerts', heading: /告警规则/ },
+    { path: '/app/strategy', heading: /策略工作台/ },
+    { path: '/app/research/alpha', heading: /Alpha/ },
+    { path: '/app/research/formula-basket', heading: /公式系统与篮子计划/ },
+    { path: '/app/broker', heading: /Broker 与实盘设置/ },
 ];
 
 const MOBILE_ROUTES = [
-    { path: '/app/decision', heading: /把自选池变成可追溯决策/ },
-    { path: '/app/research/CN/600519', heading: /600519/ },
-    { path: '/app/more', heading: /更多工具/ },
-    { path: '/app/more/screener', heading: /条件筛选与 AI 选股/ },
-    { path: '/app/more/agents', heading: /AI 研究工作台/ },
-    { path: '/app/more/paper', heading: /模拟盘与风控执行/ },
+    { path: '/app/decision', heading: /决策运行台/ },
+    { path: '/app/research/CN/600519', heading: /单股研究/ },
+    { path: '/app/workflows', heading: /从这里进入每个能力/ },
+    { path: '/app/research/screener', heading: /条件筛选与 AI 选股/ },
+    { path: '/app/ai', heading: /AI 研究工作台/ },
+    { path: '/app/paper', heading: /模拟盘与风控执行/ },
 ];
 
 function cookieDomain() {
@@ -94,7 +95,8 @@ async function auditRoute(page, route) {
     const response = await page.goto(route.path, { waitUntil: 'domcontentloaded' });
     await waitForShell(page);
     await expect(page.locator('h1')).toContainText(route.heading);
-    await page.waitForTimeout(150);
+    await page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+    await page.waitForTimeout(250);
     const text = await page.locator('body').innerText();
     HARD_BAD_TEXT.lastIndex = 0;
     const hardMatches = [...new Set(text.match(HARD_BAD_TEXT) || [])];
@@ -114,7 +116,7 @@ function writeReport(report) {
 }
 
 test('Vue desktop route matrix renders without bad values or browser errors', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     const report = {
         generatedAt: new Date().toISOString(),
@@ -142,13 +144,13 @@ test('Vue desktop route matrix renders without bad values or browser errors', as
         await authenticate(page, 'desktop');
         for (const route of ROUTES) report.routes.push(await auditRoute(page, route));
 
-        await page.goto('/app/more/agents', { waitUntil: 'domcontentloaded' });
+        await page.goto('/app/ai', { waitUntil: 'domcontentloaded' });
         await waitForShell(page);
-        await expect(page.locator('body')).toContainText('不会修改确定性决策');
-        await page.goto('/app/more/paper', { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('body')).toContainText('不能修改确定性决策');
+        await page.goto('/app/paper', { waitUntil: 'domcontentloaded' });
         await waitForShell(page);
         await expect(page.locator('body')).toContainText('不会调用 Broker 或真实下单接口');
-        await page.goto('/app/more/broker-live', { waitUntil: 'domcontentloaded' });
+        await page.goto('/app/broker', { waitUntil: 'domcontentloaded' });
         await waitForShell(page);
         await expect(page.locator('body')).toContainText(/禁止真实下单|显式禁用/);
     } catch (error) {

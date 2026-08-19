@@ -67,7 +67,7 @@ export type DecisionCommand<T = unknown> = {
   error?: string
 }
 
-export type AIProviderProtocol = 'openai_compatible' | 'litellm' | 'local_cli' | string
+export type AIProviderProtocol = 'openai_compatible' | 'litellm' | 'local_cli' | 'pi_agent' | string
 
 export type AITaskStatus =
   | 'queued'
@@ -776,7 +776,9 @@ export const api = {
         if (command.status === 'failed') throw new ApiError(command.error || '决策命令执行失败', 500, command)
         return command
       }
-      if (Date.now() - startedAt >= timeoutMs) return command
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new ApiError(`决策命令等待超时（当前状态：${command.status}）`, 408, command)
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 250))
       return poll()
     }

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, CheckCircle2, LockKeyhole } from 'lucide-vue-next'
+import { ArrowRight, CheckCircle2, LockKeyhole, Moon, Sun } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
+import { useTheme } from '../composables/useTheme'
 import { COMMAND_WORKFLOWS, WORKFLOW_GROUPS, type WorkflowGroup } from '../navigation/workflows'
+
+const { isDark, toggleTheme } = useTheme()
 
 const groupedWorkflows = computed(() => WORKFLOW_GROUPS.map((group) => ({
   group,
@@ -31,7 +34,7 @@ function groupHint(group: WorkflowGroup): string {
         <h1>从这里进入每个能力</h1>
         <p>按用户任务组织入口，所有功能都有唯一的 canonical 页面；历史链接会自动重定向。</p>
       </div>
-      <div class="workflow-head-meta"><span><CheckCircle2 :size="15" />入口已统一</span><span><LockKeyhole :size="15" />写操作需确认</span></div>
+      <div class="workflow-head-meta"><span><CheckCircle2 :size="15" />入口已统一</span><span><LockKeyhole :size="15" />写操作需确认</span><button class="button workflow-theme" type="button" @click="toggleTheme"><component :is="isDark ? Sun : Moon" :size="15" />{{ isDark ? '浅色主题' : '深色主题' }}</button></div>
     </div>
 
     <section v-for="section in groupedWorkflows" :key="section.group" class="workflow-section">
@@ -52,6 +55,7 @@ function groupHint(group: WorkflowGroup): string {
 .workflow-head h1 { margin: 5px 0 8px; }
 .workflow-head-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 14px; color: var(--ink-soft); font-size: 12px; }
 .workflow-head-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.workflow-theme { min-height:36px; padding:4px 9px; font-size:12px; }
 .workflow-section { margin-top: 24px; }
 .workflow-section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 10px; }
 .workflow-section-head h2 { margin: 0; font-size: 17px; }

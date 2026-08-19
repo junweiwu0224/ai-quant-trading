@@ -19,6 +19,8 @@ YYYY-MM-DD-topic.md
 
 当前规格：
 
+- [Dashboard 前端全量重构](2026-08-18-dashboard-frontend-rewrite.md)（Implemented and Verified）
+- [Dashboard 重写与 Pi Agent 执行器迁移](2026-08-18-dashboard-rewrite-pi-agent.md)（Frontend Implemented，Pi Agent Release In Progress）
 - [决策与自动报告平台重构](2026-08-14-decision-platform-refactor.md)（Accepted）
 - [DSA 能力选择性吸收](2026-08-13-dsa-capability-absorption.md)（Superseded，保留历史基线）
 

@@ -1,8 +1,7 @@
 /* AI Quant Service Worker — Vue shell offline cache */
 
-const CACHE_NAME = 'ai-quant-vue-v1';
+const CACHE_NAME = 'ai-quant-vue-v2';
 const STATIC_ASSETS = [
-    '/app/decision',
     '/static/manifest.json',
     '/static/icons/icon-192.svg',
     '/static/icons/icon-512.svg',
@@ -48,9 +47,10 @@ self.addEventListener('fetch', (event) => {
     // WebSocket 请求直接放行。
     if (url.protocol === 'ws:' || url.protocol === 'wss:') return;
 
-    // API 请求：network-first（离线时返回缓存）
+    // Never cache authenticated API responses. Workspace-specific data must not
+    // survive logout, account switches, or an offline fallback.
     if (url.pathname.startsWith('/api/')) {
-        event.respondWith(networkFirst(event.request));
+        event.respondWith(networkOnly(event.request));
         return;
     }
 
@@ -99,18 +99,24 @@ async function cacheFirst(request) {
     }
 }
 
+async function networkOnly(request) {
+    try {
+        return await fetch(request);
+    } catch {
+        return new Response(JSON.stringify({ detail: '离线，无法读取认证工作区数据' }), {
+            status: 503,
+            statusText: 'Offline',
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+    }
+}
+
 async function networkFirst(request) {
     try {
-        const response = await fetch(request);
-        if (response.ok && request.method === 'GET') {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(request, response.clone());
-        }
-        return response;
+        // Navigation and unclassified responses are deliberately not cached.
+        // Only cacheFirst/staleWhileRevalidate routes above persist static assets.
+        return await fetch(request);
     } catch {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        // 离线且无缓存：页面导航返回轻量提示，不复用过期 HTML 壳子
         if (request.mode === 'navigate') {
             return new Response('离线，无法加载最新页面', {
                 status: 503,

@@ -32,7 +32,7 @@ def has_section(content: str, section: str) -> bool:
 
 def test_layout_components_exist():
     """Verify all layout component files exist."""
-    components = ["AppShell", "Sidebar", "MobileNav", "MainContent"]
+    components = ["AppShell", "Sidebar", "MobileNav", "MainContent", "WorkspaceNav"]
     for component in components:
         path = UI_ROOT / "components" / f"{component}.vue"
         assert path.exists(), f"Missing component: {component}.vue"
@@ -63,17 +63,18 @@ def test_sidebar_structure():
     assert has_section(content, "template"), "Sidebar missing <template> section"
     assert has_section(content, "style"), "Sidebar missing <style> section"
 
-    # Should use theme composable
-    assert "useTheme" in content, "Sidebar should use useTheme composable"
+    # Theme controls belong to the workspace bar / system menu, not the primary rail.
+    assert "useTheme" not in content, "Sidebar must not duplicate theme controls"
 
     # Should have navigation
     assert "nav" in content or "RouterLink" in content, "Sidebar should have navigation"
 
-    # Should have theme toggle
-    assert "toggleTheme" in content or "theme" in content.lower(), "Sidebar should have theme toggle"
+    # Theme controls live in the workspace bar / system menu, so the rail stays workflow-only.
+    assert "toggleTheme" not in content, "Sidebar must not duplicate the theme control"
 
-    # Should have proper width
-    assert "240px" in content, "Sidebar should be 240px wide"
+    # Rail width is defined once by the shell token.
+    shell = (UI_ROOT / "styles" / "shell.css").read_text(encoding="utf-8")
+    assert "--sidebar-width" in shell, "Shell should own the rail width"
 
 
 def test_mobile_nav_structure():
@@ -84,14 +85,16 @@ def test_mobile_nav_structure():
     assert has_section(content, "template"), "MobileNav missing <template> section"
     assert has_section(content, "style"), "MobileNav missing <style> section"
 
-    # Should use theme composable
-    assert "useTheme" in content, "MobileNav should use useTheme composable"
+    # Mobile navigation is reserved for exactly five business workspaces; theme stays in the system controls.
+    assert "useTheme" not in content, "MobileNav must not render a sixth theme action"
+    assert "theme-btn" not in content, "MobileNav must not render a theme button"
 
     # Should have navigation items
     assert "RouterLink" in content, "MobileNav should have RouterLink"
 
-    # Should have proper height
-    assert "64px" in content, "MobileNav should be 64px height"
+    # Mobile bar height is owned by the shared shell layer, including safe-area space.
+    shell = (UI_ROOT / "styles" / "shell.css").read_text(encoding="utf-8")
+    assert "var(--mobile-nav-height)" in shell, "Shell should use the shared mobile height token"
 
     # Should be mobile-only
     assert "mobile" in content.lower(), "MobileNav should have mobile-only styles"
@@ -111,8 +114,21 @@ def test_main_content_structure():
     # Should emit toggle-menu event
     assert "toggleMenu" in content or "toggle-menu" in content, "MainContent should emit toggle-menu"
 
-    # Should have topbar
+    # Should have topbar and the local module navigation for each workspace.
     assert "topbar" in content.lower(), "MainContent should have topbar"
+    assert "WorkspaceNav" in content, "MainContent should expose workspace modules"
+
+
+def test_workspace_nav_structure():
+    content = read_component("WorkspaceNav")
+
+    assert has_section(content, "script")
+    assert has_section(content, "template")
+    assert has_section(content, "style")
+    assert "workspaceForPath" in content
+    assert "workspace.tabs" in content
+    assert "isTabActive" in content
+
 
 
 def test_app_vue_integration():
@@ -152,23 +168,16 @@ def test_responsive_breakpoint():
             pass
 
 
-def test_css_variables_usage():
-    """Test that components use CSS variables from Task 1."""
-    components = ["Sidebar", "MobileNav", "MainContent"]
+def test_shell_owns_shared_design_tokens():
+    """Shared shell visuals should use the design system instead of component copies."""
+    shell = (UI_ROOT / "styles" / "shell.css").read_text(encoding="utf-8")
 
-    for component in components:
+    for token in ("var(--sidebar-width)", "var(--mobile-nav-height)", "var(--color-surface)", "var(--touch-target-min)"):
+        assert token in shell, f"Shell should use {token}"
+
+    for component in ("Sidebar", "MobileNav", "MainContent"):
         content = read_component(component)
-        style_section = re.search(r"<style[^>]*>.*?</style>", content, re.DOTALL)
-
-        if style_section:
-            style = style_section.group(0)
-            # Should use at least some CSS variables
-            has_vars = any(var in style for var in [
-                "var(--spacing-",
-                "var(--color-",
-                "var(--radius-"
-            ])
-            assert has_vars, f"{component} should use CSS variables"
+        assert has_section(content, "style"), f"{component} missing scoped structure styles"
 
 
 if __name__ == "__main__":

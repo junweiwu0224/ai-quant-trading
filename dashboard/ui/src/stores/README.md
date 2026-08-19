@@ -4,48 +4,9 @@ This directory contains Pinia store modules for application-wide state managemen
 
 ## Available Stores
 
-### 1. Decision Store (`decision.ts`)
-Manages trading decision data and CRUD operations.
+The runtime stores are intentionally limited to application, market, and UI state. Decision reports and portfolio commands use the canonical API-backed views directly; there is no client-side decision CRUD store.
 
-**State:**
-- `decisions`: Array of all decisions
-- `currentDecision`: Active decision being viewed/edited
-- `loading`: Boolean loading state
-- `error`: Error message or null
-
-**Actions:**
-- `fetchDecisions(filters?)`: Load decision list with optional filters
-- `fetchDecisionById(id)`: Load single decision details
-- `createDecision(data)`: Create new decision
-- `updateDecision(id, data)`: Update existing decision
-- `deleteDecision(id)`: Remove decision
-- `setCurrentDecision(decision)`: Set active decision
-- `clearError()`: Clear error state
-
-**Getters:**
-- `recentDecisions`: Last 10 decisions sorted by date
-- `decisionsBySymbol(symbol)`: Filter decisions by stock symbol
-- `decisionsByMarket(market)`: Filter decisions by market
-- `pendingDecisions`: All pending decisions
-
-**Types:**
-```typescript
-interface Decision {
-  id: string
-  symbol: string
-  market: string
-  type: 'buy' | 'sell' | 'hold'
-  confidence: number
-  reasoning: string[]
-  createdAt: string
-  price?: number
-  targetPrice?: number
-  stopLoss?: number
-  status?: 'pending' | 'executed' | 'cancelled'
-}
-```
-
-### 2. Market Store (`market.ts`)
+### 1. Market Store (`market.ts`)
 Manages market selection, stock symbols, and real-time market data.
 
 **State:**
@@ -99,7 +60,7 @@ interface Quote {
 }
 ```
 
-### 3. UI Store (`ui.ts`)
+### 2. UI Store (`ui.ts`)
 Manages UI state including sidebar, theme, notifications, and modals.
 
 **State:**
@@ -156,34 +117,27 @@ interface Notification {
 }
 ```
 
-### 4. App Store (`app.ts`)
+### 3. App Store (`app.ts`)
 Existing store for global app state (authentication, workspace, etc.)
 
 ## Usage
 
 ```typescript
-import { useDecisionStore, useMarketStore, useUIStore } from '@/stores'
+import { useMarketStore, useUIStore } from '@/stores'
 
-// In a component
-const decisionStore = useDecisionStore()
 const marketStore = useMarketStore()
 const uiStore = useUIStore()
 
-// Fetch decisions
-await decisionStore.fetchDecisions({ market: 'CN' })
-
-// Select market and symbol
 marketStore.setMarket('CN')
 marketStore.setSymbol('600519.SH')
 await marketStore.fetchMarketData('CN', '600519.SH')
 
-// Show notification
-uiStore.showSuccess('Decision created successfully')
+uiStore.showSuccess('工作区已更新')
 ```
 
 ## API Integration
 
-All stores currently use placeholder mock data. API integration will be implemented in Task 11 (API Client). The stores are structured to easily replace mock calls with real API endpoints.
+Decision and report workflows call the authenticated API client from their canonical views. Stores only own shared client state and must not create local trading or decision records.
 
 ## WebSocket Updates
 

@@ -210,13 +210,9 @@ getTechnicalIndicators(market: MarketCode, symbol: string): Promise<TechnicalInd
 getEvidence(market: MarketCode, symbol: string): Promise<{ evidence: Evidence[] }>
 ```
 
-**Backtest Management:**
+**Backtest Execution:**
 
 ```typescript
-getBacktestDraft(id: string): Promise<BacktestDraft>
-saveBacktestDraft(data: Omit<BacktestDraft, 'id' | 'created_at' | 'updated_at'>): Promise<BacktestDraft>
-listBacktestDrafts(): Promise<BacktestDraft[]>
-deleteBacktestDraft(id: string): Promise<void>
 runBacktest(request: BacktestRequest): Promise<BacktestResult>
 ```
 
@@ -261,7 +257,6 @@ export interface KLineBar
 export interface ResearchData
 export interface TechnicalIndicators
 export interface Evidence
-export interface BacktestDraft
 export interface BacktestRequest
 export interface BacktestResult
 ```
@@ -413,14 +408,6 @@ export const useMarketStore = defineStore('market', () => {
 | `client.ts` (AI) | `routers/ai.py` | `/api/ai/*` |
 
 ## Notes
-
-### Backtest Drafts
-
-Currently using localStorage as backend endpoints are not yet implemented. When backend support is added:
-
-1. Replace localStorage logic in `research.ts`
-2. Update the endpoint paths
-3. Add proper request/response types
 
 ### Decision Creation
 

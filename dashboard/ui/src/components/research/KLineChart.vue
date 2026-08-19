@@ -22,10 +22,11 @@ const points = computed(() => {
   const values = valid.map((bar) => Number(bar.close))
   const min = Math.min(...values)
   const spread = Math.max(Math.max(...values) - min, 0.0001)
+  const coordinate = (value: number) => Number.isFinite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }) : '0'
   return valid.map((bar, index) => {
     const x = 12 + index / Math.max(valid.length - 1, 1) * 776
     const y = 218 - (Number(bar.close) - min) / spread * 196
-    return `${x.toFixed(1)},${y.toFixed(1)}`
+    return `${coordinate(x)},${coordinate(y)}`
   }).join(' ')
 })
 </script>

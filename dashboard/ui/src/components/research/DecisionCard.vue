@@ -34,6 +34,6 @@ const confidence = () => typeof props.decision?.confidence === 'number' && Numbe
 .decision-body { display:flex; flex-direction:column; gap:var(--spacing-lg); padding-top:var(--spacing-lg); color:var(--color-ink-soft); }
 .decision-body h3 { margin:0 0 var(--spacing-sm); color:var(--color-ink); font-size:var(--font-size-base); }
 ul { margin:0; padding-left:var(--spacing-lg); display:grid; gap:var(--spacing-sm); }
-.risk-section { display:flex; flex-direction:column; gap:var(--spacing-xs); padding:var(--spacing-md); background:var(--color-warn-bg); border-left:4px solid var(--color-warn); border-radius:var(--radius-md); }
+.risk-section { display:flex; flex-direction:column; gap:var(--spacing-xs); padding:var(--spacing-md); background:var(--color-warn-bg); border:1px solid color-mix(in srgb, var(--color-warn) 35%, var(--color-line)); border-radius:var(--radius-md); }
 .risk-section strong { color:var(--color-warn); }
 </style>

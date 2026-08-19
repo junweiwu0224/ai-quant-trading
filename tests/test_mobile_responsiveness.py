@@ -128,21 +128,24 @@ def test_decision_view_exists_and_responsive():
     assert "panel" in content or "section" in content, "DecisionView should have panel layouts"
 
 
-def test_more_view_subpages_exist():
-    """Verify MoreView and its sub-pages exist"""
-    more_view = Path(__file__).parent.parent / "dashboard" / "ui" / "src" / "views" / "MoreView.vue"
-    assert more_view.exists(), "MoreView.vue not found"
+def test_workspace_modules_are_discoverable_without_more_view():
+    """Verify advanced workflows belong to visible workspace navigation."""
+    root = Path(__file__).parent.parent / "dashboard" / "ui" / "src"
+    registry = root / "navigation" / "workflows.ts"
+    workspace_nav = root / "components" / "WorkspaceNav.vue"
+    assert registry.exists(), "workflow registry not found"
+    assert workspace_nav.exists(), "WorkspaceNav.vue not found"
+    assert not (root / "views" / "MoreView.vue").exists()
 
-    content = more_view.read_text()
+    source = registry.read_text()
+    for workflow_id in (
+        "paper", "portfolio", "portfolio-risk", "conditional-orders",
+        "alpha", "strategies", "ai", "ai-runtime",
+    ):
+        assert f"id: '{workflow_id}'" in source
 
-    # Check for sub-page definitions
-    expected_subpages = [
-        "paper", "portfolio", "risk", "conditional-orders",
-        "alpha", "strategy", "agent-ops", "ai-runtime"
-    ]
-
-    found_subpages = sum(1 for page in expected_subpages if page in content)
-    assert found_subpages >= 6, f"MoreView should define at least 6 sub-pages, found {found_subpages}"
+    assert "WORKSPACE_DEFINITIONS" in source
+    assert "workspace.tabs" in workspace_nav.read_text()
 
 
 def test_mobile_specific_breakpoints():

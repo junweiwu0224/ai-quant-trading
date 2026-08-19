@@ -20,6 +20,10 @@ def test_research_view_covers_real_data_edges_and_explicit_write_edges() -> None
     assert "数据不可用" in state_panel
     assert "当前无法生成确定性结论" in decision
     assert "进入验证并继承当前股票" in source
+    handoff = (UI / "components" / "research" / "BacktestDraft.vue").read_text(encoding="utf-8")
+    assert "path: '/app/validation'" in handoff
+    assert "不会保存本地草案或生成占位结果" in handoff
+    assert "BacktestPreview" not in source
     assert "这不是交易指令" in decision
     assert "response.klines" in research_api
     assert "source-specific" not in source

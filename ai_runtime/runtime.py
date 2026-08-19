@@ -143,6 +143,7 @@ class AIRuntime:
         provider_router: ProviderRouter | None = None,
         event_sink: Callable[[dict[str, Any]], None] | None = None,
         role_workers: int = 4,
+        force_default_router: bool = False,
     ) -> None:
         self.repository = repository
         configured = list(channels)
@@ -158,6 +159,7 @@ class AIRuntime:
             attach_store(repository)
         self.event_sink = event_sink
         self.role_workers = max(1, min(int(role_workers or 4), 8))
+        self.force_default_router = force_default_router
 
     @classmethod
     def from_environment(cls, database: str | Path | None = None) -> "AIRuntime":
@@ -192,7 +194,7 @@ class AIRuntime:
         return self.refresh_channels(workspace_id)
 
     def _workspace_router(self, workspace_id: str | None = None):
-        if not workspace_id or workspace_id == "default":
+        if self.force_default_router or not workspace_id or workspace_id == "default":
             return self.router
         from .models import ProviderChannel
         channels = [ProviderChannel.model_validate(item) for item in self.repository.list_channels(workspace_id)]

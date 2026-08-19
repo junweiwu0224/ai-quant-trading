@@ -1,5 +1,9 @@
 ARG NODE_IMAGE=node:22-alpine
+ARG PI_NODE_IMAGE=node:22-slim
 ARG PYTHON_IMAGE=python:3.11-slim
+FROM ${PI_NODE_IMAGE} AS pi-agent-runtime
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
 FROM ${NODE_IMAGE} AS ui-builder
 
 WORKDIR /ui
@@ -9,7 +13,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY dashboard/ui/ ./
 RUN npm run build
 
-FROM ${PYTHON_IMAGE}
+FROM ${PYTHON_IMAGE} AS dashboard
 
 ARG INSTALL_OPTIONAL_AI=false
 
@@ -58,3 +62,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)" || exit 1
 
 CMD ["python", "scripts/run_dashboard.py", "--port", "8001"]
+
+FROM dashboard AS pi-agent
+COPY --from=pi-agent-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=pi-agent-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js /usr/local/bin/pi
+ENV PI_OFFLINE=1 PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1
+ENTRYPOINT ["python", "scripts/run_pi_agent_worker.py"]
+CMD []
+
+FROM dashboard AS final

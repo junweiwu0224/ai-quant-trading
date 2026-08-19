@@ -68,7 +68,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest --noconftest -q \
 | Signal/Qlib/机会池 | `tests/test_signal_engine.py`、`tests/test_signal_api.py`、`tests/test_qlib_*` | 对应前端契约测试 |
 | Dashboard API | 对应 router 的 pytest | `.venv/bin/python scripts/dashboard_data_health.py`，执行前确认接受本地 DB 初始化、临时行情订阅和 `test-results/` 报告产物 |
 | Vue/TypeScript 前端 | `tests/test_vue_*`、`dashboard/ui/src/**/*.spec.ts` | 浏览器 smoke、`frontend_data_render_audit.py` |
-| AI Runtime/LLM | `tests/test_ai_*.py`、`tests/test_ai_runtime.py` | 手动确认 provider 和凭证范围；禁止改变确定性结果 |
+| Pi Agent Runtime | `tests/test_ai_*.py`、`tests/test_ai_runtime.py`、`tests/test_pi_agent_worker.py` | 确认 Pi 无工具、无 session、无项目 context 与凭据最小化；禁止改变确定性结果 |
 | 模拟盘/交易/实盘 | 相关 engine/paper/live 测试 | 禁止未确认的真实下单或外部写操作 |
 | Docker/部署 | `docker compose config -q` | 用户要求“部署”时执行全量 `ai` + `trading` profile 命令并做容器/API/浏览器验收 |
 
@@ -82,7 +82,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest --noconftest -q \
 | 多市场 | 市场 adapter capability 和独立时区测试 | 港美/日韩台 provider 接入 |
 | Vue 迁移 | Vue build、路由/静态迁移契约、桌面 `1440x900` 与移动 `390x844` 浏览器验收 | 真实用户长期使用和外部 provider 数据覆盖 |
 | 备份恢复 | SQLite online backup、manifest/hash、Worker artifact 配置读取、隔离 verify-only/restore 和 replay 测试 | 月度自动恢复演练 |
-| Docker 全量部署 | 按 `docs/commands.md` 的 `ai` + `trading` profile 启动并检查容器状态、Dashboard、Worker、AI Worker、paper、live、backtest | tunnel、真实 provider、真实渠道和实盘接口 |
+| Docker 全量部署 | 按 `docs/commands.md` 的 `ai` + `trading` profile 启动并检查容器状态、Dashboard、Worker、Pi Agent Worker、paper、live、backtest | tunnel、真实 provider、真实渠道和实盘接口 |
 
 Dashboard 兼容调度的 ownership 条件由 `tests/test_session_gate.py`、`tests/test_scheduler.py` 和
 `dashboard/app.py` 共同约束：默认控制面不启动后台调度；只有显式
@@ -93,8 +93,8 @@ Dashboard 兼容调度的 ownership 条件由 `tests/test_session_gate.py`、`te
 - Dashboard 必须先运行，默认 `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8001`。
 - `scripts/e2e-local.sh` 依赖本仓库 `.tools/` 下的本地 Node/Playwright 工具链。
 - `scripts/e2e.sh` 使用官方 Playwright Docker image。
-- Docker 部署默认是全量本地栈：`DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false AI_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`。`backtest` 退出码 0 是正常的一次性任务；`cloudflared` 不属于默认部署。
-- AI Runtime E2E mock 要对齐真实 API 响应形状；切到 Agent/设置页后等待 `/api/ai/status`、任务和报告请求完成，再断言结构化状态、来源和权限。
+- Docker 部署默认是全量本地栈：`DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false PI_AGENT_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`。`backtest` 退出码 0 是正常的一次性任务；`cloudflared` 不属于默认部署。
+- Pi Agent E2E mock 要对齐真实 API 响应形状；切到 Agent/设置页后等待 `/api/ai/status`、任务和报告请求完成，再断言结构化状态、来源、无工具边界和权限。
 - E2E 会产生 `test-results/`，该目录已在 `.gitignore` 中忽略。
 
 ## 本地 QA / Dev Server

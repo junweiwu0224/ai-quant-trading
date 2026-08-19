@@ -26,24 +26,6 @@ export * from './paper'
 // Portfolio optimization API
 export * from './portfolio'
 
-// Risk monitoring API
-export * from './risk'
-
-// Alpha factors API
-export * from './alpha'
-
-// Strategy workbench API
-export * from './strategy'
-
-// Agent operations API
-export * from './agent'
-
-// Conditional orders API (LIVE TRADING DISABLED)
-export * from './orders'
-
-// AI Runtime API
-export * from './aiRuntime'
-
 // Re-export commonly used types for convenience
 export type {
   Decision,

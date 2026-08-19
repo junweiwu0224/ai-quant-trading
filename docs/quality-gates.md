@@ -57,7 +57,7 @@
 
 需要用户确认或专门环境：
 
-- `DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false AI_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`
+- `DECISION_WORKER_ENABLED=true DECISION_EXTERNAL_DELIVERY_ENABLED=false PI_AGENT_WORKER_ENABLED=true docker compose --profile ai --profile trading up -d --build`
 - 真实数据同步。
 - 外部 LLM/provider 服务联调。
 - 实盘/券商 SDK、交易、下单、权限和生产配置验证。

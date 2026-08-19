@@ -450,7 +450,7 @@ onMounted(async () => {
   <section class="screener-page">
     <div class="page-head">
       <div>
-        <RouterLink to="/app/workflows" class="muted small"><ArrowLeft :size="14" />返回工作流目录</RouterLink>
+        <RouterLink to="/app/research" class="muted small"><ArrowLeft :size="14" />研究工作区</RouterLink>
         <h1>条件筛选与 AI 选股</h1>
         <p>把预设、可编辑条件、问财候选池和截面模型放在同一个研究工作流里；结果只生成候选，不直接改变决策、推送或订单。</p>
       </div>

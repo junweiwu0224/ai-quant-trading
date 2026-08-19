@@ -1,11 +1,24 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import AsyncState from './AsyncState.vue'
 import BaseButton from './BaseButton.vue'
 import BaseCard from './BaseCard.vue'
 import BaseInput from './BaseInput.vue'
 import BaseSelect from './BaseSelect.vue'
 import BaseTabs from './BaseTabs.vue'
 import BaseTag from './BaseTag.vue'
+
+describe('AsyncState', () => {
+  it('announces errors assertively and success politely', () => {
+    const error = mount(AsyncState, { props: { state: 'error', message: '加载失败' } })
+    expect(error.attributes('role')).toBe('alert')
+    expect(error.attributes('aria-live')).toBe('assertive')
+
+    const success = mount(AsyncState, { props: { state: 'success', message: '保存完成' } })
+    expect(success.attributes('role')).toBe('status')
+    expect(success.attributes('aria-live')).toBe('polite')
+  })
+})
 
 describe('BaseButton', () => {
   it('renders with default props', () => {

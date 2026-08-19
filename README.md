@@ -100,13 +100,13 @@ cp .env.example .env
 # Docker 部署
 DECISION_WORKER_ENABLED=true \
 DECISION_EXTERNAL_DELIVERY_ENABLED=false \
-AI_WORKER_ENABLED=true \
+PI_AGENT_WORKER_ENABLED=true \
 docker compose --profile ai --profile trading up -d --build
 ```
 
-默认启动完整本地栈：Dashboard、独立 Worker、AI Worker、paper 模拟盘、live 模拟模式和 backtest 任务。`cloudflared` 会改变外部网络暴露边界，必须配置 tunnel token 后单独启用。
+默认启动完整本地栈：Dashboard、独立决策 Worker、Pi Agent Worker、paper 模拟盘、live 模拟模式和 backtest 任务。`cloudflared` 会改变外部网络暴露边界，必须配置 tunnel token 后单独启用。
 
-AI Runtime 只生成结构化研究解释和报告补充件，不拥有确定性决策、风控、验证或自动推送资格。LLM 凭证只能通过环境变量或受保护的 `env://` 引用提供。
+Pi Agent 只生成结构化研究解释和报告补充件，不拥有确定性决策、风控、验证或自动推送资格。每个任务仅接收冻结输入，并在无工具、无 session、无项目 context 的隔离模式下运行。模型凭据只能通过 Pi 支持的环境变量或运行时配置提供。
 
 ```bash
 # 访问

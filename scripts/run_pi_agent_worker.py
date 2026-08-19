@@ -1,4 +1,4 @@
-"""Compatibility entrypoint for the Pi Agent task worker."""
+"""Run the isolated Pi Agent task worker without starting the Dashboard."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from engine.worker_signals import install_shutdown_handlers
 @click.command()
 @click.option("--once", is_flag=True, help="Acquire the lease, process one batch and exit.")
 def main(once: bool) -> None:
-    """Start Pi Agent execution through the legacy command name."""
+    """Start only when Pi Agent execution is explicitly enabled."""
 
     setup_logging()
     if not pi_agent_worker_enabled():
@@ -28,7 +28,7 @@ def main(once: bool) -> None:
     install_shutdown_handlers(worker, name="pi-agent")
     if once:
         if not worker.acquire():
-            raise click.ClickException("AI worker lease is already held")
+            raise click.ClickException("Pi Agent worker lease is already held")
         try:
             worker.tick()
         finally:

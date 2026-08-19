@@ -5,18 +5,17 @@
 
 :root {
   /* ========== 颜色系统 ========== */
-  /* Paper / graphite 基础层：借鉴技术编辑页面的高对比秩序，避免营销式渐变 */
-  --color-canvas: #f3f3ef;
-  --color-surface: #fffefa;
-  --color-surface-muted: #ebece8;
-  --color-surface-strong: #dedfda;
-  --color-ink: #151716;
-  --color-ink-soft: #626763;
-  --color-ink-faint: #8a8f8a;
-  --color-line: #d8dbd5;
-  --color-line-strong: #b9beb8;
+  /* 默认是开盘前与盘中都可高频扫描的深石墨工作台。 */
+  --color-canvas: #0a0b0d;
+  --color-surface: #111418;
+  --color-surface-muted: #171b20;
+  --color-surface-strong: #20262d;
+  --color-ink: #f3f5f7;
+  --color-ink-soft: #a8b0ba;
+  --color-ink-faint: #747e89;
+  --color-line: #292f36;
+  --color-line-strong: #3c4651;
 
-  /* scoped shell 的兼容别名：逐步收敛旧组件的第二套命名 */
   --color-bg-primary: var(--color-canvas);
   --color-bg-secondary: var(--color-surface);
   --color-bg-tertiary: var(--color-surface-muted);
@@ -25,32 +24,30 @@
   --color-text-secondary: var(--color-ink-soft);
   --color-text-tertiary: var(--color-ink-faint);
 
-  /* 强调色 */
-  --color-accent: #0d7770;
-  --color-accent-strong: #075b56;
-  --color-accent-pale: #dcefeb;
-  --color-accent-contrast: #f4fffc;
+  --color-accent: #68d5c1;
+  --color-accent-strong: #9ae6d8;
+  --color-accent-pale: #183f3a;
+  --color-accent-contrast: #071512;
 
-  /* 语义色：市场、风险、数据可信度分开表达 */
-  --color-up: #b43c48;
-  --color-down: #157a68;
-  --color-warn: #996718;
-  --color-warn-bg: #fff3dc;
-  --color-danger: #bd3638;
-  --color-danger-strong: #962b2e;
-  --color-danger-bg: #f8e4e3;
-  --color-success: #157a68;
-  --color-success-bg: #e1f3ed;
-  --color-info: #0d7770;
-  --color-info-bg: #dcefeb;
-  --color-data-live: #157a68;
-  --color-data-delayed: #996718;
-  --color-data-stale: #b43c48;
-  --color-data-unavailable: #747a75;
+  /* 语义色：涨跌、风险、资格与数据质量不共用强调色。 */
+  --color-up: #f47777;
+  --color-down: #5fd39b;
+  --color-warn: #e4b86a;
+  --color-warn-bg: #3d321d;
+  --color-danger: #f47777;
+  --color-danger-strong: #ffaaa5;
+  --color-danger-bg: #43252a;
+  --color-success: #5fd39b;
+  --color-success-bg: #153b2e;
+  --color-info: #8db9ef;
+  --color-info-bg: #1d334d;
+  --color-data-live: #5fd39b;
+  --color-data-delayed: #e4b86a;
+  --color-data-stale: #f47777;
+  --color-data-unavailable: #8b95a1;
 
-  /* AI 内容背景 */
-  --color-ai-bg: #f7f8f5;
-  --color-ai-border: #dfe2dc;
+  --color-ai-bg: #171d25;
+  --color-ai-border: #31404d;
 
   /* ========== 间距系统 ========== */
   --spacing-xs: 4px;
@@ -72,11 +69,11 @@
   --spacing-8: 32px;
 
   /* ========== 圆角系统 ========== */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
   --radius-full: 9999px;
 
   /* ========== 阴影系统 ========== */
@@ -94,13 +91,13 @@
 
   /* ========== 缓动函数 ========== */
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-bounce: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
 
   /* ========== 布局常量 ========== */
-  --sidebar-width: 244px;
-  --topbar-height: 66px;
-  --mobile-nav-height: 60px;
+  --sidebar-width: 224px;
+  --topbar-height: 64px;
+  --mobile-nav-height: 68px;
   --touch-target-min: 44px;
 
   /* ========== 字体系统 ========== */
@@ -146,53 +143,54 @@
 .theme-dark,
 [data-theme="dark"] {
   color-scheme: dark;
-
-  --color-canvas: #101312;
-  --color-surface: #171a18;
-  --color-surface-muted: #202521;
-  --color-surface-strong: #2b312c;
-  --color-ink: #f1f4ef;
-  --color-ink-soft: #aeb7ae;
-  --color-ink-faint: #7e897f;
-  --color-line: #303831;
-  --color-line-strong: #4a554b;
-
-  --color-bg-primary: var(--color-canvas);
-  --color-bg-secondary: var(--color-surface);
-  --color-bg-tertiary: var(--color-surface-muted);
-  --color-border: var(--color-line);
-  --color-text-primary: var(--color-ink);
-  --color-text-secondary: var(--color-ink-soft);
-  --color-text-tertiary: var(--color-ink-faint);
-
-  --color-accent: #79d5c7;
-  --color-accent-strong: #a0e8dc;
-  --color-accent-pale: #193e38;
-  --color-accent-contrast: #10201c;
-
-  --color-up: #f08b96;
-  --color-down: #6fd4b7;
-  --color-warn: #e4b760;
-  --color-warn-bg: #3a2f1f;
-  --color-danger: #f08b96;
-  --color-danger-strong: #f5a0a9;
-  --color-danger-bg: #472a31;
-  --color-success: #6fd4b7;
-  --color-success-bg: #1a3d35;
-  --color-info: #76d3d0;
-  --color-info-bg: #193f44;
-
-  --color-ai-bg: #1a2329;
-  --color-ai-border: #2b3b43;
-
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.15);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.20);
-  --shadow-lg: 0 8px 22px rgba(0, 0, 0, 0.25);
-  --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.30);
+  --color-canvas: #0a0b0d;
+  --color-surface: #111418;
+  --color-surface-muted: #171b20;
+  --color-surface-strong: #20262d;
+  --color-ink: #f3f5f7;
+  --color-ink-soft: #a8b0ba;
+  --color-ink-faint: #747e89;
+  --color-line: #292f36;
+  --color-line-strong: #3c4651;
+  --color-accent: #68d5c1;
+  --color-accent-strong: #9ae6d8;
+  --color-accent-pale: #183f3a;
+  --color-up: #f47777;
+  --color-down: #5fd39b;
+  --color-warn: #e4b86a;
+  --color-danger: #f47777;
+  --color-success: #5fd39b;
+  --color-info: #8db9ef;
 }
 
-/* ========== 浅色主题显式类 ========== */
-.theme-light {
+/* ========== 浅色主题 ========== */
+.theme-light,
+[data-theme="light"] {
   color-scheme: light;
-  /* 使用 :root 中定义的默认浅色值 */
+  --color-canvas: #f4f6f7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef1f3;
+  --color-surface-strong: #e3e8eb;
+  --color-ink: #172027;
+  --color-ink-soft: #5e6b75;
+  --color-ink-faint: #7d8992;
+  --color-line: #d8e0e5;
+  --color-line-strong: #bcc8cf;
+  --color-accent: #087d70;
+  --color-accent-strong: #056358;
+  --color-accent-pale: #d8f0eb;
+  --color-accent-contrast: #ffffff;
+  --color-up: #ba3f46;
+  --color-down: #137a5d;
+  --color-warn: #966314;
+  --color-warn-bg: #fff1d8;
+  --color-danger: #ba3f46;
+  --color-danger-strong: #942f35;
+  --color-danger-bg: #f9e4e4;
+  --color-success: #137a5d;
+  --color-success-bg: #ddf2e9;
+  --color-info: #256eae;
+  --color-info-bg: #dfedf9;
+  --color-ai-bg: #f2f6f8;
+  --color-ai-border: #d6e0e6;
 }

@@ -72,6 +72,7 @@ def test_ai_status_channels_models_and_skills_are_queryable_without_external_cal
 
     assert status.status_code == 200, status.text
     assert status.json()["success"] is True
+    assert status.json()["executor"] == "pi_agent_worker"
     assert status.json()["decision_effect"] == "none"
     assert channels.status_code == 200
     assert channels.json()["items"][0]["id"] == "fixture-provider"

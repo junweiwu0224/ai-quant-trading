@@ -553,12 +553,14 @@ Webhook、Docker、cloudflared 和券商的联调证据。
 
 ### 9.5 AI/Agent Runtime 与跨进程状态
 
-- `ai_runtime/` 负责冻结上下文、Agent/LLM 任务、SSE 事件、结构化研究报告、会话和 provider
+- `ai_runtime/` 负责冻结上下文、Pi Agent 任务、SSE 事件、结构化研究报告、会话和 provider
   降级；它只产生 `authoritative=false`、`decision_effect=none` 的研究 artifact。
-- `dashboard/routers/ai.py` 是控制面 API；生产任务由 `scripts/run_ai_worker.py` 启动的独立
-  `ai-worker` 获取 lease 执行。Dashboard 不因查询状态而拥有 AI 任务执行权，`AI_INLINE_EXECUTION`
+- `dashboard/routers/ai.py` 是控制面 API；生产任务由 `scripts/run_pi_agent_worker.py` 启动的独立
+  `pi-agent` 获取 lease 执行。Dashboard 不因查询状态而拥有 AI 任务执行权，`AI_INLINE_EXECUTION`
   只用于开发环境的显式本地运行。
-- `data/db/ai_runtime.db` 中的 `ai_provider_runtime` 是 Dashboard 与 `ai-worker` 共享的、脱敏的
+- `PiAgentWorker` 复用 task queue、SQLite lease/fence、workspace 隔离、任务取消和审计；每个 Pi CLI
+  调用都在空临时目录中以无工具、无 session、无扩展、无 skills 和无项目 context 的模式运行，只接收冻结 JSON。
+- `data/db/ai_runtime.db` 中的 `ai_provider_runtime` 是 Dashboard 与 `pi-agent` 共享的、脱敏的
   provider readiness 投影，保存最近状态、错误码、检查时间和有限的尝试记录。密钥、prompt、响应正文
   和 endpoint secret 不写入该投影。
 - provider 的“已配置”与“已验证”严格分离；没有真实成功调用时只能显示

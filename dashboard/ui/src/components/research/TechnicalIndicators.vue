@@ -17,7 +17,9 @@ const items = [
 ] as const
 function display(key: keyof IndicatorData) {
   const value = props.indicators[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '暂无数据'
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
+    : '暂无数据'
 }
 </script>
 

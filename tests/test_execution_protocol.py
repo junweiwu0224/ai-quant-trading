@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -25,6 +25,36 @@ def intent() -> OrderIntent:
         quantity="100",
         idempotency_key="intent-1",
     )
+
+
+@pytest.fixture
+def batch(intent: OrderIntent) -> OrderIntentBatch:
+    second = OrderIntent(
+        execution_run_id="run-1",
+        account_id="paper-account",
+        environment=Environment.PAPER,
+        instrument="000001",
+        side=Side.SELL,
+        quantity=1,
+        idempotency_key="intent-2",
+    )
+    return OrderIntentBatch(batch_id="batch-1", intents=(intent, second))
+
+
+def test_risk_decision_direct_construction_is_forbidden() -> None:
+    with pytest.raises(TypeError, match="from an OrderIntentBatch"):
+        RiskDecision(
+            decision_id="decision-direct",
+            batch_id="batch-1",
+            execution_run_id="run-1",
+            account_id="paper-account",
+            environment=Environment.PAPER,
+            policy_version="risk-v1",
+            evaluated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            status=RiskDecisionStatus.REJECTED,
+            evaluated_intent_keys=("intent-1",),
+            rejected_intent_keys=("intent-1",),
+        )
 
 
 def test_order_intent_is_immutable_and_normalizes_quantity(intent: OrderIntent) -> None:
@@ -141,55 +171,54 @@ def test_live_intent_is_fail_closed_even_when_allow_live_is_requested() -> None:
         )
 
 
-def test_risk_decision_can_express_full_partial_and_rejected_batches() -> None:
-    now = datetime.now(timezone.utc)
-    approved = RiskDecision(
+def test_risk_decision_can_express_full_partial_and_rejected_batches(batch: OrderIntentBatch) -> None:
+    now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    approved = RiskDecision.from_batch(
+        batch,
         decision_id="decision-full",
-        batch_id="batch-1",
         policy_version="risk-v1",
         evaluated_at=now,
         status=RiskDecisionStatus.APPROVED,
-        evaluated_intent_keys=("intent-1", "intent-2"),
-        approved_intent_keys=("intent-1", "intent-2"),
+        approved_intent_keys=batch.idempotency_keys,
     )
-    partial = RiskDecision(
+    partial = RiskDecision.from_batch(
+        batch,
         decision_id="decision-partial",
-        batch_id="batch-1",
         policy_version="risk-v1",
         evaluated_at=now,
         status=RiskDecisionStatus.PARTIAL,
-        evaluated_intent_keys=("intent-1", "intent-2"),
         reasons=("cash limit",),
         approved_intent_keys=("intent-1",),
         rejected_intent_keys=("intent-2",),
     )
-    rejected = RiskDecision(
+    rejected = RiskDecision.from_batch(
+        batch,
         decision_id="decision-rejected",
-        batch_id="batch-1",
         policy_version="risk-v1",
         evaluated_at=now,
         status="rejected",
-        evaluated_intent_keys=("intent-1", "intent-2"),
         reasons=("kill switch",),
-        rejected_intent_keys=("intent-1", "intent-2"),
+        rejected_intent_keys=batch.idempotency_keys,
     )
 
     assert approved.status is RiskDecisionStatus.APPROVED
+    assert approved.execution_run_id == batch.execution_run_id
+    assert approved.account_id == batch.account_id
+    assert approved.environment is Environment.PAPER
     assert partial.status is RiskDecisionStatus.PARTIALLY_APPROVED
     assert partial.rejected_intent_keys == ("intent-2",)
     assert rejected.reasons == ("kill switch",)
 
 
-def test_rejected_risk_decision_cannot_create_permit() -> None:
-    decision = RiskDecision(
+def test_rejected_risk_decision_cannot_create_permit(batch: OrderIntentBatch) -> None:
+    decision = RiskDecision.from_batch(
+        batch,
         decision_id="decision-rejected",
-        batch_id="batch-1",
         policy_version="risk-v1",
-        evaluated_at=datetime.now(timezone.utc),
+        evaluated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         status=RiskDecisionStatus.REJECTED,
-        evaluated_intent_keys=("intent-1",),
         reasons=("risk limit",),
-        rejected_intent_keys=("intent-1",),
+        rejected_intent_keys=batch.idempotency_keys,
     )
 
     with pytest.raises(ValueError, match="rejected"):
@@ -210,27 +239,30 @@ def test_rejected_risk_decision_cannot_create_permit() -> None:
         )
 
 
-def test_permit_preserves_decision_fence_and_idempotency_fields() -> None:
-    decision = RiskDecision(
+def test_permit_preserves_decision_fence_and_idempotency_fields(batch: OrderIntentBatch) -> None:
+    decision = RiskDecision.from_batch(
+        batch,
         decision_id="decision-1",
-        batch_id="batch-1",
         policy_version="risk-v1",
-        evaluated_at=datetime.now(timezone.utc),
+        evaluated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         status=RiskDecisionStatus.APPROVED,
-        evaluated_intent_keys=("intent-1", "intent-2"),
-        approved_intent_keys=("intent-1", "intent-2"),
+        approved_intent_keys=batch.idempotency_keys,
     )
-    expires_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    expires_at = datetime(2025, 1, 2, tzinfo=timezone.utc)
 
     permit = ExecutionPermit.from_risk_decision(
         decision,
         permit_id="permit-1",
         expires_at=expires_at,
         fence_token="worker-fence-7",
+        now=datetime(2025, 1, 1, tzinfo=timezone.utc),
     )
 
     assert permit.decision_id == decision.decision_id
     assert permit.batch_id == decision.batch_id
+    assert permit.execution_run_id == batch.execution_run_id
+    assert permit.account_id == batch.account_id
+    assert permit.environment is Environment.PAPER
     assert permit.expires_at == expires_at
     assert permit.fence_token == "worker-fence-7"
     assert permit.idempotency_keys == ("intent-1", "intent-2")
@@ -239,14 +271,13 @@ def test_permit_preserves_decision_fence_and_idempotency_fields() -> None:
         permit.fence_token = "stale-fence"  # type: ignore[misc]
 
 
-def test_partial_permit_contains_only_approved_idempotency_keys() -> None:
-    decision = RiskDecision(
+def test_partial_permit_contains_only_approved_idempotency_keys(batch: OrderIntentBatch) -> None:
+    decision = RiskDecision.from_batch(
+        batch,
         decision_id="decision-partial-permit",
-        batch_id="batch-1",
         policy_version="risk-v1",
-        evaluated_at=datetime.now(timezone.utc),
+        evaluated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         status=RiskDecisionStatus.PARTIAL,
-        evaluated_intent_keys=("intent-1", "intent-2"),
         approved_intent_keys=("intent-1",),
         rejected_intent_keys=("intent-2",),
     )
@@ -254,8 +285,65 @@ def test_partial_permit_contains_only_approved_idempotency_keys() -> None:
     permit = ExecutionPermit.from_decision(
         decision,
         permit_id="permit-partial",
-        expires_at=datetime.now(timezone.utc),
+        expires_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
         fence_token="worker-fence-partial",
+        now=datetime(2025, 1, 1, tzinfo=timezone.utc),
     )
 
     assert permit.idempotency_keys == ("intent-1",)
+
+
+def test_permit_rejects_naive_or_expired_deadlines_and_rechecks_validity(
+    batch: OrderIntentBatch,
+) -> None:
+    now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    decision = RiskDecision.from_batch(
+        batch,
+        decision_id="decision-expiry",
+        policy_version="risk-v1",
+        evaluated_at=now,
+        status=RiskDecisionStatus.APPROVED,
+        approved_intent_keys=batch.idempotency_keys,
+    )
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        ExecutionPermit.from_decision(
+            decision,
+            permit_id="permit-naive",
+            expires_at=datetime(2025, 1, 2),
+            fence_token="fence-naive",
+            now=now,
+        )
+    for expires_at in (now - timedelta(seconds=1), now):
+        with pytest.raises(ValueError, match="later than now"):
+            ExecutionPermit.from_decision(
+                decision,
+                permit_id="permit-expired",
+                expires_at=expires_at,
+                fence_token="fence-expired",
+                now=now,
+            )
+
+    expires_at = now + timedelta(seconds=30)
+    permit = ExecutionPermit.from_decision(
+        decision,
+        permit_id="permit-validity",
+        expires_at=expires_at,
+        fence_token="fence-validity",
+        now=now,
+    )
+    assert permit.is_valid(now=now)
+    assert not permit.is_valid(now=expires_at)
+    assert not permit.is_valid(now=expires_at + timedelta(seconds=1))
+
+
+def test_risk_decision_rejects_naive_evaluation_time(batch: OrderIntentBatch) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        RiskDecision.from_batch(
+            batch,
+            decision_id="decision-naive-time",
+            policy_version="risk-v1",
+            evaluated_at=datetime(2025, 1, 1),
+            status=RiskDecisionStatus.REJECTED,
+            rejected_intent_keys=batch.idempotency_keys,
+        )

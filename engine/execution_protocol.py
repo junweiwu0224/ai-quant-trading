@@ -9,7 +9,7 @@ API pre-check is never an authoritative risk decision.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Iterable
@@ -88,6 +88,21 @@ def _as_tuple(values: Iterable[str], field_name: str) -> tuple[str, ...]:
     return result
 
 
+def _as_utc_datetime(value: datetime, field_name: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise TypeError(f"{field_name} must be a datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware UTC")
+    return value.astimezone(timezone.utc)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+_RISK_DECISION_TOKEN = object()
+
+
 @dataclass(frozen=True, slots=True)
 class OrderIntent(_NonEmptyTextMixin):
     """An immutable request for a quantity of one instrument to be executed.
@@ -155,8 +170,20 @@ class OrderIntentBatch(_NonEmptyTextMixin):
 
         return tuple(intent.idempotency_key for intent in self.intents)
 
+    @property
+    def execution_run_id(self) -> str:
+        return self.intents[0].execution_run_id
 
-@dataclass(frozen=True, slots=True)
+    @property
+    def account_id(self) -> str:
+        return self.intents[0].account_id
+
+    @property
+    def environment(self) -> Environment:
+        return self.intents[0].environment
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class RiskDecision(_NonEmptyTextMixin):
     """Immutable outcome emitted by the execution Worker's final RiskGate.
 
@@ -167,6 +194,9 @@ class RiskDecision(_NonEmptyTextMixin):
 
     decision_id: str
     batch_id: str
+    execution_run_id: str
+    account_id: str
+    environment: Environment | str
     policy_version: str
     evaluated_at: datetime
     status: RiskDecisionStatus | str
@@ -175,12 +205,50 @@ class RiskDecision(_NonEmptyTextMixin):
     approved_intent_keys: tuple[str, ...] | Iterable[str] = ()
     rejected_intent_keys: tuple[str, ...] | Iterable[str] = ()
 
+    def __init__(
+        self,
+        *,
+        decision_id: str,
+        batch_id: str,
+        execution_run_id: str,
+        account_id: str,
+        environment: Environment | str,
+        policy_version: str,
+        evaluated_at: datetime,
+        status: RiskDecisionStatus | str,
+        evaluated_intent_keys: tuple[str, ...] | Iterable[str],
+        reasons: tuple[str, ...] | Iterable[str] = (),
+        approved_intent_keys: tuple[str, ...] | Iterable[str] = (),
+        rejected_intent_keys: tuple[str, ...] | Iterable[str] = (),
+        _construction_token: object | None = None,
+    ) -> None:
+        if _construction_token is not _RISK_DECISION_TOKEN:
+            raise TypeError("RiskDecision must be created from an OrderIntentBatch")
+        object.__setattr__(self, "decision_id", decision_id)
+        object.__setattr__(self, "batch_id", batch_id)
+        object.__setattr__(self, "execution_run_id", execution_run_id)
+        object.__setattr__(self, "account_id", account_id)
+        object.__setattr__(self, "environment", environment)
+        object.__setattr__(self, "policy_version", policy_version)
+        object.__setattr__(self, "evaluated_at", evaluated_at)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "evaluated_intent_keys", evaluated_intent_keys)
+        object.__setattr__(self, "reasons", reasons)
+        object.__setattr__(self, "approved_intent_keys", approved_intent_keys)
+        object.__setattr__(self, "rejected_intent_keys", rejected_intent_keys)
+        self.__post_init__()
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "decision_id", self._text(self.decision_id, "decision_id"))
         object.__setattr__(self, "batch_id", self._text(self.batch_id, "batch_id"))
+        object.__setattr__(self, "execution_run_id", self._text(self.execution_run_id, "execution_run_id"))
+        object.__setattr__(self, "account_id", self._text(self.account_id, "account_id"))
+        environment = _as_environment(self.environment)
+        if environment is not Environment.PAPER:
+            raise ValueError("RiskDecision can only authorize the paper environment in V2")
+        object.__setattr__(self, "environment", environment)
         object.__setattr__(self, "policy_version", self._text(self.policy_version, "policy_version"))
-        if not isinstance(self.evaluated_at, datetime):
-            raise TypeError("evaluated_at must be a datetime")
+        object.__setattr__(self, "evaluated_at", _as_utc_datetime(self.evaluated_at, "evaluated_at"))
         try:
             status = self.status if isinstance(self.status, RiskDecisionStatus) else RiskDecisionStatus(str(self.status).strip().lower())
         except ValueError as exc:
@@ -242,6 +310,9 @@ class RiskDecision(_NonEmptyTextMixin):
         return cls(
             decision_id=decision_id,
             batch_id=batch.batch_id,
+            execution_run_id=batch.execution_run_id,
+            account_id=batch.account_id,
+            environment=batch.environment,
             policy_version=policy_version,
             evaluated_at=evaluated_at,
             status=status,
@@ -249,6 +320,7 @@ class RiskDecision(_NonEmptyTextMixin):
             reasons=reasons,
             approved_intent_keys=approved,
             rejected_intent_keys=rejected,
+            _construction_token=_RISK_DECISION_TOKEN,
         )
 
 
@@ -264,8 +336,12 @@ class ExecutionPermit(_NonEmptyTextMixin):
     permit_id: str
     decision_id: str
     batch_id: str
+    execution_run_id: str
+    account_id: str
+    environment: Environment | str
     expires_at: datetime
     fence_token: str
+    evaluated_intent_keys: tuple[str, ...] | Iterable[str]
     idempotency_keys: tuple[str, ...] | Iterable[str]
 
     def __init__(
@@ -275,6 +351,7 @@ class ExecutionPermit(_NonEmptyTextMixin):
         permit_id: str,
         expires_at: datetime,
         fence_token: str,
+        now: datetime | None = None,
     ) -> None:
         if not isinstance(decision, RiskDecision):
             raise TypeError("decision must be a RiskDecision")
@@ -285,11 +362,19 @@ class ExecutionPermit(_NonEmptyTextMixin):
             raise ValueError("RiskDecision coverage must be closed before creating a permit")
         if decision.status is RiskDecisionStatus.APPROVED and set(keys) != set(decision.evaluated_intent_keys):
             raise ValueError("approved RiskDecision must cover every evaluated intent")
+        current = _as_utc_datetime(now if now is not None else _utc_now(), "now")
+        expiry = _as_utc_datetime(expires_at, "expires_at")
+        if expiry <= current:
+            raise ValueError("expires_at must be later than now")
         object.__setattr__(self, "permit_id", self._text(permit_id, "permit_id"))
         object.__setattr__(self, "decision_id", decision.decision_id)
         object.__setattr__(self, "batch_id", decision.batch_id)
-        object.__setattr__(self, "expires_at", expires_at)
+        object.__setattr__(self, "execution_run_id", decision.execution_run_id)
+        object.__setattr__(self, "account_id", decision.account_id)
+        object.__setattr__(self, "environment", decision.environment)
+        object.__setattr__(self, "expires_at", expiry)
         object.__setattr__(self, "fence_token", self._text(fence_token, "fence_token"))
+        object.__setattr__(self, "evaluated_intent_keys", decision.evaluated_intent_keys)
         object.__setattr__(self, "idempotency_keys", keys)
         self.__post_init__()
 
@@ -301,12 +386,14 @@ class ExecutionPermit(_NonEmptyTextMixin):
         permit_id: str,
         expires_at: datetime,
         fence_token: str,
+        now: datetime | None = None,
     ) -> "ExecutionPermit":
         return cls(
             decision=decision,
             permit_id=permit_id,
             expires_at=expires_at,
             fence_token=fence_token,
+            now=now,
         )
 
     # Concise alias for callers that already use the domain term "decision".
@@ -316,15 +403,33 @@ class ExecutionPermit(_NonEmptyTextMixin):
         object.__setattr__(self, "permit_id", self._text(self.permit_id, "permit_id"))
         object.__setattr__(self, "decision_id", self._text(self.decision_id, "decision_id"))
         object.__setattr__(self, "batch_id", self._text(self.batch_id, "batch_id"))
+        object.__setattr__(self, "execution_run_id", self._text(self.execution_run_id, "execution_run_id"))
+        object.__setattr__(self, "account_id", self._text(self.account_id, "account_id"))
+        environment = _as_environment(self.environment)
+        if environment is not Environment.PAPER:
+            raise ValueError("ExecutionPermit can only authorize the paper environment in V2")
+        object.__setattr__(self, "environment", environment)
         object.__setattr__(self, "fence_token", self._text(self.fence_token, "fence_token"))
         if not isinstance(self.expires_at, datetime):
             raise TypeError("expires_at must be a datetime")
+        object.__setattr__(self, "expires_at", _as_utc_datetime(self.expires_at, "expires_at"))
+        evaluated = _as_tuple(self.evaluated_intent_keys, "evaluated_intent_key")
+        if not evaluated:
+            raise ValueError("ExecutionPermit must contain evaluated intent keys")
+        object.__setattr__(self, "evaluated_intent_keys", evaluated)
         keys = _as_tuple(self.idempotency_keys, "idempotency_key")
         if not keys:
             raise ValueError("ExecutionPermit must contain at least one idempotency key")
         if len(keys) != len(set(keys)):
             raise ValueError("idempotency_keys must be unique")
+        if not set(keys) <= set(evaluated):
+            raise ValueError("idempotency_keys must belong to evaluated_intent_keys")
         object.__setattr__(self, "idempotency_keys", keys)
+
+    def is_valid(self, *, now: datetime | None = None) -> bool:
+        """Return whether this permit is still usable at the supplied UTC time."""
+        current = _as_utc_datetime(now if now is not None else _utc_now(), "now")
+        return self.expires_at > current
 
 
 __all__ = [

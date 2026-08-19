@@ -16,6 +16,13 @@ def test_paper_workspace_keeps_legacy_api_and_explicit_v2_fallbacks() -> None:
     assert "/api/paper/start" in api
     assert "/api/paper/stop" in api
     assert "/api/paper/orders" in api
+    assert "statusAvailable" in view
+    assert "statusError" in view
+    assert "statusDisplay" in view
+    assert "canOperate" in view
+    assert "状态不可确认" in view
+    assert "已保留最后一次有效状态" in view
+    assert "!canOperate" in view
     assert "execution_run_id" in view
     assert "ExecutionRun" in view
     assert "未绑定" in view
@@ -35,5 +42,15 @@ def test_paper_workspace_has_live_disabled_guard_and_worker_aware_copy() -> None
     assert "暂停（未接入）" in view
     assert "等待 worker" in view
     assert "不代表已成交" in view
+    assert "止损止盈已提交，等待 worker 状态确认" in view
+    assert "actionFeedback" in view
+    assert "actionError" in view
+    assert "loadError" in view
+    assert 'role="alert"' in view
+    assert 'role="status"' in view
+    assert 'aria-busy="loading"' in view
+    assert 'role="tablist"' in view
+    assert 'role="tab"' in view
+    assert "aria-selected" in view
     assert "api.createPaperOrder" in view
     assert "api.stopPaper" in view

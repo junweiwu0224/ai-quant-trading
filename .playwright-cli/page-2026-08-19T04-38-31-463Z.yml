@@ -1,0 +1,40 @@
+- generic [ref=f234e3]:
+  - complementary [ref=f234e4]:
+    - generic [ref=f234e5]:
+      - generic [ref=f234e6]: AQ
+      - generic [ref=f234e7]:
+        - strong [ref=f234e8]: AI Quant
+        - generic [ref=f234e9]: 决策工作台
+    - generic [ref=f234e10]: 中国市场工作区
+    - navigation "主导航" [ref=f234e12]:
+      - link "决策" [ref=f234e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f234e20] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f234e25] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f234e29] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f234e34] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f234e40]: 等待数据状态
+  - main [ref=f234e44]:
+    - generic [ref=f234e45]:
+      - generic [ref=f234e46]:
+        - generic [ref=f234e47]: 当前工作流
+        - strong [ref=f234e48]: 决策中心
+      - generic [ref=f234e49]:
+        - generic [ref=f234e50]:
+          - generic [ref=f234e51]: 市场
+          - combobox "市场" [ref=f234e52] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f234e53] [cursor=pointer]
+        - button "切换主题" [ref=f234e57] [cursor=pointer]
+        - button "打开更多工作台" [ref=f234e65] [cursor=pointer]
+        - link "打开账户设置" [ref=f234e70] [cursor=pointer]:
+          - /url: /app/settings

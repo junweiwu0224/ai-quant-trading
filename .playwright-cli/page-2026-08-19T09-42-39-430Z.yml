@@ -1,0 +1,200 @@
+- generic [ref=f356e3]:
+  - main [ref=f356e4]:
+    - generic [ref=f356e5]:
+      - button "打开导航" [ref=f356e6] [cursor=pointer]
+      - strong [ref=f356e9]: 决策中心
+      - generic [ref=f356e10]:
+        - generic [ref=f356e11]:
+          - generic [ref=f356e12]: 市场
+          - combobox "市场" [ref=f356e13] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f356e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f356e18] [cursor=pointer]:
+          - /url: /app/settings
+    - generic "当前研究上下文" [ref=f356e22]:
+      - generic [ref=f356e23]:
+        - generic [ref=f356e24]: 标的
+        - strong [ref=f356e25]: CN / 600519
+      - generic [ref=f356e26]:
+        - generic [ref=f356e27]: 资格
+        - strong [ref=f356e28]: 资格阻断
+    - generic [ref=f356e30]:
+      - generic [ref=f356e31]:
+        - generic [ref=f356e32]:
+          - heading "决策运行台" [level=1] [ref=f356e33]
+          - paragraph [ref=f356e34]: 确定性结论、数据资格与研究解释分层呈现。自动投递从不因手动研究而默认开启。
+        - generic [ref=f356e35]:
+          - button "刷新" [disabled] [ref=f356e36]
+          - button "创建组合" [ref=f356e42] [cursor=pointer]
+      - generic [ref=f356e44]:
+        - generic [ref=f356e45]:
+          - generic [ref=f356e46]: 当前结论
+          - strong [ref=f356e47]: 正在冻结输入
+          - paragraph [ref=f356e48]: 正在读取组合、数据质量和策略版本。
+        - generic [ref=f356e49]:
+          - generic [ref=f356e50]:
+            - term [ref=f356e51]: 组合
+            - definition [ref=f356e52]: 未选择
+          - generic [ref=f356e53]:
+            - term [ref=f356e54]: 资格
+            - definition [ref=f356e55]: 未检查
+          - generic [ref=f356e56]:
+            - term [ref=f356e57]: 数据
+            - definition [ref=f356e58]: 未知
+        - link "进入验证" [ref=f356e59] [cursor=pointer]:
+          - /url: /app/validation
+      - region [ref=f356e60]:
+        - generic [ref=f356e61]:
+          - generic [ref=f356e62]:
+            - heading "决策链路" [level=2] [ref=f356e63]
+            - paragraph [ref=f356e64]: 节点状态只来自当前冻结结果；投递需要在通知审计中单独确认。
+          - link "通知审计" [ref=f356e65] [cursor=pointer]:
+            - /url: /app/notifications
+        - list [ref=f356e66]:
+          - listitem [ref=f356e67]:
+            - generic [ref=f356e74]:
+              - strong [ref=f356e75]: 输入快照
+              - generic [ref=f356e76]: 等待冻结输入
+          - listitem [ref=f356e79]:
+            - generic [ref=f356e84]:
+              - strong [ref=f356e85]: 数据质量
+              - generic [ref=f356e86]: 未检查
+          - listitem [ref=f356e89]:
+            - generic [ref=f356e94]:
+              - strong [ref=f356e95]: 策略版本
+              - generic [ref=f356e96]: 等待版本
+          - listitem [ref=f356e99]:
+            - generic [ref=f356e104]:
+              - strong [ref=f356e105]: 验证
+              - generic [ref=f356e106]: 尚未验证
+          - listitem [ref=f356e109]:
+            - generic [ref=f356e114]:
+              - strong [ref=f356e115]: 资格
+              - generic [ref=f356e116]: 尚未检查
+          - listitem [ref=f356e119]:
+            - generic [ref=f356e124]:
+              - strong [ref=f356e125]: 冻结结论
+              - generic [ref=f356e126]: 等待运行
+          - listitem [ref=f356e129]:
+            - generic [ref=f356e134]:
+              - strong [ref=f356e135]: 报告
+              - generic [ref=f356e136]: 尚未生成
+          - listitem [ref=f356e139]:
+            - generic [ref=f356e144]:
+              - strong [ref=f356e145]: 投递
+              - generic [ref=f356e146]: 前往通知审计确认
+      - generic [ref=f356e148]:
+        - generic [ref=f356e149]: 仅手动研究
+        - strong [ref=f356e150]: CN 市场能力边界
+        - generic [ref=f356e151]: 市场能力清单尚未返回，自动推送保持关闭。
+      - generic [ref=f356e152]:
+        - generic [ref=f356e153]:
+          - generic [ref=f356e154]: 当前组合
+          - strong [ref=f356e155]: 未选择
+          - generic [ref=f356e156]: —
+        - generic [ref=f356e157]:
+          - generic [ref=f356e158]: 研究池
+          - strong [ref=f356e159]: —
+          - generic [ref=f356e160]: AI 信号范围
+        - generic [ref=f356e161]:
+          - generic [ref=f356e162]: 预警历史
+          - strong [ref=f356e163]: —
+          - generic [ref=f356e164]: 最近读取结果
+        - generic [ref=f356e165]:
+          - generic [ref=f356e166]: 自动推送
+          - strong [ref=f356e167]: 未达标
+          - generic [ref=f356e168]: 等待组合资格检查
+      - generic [ref=f356e169]:
+        - generic [ref=f356e170]:
+          - generic [ref=f356e171]:
+            - generic [ref=f356e172]:
+              - generic [ref=f356e173]:
+                - heading "策略组合" [level=2] [ref=f356e174]
+                - paragraph [ref=f356e175]: 同一股票可以属于多个组合，历史运行不会被覆盖。
+              - generic [ref=f356e176]: CN
+            - generic [ref=f356e178]:
+              - strong [ref=f356e179]: 还没有策略组合
+              - text: 从当前自选池创建第一份组合，或手动加入成员。
+              - generic [ref=f356e180]:
+                - button "创建组合" [ref=f356e181] [cursor=pointer]
+                - link "打开单股研究" [ref=f356e183] [cursor=pointer]:
+                  - /url: /app/research
+          - generic [ref=f356e184]:
+            - generic [ref=f356e186]:
+              - heading "市场雷达" [level=2] [ref=f356e187]
+              - paragraph [ref=f356e188]: 快路径优先读取本地覆盖池或缓存，来源和过期状态始终可见。
+            - generic [ref=f356e191]: 正在读取市场雷达…
+          - generic [ref=f356e198]:
+            - generic [ref=f356e200]:
+              - heading "机会池" [level=2] [ref=f356e201]
+              - paragraph [ref=f356e202]: 基于 decision matrix 的 signal / watchlist 范围；缺失 provider 不会产生虚假候选。
+            - generic [ref=f356e205]:
+              - tablist "机会池范围" [ref=f356e206]:
+                - button "AI 信号 Top" [ref=f356e207] [cursor=pointer]
+                - button "当前自选" [ref=f356e210] [cursor=pointer]
+              - status [ref=f356e213]:
+                - generic [ref=f356e214]: 等待加载
+                - generic [ref=f356e215]: 研究池尚未返回，缺失数据不会被替换成 0。
+                - generic [ref=f356e216]: 覆盖 — · 生成 —
+              - generic [ref=f356e217]: 正在读取机会池…
+          - generic [ref=f356e223]:
+            - generic [ref=f356e224]:
+              - generic [ref=f356e225]:
+                - heading "组合决策" [level=2] [ref=f356e226]
+                - paragraph [ref=f356e227]: 首次普通状态只记录不推送；风险和状态变化按规则去重。
+              - generic [ref=f356e228]:
+                - button "手动分析" [disabled] [ref=f356e229]
+                - link "查看报告" [ref=f356e233] [cursor=pointer]:
+                  - /url: /app/reports
+            - generic [ref=f356e235]:
+              - strong [ref=f356e236]: 选择一个组合开始
+              - text: 当前页面不会用空白或 0 分掩盖缺失数据。
+        - complementary [ref=f356e237]:
+          - generic [ref=f356e238]:
+            - generic [ref=f356e240]:
+              - heading "自动推送资格" [level=2] [ref=f356e241]
+              - paragraph [ref=f356e242]: 资格通过之前，开关不可绕过。
+            - generic [ref=f356e245]:
+              - generic [ref=f356e246]: 完成一次预览后显示资格检查。
+              - generic [ref=f356e247]:
+                - link "进入验证" [ref=f356e248] [cursor=pointer]:
+                  - /url: /app/validation
+                - link "配置通知" [ref=f356e249] [cursor=pointer]:
+                  - /url: /app/notifications
+          - generic [ref=f356e250]:
+            - generic [ref=f356e252]:
+              - heading "当前工作区自选" [level=2] [ref=f356e253]
+              - paragraph [ref=f356e254]: 自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。
+            - generic [ref=f356e257]: 正在读取自选…
+          - generic [ref=f356e264]:
+            - generic [ref=f356e266]:
+              - heading "预警历史" [level=2] [ref=f356e267]
+              - paragraph [ref=f356e268]: 只展示接口返回的触发记录；没有记录不等于当前没有风险。
+            - generic [ref=f356e274]: 正在读取预警历史…
+          - generic [ref=f356e281]:
+            - generic [ref=f356e283]:
+              - heading "快速加入组合成员" [level=2] [ref=f356e284]
+              - paragraph [ref=f356e285]: 只修改组合成员，不会改写既有运行。
+            - generic [ref=f356e289]:
+              - generic [ref=f356e290]:
+                - generic [ref=f356e291]: 股票代码
+                - textbox "股票代码" [ref=f356e292]:
+                  - /placeholder: 例如 600519
+              - button "加入当前组合" [disabled] [ref=f356e294]
+              - paragraph [ref=f356e296]: 组合成员变更不会重写既有快照；未接入合格 provider 时不会生成自动信号。
+  - navigation "移动导航" [ref=f356e297]:
+    - link "决策" [ref=f356e298] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f356e305] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f356e310] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f356e314] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f356e319] [cursor=pointer]:
+      - /url: /app/workflows

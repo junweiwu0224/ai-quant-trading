@@ -1,0 +1,92 @@
+- generic [ref=f9e3]:
+  - complementary [ref=f9e4]:
+    - generic [ref=f9e5]:
+      - generic [ref=f9e6]: AQ
+      - generic [ref=f9e7]:
+        - strong [ref=f9e8]: AI Quant
+        - generic [ref=f9e9]: 决策工作台
+      - button "关闭导航" [ref=f9e10] [cursor=pointer]
+    - generic [ref=f9e14]: 中国市场工作区
+    - navigation "主导航" [ref=f9e16]:
+      - link "决策中心" [ref=f9e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f9e24] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f9e28] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f9e33] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f9e36] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f9e40] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f9e44] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f9e50] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f9e54] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f9e59] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f9e64] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f9e69] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f9e74]: 工作区
+    - navigation "工作区导航" [ref=f9e75]:
+      - button "Token 用量" [ref=f9e76] [cursor=pointer]
+      - link "设置" [ref=f9e80] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f9e85] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f9e97]:
+      - button "深色模式" [ref=f9e98] [cursor=pointer]
+      - generic [ref=f9e102]: 等待数据状态
+  - main [ref=f9e105]:
+    - generic [ref=f9e106]:
+      - button "打开导航" [ref=f9e107] [cursor=pointer]
+      - strong [ref=f9e110]: 报告
+      - generic [ref=f9e111]:
+        - generic [ref=f9e112]:
+          - generic [ref=f9e113]: 市场
+          - combobox "市场" [ref=f9e114] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f9e115] [cursor=pointer]
+        - link "研究" [ref=f9e119] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f9e121]:
+      - generic [ref=f9e122]:
+        - generic [ref=f9e123]:
+          - heading "报告索引" [level=1] [ref=f9e124]
+          - paragraph [ref=f9e125]: 消息渠道只携带精简摘要；完整内容在独立的手机和桌面阅读页中查看。
+        - generic [ref=f9e126]:
+          - status [ref=f9e127]:
+            - generic [ref=f9e133]: 报告索引
+          - button "刷新" [disabled] [ref=f9e134]
+      - generic [ref=f9e140]:
+        - generic [ref=f9e141]:
+          - generic [ref=f9e142]:
+            - heading "冻结报告" [level=2] [ref=f9e143]
+            - paragraph [ref=f9e144]: 每份报告都保留输入 hash、版本 hash 和生成来源。
+          - generic [ref=f9e145]: 0 份
+        - generic [ref=f9e147]:
+          - strong [ref=f9e148]: 还没有报告
+          - text: 从决策中心完成一次预览或手动分析。
+  - navigation "移动导航" [ref=f9e149]:
+    - link "决策中心" [ref=f9e150] [cursor=pointer]:
+      - /url: /app/decision
+    - link "市场情报" [ref=f9e157] [cursor=pointer]:
+      - /url: /app/intelligence
+    - link "单股研究" [ref=f9e161] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证与回测" [ref=f9e166] [cursor=pointer]:
+      - /url: /app/validation
+    - link "模拟盘" [ref=f9e170] [cursor=pointer]:
+      - /url: /app/paper
+    - button "切换到深色模式" [ref=f9e175] [cursor=pointer]:
+      - generic [ref=f9e178]: 主题

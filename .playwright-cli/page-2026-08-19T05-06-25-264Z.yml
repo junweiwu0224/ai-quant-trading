@@ -1,0 +1,53 @@
+- generic [ref=f239e3]:
+  - complementary [ref=f239e4]:
+    - generic [ref=f239e5]:
+      - generic [ref=f239e6]: AQ
+      - generic [ref=f239e7]:
+        - strong [ref=f239e8]: AI Quant
+        - generic [ref=f239e9]: 决策工作台
+    - generic [ref=f239e10]: 中国市场工作区
+    - navigation "主导航" [ref=f239e12]:
+      - link "决策" [ref=f239e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f239e20] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f239e25] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f239e29] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f239e34] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f239e40]: 等待数据状态
+  - main [ref=f239e44]:
+    - generic [ref=f239e45]:
+      - generic [ref=f239e46]:
+        - generic [ref=f239e47]: 当前工作流
+        - strong [ref=f239e48]: 决策中心
+      - generic [ref=f239e49]:
+        - generic [ref=f239e50]:
+          - generic [ref=f239e51]: 市场
+          - combobox "市场" [ref=f239e52] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f239e53] [cursor=pointer]
+        - button "切换主题" [ref=f239e57] [cursor=pointer]
+        - button "打开更多工作台" [ref=f239e65] [cursor=pointer]
+        - link "打开账户设置" [ref=f239e70] [cursor=pointer]:
+          - /url: /app/settings
+    - generic "当前研究上下文" [ref=f239e74]:
+      - generic [ref=f239e75]:
+        - generic [ref=f239e76]: 工作区
+        - strong [ref=f239e77]: 我的龙虾工作区
+      - generic [ref=f239e78]:
+        - generic [ref=f239e79]: 标的
+        - strong [ref=f239e80]: CN / 600519
+      - generic [ref=f239e81]:
+        - generic [ref=f239e82]: 数据
+        - strong [ref=f239e83]: 数据新鲜
+      - generic [ref=f239e84]:
+        - generic [ref=f239e85]: 资格
+        - strong [ref=f239e86]: 资格阻断

@@ -1,0 +1,36 @@
+- generic [ref=f320e3]:
+  - main [ref=f320e4]:
+    - generic [ref=f320e5]:
+      - button "打开导航" [ref=f320e6] [cursor=pointer]
+      - strong [ref=f320e9]: 决策中心
+      - generic [ref=f320e10]:
+        - generic [ref=f320e11]:
+          - generic [ref=f320e12]: 市场
+          - combobox "市场" [ref=f320e13] [cursor=pointer]:
+            - option "A 股"
+            - option "港股"
+            - option "美股" [selected]
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f320e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f320e18] [cursor=pointer]:
+          - /url: /app/settings
+    - generic "当前研究上下文" [ref=f320e22]:
+      - generic [ref=f320e23]:
+        - generic [ref=f320e24]: 标的
+        - strong [ref=f320e25]: 未选择标的
+      - generic [ref=f320e26]:
+        - generic [ref=f320e27]: 资格
+        - strong [ref=f320e28]: 资格未检查
+  - navigation "移动导航" [ref=f320e30]:
+    - link "决策" [ref=f320e31] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f320e38] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f320e43] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f320e47] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f320e52] [cursor=pointer]:
+      - /url: /app/workflows

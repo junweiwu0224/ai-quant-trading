@@ -1,0 +1,128 @@
+- generic [ref=f45e3]:
+  - complementary [ref=f45e4]:
+    - generic [ref=f45e5]:
+      - generic [ref=f45e6]: AQ
+      - generic [ref=f45e7]:
+        - strong [ref=f45e8]: AI Quant
+        - generic [ref=f45e9]: 决策工作台
+      - button "关闭导航" [ref=f45e10] [cursor=pointer]
+    - generic [ref=f45e14]: 中国市场工作区
+    - navigation "主导航" [ref=f45e16]:
+      - link "决策" [ref=f45e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f45e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f45e29] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f45e33] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f45e38] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f45e44]: 等待数据状态
+  - main [ref=f45e48]:
+    - generic [ref=f45e49]:
+      - button "打开导航" [ref=f45e50] [cursor=pointer]
+      - strong [ref=f45e53]: 验证
+      - generic [ref=f45e54]:
+        - generic [ref=f45e55]:
+          - generic [ref=f45e56]: 市场
+          - combobox "市场" [ref=f45e57] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f45e58] [cursor=pointer]
+        - link "打开账户设置" [ref=f45e62] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f45e67]:
+      - generic [ref=f45e68]:
+        - generic [ref=f45e69]:
+          - generic [ref=f45e70]: VALIDATION / TRACEABLE RESULT
+          - heading "验证与回测" [level=1] [ref=f45e71]
+          - paragraph [ref=f45e72]: 回测结果、样本外、Monte Carlo 和组合资格分开呈现；任何研究结果都不会直接变成订单或自动推送资格。
+        - generic [ref=f45e73]:
+          - status [ref=f45e74]:
+            - generic [ref=f45e80]: 验证工作区
+          - button "刷新" [disabled] [ref=f45e81]
+      - generic [ref=f45e87]:
+        - strong [ref=f45e88]: 当前研究对象：CN / 600519
+        - generic [ref=f45e89]: 未命名标的
+      - generic [ref=f45e90]:
+        - generic [ref=f45e91]:
+          - generic [ref=f45e92]:
+            - heading "回测参数" [level=2] [ref=f45e93]
+            - paragraph [ref=f45e94]: 请求体与旧 /api/backtest/run 兼容，成本和周期显式记录。
+          - generic [ref=f45e95]: 研究操作
+        - generic [ref=f45e96]:
+          - generic [ref=f45e97]:
+            - generic [ref=f45e98]:
+              - generic [ref=f45e99]: 策略
+              - combobox "策略" [ref=f45e100]
+            - generic [ref=f45e101]:
+              - generic [ref=f45e102]: 标的代码
+              - textbox "标的代码" [ref=f45e103]:
+                - /placeholder: 000001,600519
+                - text: "600519"
+            - generic [ref=f45e104]:
+              - generic [ref=f45e105]: 开始日期
+              - textbox "开始日期" [ref=f45e106]: 2023-01-01
+            - generic [ref=f45e107]:
+              - generic [ref=f45e108]: 结束日期
+              - textbox "结束日期" [ref=f45e109]: 2024-12-31
+            - generic [ref=f45e110]:
+              - generic [ref=f45e111]: 初始资金
+              - spinbutton "初始资金" [ref=f45e112]: "1000000"
+            - generic [ref=f45e113]:
+              - generic [ref=f45e114]: 周期
+              - combobox "周期" [ref=f45e115]:
+                - option "日线" [selected]
+                - option "1 分钟"
+                - option "5 分钟"
+                - option "15 分钟"
+                - option "30 分钟"
+                - option "60 分钟"
+            - generic [ref=f45e116]:
+              - generic [ref=f45e117]: 基准
+              - combobox "基准" [ref=f45e118]:
+                - option "不设置基准" [selected]
+            - generic [ref=f45e119]:
+              - generic [ref=f45e120]: 佣金率
+              - spinbutton "佣金率" [ref=f45e121]: "0.0003"
+            - generic [ref=f45e122]:
+              - generic [ref=f45e123]: 印花税率
+              - spinbutton "印花税率" [ref=f45e124]: "0.001"
+            - generic [ref=f45e125]:
+              - generic [ref=f45e126]: 滑点
+              - spinbutton "滑点" [ref=f45e127]: "0.002"
+            - generic [ref=f45e128]:
+              - generic [ref=f45e129]: 样本外训练比例
+              - spinbutton "样本外训练比例" [ref=f45e130]: "0.7"
+            - generic [ref=f45e131]:
+              - generic [ref=f45e132]: Monte Carlo 次数
+              - spinbutton "Monte Carlo 次数" [ref=f45e133]: "1000"
+          - generic [ref=f45e134]:
+            - checkbox "启用回测风控" [ref=f45e135]
+            - text: 启用回测风控
+          - generic [ref=f45e136]:
+            - button "运行回测" [disabled] [ref=f45e137]
+            - button "运行稳健性验证" [disabled] [ref=f45e140]
+            - button "导出 PDF" [disabled] [ref=f45e144]
+      - navigation "验证工作区" [ref=f45e148]:
+        - button "回测工作流" [ref=f45e149] [cursor=pointer]
+        - button "样本外与 Monte Carlo" [ref=f45e150] [cursor=pointer]
+        - button "收益、交易与成本" [ref=f45e151] [cursor=pointer]
+        - button "组合资格" [ref=f45e152] [cursor=pointer]
+      - generic [ref=f45e153]: 先运行一次回测，再查看权益曲线和交易明细。
+  - navigation "移动导航" [ref=f45e154]:
+    - link "决策" [ref=f45e155] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f45e162] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f45e167] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f45e171] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f45e176] [cursor=pointer]:
+      - /url: /app/workflows

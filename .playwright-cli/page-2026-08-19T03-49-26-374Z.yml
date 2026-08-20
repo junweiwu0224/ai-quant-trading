@@ -1,0 +1,169 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6]: AQ
+      - generic [ref=f1e7]:
+        - strong [ref=f1e8]: AI Quant
+        - generic [ref=f1e9]: 决策工作台
+    - generic [ref=f1e10]: 中国市场工作区
+    - navigation "主导航" [ref=f1e12]:
+      - link "决策中心" [ref=f1e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f1e20] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f1e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f1e29] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f1e32] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f1e36] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f1e40] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f1e46] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f1e50] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f1e55] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f1e60] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f1e65] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f1e70]: 工作区
+    - navigation "工作区导航" [ref=f1e71]:
+      - button "Token 用量" [ref=f1e72] [cursor=pointer]
+      - link "设置" [ref=f1e76] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f1e81] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f1e93]:
+      - button "深色模式" [ref=f1e94] [cursor=pointer]
+      - generic [ref=f1e98]: 等待数据状态
+  - main [ref=f1e101]:
+    - generic [ref=f1e102]:
+      - generic [ref=f1e103]:
+        - generic [ref=f1e104]: 当前工作流
+        - strong [ref=f1e105]: 决策中心
+      - generic [ref=f1e106]:
+        - generic [ref=f1e107]:
+          - generic [ref=f1e108]: 市场
+          - combobox "市场" [ref=f1e109] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f1e110] [cursor=pointer]
+        - button "切换主题" [ref=f1e114] [cursor=pointer]
+        - link "研究" [ref=f1e117] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f1e119]:
+      - generic [ref=f1e120]:
+        - generic [ref=f1e121]:
+          - heading "把自选池变成可追溯决策" [level=1] [ref=f1e122]
+          - paragraph [ref=f1e123]: 先选策略组合，再查看冻结输入、策略贡献和数据资格。自动推送资格与手动分析完全分开。
+        - generic [ref=f1e124]:
+          - button "刷新" [disabled] [ref=f1e125]
+          - button "从自选池创建组合" [ref=f1e131] [cursor=pointer]
+      - generic [ref=f1e134]:
+        - generic [ref=f1e135]: 仅手动研究
+        - strong [ref=f1e136]: CN 市场能力边界
+        - generic [ref=f1e137]: 市场能力清单尚未返回，自动推送保持关闭。
+      - generic [ref=f1e138]:
+        - generic [ref=f1e139]:
+          - generic [ref=f1e140]: 当前组合
+          - strong [ref=f1e141]: 未选择
+          - generic [ref=f1e142]: —
+        - generic [ref=f1e143]:
+          - generic [ref=f1e144]: 研究池
+          - strong [ref=f1e145]: —
+          - generic [ref=f1e146]: AI 信号范围
+        - generic [ref=f1e147]:
+          - generic [ref=f1e148]: 预警历史
+          - strong [ref=f1e149]: —
+          - generic [ref=f1e150]: 最近读取结果
+        - generic [ref=f1e151]:
+          - generic [ref=f1e152]: 自动推送
+          - strong [ref=f1e153]: 未达标
+          - generic [ref=f1e154]: 等待组合资格检查
+      - generic [ref=f1e155]:
+        - generic [ref=f1e156]:
+          - generic [ref=f1e157]:
+            - generic [ref=f1e158]:
+              - generic [ref=f1e159]:
+                - heading "策略组合" [level=2] [ref=f1e160]
+                - paragraph [ref=f1e161]: 同一股票可以属于多个组合，历史运行不会被覆盖。
+              - generic [ref=f1e162]: CN
+            - generic [ref=f1e164]:
+              - strong [ref=f1e165]: 还没有策略组合
+              - text: 从当前自选池创建第一份组合，或手动加入成员。
+              - generic [ref=f1e166]:
+                - button "创建组合" [ref=f1e167] [cursor=pointer]
+                - link "打开单股研究" [ref=f1e169] [cursor=pointer]:
+                  - /url: /app/research
+          - generic [ref=f1e170]:
+            - generic [ref=f1e172]:
+              - heading "市场雷达" [level=2] [ref=f1e173]
+              - paragraph [ref=f1e174]: 快路径优先读取本地覆盖池或缓存，来源和过期状态始终可见。
+            - generic [ref=f1e177]: 正在读取市场雷达…
+          - generic [ref=f1e184]:
+            - generic [ref=f1e186]:
+              - heading "机会池" [level=2] [ref=f1e187]
+              - paragraph [ref=f1e188]: 基于 decision matrix 的 signal / watchlist 范围；缺失 provider 不会产生虚假候选。
+            - generic [ref=f1e191]:
+              - tablist "机会池范围" [ref=f1e192]:
+                - button "AI 信号 Top" [ref=f1e193] [cursor=pointer]
+                - button "当前自选" [ref=f1e196] [cursor=pointer]
+              - status [ref=f1e199]:
+                - generic [ref=f1e200]: 等待加载
+                - generic [ref=f1e201]: 研究池尚未返回，缺失数据不会被替换成 0。
+                - generic [ref=f1e202]: 覆盖 — · 生成 —
+              - generic [ref=f1e203]: 正在读取机会池…
+          - generic [ref=f1e209]:
+            - generic [ref=f1e210]:
+              - generic [ref=f1e211]:
+                - heading "组合决策" [level=2] [ref=f1e212]
+                - paragraph [ref=f1e213]: 首次普通状态只记录不推送；风险和状态变化按规则去重。
+              - generic [ref=f1e214]:
+                - button "手动分析" [disabled] [ref=f1e215]
+                - link "查看报告" [ref=f1e219] [cursor=pointer]:
+                  - /url: /app/reports
+            - generic [ref=f1e221]:
+              - strong [ref=f1e222]: 选择一个组合开始
+              - text: 当前页面不会用空白或 0 分掩盖缺失数据。
+        - complementary [ref=f1e223]:
+          - generic [ref=f1e224]:
+            - generic [ref=f1e226]:
+              - heading "自动推送资格" [level=2] [ref=f1e227]
+              - paragraph [ref=f1e228]: 资格通过之前，开关不可绕过。
+            - generic [ref=f1e231]:
+              - generic [ref=f1e232]: 完成一次预览后显示资格检查。
+              - generic [ref=f1e233]:
+                - link "进入验证" [ref=f1e234] [cursor=pointer]:
+                  - /url: /app/validation
+                - link "配置通知" [ref=f1e235] [cursor=pointer]:
+                  - /url: /app/notifications
+          - generic [ref=f1e236]:
+            - generic [ref=f1e238]:
+              - heading "当前工作区自选" [level=2] [ref=f1e239]
+              - paragraph [ref=f1e240]: 自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。
+            - generic [ref=f1e243]: 正在读取自选…
+          - generic [ref=f1e250]:
+            - generic [ref=f1e252]:
+              - heading "预警历史" [level=2] [ref=f1e253]
+              - paragraph [ref=f1e254]: 只展示接口返回的触发记录；没有记录不等于当前没有风险。
+            - generic [ref=f1e260]: 正在读取预警历史…
+          - generic [ref=f1e267]:
+            - generic [ref=f1e269]:
+              - heading "快速加入组合成员" [level=2] [ref=f1e270]
+              - paragraph [ref=f1e271]: 只修改组合成员，不会改写既有运行。
+            - generic [ref=f1e275]:
+              - generic [ref=f1e276]:
+                - generic [ref=f1e277]: 股票代码
+                - textbox "股票代码" [ref=f1e278]:
+                  - /placeholder: 例如 600519
+              - button "加入当前组合" [disabled] [ref=f1e280]
+              - paragraph [ref=f1e282]: 组合成员变更不会重写既有快照；未接入合格 provider 时不会生成自动信号。

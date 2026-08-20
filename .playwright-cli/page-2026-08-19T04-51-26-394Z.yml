@@ -1,0 +1,120 @@
+- generic [ref=f235e3]:
+  - complementary [ref=f235e4]:
+    - generic [ref=f235e5]:
+      - generic [ref=f235e6]: AQ
+      - generic [ref=f235e7]:
+        - strong [ref=f235e8]: AI Quant
+        - generic [ref=f235e9]: 决策工作台
+    - generic [ref=f235e10]: 中国市场工作区
+    - navigation "主导航" [ref=f235e12]:
+      - link "决策" [ref=f235e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f235e20] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f235e25] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f235e29] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f235e34] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f235e40]: 数据状态已读取
+  - main [ref=f235e44]:
+    - generic [ref=f235e45]:
+      - generic [ref=f235e46]:
+        - generic [ref=f235e47]: 当前工作流
+        - strong [ref=f235e48]: 通知
+      - generic [ref=f235e49]:
+        - generic [ref=f235e50]:
+          - generic [ref=f235e51]: 市场
+          - combobox "市场" [ref=f235e52] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f235e53] [cursor=pointer]
+        - button "切换主题" [ref=f235e57] [cursor=pointer]
+        - button "打开更多工作台" [ref=f235e65] [cursor=pointer]
+        - link "打开账户设置" [ref=f235e70] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f235e75]:
+      - generic [ref=f235e76]:
+        - generic [ref=f235e77]:
+          - heading "通知路由" [level=1] [ref=f235e78]
+          - paragraph [ref=f235e79]: 摘要发送到企业微信、个人微信服务、飞书或 QQ；完整报告通过短期只读链接打开。凭证只使用受保护引用。
+        - generic [ref=f235e80]:
+          - status [ref=f235e81]:
+            - generic [ref=f235e87]: 投递配置
+          - generic [ref=f235e88]: 外部投递默认关闭
+          - button "刷新" [disabled] [ref=f235e92]
+      - generic "投递状态摘要" [ref=f235e98]:
+        - generic [ref=f235e99]:
+          - generic [ref=f235e100]: 已投递
+          - strong [ref=f235e101]: "0"
+        - generic [ref=f235e102]:
+          - generic [ref=f235e103]: 策略阻断
+          - strong [ref=f235e104]: "0"
+        - generic [ref=f235e105]:
+          - generic [ref=f235e106]: 待复核
+          - strong [ref=f235e107]: "0"
+        - generic [ref=f235e108]:
+          - generic [ref=f235e109]: 失败 / 死信
+          - strong [ref=f235e110]: "0"
+      - generic [ref=f235e111]:
+        - generic [ref=f235e112]:
+          - generic [ref=f235e114]:
+            - heading "通知目标" [level=2] [ref=f235e115]
+            - paragraph [ref=f235e116]: 每个渠道独立测试、失败计数和停用。
+          - generic [ref=f235e120]:
+            - generic [ref=f235e121]:
+              - generic [ref=f235e122]:
+                - generic [ref=f235e123]: 渠道
+                - combobox "渠道" [ref=f235e124]:
+                  - option "企业微信机器人" [selected]
+                  - option "PushPlus 个人微信"
+                  - option "飞书群机器人"
+                  - option "QQ 官方机器人"
+              - generic [ref=f235e125]:
+                - generic [ref=f235e126]: 显示名称
+                - textbox "显示名称" [ref=f235e127]:
+                  - /placeholder: 例如 盘前企业微信
+              - generic [ref=f235e128]:
+                - generic [ref=f235e129]: 密钥引用
+                - textbox "密钥引用" [ref=f235e130]:
+                  - /placeholder: env://QUANT_CHANNEL_SECRET
+              - generic [ref=f235e131]:
+                - generic [ref=f235e132]: 端点引用
+                - textbox "端点引用" [ref=f235e133]:
+                  - /placeholder: env://WECHAT_WEBHOOK_URL
+            - button "保存目标" [disabled] [ref=f235e135]
+          - generic [ref=f235e137]: 尚未配置渠道。保存后仍不能自动推送，直到测试通过。
+        - generic [ref=f235e139]:
+          - generic [ref=f235e141]:
+            - heading "报告路由" [level=2] [ref=f235e142]
+            - paragraph [ref=f235e143]: 按组合和事件类型分发，不参与动作计算。
+          - generic [ref=f235e147]:
+            - generic [ref=f235e148]:
+              - generic [ref=f235e149]:
+                - generic [ref=f235e150]: 策略组合
+                - combobox "策略组合" [ref=f235e151]:
+                  - option "选择组合" [selected]
+              - generic [ref=f235e152]:
+                - generic [ref=f235e153]: 通知目标
+                - combobox "通知目标" [ref=f235e154]:
+                  - option "选择目标" [selected]
+              - generic [ref=f235e155]:
+                - generic [ref=f235e156]: 事件类型
+                - combobox "事件类型" [ref=f235e157]:
+                  - option "定时报告" [selected]
+                  - option "状态变化"
+                  - option "首次重大风险"
+            - button "保存路由" [disabled] [ref=f235e159]
+          - generic [ref=f235e161]: 暂无路由。
+      - generic [ref=f235e163]:
+        - generic [ref=f235e165]:
+          - heading "发送历史与失败队列" [level=2] [ref=f235e166]
+          - paragraph [ref=f235e167]: 每一次投递尝试都可审计；失败、阻断和死信不会被展示成“已发送”。
+        - generic [ref=f235e173]:
+          - strong [ref=f235e174]: 暂无投递尝试
+          - text: 启用外部渠道前，系统只会在这里记录受控阻断原因。

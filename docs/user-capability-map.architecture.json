@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Quant 用户能力地图：当前版本 vs 优化版本",
+    "output": "docs/user-capability-map.architecture.html",
+    "animation": "none",
+    "quality_profile": "standard",
+    "viewBox": [1900, 900],
+    "views": [
+      {
+        "id": "current-version",
+        "label": "当前版本",
+        "focus": ["shared-context", "shared-task", "shared-evidence", "shared-safety", "cur-context", "cur-discovery", "cur-data", "cur-research", "cur-strategy", "cur-validation", "cur-execution", "cur-review"],
+        "note": "按现有页面入口和模块分布阅读：能力已经存在，但入口、状态和执行边界仍然分散。"
+      },
+      {
+        "id": "optimized-version",
+        "label": "优化版本",
+        "focus": ["shared-context", "shared-task", "shared-evidence", "shared-safety", "opt-context", "opt-discovery", "opt-data", "opt-research", "opt-strategy", "opt-validation", "opt-execution", "opt-review"],
+        "note": "按用户任务、研究对象、策略版本和运行实例收敛：先资格，再证据，再执行，最后复盘。"
+      },
+      {
+        "id": "version-comparison",
+        "label": "版本对比",
+        "focus": ["shared-context", "shared-task", "shared-evidence", "shared-safety", "cur-context", "cur-discovery", "cur-data", "cur-research", "cur-strategy", "cur-validation", "cur-execution", "cur-review", "opt-context", "opt-discovery", "opt-data", "opt-research", "opt-strategy", "opt-validation", "opt-execution", "opt-review"],
+        "note": "逐能力域对照当前与目标状态，重点查看入口合并、资格前移、版本化和执行权收敛。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "shared-context", "type": "security", "label": "全局上下文", "sublabel": "account · workspace · market · environment", "tag": "两版共通", "pos": [120, 45], "size": [350, 60] },
+    { "id": "shared-task", "type": "messagebus", "label": "异步任务状态", "sublabel": "提交 · 处理中 · 完成 · 失败 · 重试", "tag": "两版共通", "pos": [520, 45], "size": [350, 60] },
+    { "id": "shared-evidence", "type": "database", "label": "证据与审计", "sublabel": "冻结 artifact · 报告 · 操作追溯", "tag": "必须补齐", "pos": [920, 45], "size": [350, 60] },
+    { "id": "shared-safety", "type": "security", "label": "执行安全边界", "sublabel": "统一 RiskGate · AI 不下单", "tag": "不可绕过", "pos": [1320, 45], "size": [350, 60] },
+
+    { "id": "cur-context", "type": "frontend", "label": "多入口 Dashboard", "sublabel": "决策 / 研究 / 设置 / legacy redirect", "tag": "当前", "pos": [80, 165], "size": [760, 58] },
+    { "id": "cur-discovery", "type": "frontend", "label": "决策中心 + 市场情报", "sublabel": "机会 / 自选 / 行情 / 入口分散", "tag": "当前", "pos": [80, 257], "size": [760, 58] },
+    { "id": "cur-data", "type": "security", "label": "数据能力隐含在流程", "sublabel": "同步 / 新鲜度 / 数据健康分散，缺显式资格闸门", "tag": "当前缺口", "pos": [80, 349], "size": [760, 58] },
+    { "id": "cur-research", "type": "frontend", "label": "研究 / Alpha / AI 分列", "sublabel": "单股研究 · 因子 · AI artifact，证据上下文不统一", "tag": "当前", "pos": [80, 441], "size": [760, 58] },
+    { "id": "cur-strategy", "type": "backend", "label": "策略工作台 + 回测", "sublabel": "代码 / 参数 / 版本 / 运行，实验结果分散保存", "tag": "当前", "pos": [80, 533], "size": [760, 58] },
+    { "id": "cur-validation", "type": "security", "label": "验证页 + 风控入口", "sublabel": "回测 / OOS / 人工确认 / 风控路径尚未统一", "tag": "当前缺口", "pos": [80, 625], "size": [760, 58] },
+    { "id": "cur-execution", "type": "frontend", "label": "组合 / 风控 / 模拟盘 / 条件单", "sublabel": "页面并列，Paper 执行所有权仍需收敛", "tag": "当前风险", "pos": [80, 717], "size": [760, 58] },
+    { "id": "cur-review", "type": "frontend", "label": "报告 / 通知 / 设置 / 运维", "sublabel": "结果、投递、系统管理分散在不同入口", "tag": "当前", "pos": [80, 809], "size": [760, 58] },
+
+    { "id": "opt-context", "type": "frontend", "label": "任务工作区上下文", "sublabel": "稳定 workspace · account · market · environment", "tag": "目标", "pos": [1060, 165], "size": [760, 58] },
+    { "id": "opt-discovery", "type": "frontend", "label": "机会工作区", "sublabel": "市场雷达 · 自选 · 筛选 · 候选研究对象", "tag": "目标", "pos": [1060, 257], "size": [760, 58] },
+    { "id": "opt-data", "type": "security", "label": "数据资格闸门", "sublabel": "覆盖 · 新鲜度 · 口径 · 可复现快照，失败先修复", "tag": "目标前置", "pos": [1060, 349], "size": [760, 58] },
+    { "id": "opt-research", "type": "frontend", "label": "研究对象工作台", "sublabel": "事实 · 因子/模型 · AI 证据 · 可追溯研究结论", "tag": "目标", "pos": [1060, 441], "size": [760, 58] },
+    { "id": "opt-strategy", "type": "backend", "label": "策略版本与实验", "sublabel": "版本 · 数据快照 · 参数 · 可复现 artifact", "tag": "目标", "pos": [1060, 533], "size": [760, 58] },
+    { "id": "opt-validation", "type": "security", "label": "资格与晋级闸门", "sublabel": "OOS · walk-forward · 压测 · 风控 · 人工批准", "tag": "目标闸门", "pos": [1060, 625], "size": [760, 58] },
+    { "id": "opt-execution", "type": "backend", "label": "组合执行工作区", "sublabel": "统一 RiskGate · PaperWorker · 订单/持仓/条件单", "tag": "目标", "pos": [1060, 717], "size": [760, 58] },
+    { "id": "opt-review", "type": "frontend", "label": "复盘与运营中心", "sublabel": "报告 · 对账 · 告警 · 任务 · 审计 · 晋级候选", "tag": "目标", "pos": [1060, 809], "size": [760, 58] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "横向约束（当前已有部分能力，目标必须统一）", "wraps": ["shared-context", "shared-task", "shared-evidence", "shared-safety"], "pad": 18 },
+    { "kind": "region", "label": "当前版本｜按入口与模块分散", "wraps": ["cur-context", "cur-discovery", "cur-data", "cur-research", "cur-strategy", "cur-validation", "cur-execution", "cur-review"], "pad": 20 },
+    { "kind": "security-group", "label": "优化版本｜按任务、状态和执行所有权收敛", "wraps": ["opt-context", "opt-discovery", "opt-data", "opt-research", "opt-strategy", "opt-validation", "opt-execution", "opt-review"], "pad": 20 }
+  ],
+  "connections": [
+    { "id": "cur-flow-context-discovery", "from": "cur-context", "to": "cur-discovery", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-discovery-data", "from": "cur-discovery", "to": "cur-data", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-data-research", "from": "cur-data", "to": "cur-research", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-research-strategy", "from": "cur-research", "to": "cur-strategy", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-strategy-validation", "from": "cur-strategy", "to": "cur-validation", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-validation-execution", "from": "cur-validation", "to": "cur-execution", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cur-flow-execution-review", "from": "cur-execution", "to": "cur-review", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+
+    { "id": "opt-flow-context-discovery", "from": "opt-context", "to": "opt-discovery", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-discovery-data", "from": "opt-discovery", "to": "opt-data", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-data-research", "from": "opt-data", "to": "opt-research", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-research-strategy", "from": "opt-research", "to": "opt-strategy", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-strategy-validation", "from": "opt-strategy", "to": "opt-validation", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-validation-execution", "from": "opt-validation", "to": "opt-execution", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "opt-flow-execution-review", "from": "opt-execution", "to": "opt-review", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+
+    { "id": "compare-context", "from": "cur-context", "to": "opt-context", "label": "上下文统一", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-discovery", "from": "cur-discovery", "to": "opt-discovery", "label": "入口合并", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-data", "from": "cur-data", "to": "opt-data", "label": "闸门前移", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-research", "from": "cur-research", "to": "opt-research", "label": "AI 降级为证据", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-strategy", "from": "cur-strategy", "to": "opt-strategy", "label": "版本化复现", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-validation", "from": "cur-validation", "to": "opt-validation", "label": "晋级显式化", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-execution", "from": "cur-execution", "to": "opt-execution", "label": "执行权收敛", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "compare-review", "from": "cur-review", "to": "opt-review", "label": "运营统一", "variant": "emphasis", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "当前版本的主要问题", "items": ["功能并不少，问题是入口按页面和模块分散，用户需要自己拼接流程", "数据资格、策略版本、运行实例和报告之间缺少统一上下文", "Paper 执行、风控、通知和运维存在多个并行入口"] },
+    { "dot": "emerald", "title": "优化版本的核心链路", "items": ["围绕一个研究对象、一个策略版本和一个运行实例持续推进", "先做数据资格和证据校验，再允许策略验证和执行副作用", "所有异步动作都有任务状态，所有执行动作都经过版本化 RiskGate"] },
+    { "dot": "rose", "title": "版本切换时要保留的边界", "items": ["AI 只能生产研究证据，不能拥有决策、订单或通知状态", "模拟盘和未来实盘共用风险策略，但由不同执行适配器承接", "当前 legacy 页面可保留兼容期，但不再成为新的产品导航骨架"] }
+  ]
+}

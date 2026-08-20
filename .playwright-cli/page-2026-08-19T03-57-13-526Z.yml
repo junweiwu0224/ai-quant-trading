@@ -1,0 +1,104 @@
+- generic [ref=f23e3]:
+  - complementary [ref=f23e4]:
+    - generic [ref=f23e5]:
+      - generic [ref=f23e6]: AQ
+      - generic [ref=f23e7]:
+        - strong [ref=f23e8]: AI Quant
+        - generic [ref=f23e9]: 决策工作台
+    - generic [ref=f23e10]: 中国市场工作区
+    - navigation "主导航" [ref=f23e12]:
+      - link "决策" [ref=f23e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f23e20] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f23e25] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f23e29] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f23e34] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f23e40]: 等待数据状态
+  - main [ref=f23e44]:
+    - generic [ref=f23e45]:
+      - generic [ref=f23e46]:
+        - generic [ref=f23e47]: 当前工作流
+        - strong [ref=f23e48]: 通知
+      - generic [ref=f23e49]:
+        - generic [ref=f23e50]:
+          - generic [ref=f23e51]: 市场
+          - combobox "市场" [ref=f23e52] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f23e53] [cursor=pointer]
+        - button "切换主题" [ref=f23e57] [cursor=pointer]
+        - button "打开更多工作台" [ref=f23e65] [cursor=pointer]
+        - link "打开账户设置" [ref=f23e70] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f23e75]:
+      - generic [ref=f23e76]:
+        - generic [ref=f23e77]:
+          - heading "通知路由" [level=1] [ref=f23e78]
+          - paragraph [ref=f23e79]: 摘要发送到企业微信、个人微信服务、飞书或 QQ；完整报告通过短期只读链接打开。凭证只使用受保护引用。
+        - generic [ref=f23e80]:
+          - status [ref=f23e81]:
+            - generic [ref=f23e87]: 投递配置
+          - generic [ref=f23e88]: 外部投递默认关闭
+          - button "刷新" [disabled] [ref=f23e92]
+      - generic [ref=f23e98]:
+        - generic [ref=f23e99]:
+          - generic [ref=f23e101]:
+            - heading "通知目标" [level=2] [ref=f23e102]
+            - paragraph [ref=f23e103]: 每个渠道独立测试、失败计数和停用。
+          - generic [ref=f23e107]:
+            - generic [ref=f23e108]:
+              - generic [ref=f23e109]:
+                - generic [ref=f23e110]: 渠道
+                - combobox [ref=f23e111]:
+                  - option "企业微信机器人" [selected]
+                  - option "PushPlus 个人微信"
+                  - option "飞书群机器人"
+                  - option "QQ 官方机器人"
+              - generic [ref=f23e112]:
+                - generic [ref=f23e113]: 显示名称
+                - textbox "例如 盘前企业微信" [ref=f23e114]
+              - generic [ref=f23e115]:
+                - generic [ref=f23e116]: 密钥引用
+                - textbox "env://QUANT_CHANNEL_SECRET" [ref=f23e117]
+              - generic [ref=f23e118]:
+                - generic [ref=f23e119]: 端点引用
+                - textbox "env://WECHAT_WEBHOOK_URL" [ref=f23e120]
+            - button "保存目标" [disabled] [ref=f23e122]
+          - generic [ref=f23e124]: 尚未配置渠道。保存后仍不能自动推送，直到测试通过。
+        - generic [ref=f23e126]:
+          - generic [ref=f23e128]:
+            - heading "报告路由" [level=2] [ref=f23e129]
+            - paragraph [ref=f23e130]: 按组合和事件类型分发，不参与动作计算。
+          - generic [ref=f23e134]:
+            - generic [ref=f23e135]:
+              - generic [ref=f23e136]:
+                - generic [ref=f23e137]: 策略组合
+                - combobox [ref=f23e138]:
+                  - option "选择组合" [selected]
+              - generic [ref=f23e139]:
+                - generic [ref=f23e140]: 通知目标
+                - combobox [ref=f23e141]:
+                  - option "选择目标" [selected]
+              - generic [ref=f23e142]:
+                - generic [ref=f23e143]: 事件类型
+                - combobox [ref=f23e144]:
+                  - option "定时报告" [selected]
+                  - option "状态变化"
+                  - option "首次重大风险"
+            - button "保存路由" [disabled] [ref=f23e146]
+          - generic [ref=f23e148]: 暂无路由。
+      - generic [ref=f23e150]:
+        - generic [ref=f23e152]:
+          - heading "发送历史与失败队列" [level=2] [ref=f23e153]
+          - paragraph [ref=f23e154]: 每一次投递尝试都可审计；失败、阻断和死信不会被展示成“已发送”。
+        - generic [ref=f23e160]:
+          - strong [ref=f23e161]: 暂无投递尝试
+          - text: 启用外部渠道前，系统只会在这里记录受控阻断原因。

@@ -1,6 +1,0 @@
-import{z as e}from"./index-C8D7BfO8.js";/**
- * @license lucide-vue-next v0.468.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */const t=e("SquareIcon",[["rect",{width:"18",height:"18",x:"3",y:"3",rx:"2",key:"afitv7"}]]);export{t as S};

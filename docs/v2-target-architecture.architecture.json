@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Quant V2：可信研究到可恢复执行",
+    "output": "docs/v2-target-architecture.html",
+    "animation": "none",
+    "quality_profile": "standard",
+    "viewBox": [1980, 900],
+    "views": [
+      {
+        "id": "trust-chain",
+        "label": "可信证据链",
+        "focus": ["web-client", "control-api", "command-inbox", "task-ledger", "data-worker", "data-snapshots", "scope-snapshots", "research-worker", "validation", "qualification", "approval", "execution-run", "risk-gate", "trade-queue", "paper-worker", "ledger-db", "reconciliation"],
+        "note": "从冻结输入开始，经过资格、批准、最终风控和唯一执行者，落到账本并进入对账。"
+      },
+      {
+        "id": "ownership",
+        "label": "状态所有权",
+        "focus": ["task-ledger", "data-worker", "data-snapshots", "research-worker", "ai-worker", "artifact-store", "paper-worker", "paper-adapter", "live-worker", "live-adapter", "ledger-db", "delivery-worker", "audit-outbox", "backup-recovery", "projection-store"],
+        "note": "逻辑 owner 可以先共进程，但每类权威事实只有一个写入者；前端和外部适配器不能直接写本地账本。"
+      },
+      {
+        "id": "failure-recovery",
+        "label": "失败与恢复",
+        "focus": ["command-inbox", "task-ledger", "risk-gate", "paper-worker", "live-worker", "ledger-db", "reconciliation", "audit-outbox", "backup-recovery", "legacy-dashboard", "legacy-paper", "migration-gate"],
+        "note": "租约丢失、数据库中断、外部状态未知和账本差异都必须停在可解释状态，不能静默继续。"
+      },
+      {
+        "id": "migration",
+        "label": "V1 到 V2 迁移",
+        "focus": ["legacy-dashboard", "legacy-paper", "migration-gate", "web-client", "control-api", "command-inbox", "paper-worker", "ledger-db", "backup-recovery", "observability"],
+        "note": "先封堵旧入口，再迁移唯一 Paper owner、统一命令协议、冻结研究引用和恢复协议；Live 不属于 V2 交付。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "web-client", "type": "frontend", "label": "V2 Web 工作台", "sublabel": "发现 / 研究 / 验证 / 执行 / 运营", "tag": "目标", "pos": [35, 40], "size": [190, 62] },
+    { "id": "control-api", "type": "backend", "label": "Control API", "sublabel": "认证 · 查询 · 命令提交", "tag": "无副作用", "pos": [265, 40], "size": [190, 62] },
+    { "id": "context-policy", "type": "security", "label": "冻结上下文策略", "sublabel": "workspace · account · environment · RBAC", "tag": "不可绕过", "pos": [495, 40], "size": [190, 62] },
+    { "id": "command-inbox", "type": "messagebus", "label": "Command Inbox", "sublabel": "幂等键 · command / task", "tag": "持久化", "pos": [725, 40], "size": [205, 62] },
+    { "id": "task-ledger", "type": "database", "label": "Task / Attempt / Lease", "sublabel": "retry · cancel · fence · dead", "tag": "权威状态", "pos": [970, 40], "size": [215, 62] },
+    { "id": "audit-outbox", "type": "database", "label": "Audit + Outbox", "sublabel": "追加事实 · 投递待办", "tag": "可恢复", "pos": [1225, 40], "size": [205, 62] },
+    { "id": "delivery-worker", "type": "backend", "label": "DeliveryWorker", "sublabel": "outbox attempt · retry · no fake success", "tag": "异步副作用", "pos": [1470, 40], "size": [205, 62] },
+    { "id": "notification-channels", "type": "external", "label": "通知 / 分享渠道", "sublabel": "Webhook · email · read-only report", "tag": "外部投递", "pos": [1720, 40], "size": [205, 62] },
+
+    { "id": "market-providers", "type": "external", "label": "Market Providers", "sublabel": "行情 / 基础数据 / provenance", "tag": "外部事实", "pos": [35, 215], "size": [190, 62] },
+    { "id": "data-worker", "type": "backend", "label": "DataWorker", "sublabel": "采集 · 规范化 · freshness", "tag": "唯一 owner", "pos": [265, 215], "size": [190, 62] },
+    { "id": "data-snapshots", "type": "database", "label": "DataSnapshot", "sublabel": "质量 envelope · content hash", "tag": "不可变", "pos": [495, 215], "size": [190, 62] },
+    { "id": "scope-snapshots", "type": "database", "label": "ScopeSnapshot", "sublabel": "instrument / universe / basket / portfolio", "tag": "冻结范围", "pos": [725, 215], "size": [205, 62] },
+    { "id": "research-worker", "type": "backend", "label": "Research / Decision Worker", "sublabel": "ResearchRun · ValidationRun · artifact", "tag": "逻辑 owner", "pos": [970, 215], "size": [215, 62] },
+    { "id": "artifact-store", "type": "database", "label": "Artifact Store", "sublabel": "策略 / 报告 / provenance / hash", "tag": "不可变", "pos": [1225, 215], "size": [205, 62] },
+    { "id": "ai-worker", "type": "backend", "label": "AIWorker", "sublabel": "非权威 artifact · attempt / fence", "tag": "无执行权", "pos": [1470, 215], "size": [205, 62] },
+    { "id": "llm-providers", "type": "external", "label": "LLM Provider", "sublabel": "外部调用 · 不写权威状态", "tag": "不可控副作用", "pos": [1720, 215], "size": [205, 62] },
+
+    { "id": "validation", "type": "backend", "label": "ValidationRun", "sublabel": "OOS · robustness · stress · replay", "tag": "确定性", "pos": [35, 390], "size": [190, 62] },
+    { "id": "qualification", "type": "security", "label": "Qualification", "sublabel": "资格结果 · 失效原因 · hash", "tag": "晋级闸门", "pos": [265, 390], "size": [190, 62] },
+    { "id": "approval", "type": "security", "label": "Approval", "sublabel": "人 · 时 · 绑定版本和快照", "tag": "人工确认", "pos": [495, 390], "size": [190, 62] },
+    { "id": "execution-run", "type": "backend", "label": "ExecutionRun", "sublabel": "account · environment · market · cycle", "tag": "执行聚合根", "pos": [725, 390], "size": [205, 62] },
+    { "id": "risk-gate", "type": "security", "label": "Final RiskGate", "sublabel": "最新账本 · 批量预留 · kill switch", "tag": "Adapter 前强制", "pos": [970, 390], "size": [215, 62] },
+    { "id": "trade-queue", "type": "messagebus", "label": "Trade Command Queue", "sublabel": "OrderIntentBatch · permit", "tag": "唯一入口", "pos": [1225, 390], "size": [205, 62] },
+    { "id": "order-intents", "type": "database", "label": "Intent / Permit Facts", "sublabel": "RiskDecision · ExecutionPermit", "tag": "不可变", "pos": [1470, 390], "size": [205, 62] },
+
+    { "id": "paper-worker", "type": "backend", "label": "PaperWorker", "sublabel": "唯一 paper lease · cycle · ledger", "tag": "V2 必须", "pos": [35, 565], "size": [190, 62] },
+    { "id": "paper-adapter", "type": "backend", "label": "PaperAdapter", "sublabel": "确定性撮合 · accepted quote cursor", "tag": "仅模拟", "pos": [265, 565], "size": [190, 62] },
+    { "id": "live-worker", "type": "backend", "label": "LiveWorker", "sublabel": "本地 ack / fill / reconciliation", "tag": "默认禁用", "pos": [495, 565], "size": [190, 62] },
+    { "id": "live-adapter", "type": "external", "label": "LiveAdapter", "sublabel": "Broker client_order_id · 查询恢复", "tag": "V2 不启用", "pos": [725, 565], "size": [205, 62] },
+    { "id": "ledger-db", "type": "database", "label": "Execution Ledger", "sublabel": "orders · fills · ledger entries", "tag": "唯一事实源", "pos": [970, 565], "size": [215, 62] },
+    { "id": "reconciliation", "type": "security", "label": "Reconciliation", "sublabel": "差异即 halt · 补偿分录 · 人工处理", "tag": "恢复闸门", "pos": [1225, 565], "size": [205, 62] },
+    { "id": "projection-store", "type": "database", "label": "Read Projections", "sublabel": "position · equity · performance · status", "tag": "可重建", "pos": [1470, 565], "size": [205, 62] },
+
+    { "id": "backup-recovery", "type": "database", "label": "Backup / Restore", "sublabel": "online backup · manifest · replay", "tag": "隔离恢复", "pos": [35, 740], "size": [190, 62] },
+    { "id": "observability", "type": "cloud", "label": "Worker Observability", "sublabel": "health · metrics · structured logs", "tag": "全域", "pos": [265, 740], "size": [190, 62] },
+    { "id": "legacy-dashboard", "type": "frontend", "label": "Legacy Dashboard / CLI", "sublabel": "旧启动和直接写库入口", "tag": "隔离", "pos": [495, 740], "size": [190, 62] },
+    { "id": "legacy-paper", "type": "backend", "label": "Legacy PaperEngine", "sublabel": "JSON + SQLite 双写路径", "tag": "下线中", "pos": [725, 740], "size": [205, 62] },
+    { "id": "migration-gate", "type": "security", "label": "Migration Gate", "sublabel": "旧入口封堵 · 数据迁移 · 回归门禁", "tag": "先于扩展", "pos": [970, 740], "size": [215, 62] },
+    { "id": "human-operations", "type": "frontend", "label": "运营与人工处理", "sublabel": "任务 · 审计 · 对账 · 恢复演练", "tag": "V2 工作区", "pos": [1225, 740], "size": [205, 62] },
+    { "id": "disabled-live", "type": "security", "label": "Live Disabled", "sublabel": "无 permit · 无 broker · 无执行权", "tag": "明确关闭", "pos": [1470, 740], "size": [205, 62] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "控制与权威任务平面：API 只能接受命令，不能直接产生交易副作用", "wraps": ["web-client", "control-api", "context-policy", "command-inbox", "task-ledger", "audit-outbox", "delivery-worker", "notification-channels"], "pad": 18 },
+    { "kind": "region", "label": "市场事实与研究证据：冻结快照进入可执行资格链", "wraps": ["market-providers", "data-worker", "data-snapshots", "scope-snapshots", "research-worker", "ai-worker", "artifact-store", "llm-providers"], "pad": 18 },
+    { "kind": "security-group", "label": "资格与交易命令：批准后的整批意图仍需执行 Worker 最终风控", "wraps": ["validation", "qualification", "approval", "execution-run", "risk-gate", "trade-queue", "order-intents"], "pad": 18 },
+    { "kind": "security-group", "label": "执行与账本：Paper/Live 适配器隔离，只有 Worker 写本地事实", "wraps": ["paper-worker", "paper-adapter", "live-worker", "live-adapter", "ledger-db", "reconciliation", "projection-store"], "pad": 18 },
+    { "kind": "region", "label": "运营、迁移与明确禁用边界", "wraps": ["backup-recovery", "observability", "legacy-dashboard", "legacy-paper", "migration-gate", "human-operations", "disabled-live"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "web-control", "from": "web-client", "to": "control-api", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "control-context", "from": "control-api", "to": "context-policy", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "context-command", "from": "context-policy", "to": "command-inbox", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "command-task", "from": "command-inbox", "to": "task-ledger", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "task-audit", "from": "task-ledger", "to": "audit-outbox", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "audit-delivery", "from": "audit-outbox", "to": "delivery-worker", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "delivery-notify", "from": "delivery-worker", "to": "notification-channels", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+
+    { "id": "provider-data", "from": "market-providers", "to": "data-worker", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "data-snapshot", "from": "data-worker", "to": "data-snapshots", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "snapshot-scope", "from": "data-snapshots", "to": "scope-snapshots", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "scope-research", "from": "scope-snapshots", "to": "research-worker", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "research-artifact", "from": "research-worker", "to": "artifact-store", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "artifact-ai", "from": "artifact-store", "to": "ai-worker", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "ai-provider", "from": "ai-worker", "to": "llm-providers", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+
+    { "id": "research-validation", "from": "research-worker", "to": "validation", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[1077.5, 320], [130, 320], [130, 390]] },
+    { "id": "validation-qualification", "from": "validation", "to": "qualification", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "qualification-approval", "from": "qualification", "to": "approval", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "approval-run", "from": "approval", "to": "execution-run", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "run-risk", "from": "execution-run", "to": "risk-gate", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "risk-trade", "from": "risk-gate", "to": "trade-queue", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "trade-facts", "from": "trade-queue", "to": "order-intents", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+
+    { "id": "trade-paper", "from": "trade-queue", "to": "paper-worker", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[1327.5, 485], [130, 485], [130, 565]] },
+    { "id": "paper-adapter", "from": "paper-worker", "to": "paper-adapter", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "trade-live", "from": "trade-queue", "to": "live-worker", "variant": "security", "fromSide": "bottom", "toSide": "top", "via": [[1327.5, 500], [590, 500], [590, 565]] },
+    { "id": "live-adapter", "from": "live-worker", "to": "live-adapter", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "paper-ledger", "from": "paper-adapter", "to": "ledger-db", "variant": "emphasis", "fromSide": "bottom", "toSide": "bottom", "via": [[360, 650], [1077.5, 650]] },
+    { "id": "live-ledger", "from": "live-adapter", "to": "ledger-db", "variant": "security", "fromSide": "bottom", "toSide": "bottom", "via": [[827.5, 665], [1077.5, 665]] },
+    { "id": "ledger-recon", "from": "ledger-db", "to": "reconciliation", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "recon-projection", "from": "reconciliation", "to": "projection-store", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+
+    { "id": "legacy-dashboard-paper", "from": "legacy-dashboard", "to": "legacy-paper", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "legacy-paper-migration", "from": "legacy-paper", "to": "migration-gate", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "migration-ops", "from": "migration-gate", "to": "human-operations", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "ops-disabled-live", "from": "human-operations", "to": "disabled-live", "variant": "security", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "V2 的权威链", "items": ["ScopeSnapshot + DataSnapshot + StrategyVersion 冻结研究输入", "Qualification + Approval 只允许创建合格 ExecutionRun", "ExecutionWorker 在 Adapter 前以最新状态生成最终 RiskDecision / ExecutionPermit"] },
+    { "dot": "emerald", "title": "V2 的恢复链", "items": ["Task lease 丢失只能 reclaim attempt，旧 owner 不能写终态", "Paper/Live 账本不一致立即 halt，恢复必须经过 reconciliation", "Ledger 是唯一事实源，Position / Performance 只是可重建投影"] },
+    { "dot": "rose", "title": "V2 的硬边界", "items": ["Dashboard、CLI、AI 和外部 Broker 都不能直接写本地交易账本", "JSON 只做导出，旧 PaperEngine 进入迁移隔离区", "Live 在 V2 明确禁用，不能用目标图暗示已有实盘能力"] }
+  ]
+}

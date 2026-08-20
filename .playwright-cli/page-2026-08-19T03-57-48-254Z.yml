@@ -1,0 +1,77 @@
+- generic [ref=f31e3]:
+  - complementary [ref=f31e4]:
+    - generic [ref=f31e5]:
+      - generic [ref=f31e6]: AQ
+      - generic [ref=f31e7]:
+        - strong [ref=f31e8]: AI Quant
+        - generic [ref=f31e9]: 决策工作台
+      - button "关闭导航" [ref=f31e10] [cursor=pointer]
+    - generic [ref=f31e14]: 中国市场工作区
+    - navigation "主导航" [ref=f31e16]:
+      - link "决策" [ref=f31e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f31e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f31e29] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f31e33] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f31e38] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f31e44]: 等待数据状态
+  - main [ref=f31e48]:
+    - generic [ref=f31e49]:
+      - button "打开导航" [ref=f31e50] [cursor=pointer]
+      - strong [ref=f31e53]: 报告
+      - generic [ref=f31e54]:
+        - generic [ref=f31e55]:
+          - generic [ref=f31e56]: 市场
+          - combobox "市场" [ref=f31e57] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f31e58] [cursor=pointer]
+        - link "打开账户设置" [ref=f31e62] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f31e67]:
+      - generic [ref=f31e68]:
+        - generic [ref=f31e69]:
+          - heading "报告与投递审计" [level=1] [ref=f31e70]
+          - paragraph [ref=f31e71]: 报告生成、分享和投递是独立状态。只有投递记录成功，才代表通知已经发出。
+        - generic [ref=f31e72]:
+          - status [ref=f31e73]:
+            - generic [ref=f31e79]: 报告索引
+          - button "刷新" [disabled] [ref=f31e80]
+      - generic "报告审计摘要" [ref=f31e86]:
+        - generic [ref=f31e87]:
+          - generic [ref=f31e88]: 报告
+          - strong [ref=f31e89]: "0"
+        - generic [ref=f31e90]:
+          - generic [ref=f31e91]: 已投递
+          - strong [ref=f31e92]: "0"
+        - generic [ref=f31e93]:
+          - generic [ref=f31e94]: 待处理
+          - strong [ref=f31e95]: "0"
+      - generic [ref=f31e96]:
+        - generic [ref=f31e97]:
+          - generic [ref=f31e98]:
+            - heading "冻结报告" [level=2] [ref=f31e99]
+            - paragraph [ref=f31e100]: 每行可回溯输入 hash、数据状态、验证状态、AI artifact 和投递审计。
+          - generic [ref=f31e101]: 0 份
+        - generic [ref=f31e103]:
+          - strong [ref=f31e104]: 还没有报告
+          - text: 从决策中心完成一次预览或手动分析。
+  - navigation "移动导航" [ref=f31e105]:
+    - link "决策" [ref=f31e106] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f31e113] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f31e118] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f31e122] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f31e127] [cursor=pointer]:
+      - /url: /app/workflows

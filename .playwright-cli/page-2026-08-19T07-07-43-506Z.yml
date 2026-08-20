@@ -1,0 +1,98 @@
+- generic [ref=f355e3]:
+  - main [ref=f355e4]:
+    - generic [ref=f355e5]:
+      - button "打开导航" [ref=f355e6] [cursor=pointer]
+      - strong [ref=f355e9]: 验证
+      - generic [ref=f355e10]:
+        - generic [ref=f355e11]:
+          - generic [ref=f355e12]: 市场
+          - combobox "市场" [ref=f355e13] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f355e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f355e18] [cursor=pointer]:
+          - /url: /app/settings
+    - generic "当前研究上下文" [ref=f355e22]:
+      - generic [ref=f355e23]:
+        - generic [ref=f355e24]: 标的
+        - strong [ref=f355e25]: CN / 600519
+      - generic [ref=f355e26]:
+        - generic [ref=f355e27]: 资格
+        - strong [ref=f355e28]: 资格未检查
+    - generic [ref=f355e30]:
+      - generic [ref=f355e31]:
+        - generic [ref=f355e32]:
+          - generic [ref=f355e33]: VALIDATION / TRACEABLE RESULT
+          - heading "验证与回测" [level=1] [ref=f355e34]
+          - paragraph [ref=f355e35]: 回测结果、样本外、Monte Carlo 和组合资格分开呈现；任何研究结果都不会直接变成订单或自动推送资格。
+        - generic [ref=f355e36]:
+          - status [ref=f355e37]:
+            - generic [ref=f355e43]: 验证工作区
+          - button "刷新" [disabled] [ref=f355e44]
+      - generic [ref=f355e50]:
+        - strong [ref=f355e51]: 当前研究对象：CN / 600519
+        - generic [ref=f355e52]: 未命名标的
+      - generic [ref=f355e53]:
+        - generic [ref=f355e54]:
+          - generic [ref=f355e55]:
+            - heading "回测参数" [level=2] [ref=f355e56]
+            - paragraph [ref=f355e57]: 请求体与旧 /api/backtest/run 兼容，成本和周期显式记录。
+          - generic [ref=f355e58]: 研究操作
+        - generic [ref=f355e59]:
+          - generic [ref=f355e60]:
+            - generic [ref=f355e61]:
+              - generic [ref=f355e62]: 策略
+              - combobox "策略" [ref=f355e63]
+            - generic [ref=f355e64]:
+              - generic [ref=f355e65]: 标的代码
+              - textbox "标的代码" [ref=f355e66]:
+                - /placeholder: 000001,600519
+                - text: "600519"
+            - generic [ref=f355e67]:
+              - generic [ref=f355e68]: 开始日期
+              - textbox "开始日期" [ref=f355e69]: 2023-01-01
+            - generic [ref=f355e70]:
+              - generic [ref=f355e71]: 结束日期
+              - textbox "结束日期" [ref=f355e72]: 2024-12-31
+            - generic [ref=f355e73]:
+              - generic [ref=f355e74]: 初始资金
+              - spinbutton "初始资金" [ref=f355e75]: "1000000"
+            - generic [ref=f355e76]:
+              - generic [ref=f355e77]: 周期
+              - combobox "周期" [ref=f355e78]:
+                - option "日线" [selected]
+                - option "1 分钟"
+                - option "5 分钟"
+                - option "15 分钟"
+                - option "30 分钟"
+                - option "60 分钟"
+          - group [ref=f355e79]:
+            - generic "高级设置 基准、成本、样本外、Monte Carlo 与风控" [ref=f355e80] [cursor=pointer]:
+              - text: 高级设置
+              - generic [ref=f355e81]: 基准、成本、样本外、Monte Carlo 与风控
+            - option "不设置基准" [selected]
+          - generic [ref=f355e82]:
+            - button "运行回测" [disabled] [ref=f355e83]
+            - button "运行稳健性验证" [disabled] [ref=f355e86]
+            - button "导出 PDF" [disabled] [ref=f355e90]
+      - navigation "验证工作区" [ref=f355e94]:
+        - button "回测工作流" [ref=f355e95] [cursor=pointer]
+        - button "样本外与 Monte Carlo" [ref=f355e96] [cursor=pointer]
+        - button "收益、交易与成本" [ref=f355e97] [cursor=pointer]
+        - button "组合资格" [ref=f355e98] [cursor=pointer]
+      - generic [ref=f355e99]: 先运行一次回测，再查看权益曲线和交易明细。
+  - navigation "移动导航" [ref=f355e100]:
+    - link "决策" [ref=f355e101] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f355e108] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f355e113] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f355e117] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f355e122] [cursor=pointer]:
+      - /url: /app/workflows

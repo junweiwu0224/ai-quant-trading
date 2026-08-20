@@ -1,0 +1,126 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6]: AQ
+      - generic [ref=f1e7]:
+        - strong [ref=f1e8]: AI Quant
+        - generic [ref=f1e9]: 决策工作台
+    - generic [ref=f1e10]: 中国市场工作区
+    - navigation "主导航" [ref=f1e12]:
+      - link "决策中心" [ref=f1e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f1e20] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f1e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f1e29] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f1e32] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f1e36] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f1e40] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f1e46] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f1e50] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f1e55] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f1e60] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f1e65] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f1e70]: 工作区
+    - navigation "工作区导航" [ref=f1e71]:
+      - button "Token 用量" [ref=f1e72] [cursor=pointer]
+      - link "设置" [ref=f1e76] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f1e81] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f1e93]:
+      - button "深色模式" [ref=f1e94] [cursor=pointer]
+      - generic [ref=f1e98]: 数据状态已读取
+  - main [ref=f1e101]:
+    - generic [ref=f1e102]:
+      - generic [ref=f1e103]:
+        - generic [ref=f1e104]: 当前工作流
+        - strong [ref=f1e105]: 单股研究
+      - generic [ref=f1e106]:
+        - generic [ref=f1e107]:
+          - generic [ref=f1e108]: 市场
+          - combobox "市场" [ref=f1e109] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f1e110] [cursor=pointer]
+        - button "切换主题" [ref=f1e114] [cursor=pointer]
+        - link "研究" [ref=f1e117] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f1e119]:
+      - generic [ref=f1e120]:
+        - link "决策中心" [ref=f1e121] [cursor=pointer]:
+          - /url: /app/decision
+        - generic [ref=f1e122]: /
+        - strong [ref=f1e123]: CN / 002594
+      - generic [ref=f1e124]:
+        - generic [ref=f1e125]:
+          - heading "单股研究" [level=1] [ref=f1e126]
+          - paragraph [ref=f1e127]: 先看事实，再看证据；当前页面不生成未经接口确认的交易结论。
+        - generic [ref=f1e128]:
+          - generic [ref=f1e129]: CN
+          - generic [ref=f1e130]: "002594"
+          - 'generic "数据源: Unknown 最后更新: - 覆盖率: 未知 能力: 无" [ref=f1e132]': 加载中...
+      - generic [ref=f1e135]:
+        - generic [ref=f1e136]:
+          - status [ref=f1e137]:
+            - generic [ref=f1e143]: 正在刷新
+          - generic [ref=f1e144]: 保留上一次数据，正在更新 CN / 002594
+        - link "进入验证并继承当前股票" [ref=f1e145] [cursor=pointer]:
+          - /url: /app/validation?market=CN&symbol=002594
+      - generic [ref=f1e146]:
+        - generic [ref=f1e147]:
+          - button "K线与技术" [ref=f1e148] [cursor=pointer]
+          - button "证据与决策" [ref=f1e150] [cursor=pointer]
+          - button "回测草案" [ref=f1e152] [cursor=pointer]
+        - generic [ref=f1e156]:
+          - generic [ref=f1e157]:
+            - generic [ref=f1e158]:
+              - heading "K线图 - 002594" [level=3] [ref=f1e159]
+              - generic [ref=f1e160]: "市场: CN"
+            - status [ref=f1e162]:
+              - strong [ref=f1e163]: 加载中...
+          - generic [ref=f1e164]:
+            - generic [ref=f1e165]:
+              - heading "技术指标" [level=3] [ref=f1e166]
+              - paragraph [ref=f1e167]: CN / 002594 的真实接口结果
+            - status [ref=f1e168]:
+              - strong [ref=f1e169]: 加载中...
+            - generic [ref=f1e170]:
+              - generic [ref=f1e171]:
+                - generic [ref=f1e172]: MA5
+                - generic [ref=f1e173]: 暂无数据
+                - generic [ref=f1e174]: 5日均线
+              - generic [ref=f1e175]:
+                - generic [ref=f1e176]: MA10
+                - generic [ref=f1e177]: 暂无数据
+                - generic [ref=f1e178]: 10日均线
+              - generic [ref=f1e179]:
+                - generic [ref=f1e180]: MA20
+                - generic [ref=f1e181]: 暂无数据
+                - generic [ref=f1e182]: 20日均线
+              - generic [ref=f1e183]:
+                - generic [ref=f1e184]: MA60
+                - generic [ref=f1e185]: 暂无数据
+                - generic [ref=f1e186]: 60日均线
+              - generic [ref=f1e187]:
+                - generic [ref=f1e188]: MACD
+                - generic [ref=f1e189]: 暂无数据
+                - generic [ref=f1e190]: 指数平滑异同移动平均线
+              - generic [ref=f1e191]:
+                - generic [ref=f1e192]: RSI
+                - generic [ref=f1e193]: 暂无数据
+                - generic [ref=f1e194]: 相对强弱指标

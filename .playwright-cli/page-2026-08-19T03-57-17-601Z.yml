@@ -1,0 +1,201 @@
+- generic [ref=f24e3]:
+  - complementary [ref=f24e4]:
+    - generic [ref=f24e5]:
+      - generic [ref=f24e6]: AQ
+      - generic [ref=f24e7]:
+        - strong [ref=f24e8]: AI Quant
+        - generic [ref=f24e9]: 决策工作台
+    - generic [ref=f24e10]: 中国市场工作区
+    - navigation "主导航" [ref=f24e12]:
+      - link "决策" [ref=f24e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f24e20] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f24e25] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f24e29] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f24e34] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f24e40]: 等待数据状态
+  - main [ref=f24e44]:
+    - generic [ref=f24e45]:
+      - generic [ref=f24e46]:
+        - generic [ref=f24e47]: 当前工作流
+        - strong [ref=f24e48]: 工作流目录
+      - generic [ref=f24e49]:
+        - generic [ref=f24e50]:
+          - generic [ref=f24e51]: 市场
+          - combobox "市场" [ref=f24e52] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f24e53] [cursor=pointer]
+        - button "切换主题" [ref=f24e57] [cursor=pointer]
+        - button "打开更多工作台" [ref=f24e65] [cursor=pointer]
+        - link "打开账户设置" [ref=f24e70] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f24e75]:
+      - generic [ref=f24e76]:
+        - generic [ref=f24e77]:
+          - paragraph [ref=f24e78]: 工作流目录
+          - heading "从这里进入每个能力" [level=1] [ref=f24e79]
+          - paragraph [ref=f24e80]: 按用户任务组织入口，所有功能都有唯一的 canonical 页面；历史链接会自动重定向。
+        - generic [ref=f24e81]:
+          - generic [ref=f24e82]: 入口已统一
+          - generic [ref=f24e86]: 写操作需确认
+          - button "浅色主题" [ref=f24e91] [cursor=pointer]
+      - generic [ref=f24e98]:
+        - generic [ref=f24e99]:
+          - generic [ref=f24e100]:
+            - heading "决策" [level=2] [ref=f24e101]
+            - paragraph [ref=f24e102]: 先看当前状态和确定性动作
+          - generic [ref=f24e103]: 1 个工作流
+        - link "决策 自选池、确定性动作、数据质量和推送资格" [ref=f24e105] [cursor=pointer]:
+          - /url: /app/decision
+          - generic [ref=f24e112]:
+            - strong [ref=f24e113]: 决策
+            - generic [ref=f24e114]: 自选池、确定性动作、数据质量和推送资格
+      - generic [ref=f24e117]:
+        - generic [ref=f24e118]:
+          - generic [ref=f24e119]:
+            - heading "行情" [level=2] [ref=f24e120]
+            - paragraph [ref=f24e121]: 把市场事实和来源放在一起
+          - generic [ref=f24e122]: 1 个工作流
+        - link "市场情报 广度、板块热力、热点、新闻和候选信号" [ref=f24e124] [cursor=pointer]:
+          - /url: /app/intelligence
+          - generic [ref=f24e128]:
+            - strong [ref=f24e129]: 市场情报
+            - generic [ref=f24e130]: 广度、板块热力、热点、新闻和候选信号
+      - generic [ref=f24e133]:
+        - generic [ref=f24e134]:
+          - generic [ref=f24e135]:
+            - heading "研究" [level=2] [ref=f24e136]
+            - paragraph [ref=f24e137]: 从候选到证据的人工研究路径
+          - generic [ref=f24e138]: 4 个工作流
+        - generic [ref=f24e139]:
+          - link "研究 K 线、技术指标、证据链和结构化研究" [ref=f24e140] [cursor=pointer]:
+            - /url: /app/research
+            - generic [ref=f24e145]:
+              - strong [ref=f24e146]: 研究
+              - generic [ref=f24e147]: K 线、技术指标、证据链和结构化研究
+          - link "条件筛选 条件构建、预设和候选池导入" [ref=f24e150] [cursor=pointer]:
+            - /url: /app/research/screener
+            - generic [ref=f24e153]:
+              - strong [ref=f24e154]: 条件筛选
+              - generic [ref=f24e155]: 条件构建、预设和候选池导入
+          - link "Alpha 与因子 预测、因子评价、Walk-Forward 和 SHAP" [ref=f24e158] [cursor=pointer]:
+            - /url: /app/research/alpha
+            - generic [ref=f24e162]:
+              - strong [ref=f24e163]: Alpha 与因子
+              - generic [ref=f24e164]: 预测、因子评价、Walk-Forward 和 SHAP
+          - link "公式与篮子 公式目录、候选筛选和篮子回测计划" [ref=f24e167] [cursor=pointer]:
+            - /url: /app/research/formula-basket
+            - generic [ref=f24e170]:
+              - strong [ref=f24e171]: 公式与篮子
+              - generic [ref=f24e172]: 公式目录、候选筛选和篮子回测计划
+      - generic [ref=f24e175]:
+        - generic [ref=f24e176]:
+          - generic [ref=f24e177]:
+            - heading "策略与验证" [level=2] [ref=f24e178]
+            - paragraph [ref=f24e179]: 验证策略，不绕过资格门禁
+          - generic [ref=f24e180]: 2 个工作流
+        - generic [ref=f24e181]:
+          - link "验证 样本外验证、稳健性分析和资格检查" [ref=f24e182] [cursor=pointer]:
+            - /url: /app/validation
+            - generic [ref=f24e186]:
+              - strong [ref=f24e187]: 验证
+              - generic [ref=f24e188]: 样本外验证、稳健性分析和资格检查
+          - link "策略工作台 策略目录、代码、版本和组合回测" [ref=f24e191] [cursor=pointer]:
+            - /url: /app/strategy
+            - generic [ref=f24e197]:
+              - strong [ref=f24e198]: 策略工作台
+              - generic [ref=f24e199]: 策略目录、代码、版本和组合回测
+      - generic [ref=f24e202]:
+        - generic [ref=f24e203]:
+          - generic [ref=f24e204]:
+            - heading "组合与执行" [level=2] [ref=f24e205]
+            - paragraph [ref=f24e206]: 模拟盘写操作都需要确认
+          - generic [ref=f24e207]: 4 个工作流
+        - generic [ref=f24e208]:
+          - link "组合与风控 持仓、绩效、风险指标和模拟盘保护" [ref=f24e209] [cursor=pointer]:
+            - /url: /app/portfolio-risk
+            - generic [ref=f24e213]:
+              - strong [ref=f24e214]: 组合与风控
+              - generic [ref=f24e215]: 持仓、绩效、风险指标和模拟盘保护
+          - link "持仓优化 配置约束下的组合优化建议" [ref=f24e218] [cursor=pointer]:
+            - /url: /app/portfolio
+            - generic [ref=f24e224]:
+              - strong [ref=f24e225]: 持仓优化
+              - generic [ref=f24e226]: 配置约束下的组合优化建议
+          - link "模拟盘 订单、持仓、绩效和人工确认的纸面执行" [ref=f24e229] [cursor=pointer]:
+            - /url: /app/paper
+            - generic [ref=f24e234]:
+              - strong [ref=f24e235]: 模拟盘
+              - generic [ref=f24e236]: 订单、持仓、绩效和人工确认的纸面执行
+          - link "条件单 条件规则、执行审计和模拟盘边界" [ref=f24e239] [cursor=pointer]:
+            - /url: /app/conditional-orders
+            - generic [ref=f24e245]:
+              - strong [ref=f24e246]: 条件单
+              - generic [ref=f24e247]: 条件规则、执行审计和模拟盘边界
+      - generic [ref=f24e250]:
+        - generic [ref=f24e251]:
+          - generic [ref=f24e252]:
+            - heading "AI" [level=2] [ref=f24e253]
+            - paragraph [ref=f24e254]: AI 只解释冻结输入，不改写动作
+          - generic [ref=f24e255]: 2 个工作流
+        - generic [ref=f24e256]:
+          - link "AI 工作台 Agent、研究任务、报告和 provider 状态" [ref=f24e257] [cursor=pointer]:
+            - /url: /app/ai
+            - generic [ref=f24e262]:
+              - strong [ref=f24e263]: AI 工作台
+              - generic [ref=f24e264]: Agent、研究任务、报告和 provider 状态
+          - link "AI Runtime 配置 模型、通道、能力矩阵和 token 使用" [ref=f24e267] [cursor=pointer]:
+            - /url: /app/ai/runtime
+            - generic [ref=f24e274]:
+              - strong [ref=f24e275]: AI Runtime 配置
+              - generic [ref=f24e276]: 模型、通道、能力矩阵和 token 使用
+      - generic [ref=f24e279]:
+        - generic [ref=f24e280]:
+          - generic [ref=f24e281]:
+            - heading "报告与通知" [level=2] [ref=f24e282]
+            - paragraph [ref=f24e283]: 阅读结果并管理投递资格
+          - generic [ref=f24e284]: 3 个工作流
+        - generic [ref=f24e285]:
+          - link "报告 日报、决策报告、分享链接和投递记录 只读工作流" [ref=f24e286] [cursor=pointer]:
+            - /url: /app/reports
+            - generic [ref=f24e291]:
+              - strong [ref=f24e292]: 报告
+              - generic [ref=f24e293]: 日报、决策报告、分享链接和投递记录
+              - generic [ref=f24e294]: 只读工作流
+          - link "通知路由 目标、路由、测试和自动推送资格" [ref=f24e297] [cursor=pointer]:
+            - /url: /app/notifications
+            - generic [ref=f24e302]:
+              - strong [ref=f24e303]: 通知路由
+              - generic [ref=f24e304]: 目标、路由、测试和自动推送资格
+          - link "告警规则 价格、涨跌、量能和触发历史" [ref=f24e307] [cursor=pointer]:
+            - /url: /app/alerts
+            - generic [ref=f24e312]:
+              - strong [ref=f24e313]: 告警规则
+              - generic [ref=f24e314]: 价格、涨跌、量能和触发历史
+      - generic [ref=f24e317]:
+        - generic [ref=f24e318]:
+          - generic [ref=f24e319]:
+            - heading "系统" [level=2] [ref=f24e320]
+            - paragraph [ref=f24e321]: 运行状态、边界和账户设置
+          - generic [ref=f24e322]: 2 个工作流
+        - generic [ref=f24e323]:
+          - link "Broker 安全 脱敏能力状态和实盘禁用边界 只读工作流" [ref=f24e324] [cursor=pointer]:
+            - /url: /app/broker
+            - generic [ref=f24e330]:
+              - strong [ref=f24e331]: Broker 安全
+              - generic [ref=f24e332]: 脱敏能力状态和实盘禁用边界
+              - generic [ref=f24e333]: 只读工作流
+          - link "设置 workspace、市场能力、Worker 和安全边界" [ref=f24e336] [cursor=pointer]:
+            - /url: /app/settings
+            - generic [ref=f24e341]:
+              - strong [ref=f24e342]: 设置
+              - generic [ref=f24e343]: workspace、市场能力、Worker 和安全边界

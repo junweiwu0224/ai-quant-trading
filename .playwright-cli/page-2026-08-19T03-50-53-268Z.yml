@@ -1,0 +1,138 @@
+- generic [ref=f10e3]:
+  - complementary [ref=f10e4]:
+    - generic [ref=f10e5]:
+      - generic [ref=f10e6]: AQ
+      - generic [ref=f10e7]:
+        - strong [ref=f10e8]: AI Quant
+        - generic [ref=f10e9]: 决策工作台
+      - button "关闭导航" [ref=f10e10] [cursor=pointer]
+    - generic [ref=f10e14]: 中国市场工作区
+    - navigation "主导航" [ref=f10e16]:
+      - link "决策中心" [ref=f10e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f10e24] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f10e28] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f10e33] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f10e36] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f10e40] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f10e44] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f10e50] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f10e54] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f10e59] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f10e64] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f10e69] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f10e74]: 工作区
+    - navigation "工作区导航" [ref=f10e75]:
+      - button "Token 用量" [ref=f10e76] [cursor=pointer]
+      - link "设置" [ref=f10e80] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f10e85] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f10e97]:
+      - button "深色模式" [ref=f10e98] [cursor=pointer]
+      - generic [ref=f10e102]: 等待数据状态
+  - main [ref=f10e105]:
+    - generic [ref=f10e106]:
+      - button "打开导航" [ref=f10e107] [cursor=pointer]
+      - strong [ref=f10e110]: 通知
+      - generic [ref=f10e111]:
+        - generic [ref=f10e112]:
+          - generic [ref=f10e113]: 市场
+          - combobox "市场" [ref=f10e114] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f10e115] [cursor=pointer]
+        - link "研究" [ref=f10e119] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f10e121]:
+      - generic [ref=f10e122]:
+        - generic [ref=f10e123]:
+          - heading "通知路由" [level=1] [ref=f10e124]
+          - paragraph [ref=f10e125]: 摘要发送到企业微信、个人微信服务、飞书或 QQ；完整报告通过短期只读链接打开。凭证只使用受保护引用。
+        - generic [ref=f10e126]:
+          - status [ref=f10e127]:
+            - generic [ref=f10e133]: 投递配置
+          - generic [ref=f10e134]: 外部投递默认关闭
+          - button "刷新" [disabled] [ref=f10e138]
+      - generic [ref=f10e144]:
+        - generic [ref=f10e145]:
+          - generic [ref=f10e147]:
+            - heading "通知目标" [level=2] [ref=f10e148]
+            - paragraph [ref=f10e149]: 每个渠道独立测试、失败计数和停用。
+          - generic [ref=f10e153]:
+            - generic [ref=f10e154]:
+              - generic [ref=f10e155]:
+                - generic [ref=f10e156]: 渠道
+                - combobox [ref=f10e157]:
+                  - option "企业微信机器人" [selected]
+                  - option "PushPlus 个人微信"
+                  - option "飞书群机器人"
+                  - option "QQ 官方机器人"
+              - generic [ref=f10e158]:
+                - generic [ref=f10e159]: 显示名称
+                - textbox "例如 盘前企业微信" [ref=f10e160]
+              - generic [ref=f10e161]:
+                - generic [ref=f10e162]: 密钥引用
+                - textbox "env://QUANT_CHANNEL_SECRET" [ref=f10e163]
+              - generic [ref=f10e164]:
+                - generic [ref=f10e165]: 端点引用
+                - textbox "env://WECHAT_WEBHOOK_URL" [ref=f10e166]
+            - button "保存目标" [disabled] [ref=f10e168]
+          - generic [ref=f10e170]: 尚未配置渠道。保存后仍不能自动推送，直到测试通过。
+        - generic [ref=f10e172]:
+          - generic [ref=f10e174]:
+            - heading "报告路由" [level=2] [ref=f10e175]
+            - paragraph [ref=f10e176]: 按组合和事件类型分发，不参与动作计算。
+          - generic [ref=f10e180]:
+            - generic [ref=f10e181]:
+              - generic [ref=f10e182]:
+                - generic [ref=f10e183]: 策略组合
+                - combobox [ref=f10e184]:
+                  - option "选择组合" [selected]
+              - generic [ref=f10e185]:
+                - generic [ref=f10e186]: 通知目标
+                - combobox [ref=f10e187]:
+                  - option "选择目标" [selected]
+              - generic [ref=f10e188]:
+                - generic [ref=f10e189]: 事件类型
+                - combobox [ref=f10e190]:
+                  - option "定时报告" [selected]
+                  - option "状态变化"
+                  - option "首次重大风险"
+            - button "保存路由" [disabled] [ref=f10e192]
+          - generic [ref=f10e194]: 暂无路由。
+      - generic [ref=f10e196]:
+        - generic [ref=f10e198]:
+          - heading "发送历史与失败队列" [level=2] [ref=f10e199]
+          - paragraph [ref=f10e200]: 每一次投递尝试都可审计；失败、阻断和死信不会被展示成“已发送”。
+        - generic [ref=f10e206]:
+          - strong [ref=f10e207]: 暂无投递尝试
+          - text: 启用外部渠道前，系统只会在这里记录受控阻断原因。
+  - navigation "移动导航" [ref=f10e208]:
+    - link "决策中心" [ref=f10e209] [cursor=pointer]:
+      - /url: /app/decision
+    - link "市场情报" [ref=f10e216] [cursor=pointer]:
+      - /url: /app/intelligence
+    - link "单股研究" [ref=f10e220] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证与回测" [ref=f10e225] [cursor=pointer]:
+      - /url: /app/validation
+    - link "模拟盘" [ref=f10e229] [cursor=pointer]:
+      - /url: /app/paper
+    - button "切换到深色模式" [ref=f10e234] [cursor=pointer]:
+      - generic [ref=f10e237]: 主题

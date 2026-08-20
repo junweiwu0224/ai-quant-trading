@@ -1,0 +1,62 @@
+- generic [ref=f3e3]:
+  - complementary [ref=f3e4]:
+    - generic [ref=f3e5]:
+      - generic [ref=f3e6]: AQ
+      - generic [ref=f3e7]:
+        - strong [ref=f3e8]: AI Quant
+        - generic [ref=f3e9]: 决策工作台
+    - generic [ref=f3e10]: 中国市场工作区
+    - navigation "主导航" [ref=f3e12]:
+      - link "决策中心" [ref=f3e13] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f3e20] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f3e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f3e29] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f3e32] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f3e36] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f3e40] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f3e46] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f3e50] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f3e55] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f3e60] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f3e65] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f3e70]: 工作区
+    - navigation "工作区导航" [ref=f3e71]:
+      - button "Token 用量" [ref=f3e72] [cursor=pointer]
+      - link "设置" [ref=f3e76] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f3e81] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f3e93]:
+      - button "深色模式" [ref=f3e94] [cursor=pointer]
+      - generic [ref=f3e98]: 等待数据状态
+  - main [ref=f3e101]:
+    - generic [ref=f3e102]:
+      - generic [ref=f3e103]:
+        - generic [ref=f3e104]: 当前工作流
+        - strong [ref=f3e105]: 决策中心
+      - generic [ref=f3e106]:
+        - generic [ref=f3e107]:
+          - generic [ref=f3e108]: 市场
+          - combobox "市场" [ref=f3e109] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f3e110] [cursor=pointer]
+        - button "切换主题" [ref=f3e114] [cursor=pointer]
+        - link "研究" [ref=f3e117] [cursor=pointer]:
+          - /url: /app/settings

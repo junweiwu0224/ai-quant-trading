@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI Quant 前端信息架构（目标蓝图）",
+    "output": "docs/frontend-information-architecture.html",
+    "animation": "none",
+    "quality_profile": "standard",
+    "viewBox": [1780, 900],
+    "views": [
+      { "id": "global-shell", "label": "全局上下文与导航", "focus": ["auth-gate", "app-shell", "context-bar", "workspace-nav", "command-palette", "status-rail"], "note": "所有页面共享认证、工作区、账户、市场、环境和系统状态上下文。" },
+      { "id": "research-to-validation", "label": "研究到验证", "focus": ["decision-home", "market-radar", "research-index", "instrument-research", "alpha-lab", "ai-research", "strategy-workbench", "validation-gate"], "note": "以研究对象为主线，候选、证据、策略版本和资格验证逐步收敛。" },
+      { "id": "portfolio-safety", "label": "组合与执行安全", "focus": ["portfolio-hub", "risk-center", "paper-console", "conditional-orders", "broker-safety", "execution-status"], "note": "组合工作区把持仓、风控、模拟执行和 Broker 禁用边界放在同一安全上下文内。" },
+      { "id": "evidence-operations", "label": "结果与运行审计", "focus": ["reports-audit", "notification-audit", "system-ops", "settings", "shared-report", "task-status"], "note": "报告、投递、Worker 和设置统一成为可追溯的结果与运维入口。" }
+    ]
+  },
+  "components": [
+    { "id": "auth-gate", "type": "security", "label": "认证与权限门", "sublabel": "/auth · workspace / account", "tag": "不可绕过", "pos": [35, 58], "size": [170, 64] },
+    { "id": "app-shell", "type": "frontend", "label": "AppShell", "sublabel": "Vue Router · Sidebar · MainContent", "tag": "全局壳", "pos": [255, 58], "size": [200, 64] },
+    { "id": "context-bar", "type": "frontend", "label": "上下文栏", "sublabel": "workspace / market / 环境 / 资格", "tag": "固定显示", "pos": [500, 58], "size": [200, 64] },
+    { "id": "workspace-nav", "type": "frontend", "label": "工作区导航", "sublabel": "5 个稳定一级入口", "tag": "目标收敛", "pos": [755, 58], "size": [200, 64] },
+    { "id": "command-palette", "type": "frontend", "label": "快捷导航", "sublabel": "⌘K / Ctrl+K · 工作流搜索", "pos": [1010, 58], "size": [200, 64] },
+    { "id": "status-rail", "type": "frontend", "label": "状态反馈层", "sublabel": "异步任务 / 数据 / Worker / 风险", "tag": "全局可见", "pos": [1265, 58], "size": [200, 64] },
+
+    { "id": "decision-home", "type": "frontend", "label": "决策中心", "sublabel": "/app/decision · 今日入口", "tag": "默认落点", "pos": [35, 250], "size": [180, 68] },
+    { "id": "market-radar", "type": "frontend", "label": "市场情报", "sublabel": "/app/intelligence · 机会与数据", "pos": [260, 250], "size": [180, 68] },
+    { "id": "research-index", "type": "frontend", "label": "研究工作区", "sublabel": "研究 / 筛选 / Alpha / AI", "tag": "工作区入口", "pos": [485, 250], "size": [180, 68] },
+    { "id": "instrument-research", "type": "frontend", "label": "单股研究", "sublabel": "/app/research/:market/:symbol", "tag": "研究对象", "pos": [710, 250], "size": [180, 68] },
+    { "id": "alpha-lab", "type": "frontend", "label": "Alpha 与因子", "sublabel": "/app/research/alpha · 公式与篮子", "pos": [485, 350], "size": [180, 68] },
+    { "id": "ai-research", "type": "frontend", "label": "AI 研究", "sublabel": "/app/ai · 非权威 artifact", "tag": "非执行入口", "pos": [710, 350], "size": [180, 68] },
+    { "id": "strategy-workbench", "type": "frontend", "label": "策略工作台", "sublabel": "/app/strategy · 代码 / 版本 / Diff", "pos": [935, 350], "size": [180, 68] },
+
+    { "id": "validation-gate", "type": "security", "label": "验证工作区", "sublabel": "/app/validation · 回测 / OOS / 资格", "tag": "晋级闸门", "pos": [150, 450], "size": [190, 70] },
+    { "id": "portfolio-hub", "type": "frontend", "label": "组合与执行", "sublabel": "持仓 / 绩效 / 模拟 / 条件单", "tag": "执行工作区", "pos": [410, 450], "size": [190, 70] },
+    { "id": "risk-center", "type": "security", "label": "组合风控", "sublabel": "/app/portfolio-risk · 统一风险视图", "tag": "每个执行动作前", "pos": [670, 450], "size": [190, 70] },
+    { "id": "paper-console", "type": "frontend", "label": "模拟盘控制台", "sublabel": "/app/paper · 订单 / 持仓 / 绩效", "tag": "仅模拟", "pos": [930, 450], "size": [190, 70] },
+    { "id": "conditional-orders", "type": "frontend", "label": "条件单", "sublabel": "/app/conditional-orders · 规则审计", "tag": "仅模拟路径", "pos": [1190, 450], "size": [190, 70] },
+    { "id": "broker-safety", "type": "security", "label": "Broker 安全", "sublabel": "/app/broker · 能力 / 禁用边界", "tag": "实盘关闭", "pos": [1450, 450], "size": [190, 70] },
+
+    { "id": "reports-audit", "type": "frontend", "label": "报告审计", "sublabel": "/app/reports · 冻结报告 / 分享 / 导出", "tag": "证据中心", "pos": [35, 665], "size": [180, 70] },
+    { "id": "notification-audit", "type": "frontend", "label": "通知与投递", "sublabel": "/app/notifications · 路由 / 测试 / 尝试", "pos": [260, 665], "size": [180, 70] },
+    { "id": "task-status", "type": "frontend", "label": "任务状态抽屉", "sublabel": "提交 / 处理中 / 完成 / 失败 / 重试", "tag": "跨工作区", "pos": [485, 665], "size": [180, 70] },
+    { "id": "execution-status", "type": "frontend", "label": "执行状态", "sublabel": "订单 / 成交 / 风险事件 / 对账", "tag": "跨执行页", "pos": [710, 665], "size": [180, 70] },
+    { "id": "system-ops", "type": "frontend", "label": "系统与运维", "sublabel": "/app/settings · 健康 / Worker / 备份", "tag": "管理员", "pos": [935, 665], "size": [180, 70] },
+    { "id": "settings", "type": "frontend", "label": "账户与工作区", "sublabel": "/app/settings · 成员 / 权限 / 偏好", "pos": [1160, 665], "size": [170, 70] },
+    { "id": "shared-report", "type": "external", "label": "共享报告", "sublabel": "/report/:token · 只读脱敏", "tag": "外部只读", "pos": [1450, 665], "size": [140, 70] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "全局壳与上下文（所有路由共享）", "wraps": ["auth-gate", "app-shell", "context-bar", "workspace-nav", "command-palette", "status-rail"], "pad": 18 },
+    { "kind": "region", "label": "发现与研究工作区（从事实到策略版本）", "wraps": ["decision-home", "market-radar", "research-index", "instrument-research", "alpha-lab", "ai-research", "strategy-workbench"], "pad": 18 },
+    { "kind": "security-group", "label": "验证与组合执行工作区（风险先于副作用）", "wraps": ["validation-gate", "portfolio-hub", "risk-center", "paper-console", "conditional-orders", "broker-safety"], "pad": 18 },
+    { "kind": "region", "label": "结果、状态与运维（操作可追溯）", "wraps": ["reports-audit", "notification-audit", "task-status", "execution-status", "system-ops", "settings"], "pad": 18 },
+    { "kind": "security-group", "label": "只读分享边界", "wraps": ["shared-report"], "pad": 14 }
+  ],
+  "connections": [
+    { "id": "auth-to-shell", "from": "auth-gate", "to": "app-shell", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "id": "shell-to-context", "from": "app-shell", "to": "context-bar", "fromSide": "right", "toSide": "left" },
+    { "id": "context-to-nav", "from": "context-bar", "to": "workspace-nav", "fromSide": "right", "toSide": "left" },
+    { "id": "nav-to-palette", "from": "workspace-nav", "to": "command-palette", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "palette-to-status", "from": "command-palette", "to": "status-rail", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "nav-to-decision", "from": "workspace-nav", "to": "decision-home", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[855, 150], [125, 150]] },
+
+    { "id": "decision-to-radar", "from": "decision-home", "to": "market-radar", "variant": "emphasis" },
+    { "id": "radar-to-research", "from": "market-radar", "to": "research-index", "variant": "emphasis" },
+    { "id": "research-to-instrument", "from": "research-index", "to": "instrument-research", "variant": "emphasis" },
+    { "id": "research-to-alpha", "from": "research-index", "to": "alpha-lab", "route": "orthogonal-v", "fromSide": "bottom", "toSide": "top" },
+    { "id": "research-to-ai", "from": "research-index", "to": "ai-research", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[575, 335], [800, 335]] },
+    { "id": "research-to-strategy", "from": "research-index", "to": "strategy-workbench", "variant": "emphasis", "fromSide": "left", "toSide": "top", "via": [[450, 284], [450, 340], [1025, 340]] },
+    { "id": "instrument-to-validation", "from": "instrument-research", "to": "validation-gate", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[800, 335], [1140, 335], [1140, 430], [245, 430]] },
+    { "id": "strategy-to-validation", "from": "strategy-workbench", "to": "validation-gate", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[1025, 430], [245, 430]] },
+
+    { "id": "validation-to-portfolio", "from": "validation-gate", "to": "portfolio-hub", "variant": "security" },
+    { "id": "portfolio-to-risk", "from": "portfolio-hub", "to": "risk-center", "variant": "security" },
+    { "id": "risk-to-paper", "from": "risk-center", "to": "paper-console", "variant": "emphasis" },
+    { "id": "paper-to-conditional", "from": "paper-console", "to": "conditional-orders", "variant": "dashed" },
+    { "id": "conditional-to-broker", "from": "conditional-orders", "to": "broker-safety", "variant": "security" },
+    { "id": "paper-to-execution", "from": "paper-console", "to": "execution-status", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[1025, 545], [1400, 545], [1400, 645], [800, 645]] },
+    { "id": "task-to-execution", "from": "task-status", "to": "execution-status", "variant": "dashed" },
+    { "id": "execution-to-ops", "from": "execution-status", "to": "system-ops", "variant": "dashed" },
+
+    { "id": "decision-to-reports", "from": "decision-home", "to": "reports-audit", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "paper-to-reports", "from": "paper-console", "to": "reports-audit", "variant": "dashed", "fromSide": "bottom", "toSide": "left", "via": [[1025, 550], [20, 550], [20, 700]] },
+    { "id": "reports-to-notify", "from": "reports-audit", "to": "notification-audit", "variant": "emphasis" },
+    { "id": "reports-to-share", "from": "reports-audit", "to": "shared-report", "variant": "security", "fromSide": "bottom", "toSide": "bottom", "via": [[125, 760], [1520, 760]] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "导航按任务组织", "items": ["一级导航只保留决策、研究、验证、组合与报告五个稳定工作区", "条件筛选、Alpha、AI、条件单和通知成为工作区内的任务页", "legacy route 只做兼容重定向，不继续扩张菜单层级"] },
+    { "dot": "emerald", "title": "上下文不丢失", "items": ["workspace、account、market、环境和研究标的在顶部固定显示", "从候选到单股研究、验证和报告始终继承研究对象", "异步命令通过任务状态层反馈，不用“按钮已点击”冒充完成"] },
+    { "dot": "rose", "title": "执行入口显式隔离", "items": ["验证工作区是进入组合执行前的资格闸门", "组合、风控、模拟盘和 Broker 安全处于同一执行上下文", "共享报告只读脱敏，AI 研究页不提供直接订单动作"] }
+  ]
+}

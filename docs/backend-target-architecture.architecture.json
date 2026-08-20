@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "A 股量化交易后端重构目标架构",
+    "output": "docs/backend-target-architecture.html",
+    "animation": "none",
+    "quality_profile": "standard",
+    "viewBox": [2040, 1040],
+    "views": [
+      { "id": "request-control", "label": "请求与控制面", "focus": ["web-client", "edge", "api-bff", "auth-policy", "query-api", "command-api", "task-status"], "note": "Dashboard 只负责认证、查询和提交命令；副作用交给拥有状态的 Worker。" },
+      { "id": "research-data", "label": "数据与研究平面", "focus": ["data-worker", "market-providers", "market-store", "feature-service", "research-service", "strategy-service", "research-store"], "note": "数据同步、特征研究、策略版本和验证结果由独立职责承载。" },
+      { "id": "decision-ai", "label": "决策与 AI 异步平面", "focus": ["decision-api", "decision-queue", "decision-worker", "ai-task-api", "ai-queue", "pi-agent-worker", "report-service", "research-store"], "note": "确定性决策和非权威 AI 研究各自拥有队列、Worker、状态和产物。" },
+      { "id": "execution-safety", "label": "执行与风控闸门", "focus": ["portfolio-service", "risk-gate", "trade-queue", "paper-worker", "live-worker", "broker-adapters", "trading-store", "audit-store"], "note": "所有订单先经过版本化风控，再由唯一执行 Worker 写入交易账本；实盘保持关闭。" }
+    ]
+  },
+  "components": [
+    { "id": "web-client", "type": "frontend", "label": "Web 工作台", "sublabel": "Vue 3 / Pinia / Router", "tag": "现有", "pos": [35, 45], "size": [185, 68] },
+    { "id": "edge", "type": "cloud", "label": "访问入口", "sublabel": "Nginx / Cloudflare Tunnel", "tag": "部署边界", "pos": [265, 45], "size": [185, 68] },
+    { "id": "api-bff", "type": "backend", "label": "Dashboard BFF", "sublabel": "FastAPI 查询 / 命令 API", "tag": "现有 · 收敛职责", "pos": [495, 45], "size": [200, 68] },
+    { "id": "auth-policy", "type": "security", "label": "认证与工作区策略", "sublabel": "session / API key / account / RBAC", "tag": "必须前置", "pos": [740, 45], "size": [215, 68] },
+    { "id": "query-api", "type": "backend", "label": "查询门面", "sublabel": "读模型 / 数据新鲜度 / 状态", "tag": "无副作用", "pos": [1000, 45], "size": [195, 68] },
+    { "id": "command-api", "type": "backend", "label": "命令门面", "sublabel": "校验 / 幂等键 / 入队", "tag": "只提交命令", "pos": [1240, 45], "size": [195, 68] },
+    { "id": "task-status", "type": "database", "label": "任务状态读模型", "sublabel": "submitted / running / done / failed", "tag": "前端轮询或推送", "pos": [1480, 45], "size": [200, 68] },
+
+    { "id": "market-providers", "type": "external", "label": "数据源", "sublabel": "AKShare / Xueqiu / 行情接口", "tag": "外部依赖", "pos": [35, 250], "size": [185, 68] },
+    { "id": "data-worker", "type": "backend", "label": "DataWorker", "sublabel": "同步 / 清洗 / freshness", "tag": "新增唯一 owner", "pos": [265, 250], "size": [185, 68] },
+    { "id": "market-store", "type": "database", "label": "行情数据存储", "sublabel": "quant.db / workspace read model", "tag": "可先 SQLite", "pos": [495, 250], "size": [200, 68] },
+    { "id": "feature-service", "type": "backend", "label": "特征与 Alpha 服务", "sublabel": "feature pipeline / factor / model", "tag": "研究域", "pos": [740, 250], "size": [215, 68] },
+    { "id": "research-service", "type": "backend", "label": "研究与验证服务", "sublabel": "screener / backtest / robustness", "tag": "研究域", "pos": [1000, 250], "size": [195, 68] },
+    { "id": "strategy-service", "type": "backend", "label": "策略注册与晋级", "sublabel": "版本 / diff / promotion", "tag": "版本权威", "pos": [1240, 250], "size": [195, 68] },
+    { "id": "research-store", "type": "database", "label": "研究产物库", "sublabel": "策略版本 / 回测 / AI artifact", "tag": "可追溯", "pos": [1480, 250], "size": [200, 68] },
+
+    { "id": "decision-api", "type": "backend", "label": "Decision API", "sublabel": "组合 / 快照 / 资格 / 报告查询", "tag": "控制面", "pos": [35, 455], "size": [185, 68] },
+    { "id": "decision-queue", "type": "messagebus", "label": "Decision Command Queue", "sublabel": "preview / analyze / validate", "tag": "幂等命令", "pos": [265, 455], "size": [185, 68] },
+    { "id": "decision-worker", "type": "backend", "label": "DecisionWorker", "sublabel": "lease / fence / deterministic run", "tag": "现有 · 保留", "pos": [495, 455], "size": [200, 68] },
+    { "id": "ai-task-api", "type": "backend", "label": "AI Task API", "sublabel": "创建 / 取消 / 事件 / 报告", "tag": "非权威", "pos": [740, 455], "size": [215, 68] },
+    { "id": "ai-queue", "type": "messagebus", "label": "AI Task Queue", "sublabel": "research / screening / interpret", "tag": "隔离队列", "pos": [1000, 455], "size": [195, 68] },
+    { "id": "pi-agent-worker", "type": "backend", "label": "Pi Agent Worker", "sublabel": "AI runtime / provider / artifact", "tag": "现有 · 非执行", "pos": [1240, 455], "size": [195, 68] },
+    { "id": "report-service", "type": "backend", "label": "报告与投递服务", "sublabel": "immutable report / outbox / delivery", "tag": "异步副作用", "pos": [1480, 455], "size": [200, 68] },
+
+    { "id": "portfolio-service", "type": "backend", "label": "组合与账户服务", "sublabel": "持仓 / 绩效 / 账户快照", "tag": "状态权威", "pos": [35, 660], "size": [185, 68] },
+    { "id": "risk-gate", "type": "security", "label": "统一预交易风控", "sublabel": "RiskPolicy / market rules / kill switch", "tag": "每笔订单必经", "pos": [265, 660], "size": [185, 68] },
+    { "id": "trade-queue", "type": "messagebus", "label": "Trade Command Queue", "sublabel": "paper / live command", "tag": "唯一执行入口", "pos": [495, 660], "size": [200, 68] },
+    { "id": "paper-worker", "type": "backend", "label": "PaperWorker", "sublabel": "行情 owner / 撮合 / 账本", "tag": "新增唯一 owner", "pos": [740, 660], "size": [215, 68] },
+    { "id": "live-worker", "type": "backend", "label": "LiveWorker", "sublabel": "对账 / 幂等下单 / 连接恢复", "tag": "目标 · 默认禁用", "pos": [1000, 660], "size": [195, 68] },
+    { "id": "broker-adapters", "type": "external", "label": "Broker adapters", "sublabel": "XTP / CTP / 实盘接口", "tag": "当前为桩", "pos": [1240, 660], "size": [195, 68] },
+    { "id": "trading-store", "type": "database", "label": "交易账本与执行状态", "sublabel": "orders / fills / positions / reconciliation", "tag": "单一事实源", "pos": [1480, 660], "size": [200, 68] },
+
+    { "id": "audit-store", "type": "database", "label": "审计与恢复存储", "sublabel": "audit / leases / backups / replay", "tag": "不可缺失", "pos": [265, 865], "size": [185, 68] },
+    { "id": "notification-channels", "type": "external", "label": "通知与分享渠道", "sublabel": "Webhook / email / shared report", "tag": "外部投递", "pos": [740, 865], "size": [215, 68] },
+    { "id": "llm-providers", "type": "external", "label": "LLM Provider", "sublabel": "OpenAI-compatible API", "tag": "AI 外部依赖", "pos": [1000, 865], "size": [195, 68] },
+    { "id": "observability", "type": "cloud", "label": "可观测性", "sublabel": "health / metrics / structured logs", "tag": "所有 Worker", "pos": [1240, 865], "size": [195, 68] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "控制面：认证、查询和命令提交（不直接执行副作用）", "wraps": ["web-client", "edge", "api-bff", "auth-policy", "query-api", "command-api", "task-status"], "pad": 20 },
+    { "kind": "region", "label": "数据与研究平面：独立同步 owner 和可追溯研究产物", "wraps": ["market-providers", "data-worker", "market-store", "feature-service", "research-service", "strategy-service", "research-store"], "pad": 20 },
+    { "kind": "region", "label": "决策与 AI 异步平面：队列、lease 和报告状态分离", "wraps": ["decision-api", "decision-queue", "decision-worker", "ai-task-api", "ai-queue", "pi-agent-worker", "report-service"], "pad": 20 },
+    { "kind": "security-group", "label": "交易安全边界：统一风控后才允许进入执行队列", "wraps": ["portfolio-service", "risk-gate", "trade-queue", "paper-worker", "live-worker", "broker-adapters", "trading-store"], "pad": 20 },
+    { "kind": "region", "label": "横向证据与外部依赖", "wraps": ["audit-store", "notification-channels", "llm-providers", "observability"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "client-edge", "from": "web-client", "to": "edge", "variant": "emphasis" },
+    { "id": "edge-bff", "from": "edge", "to": "api-bff", "variant": "emphasis" },
+    { "id": "bff-auth", "from": "api-bff", "to": "auth-policy", "variant": "security" },
+    { "id": "auth-query", "from": "auth-policy", "to": "query-api", "variant": "security" },
+    { "id": "command-status", "from": "command-api", "to": "task-status", "variant": "dashed" },
+
+    { "id": "providers-data", "from": "market-providers", "to": "data-worker", "variant": "emphasis" },
+    { "id": "data-market", "from": "data-worker", "to": "market-store", "variant": "emphasis" },
+    { "id": "market-feature", "from": "market-store", "to": "feature-service" },
+    { "id": "feature-research", "from": "feature-service", "to": "research-service", "variant": "emphasis" },
+    { "id": "research-strategy", "from": "research-service", "to": "strategy-service", "variant": "emphasis" },
+    { "id": "strategy-store", "from": "strategy-service", "to": "research-store", "variant": "dashed" },
+
+    { "id": "decision-api-queue", "from": "decision-api", "to": "decision-queue", "variant": "emphasis" },
+    { "id": "decision-queue-worker", "from": "decision-queue", "to": "decision-worker", "variant": "security" },
+    { "id": "decision-worker-report", "from": "decision-worker", "to": "report-service", "variant": "emphasis", "fromSide": "top", "toSide": "top", "via": [[595, 430], [1580, 430]] },
+    { "id": "ai-api-queue", "from": "ai-task-api", "to": "ai-queue", "variant": "dashed" },
+    { "id": "ai-queue-worker", "from": "ai-queue", "to": "pi-agent-worker", "variant": "security" },
+    { "id": "agent-llm", "from": "pi-agent-worker", "to": "llm-providers", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[1337.5, 540], [1760, 540], [1760, 800], [1097.5, 800]] },
+    { "id": "report-notify", "from": "report-service", "to": "notification-channels", "variant": "dashed", "fromSide": "right", "toSide": "bottom", "via": [[1800, 489], [1800, 960], [847.5, 960]] },
+
+    { "id": "portfolio-risk", "from": "portfolio-service", "to": "risk-gate", "variant": "security" },
+    { "id": "risk-trade", "from": "risk-gate", "to": "trade-queue", "variant": "security" },
+    { "id": "trade-paper", "from": "trade-queue", "to": "paper-worker", "variant": "emphasis" },
+    { "id": "trade-live", "from": "trade-queue", "to": "live-worker", "variant": "security", "fromSide": "top", "toSide": "top", "via": [[595, 600], [1097.5, 600]] },
+    { "id": "paper-trading", "from": "paper-worker", "to": "trading-store", "variant": "emphasis", "fromSide": "bottom", "toSide": "bottom", "via": [[847.5, 750], [1580, 750]] },
+    { "id": "live-broker", "from": "live-worker", "to": "broker-adapters", "variant": "security" },
+    { "id": "broker-trading", "from": "broker-adapters", "to": "trading-store", "variant": "security" },
+
+    { "id": "decision-audit", "from": "decision-worker", "to": "audit-store", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[595, 550], [20, 550], [20, 830], [357.5, 830]] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "控制面不拥有副作用", "items": ["Dashboard BFF 负责认证、查询、校验和命令入队", "订单、投递、数据同步和 AI 调用均由对应 Worker 执行", "前端看到的是任务状态和审计证据，不是假同步成功"] },
+    { "dot": "emerald", "title": "单一状态所有者", "items": ["DataWorker、DecisionWorker、PiAgentWorker、PaperWorker 各自拥有清晰 lease / 状态边界", "PaperWorker 独占行情、撮合、持仓和交易账本写入", "LiveWorker 只有在 Broker adapter、对账和风控闭环完成后才允许启用"] },
+    { "dot": "rose", "title": "重构优先级", "items": ["先修认证授权、DataWorker 和 PaperWorker 的所有权，再统一 RiskPolicy", "保留 SQLite 作为单机阶段存储，但补齐 workspace 子目录备份和恢复", "XTP / CTP 当前标为桩，目标图不把它们误写成可用实盘能力"] }
+  ]
+}

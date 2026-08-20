@@ -1,0 +1,113 @@
+- generic [ref=f32e3]:
+  - complementary [ref=f32e4]:
+    - generic [ref=f32e5]:
+      - generic [ref=f32e6]: AQ
+      - generic [ref=f32e7]:
+        - strong [ref=f32e8]: AI Quant
+        - generic [ref=f32e9]: 决策工作台
+      - button "关闭导航" [ref=f32e10] [cursor=pointer]
+    - generic [ref=f32e14]: 中国市场工作区
+    - navigation "主导航" [ref=f32e16]:
+      - link "决策" [ref=f32e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f32e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f32e29] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f32e33] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f32e38] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f32e44]: 等待数据状态
+  - main [ref=f32e48]:
+    - generic [ref=f32e49]:
+      - button "打开导航" [ref=f32e50] [cursor=pointer]
+      - strong [ref=f32e53]: 通知
+      - generic [ref=f32e54]:
+        - generic [ref=f32e55]:
+          - generic [ref=f32e56]: 市场
+          - combobox "市场" [ref=f32e57] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f32e58] [cursor=pointer]
+        - link "打开账户设置" [ref=f32e62] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f32e67]:
+      - generic [ref=f32e68]:
+        - generic [ref=f32e69]:
+          - heading "通知路由" [level=1] [ref=f32e70]
+          - paragraph [ref=f32e71]: 摘要发送到企业微信、个人微信服务、飞书或 QQ；完整报告通过短期只读链接打开。凭证只使用受保护引用。
+        - generic [ref=f32e72]:
+          - status [ref=f32e73]:
+            - generic [ref=f32e79]: 投递配置
+          - generic [ref=f32e80]: 外部投递默认关闭
+          - button "刷新" [disabled] [ref=f32e84]
+      - generic [ref=f32e90]:
+        - generic [ref=f32e91]:
+          - generic [ref=f32e93]:
+            - heading "通知目标" [level=2] [ref=f32e94]
+            - paragraph [ref=f32e95]: 每个渠道独立测试、失败计数和停用。
+          - generic [ref=f32e99]:
+            - generic [ref=f32e100]:
+              - generic [ref=f32e101]:
+                - generic [ref=f32e102]: 渠道
+                - combobox [ref=f32e103]:
+                  - option "企业微信机器人" [selected]
+                  - option "PushPlus 个人微信"
+                  - option "飞书群机器人"
+                  - option "QQ 官方机器人"
+              - generic [ref=f32e104]:
+                - generic [ref=f32e105]: 显示名称
+                - textbox "例如 盘前企业微信" [ref=f32e106]
+              - generic [ref=f32e107]:
+                - generic [ref=f32e108]: 密钥引用
+                - textbox "env://QUANT_CHANNEL_SECRET" [ref=f32e109]
+              - generic [ref=f32e110]:
+                - generic [ref=f32e111]: 端点引用
+                - textbox "env://WECHAT_WEBHOOK_URL" [ref=f32e112]
+            - button "保存目标" [disabled] [ref=f32e114]
+          - generic [ref=f32e116]: 尚未配置渠道。保存后仍不能自动推送，直到测试通过。
+        - generic [ref=f32e118]:
+          - generic [ref=f32e120]:
+            - heading "报告路由" [level=2] [ref=f32e121]
+            - paragraph [ref=f32e122]: 按组合和事件类型分发，不参与动作计算。
+          - generic [ref=f32e126]:
+            - generic [ref=f32e127]:
+              - generic [ref=f32e128]:
+                - generic [ref=f32e129]: 策略组合
+                - combobox [ref=f32e130]:
+                  - option "选择组合" [selected]
+              - generic [ref=f32e131]:
+                - generic [ref=f32e132]: 通知目标
+                - combobox [ref=f32e133]:
+                  - option "选择目标" [selected]
+              - generic [ref=f32e134]:
+                - generic [ref=f32e135]: 事件类型
+                - combobox [ref=f32e136]:
+                  - option "定时报告" [selected]
+                  - option "状态变化"
+                  - option "首次重大风险"
+            - button "保存路由" [disabled] [ref=f32e138]
+          - generic [ref=f32e140]: 暂无路由。
+      - generic [ref=f32e142]:
+        - generic [ref=f32e144]:
+          - heading "发送历史与失败队列" [level=2] [ref=f32e145]
+          - paragraph [ref=f32e146]: 每一次投递尝试都可审计；失败、阻断和死信不会被展示成“已发送”。
+        - generic [ref=f32e152]:
+          - strong [ref=f32e153]: 暂无投递尝试
+          - text: 启用外部渠道前，系统只会在这里记录受控阻断原因。
+  - navigation "移动导航" [ref=f32e154]:
+    - link "决策" [ref=f32e155] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f32e162] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f32e167] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f32e171] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f32e176] [cursor=pointer]:
+      - /url: /app/workflows

@@ -1,0 +1,165 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - link "Harness" [ref=e5] [cursor=pointer]:
+      - /url: /harness/en/
+    - generic [ref=e25]:
+      - button "中文" [ref=e26] [cursor=pointer]
+      - button "EN" [ref=e27] [cursor=pointer]
+  - generic:
+    - generic:
+      - link:
+        - /url: /harness/en/
+      - button
+    - navigation:
+      - link "GitHub":
+        - /url: https://github.com/deepseek-ai/deepseek-harness
+      - link "Developer docs":
+        - /url: https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart
+      - link "Community plugins":
+        - /url: https://github.com/topics/dsh-plugin
+      - link "Cordis paper":
+        - /url: https://github.com/cordiverse/paper
+    - generic:
+      - generic:
+        - button "中文"
+        - button "EN"
+  - main [ref=e28]:
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - paragraph [ref=e37]: DeepSeek Harness developer preview
+          - heading "Everything is a plugin" [level=1] [ref=e38]
+        - generic [ref=e39]:
+          - paragraph [ref=e40]: DeepSeek Harness is now in developer preview for agent harness developers worldwide — source code included.
+          - paragraph [ref=e41]: "Every capability is a plugin that can be swapped or recomposed: models, tools, skills, sessions, sandboxes, storage, loops, scheduling, and the UI."
+        - generic [ref=e42]:
+          - link "View on GitHub" [ref=e43] [cursor=pointer]:
+            - /url: https://github.com/deepseek-ai/deepseek-harness
+          - link "Developer docs" [ref=e46] [cursor=pointer]:
+            - /url: https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart
+          - link "Community plugins" [ref=e51] [cursor=pointer]:
+            - /url: https://github.com/topics/dsh-plugin
+          - link "Cordis paper" [ref=e55] [cursor=pointer]:
+            - /url: https://github.com/cordiverse/paper
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - button "Quick start" [ref=e60] [cursor=pointer]
+          - button "Install from source" [ref=e61] [cursor=pointer]
+        - generic [ref=e62]:
+          - button "Copy" [ref=e68] [cursor=pointer]
+          - generic [ref=e72]: $ npx @deepseek-ai/dsh web
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: Agent = Model + Harness
+        - heading "Harness keeps agents working in real-world environments" [level=2] [ref=e78]:
+          - generic [ref=e79]: Harness
+          - text: keeps agents working in real-world environments
+        - generic [ref=e80]:
+          - paragraph [ref=e81]: The model is the soul of an agent.
+          - paragraph [ref=e82]: A harness lets an agent understand its environment, use tools, and keep working in real-world settings.
+      - generic [ref=e84]:
+        - generic [ref=e86]:
+          - heading [level=3] [ref=e94]:
+            - link "Cordis kernel" [ref=e95] [cursor=pointer]:
+              - /url: https://github.com/cordiverse/cordis
+          - paragraph [ref=e96]: The Cordis kernel manages plugin mounting, unmounting, and dependencies. Agent capabilities live in the plugins.
+        - generic [ref=e98]:
+          - heading "Capabilities as plugins" [level=3] [ref=e110]
+          - paragraph [ref=e111]: Plugins provide every agent capability, including models, tools, skills, sessions, sandboxes, storage, loops, scheduling, and the UI. Cordis services and events let the plugins work together.
+        - generic [ref=e113]:
+          - heading "Compose with configuration" [level=3] [ref=e122]
+          - paragraph [ref=e123]: Developers can select, swap, or extend any capability in configuration without changing the DeepSeek Harness source code.
+    - generic [ref=e125]:
+      - generic [ref=e126]:
+        - generic [ref=e127]: Design approach
+        - heading "Everything is a plugin. Every run is traceable." [level=2] [ref=e129]
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - generic [ref=e132] [cursor=pointer]:
+            - heading "Everything is a plugin" [level=3] [ref=e138]
+            - paragraph [ref=e139]:
+              - text: DeepSeek Harness is built on
+              - link "Cordis" [ref=e140]:
+                - /url: https://github.com/cordiverse/cordis
+              - text: "'s plugin system. Plugins provide every agent capability, including models, tools, skills, sessions, sandboxes, storage, loops, scheduling, and the UI. Cordis services and events let the plugins work together. Developers can select, swap, or extend any capability in configuration without changing the DeepSeek Harness source code."
+          - generic [ref=e141] [cursor=pointer]:
+            - heading "Every run is traceable" [level=3] [ref=e147]
+            - paragraph [ref=e148]: "Everything the model sees is recorded in an append-only session log: system prompts, reasoning, tool calls and results, subagent scheduling, and every context injection. In the Trajectory view, you can inspect these records by source. Resume, fork, search, and replay all operate on the same event stream."
+          - generic [ref=e149] [cursor=pointer]:
+            - heading "Multiple runtime modes" [level=3] [ref=e157]
+            - paragraph [ref=e158]: Standard mode includes the full toolset. Code mode uses model-generated code to orchestrate multiple rounds of tool calls. Minimal mode keeps only a shell tool and a file editor for benchmarking models in a minimal environment. Creator mode lets you inspect the current runtime, test Cordis plugins in memory, and combine them into new modes.
+        - generic [ref=e161]:
+          - img "DeepSeek Harness settings showing installed plugins and their status" [ref=e164]
+          - generic:
+            - generic:
+              - img "Reconstruct a complete run from a single session log"
+          - generic:
+            - img "The new-session mode picker listing Standard, Code, Minimal, and Creator modes":
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: dsh-demo
+                    - generic: Creator mode
+                  - generic: Describe what you want to build
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Standard mode
+                        - generic: Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.
+                    - generic:
+                      - generic:
+                        - generic: Code mode
+                        - generic: All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program.
+                    - generic:
+                      - generic:
+                        - generic: Minimal mode
+                        - generic: Two-tool coding agent with persistent bash and str_replace_editor.
+                    - generic:
+                      - generic:
+                        - generic: Creator mode
+                        - generic: Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.
+    - heading "Customize your DeepSeek Harness" [level=2] [ref=e167]
+    - generic [ref=e170]:
+      - generic [ref=e171]:
+        - generic [ref=e172]: Get started
+        - heading "Try it now or install from source" [level=2] [ref=e174]
+      - generic [ref=e175]:
+        - generic [ref=e177]:
+          - heading "Quick start" [level=3] [ref=e178]
+          - paragraph [ref=e179]: Install Node.js, then launch the Web UI with npx.
+          - generic [ref=e180]:
+            - code [ref=e181]: $ npx @deepseek-ai/dsh web
+            - button "Copy" [ref=e182] [cursor=pointer]
+        - generic [ref=e184]:
+          - heading "Install from source" [level=3] [ref=e185]
+          - paragraph [ref=e186]: Clone the full source and follow the setup instructions in the repository.
+          - generic [ref=e187]:
+            - code [ref=e188]: $ git clone https://github.com/deepseek-ai/deepseek-harness
+            - button "Copy" [ref=e189] [cursor=pointer]
+    - generic [ref=e191]:
+      - heading "Join the DSH plugin ecosystem" [level=2] [ref=e192]
+      - paragraph [ref=e193]: DeepSeek Harness remains in developer preview and is still being tested by developers building agent harnesses. Its core plugins and APIs will continue to evolve. We look forward to exploring the limits of intelligence with developers worldwide using open-source infrastructure that is reusable and composable.
+      - generic [ref=e194]:
+        - link "View on GitHub" [ref=e195] [cursor=pointer]:
+          - /url: https://github.com/deepseek-ai/deepseek-harness
+        - link "Developer docs" [ref=e198] [cursor=pointer]:
+          - /url: https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart
+        - link "Community plugins" [ref=e203] [cursor=pointer]:
+          - /url: https://github.com/topics/dsh-plugin
+    - generic [ref=e209]:
+      - generic [ref=e211]:
+        - generic [ref=e212]:
+          - generic "WeChat" [ref=e213]
+          - generic [ref=e216]: Official WeChat account
+        - generic:
+          - generic:
+            - img "QR Code"
+            - generic: Scan to follow
+      - paragraph [ref=e217]: Open source · MIT · © 2026 DeepSeek. All rights reserved.
+      - navigation "Policies and statements" [ref=e218]:
+        - link "Safe Use Policy" [ref=e219] [cursor=pointer]:
+          - /url: /harness/en/privacy/
+        - generic [ref=e220]: ·
+        - link "Data Processing Statement" [ref=e221] [cursor=pointer]:
+          - /url: /harness/en/data-processing/

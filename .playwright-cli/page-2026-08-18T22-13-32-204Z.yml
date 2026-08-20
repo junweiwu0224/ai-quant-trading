@@ -1,0 +1,48 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: AQ
+      - generic [ref=e7]:
+        - strong [ref=e8]: AI Quant
+        - generic [ref=e9]: 决策工作台
+    - generic [ref=e10]:
+      - generic [ref=e11]: 可复现的量化研究闭环
+      - heading "让每个结论都能回到它的证据。" [level=1] [ref=e12]
+      - paragraph [ref=e13]: 从行情、单股研究到验证和结构化报告，在同一个工作区里保留输入、版本、风险状态与 AI 解释。
+      - generic [ref=e14]:
+        - generic [ref=e15]: AI 只做解释
+        - generic [ref=e20]: 凭证只保留引用
+  - region [ref=e50]:
+    - generic [ref=e25]:
+      - generic [ref=e26]: 工作区访问
+      - heading "创建研究工作区" [level=2] [ref=e51]
+      - paragraph [ref=e28]: 使用邀请码加入一个隔离的个人研究工作区。
+    - tablist "认证方式" [ref=e29]:
+      - button "登录" [ref=e30] [cursor=pointer]
+      - button "注册" [active] [ref=e31] [cursor=pointer]
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]: 用户名
+        - textbox "用户名" [ref=e36]:
+          - /placeholder: 例如 quant_user
+      - generic [ref=e37]:
+        - generic [ref=e38]: 密码
+        - generic [ref=e39]:
+          - textbox "密码" [ref=e40]:
+            - /placeholder: 至少 8 位
+          - button "显示密码" [ref=e41] [cursor=pointer]
+      - generic [ref=e52]:
+        - generic [ref=e53]: 邀请码
+        - textbox "邀请码" [ref=e55]:
+          - /placeholder: 6 位邀请码
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]: 显示名称 可选
+          - textbox "显示名称 可选" [ref=e59]:
+            - /placeholder: 研究者
+        - generic [ref=e60]:
+          - generic [ref=e61]: 邮箱 可选
+          - textbox "邮箱 可选" [ref=e62]:
+            - /placeholder: name@example.com
+      - button "创建并登录" [ref=e63] [cursor=pointer]
+    - paragraph [ref=e49]: 研究状态、报告与操作记录按 workspace 隔离；登录不会授予真实下单权限。

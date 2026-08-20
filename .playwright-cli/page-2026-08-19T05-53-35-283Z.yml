@@ -1,0 +1,203 @@
+- generic [ref=f319e7]:
+  - main [ref=f319e8]:
+    - generic [ref=f319e9]:
+      - button "打开导航" [ref=f319e10] [cursor=pointer]
+      - strong [ref=f319e13]: 决策中心
+      - generic [ref=f319e14]:
+        - generic [ref=f319e15]:
+          - generic [ref=f319e16]: 市场
+          - combobox "市场" [ref=f319e17] [cursor=pointer]:
+            - option "A 股"
+            - option "港股"
+            - option "美股" [selected]
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f319e18] [cursor=pointer]
+        - link "打开账户设置" [ref=f319e22] [cursor=pointer]:
+          - /url: /app/settings
+    - generic "当前研究上下文" [ref=f319e26]:
+      - generic [ref=f319e27]:
+        - generic [ref=f319e28]: 标的
+        - strong [ref=f319e29]: 未选择标的
+      - generic [ref=f319e30]:
+        - generic [ref=f319e31]: 资格
+        - strong [ref=f319e32]: 资格未检查
+    - generic [ref=f319e34]:
+      - generic [ref=f319e35]:
+        - generic [ref=f319e36]:
+          - heading "决策运行台" [level=1] [ref=f319e37]
+          - paragraph [ref=f319e38]: 确定性结论、数据资格与研究解释分层呈现。自动投递从不因手动研究而默认开启。
+        - generic [ref=f319e39]:
+          - button "刷新" [disabled] [ref=f319e40]
+          - button "创建组合" [ref=f319e46] [cursor=pointer]
+      - generic [ref=f319e48]:
+        - generic [ref=f319e49]:
+          - generic [ref=f319e50]: 当前结论
+          - strong [ref=f319e51]: 正在冻结输入
+          - paragraph [ref=f319e52]: 正在读取组合、数据质量和策略版本。
+        - generic [ref=f319e53]:
+          - generic [ref=f319e54]:
+            - term [ref=f319e55]: 组合
+            - definition [ref=f319e56]: 未选择
+          - generic [ref=f319e57]:
+            - term [ref=f319e58]: 资格
+            - definition [ref=f319e59]: 未检查
+          - generic [ref=f319e60]:
+            - term [ref=f319e61]: 数据
+            - definition [ref=f319e62]: 未知
+        - link "进入验证" [ref=f319e63] [cursor=pointer]:
+          - /url: /app/validation
+      - region [ref=f319e64]:
+        - generic [ref=f319e65]:
+          - generic [ref=f319e66]:
+            - heading "决策链路" [level=2] [ref=f319e67]
+            - paragraph [ref=f319e68]: 节点状态只来自当前冻结结果；投递需要在通知审计中单独确认。
+          - link "通知审计" [ref=f319e69] [cursor=pointer]:
+            - /url: /app/notifications
+        - list [ref=f319e70]:
+          - listitem [ref=f319e71]:
+            - generic [ref=f319e78]:
+              - strong [ref=f319e79]: 输入快照
+              - generic [ref=f319e80]: 等待冻结输入
+          - listitem [ref=f319e83]:
+            - generic [ref=f319e88]:
+              - strong [ref=f319e89]: 数据质量
+              - generic [ref=f319e90]: 未检查
+          - listitem [ref=f319e93]:
+            - generic [ref=f319e98]:
+              - strong [ref=f319e99]: 策略版本
+              - generic [ref=f319e100]: 等待版本
+          - listitem [ref=f319e103]:
+            - generic [ref=f319e108]:
+              - strong [ref=f319e109]: 验证
+              - generic [ref=f319e110]: 尚未验证
+          - listitem [ref=f319e113]:
+            - generic [ref=f319e118]:
+              - strong [ref=f319e119]: 资格
+              - generic [ref=f319e120]: 尚未检查
+          - listitem [ref=f319e123]:
+            - generic [ref=f319e128]:
+              - strong [ref=f319e129]: 冻结结论
+              - generic [ref=f319e130]: 等待运行
+          - listitem [ref=f319e133]:
+            - generic [ref=f319e138]:
+              - strong [ref=f319e139]: 报告
+              - generic [ref=f319e140]: 尚未生成
+          - listitem [ref=f319e143]:
+            - generic [ref=f319e148]:
+              - strong [ref=f319e149]: 投递
+              - generic [ref=f319e150]: 前往通知审计确认
+      - generic [ref=f319e152]:
+        - generic [ref=f319e153]: 仅手动研究
+        - strong [ref=f319e154]: US 市场能力边界
+        - generic [ref=f319e155]: Longbridge 尚未完成集成、健康和覆盖率资格检查
+        - generic [ref=f319e156]: 来源 Yahoo Finance · 状态 integrated · 日线 可用
+      - generic [ref=f319e157]:
+        - generic [ref=f319e158]:
+          - generic [ref=f319e159]: 当前组合
+          - strong [ref=f319e160]: 未选择
+          - generic [ref=f319e161]: —
+        - generic [ref=f319e162]:
+          - generic [ref=f319e163]: 研究池
+          - strong [ref=f319e164]: "12"
+          - generic [ref=f319e165]: AI 信号范围
+        - generic [ref=f319e166]:
+          - generic [ref=f319e167]: 预警历史
+          - strong [ref=f319e168]: "0"
+          - generic [ref=f319e169]: 最近读取结果
+        - generic [ref=f319e170]:
+          - generic [ref=f319e171]: 自动推送
+          - strong [ref=f319e172]: 未达标
+          - generic [ref=f319e173]: 等待组合资格检查
+      - generic [ref=f319e174]:
+        - generic [ref=f319e175]:
+          - generic [ref=f319e176]:
+            - generic [ref=f319e177]:
+              - generic [ref=f319e178]:
+                - heading "策略组合" [level=2] [ref=f319e179]
+                - paragraph [ref=f319e180]: 同一股票可以属于多个组合，历史运行不会被覆盖。
+              - generic [ref=f319e181]: US
+            - generic [ref=f319e183]:
+              - strong [ref=f319e184]: 还没有策略组合
+              - text: 从当前自选池创建第一份组合，或手动加入成员。
+              - generic [ref=f319e185]:
+                - button "创建组合" [ref=f319e186] [cursor=pointer]
+                - link "打开单股研究" [ref=f319e188] [cursor=pointer]:
+                  - /url: /app/research
+          - generic [ref=f319e189]:
+            - generic [ref=f319e191]:
+              - heading "机会池" [level=2] [ref=f319e192]
+              - paragraph [ref=f319e193]: 基于 decision matrix 的 signal / watchlist 范围；缺失 provider 不会产生虚假候选。
+            - generic [ref=f319e197]:
+              - generic [ref=f319e198]: 日线研究可用
+              - strong [ref=f319e199]: US 市场研究状态
+              - generic [ref=f319e200]: Longbridge 尚未完成集成、健康和覆盖率资格检查
+              - link "打开示例研究" [ref=f319e201] [cursor=pointer]:
+                - /url: /app/research/US/AAPL
+          - generic [ref=f319e202]:
+            - generic [ref=f319e203]:
+              - generic [ref=f319e204]:
+                - heading "组合决策" [level=2] [ref=f319e205]
+                - paragraph [ref=f319e206]: 首次普通状态只记录不推送；风险和状态变化按规则去重。
+              - generic [ref=f319e207]:
+                - button "手动分析" [disabled] [ref=f319e208]
+                - link "查看报告" [ref=f319e212] [cursor=pointer]:
+                  - /url: /app/reports
+            - generic [ref=f319e214]:
+              - strong [ref=f319e215]: 选择一个组合开始
+              - text: 当前页面不会用空白或 0 分掩盖缺失数据。
+        - complementary [ref=f319e216]:
+          - generic [ref=f319e217]:
+            - generic [ref=f319e219]:
+              - heading "自动推送资格" [level=2] [ref=f319e220]
+              - paragraph [ref=f319e221]: 资格通过之前，开关不可绕过。
+            - generic [ref=f319e224]:
+              - generic [ref=f319e225]: 完成一次预览后显示资格检查。
+              - generic [ref=f319e226]:
+                - link "进入验证" [ref=f319e227] [cursor=pointer]:
+                  - /url: /app/validation
+                - link "配置通知" [ref=f319e228] [cursor=pointer]:
+                  - /url: /app/notifications
+          - generic [ref=f319e229]:
+            - generic [ref=f319e231]:
+              - heading "当前工作区自选" [level=2] [ref=f319e232]
+              - paragraph [ref=f319e233]: 自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。
+            - generic [ref=f319e238]:
+              - link "002594 比亚迪" [ref=f319e239] [cursor=pointer]:
+                - /url: /app/research/US/002594
+                - strong [ref=f319e240]: "002594"
+                - generic [ref=f319e241]: 比亚迪
+              - generic [ref=f319e242]:
+                - strong [ref=f319e243]: "89.96"
+                - generic [ref=f319e244]: 1.19%
+              - button "移出自选" [ref=f319e245] [cursor=pointer]
+          - generic [ref=f319e249]:
+            - generic [ref=f319e251]:
+              - heading "预警历史" [level=2] [ref=f319e252]
+              - paragraph [ref=f319e253]: 只展示接口返回的触发记录；没有记录不等于当前没有风险。
+            - generic [ref=f319e260]:
+              - strong [ref=f319e261]: 暂无预警历史
+              - text: 当前接口没有返回触发记录。
+          - generic [ref=f319e262]:
+            - generic [ref=f319e264]:
+              - heading "快速加入组合成员" [level=2] [ref=f319e265]
+              - paragraph [ref=f319e266]: 只修改组合成员，不会改写既有运行。
+            - generic [ref=f319e270]:
+              - generic [ref=f319e271]:
+                - generic [ref=f319e272]: 股票代码
+                - textbox "股票代码" [ref=f319e273]:
+                  - /placeholder: 例如 600519
+              - button "加入当前组合" [disabled] [ref=f319e275]
+              - paragraph [ref=f319e277]: 组合成员变更不会重写既有快照；未接入合格 provider 时不会生成自动信号。
+  - navigation "移动导航" [ref=f319e278]:
+    - link "决策" [ref=f319e279] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f319e286] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f319e291] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f319e295] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f319e300] [cursor=pointer]:
+      - /url: /app/workflows

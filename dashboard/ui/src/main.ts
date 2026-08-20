@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import './styles.css'
 import './styles/shell.css'
+import './styles/mobile-fixes.css'
 
 export function registerServiceWorker() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return Promise.resolve(null)

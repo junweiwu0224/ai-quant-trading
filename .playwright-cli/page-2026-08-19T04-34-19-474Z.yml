@@ -1,0 +1,426 @@
+- generic [ref=f190e3]:
+  - complementary [ref=f190e51]:
+    - generic [ref=f190e52]:
+      - generic [ref=f190e53]: AQ
+      - generic [ref=f190e54]:
+        - strong [ref=f190e55]: AI Quant
+        - generic [ref=f190e56]: 决策工作台
+      - button "关闭导航" [active] [ref=f190e57] [cursor=pointer]
+    - generic [ref=f190e61]: 中国市场工作区
+    - navigation "主导航" [ref=f190e63]:
+      - link "决策" [ref=f190e64] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f190e71] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f190e76] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f190e80] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f190e85] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f190e91]: 数据状态已读取
+  - main [ref=f190e4]:
+    - generic [ref=f190e5]:
+      - button "打开导航" [expanded] [ref=f190e6] [cursor=pointer]
+      - strong [ref=f190e9]: 决策中心
+      - generic [ref=f190e10]:
+        - generic [ref=f190e11]:
+          - generic [ref=f190e12]: 市场
+          - combobox "市场" [ref=f190e13] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f190e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f190e18] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f190e96]:
+      - generic [ref=f190e97]:
+        - generic [ref=f190e98]:
+          - heading "决策运行台" [level=1] [ref=f190e99]
+          - paragraph [ref=f190e100]: 确定性结论、数据资格与研究解释分层呈现。自动投递从不因手动研究而默认开启。
+        - generic [ref=f190e101]:
+          - button "刷新" [disabled] [ref=f190e102]
+          - button "创建组合" [ref=f190e108] [cursor=pointer]
+      - generic [ref=f190e110]:
+        - generic [ref=f190e111]:
+          - generic [ref=f190e112]: 当前结论
+          - strong [ref=f190e113]: 正在冻结输入
+          - paragraph [ref=f190e114]: 正在读取组合、数据质量和策略版本。
+        - generic [ref=f190e115]:
+          - generic [ref=f190e116]:
+            - term [ref=f190e117]: 组合
+            - definition [ref=f190e118]: 我的决策组合
+          - generic [ref=f190e119]:
+            - term [ref=f190e120]: 资格
+            - definition [ref=f190e121]: 未检查
+          - generic [ref=f190e122]:
+            - term [ref=f190e123]: 数据
+            - definition [ref=f190e124]: 未知
+        - link "进入验证" [ref=f190e125] [cursor=pointer]:
+          - /url: /app/validation
+      - generic [ref=f190e127]:
+        - generic [ref=f190e128]: 仅手动研究
+        - strong [ref=f190e129]: CN 市场能力边界
+        - generic [ref=f190e130]: TickFlow 尚未完成集成、健康和覆盖率资格检查
+        - generic [ref=f190e131]: 来源 mootdx/tencent/eastmoney · 状态 legacy_manual · 日线 可用
+      - generic [ref=f190e132]:
+        - generic [ref=f190e133]:
+          - generic [ref=f190e134]: 当前组合
+          - strong [ref=f190e135]: 我的决策组合
+          - generic [ref=f190e136]: 0 个成员
+        - generic [ref=f190e137]:
+          - generic [ref=f190e138]: 研究池
+          - strong [ref=f190e139]: "12"
+          - generic [ref=f190e140]: AI 信号范围
+        - generic [ref=f190e141]:
+          - generic [ref=f190e142]: 预警历史
+          - strong [ref=f190e143]: "0"
+          - generic [ref=f190e144]: 最近读取结果
+        - generic [ref=f190e145]:
+          - generic [ref=f190e146]: 自动推送
+          - strong [ref=f190e147]: 未达标
+          - generic [ref=f190e148]: 等待组合资格检查
+      - generic [ref=f190e149]:
+        - generic [ref=f190e150]:
+          - generic [ref=f190e151]:
+            - generic [ref=f190e152]:
+              - generic [ref=f190e153]:
+                - heading "策略组合" [level=2] [ref=f190e154]
+                - paragraph [ref=f190e155]: 同一股票可以属于多个组合，历史运行不会被覆盖。
+              - generic [ref=f190e156]: CN
+            - generic [ref=f190e159]:
+              - button "我的决策组合0 个成员 · 版本 1" [ref=f190e160] [cursor=pointer]
+              - generic [ref=f190e161]: 已版本化
+          - generic [ref=f190e164]:
+            - generic [ref=f190e166]:
+              - heading "市场雷达" [level=2] [ref=f190e167]
+              - paragraph [ref=f190e168]: 快路径优先读取本地覆盖池或缓存，来源和过期状态始终可见。
+            - generic [ref=f190e171]:
+              - generic [ref=f190e172]:
+                - generic [ref=f190e173]: local_stock_daily
+                - generic [ref=f190e178]: 2026-08-19 12:34:17
+                - generic [ref=f190e182]: 可能过期
+              - paragraph [ref=f190e183]: 本地 stock_daily 覆盖股票池，非全市场实时排行
+              - generic [ref=f190e184]:
+                - generic [ref=f190e185]:
+                  - generic [ref=f190e186]:
+                    - strong [ref=f190e187]: ↑ 涨幅榜
+                    - generic [ref=f190e188]: 1 条
+                  - link "002594 比亚迪 1.19" [ref=f190e189] [cursor=pointer]:
+                    - /url: /app/research/CN/002594
+                    - generic [ref=f190e190]:
+                      - strong [ref=f190e191]: "002594"
+                      - generic [ref=f190e192]: 比亚迪
+                    - generic [ref=f190e193]: "1.19"
+                - generic [ref=f190e194]:
+                  - generic [ref=f190e195]:
+                    - strong [ref=f190e196]: ↓ 跌幅榜
+                    - generic [ref=f190e197]: 1 条
+                  - link "002594 比亚迪 1.19" [ref=f190e198] [cursor=pointer]:
+                    - /url: /app/research/CN/002594
+                    - generic [ref=f190e199]:
+                      - strong [ref=f190e200]: "002594"
+                      - generic [ref=f190e201]: 比亚迪
+                    - generic [ref=f190e202]: "1.19"
+                - generic [ref=f190e203]:
+                  - generic [ref=f190e204]:
+                    - strong [ref=f190e205]: ↕ 振幅榜
+                    - generic [ref=f190e206]: 1 条
+                  - link "002594 比亚迪 2.06" [ref=f190e207] [cursor=pointer]:
+                    - /url: /app/research/CN/002594
+                    - generic [ref=f190e208]:
+                      - strong [ref=f190e209]: "002594"
+                      - generic [ref=f190e210]: 比亚迪
+                    - generic [ref=f190e211]: "2.06"
+                - generic [ref=f190e212]:
+                  - generic [ref=f190e213]:
+                    - strong [ref=f190e214]: ↗ 换手榜
+                    - generic [ref=f190e215]: 1 条
+                  - link "002594 比亚迪 18.65" [ref=f190e216] [cursor=pointer]:
+                    - /url: /app/research/CN/002594
+                    - generic [ref=f190e217]:
+                      - strong [ref=f190e218]: "002594"
+                      - generic [ref=f190e219]: 比亚迪
+                    - generic [ref=f190e220]: "18.65"
+          - generic [ref=f190e221]:
+            - generic [ref=f190e223]:
+              - heading "机会池" [level=2] [ref=f190e224]
+              - paragraph [ref=f190e225]: 基于 decision matrix 的 signal / watchlist 范围；缺失 provider 不会产生虚假候选。
+            - generic [ref=f190e228]:
+              - tablist "机会池范围" [ref=f190e229]:
+                - button "AI 信号 Top" [ref=f190e230] [cursor=pointer]
+                - button "当前自选" [ref=f190e233] [cursor=pointer]
+              - status [ref=f190e236]:
+                - generic [ref=f190e237]: 降级预览
+                - generic [ref=f190e238]: 当前使用默认候选池：signal_empty。先补齐真实范围再做策略判断。
+                - generic [ref=f190e239]: 覆盖 0% · 生成 2026-08-19 12:34:17
+              - table [ref=f190e241]:
+                - rowgroup [ref=f190e242]:
+                  - row [ref=f190e243]:
+                    - columnheader "标的" [ref=f190e244]
+                    - columnheader "价格" [ref=f190e245]
+                    - columnheader "研究动作" [ref=f190e246]
+                    - columnheader "风险" [ref=f190e247]
+                    - columnheader "数据" [ref=f190e248]
+                - rowgroup [ref=f190e249]:
+                  - row [ref=f190e250]:
+                    - cell [ref=f190e251]:
+                      - link "300750 宁德时代" [ref=f190e252] [cursor=pointer]:
+                        - /url: /app/research/CN/300750
+                        - text: "300750"
+                        - generic [ref=f190e253]: 宁德时代
+                    - cell "393.93 —" [ref=f190e254]:
+                      - strong [ref=f190e255]: "393.93"
+                      - generic [ref=f190e256]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e257]:
+                      - strong [ref=f190e258]: 补齐缺失数据
+                      - generic [ref=f190e259]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e260]
+                    - cell "覆盖未知 astock" [ref=f190e262]:
+                      - generic [ref=f190e263]: 覆盖未知
+                      - generic [ref=f190e264]: astock
+                  - row [ref=f190e265]:
+                    - cell [ref=f190e266]:
+                      - link "002594 比亚迪" [ref=f190e267] [cursor=pointer]:
+                        - /url: /app/research/CN/002594
+                        - text: "002594"
+                        - generic [ref=f190e268]: 比亚迪
+                    - cell "89.96 1.19%" [ref=f190e269]:
+                      - strong [ref=f190e270]: "89.96"
+                      - generic [ref=f190e271]: 1.19%
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e272]:
+                      - strong [ref=f190e273]: 补齐缺失数据
+                      - generic [ref=f190e274]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e275]
+                    - cell "覆盖未知 astock" [ref=f190e277]:
+                      - generic [ref=f190e278]: 覆盖未知
+                      - generic [ref=f190e279]: astock
+                  - row [ref=f190e280]:
+                    - cell [ref=f190e281]:
+                      - link "601318 中国平安" [ref=f190e282] [cursor=pointer]:
+                        - /url: /app/research/CN/601318
+                        - text: "601318"
+                        - generic [ref=f190e283]: 中国平安
+                    - cell "51.75 —" [ref=f190e284]:
+                      - strong [ref=f190e285]: "51.75"
+                      - generic [ref=f190e286]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e287]:
+                      - strong [ref=f190e288]: 补齐缺失数据
+                      - generic [ref=f190e289]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e290]
+                    - cell "覆盖未知 astock" [ref=f190e292]:
+                      - generic [ref=f190e293]: 覆盖未知
+                      - generic [ref=f190e294]: astock
+                  - row [ref=f190e295]:
+                    - cell [ref=f190e296]:
+                      - link "000858 五 粮 液" [ref=f190e297] [cursor=pointer]:
+                        - /url: /app/research/CN/000858
+                        - text: "000858"
+                        - generic [ref=f190e298]: 五 粮 液
+                    - cell "73.75 —" [ref=f190e299]:
+                      - strong [ref=f190e300]: "73.75"
+                      - generic [ref=f190e301]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e302]:
+                      - strong [ref=f190e303]: 补齐缺失数据
+                      - generic [ref=f190e304]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e305]
+                    - cell "覆盖未知 astock" [ref=f190e307]:
+                      - generic [ref=f190e308]: 覆盖未知
+                      - generic [ref=f190e309]: astock
+                  - row [ref=f190e310]:
+                    - cell [ref=f190e311]:
+                      - link "000333 美的集团" [ref=f190e312] [cursor=pointer]:
+                        - /url: /app/research/CN/000333
+                        - text: "000333"
+                        - generic [ref=f190e313]: 美的集团
+                    - cell "83.03 —" [ref=f190e314]:
+                      - strong [ref=f190e315]: "83.03"
+                      - generic [ref=f190e316]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e317]:
+                      - strong [ref=f190e318]: 补齐缺失数据
+                      - generic [ref=f190e319]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e320]
+                    - cell "覆盖未知 astock" [ref=f190e322]:
+                      - generic [ref=f190e323]: 覆盖未知
+                      - generic [ref=f190e324]: astock
+                  - row [ref=f190e325]:
+                    - cell [ref=f190e326]:
+                      - link "600036 招商银行" [ref=f190e327] [cursor=pointer]:
+                        - /url: /app/research/CN/600036
+                        - text: "600036"
+                        - generic [ref=f190e328]: 招商银行
+                    - cell "38.46 —" [ref=f190e329]:
+                      - strong [ref=f190e330]: "38.46"
+                      - generic [ref=f190e331]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e332]:
+                      - strong [ref=f190e333]: 补齐缺失数据
+                      - generic [ref=f190e334]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e335]
+                    - cell "覆盖未知 astock" [ref=f190e337]:
+                      - generic [ref=f190e338]: 覆盖未知
+                      - generic [ref=f190e339]: astock
+                  - row [ref=f190e340]:
+                    - cell [ref=f190e341]:
+                      - link "601899 紫金矿业" [ref=f190e342] [cursor=pointer]:
+                        - /url: /app/research/CN/601899
+                        - text: "601899"
+                        - generic [ref=f190e343]: 紫金矿业
+                    - cell "— —" [ref=f190e344]:
+                      - strong [ref=f190e345]: —
+                      - generic [ref=f190e346]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e347]:
+                      - strong [ref=f190e348]: 补齐缺失数据
+                      - generic [ref=f190e349]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e350]
+                    - cell "覆盖未知 —" [ref=f190e352]:
+                      - generic [ref=f190e353]: 覆盖未知
+                      - generic [ref=f190e354]: —
+                  - row [ref=f190e355]:
+                    - cell [ref=f190e356]:
+                      - link "600276 恒瑞医药" [ref=f190e357] [cursor=pointer]:
+                        - /url: /app/research/CN/600276
+                        - text: "600276"
+                        - generic [ref=f190e358]: 恒瑞医药
+                    - cell "— —" [ref=f190e359]:
+                      - strong [ref=f190e360]: —
+                      - generic [ref=f190e361]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e362]:
+                      - strong [ref=f190e363]: 补齐缺失数据
+                      - generic [ref=f190e364]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e365]
+                    - cell "覆盖未知 —" [ref=f190e367]:
+                      - generic [ref=f190e368]: 覆盖未知
+                      - generic [ref=f190e369]: —
+                  - row [ref=f190e370]:
+                    - cell [ref=f190e371]:
+                      - link "002475 立讯精密" [ref=f190e372] [cursor=pointer]:
+                        - /url: /app/research/CN/002475
+                        - text: "002475"
+                        - generic [ref=f190e373]: 立讯精密
+                    - cell "— —" [ref=f190e374]:
+                      - strong [ref=f190e375]: —
+                      - generic [ref=f190e376]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e377]:
+                      - strong [ref=f190e378]: 补齐缺失数据
+                      - generic [ref=f190e379]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e380]
+                    - cell "覆盖未知 —" [ref=f190e382]:
+                      - generic [ref=f190e383]: 覆盖未知
+                      - generic [ref=f190e384]: —
+                  - row [ref=f190e385]:
+                    - cell [ref=f190e386]:
+                      - link "600900 长江电力" [ref=f190e387] [cursor=pointer]:
+                        - /url: /app/research/CN/600900
+                        - text: "600900"
+                        - generic [ref=f190e388]: 长江电力
+                    - cell "— —" [ref=f190e389]:
+                      - strong [ref=f190e390]: —
+                      - generic [ref=f190e391]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e392]:
+                      - strong [ref=f190e393]: 补齐缺失数据
+                      - generic [ref=f190e394]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e395]
+                    - cell "覆盖未知 —" [ref=f190e397]:
+                      - generic [ref=f190e398]: 覆盖未知
+                      - generic [ref=f190e399]: —
+                  - row [ref=f190e400]:
+                    - cell [ref=f190e401]:
+                      - link "600519 贵州茅台" [ref=f190e402] [cursor=pointer]:
+                        - /url: /app/research/CN/600519
+                        - text: "600519"
+                        - generic [ref=f190e403]: 贵州茅台
+                    - cell "— —" [ref=f190e404]:
+                      - strong [ref=f190e405]: —
+                      - generic [ref=f190e406]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e407]:
+                      - strong [ref=f190e408]: 补齐缺失数据
+                      - generic [ref=f190e409]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e410]
+                    - cell "覆盖未知 astock" [ref=f190e412]:
+                      - generic [ref=f190e413]: 覆盖未知
+                      - generic [ref=f190e414]: astock
+                  - row [ref=f190e415]:
+                    - cell [ref=f190e416]:
+                      - link "000001 平安银行" [ref=f190e417] [cursor=pointer]:
+                        - /url: /app/research/CN/000001
+                        - text: "000001"
+                        - generic [ref=f190e418]: 平安银行
+                    - cell "— —" [ref=f190e419]:
+                      - strong [ref=f190e420]: —
+                      - generic [ref=f190e421]: —
+                    - cell "补齐缺失数据 研究优先级 先补数据" [ref=f190e422]:
+                      - strong [ref=f190e423]: 补齐缺失数据
+                      - generic [ref=f190e424]: 研究优先级 先补数据
+                    - cell "高" [ref=f190e425]
+                    - cell "覆盖未知 astock" [ref=f190e427]:
+                      - generic [ref=f190e428]: 覆盖未知
+                      - generic [ref=f190e429]: astock
+          - generic [ref=f190e430]:
+            - generic [ref=f190e431]:
+              - generic [ref=f190e432]:
+                - heading "组合决策" [level=2] [ref=f190e433]
+                - paragraph [ref=f190e434]: 首次普通状态只记录不推送；风险和状态变化按规则去重。
+              - generic [ref=f190e435]:
+                - button "手动分析" [disabled] [ref=f190e436]
+                - link "查看报告" [ref=f190e440] [cursor=pointer]:
+                  - /url: /app/reports
+            - generic [ref=f190e442]:
+              - strong [ref=f190e443]: 选择一个组合开始
+              - text: 当前页面不会用空白或 0 分掩盖缺失数据。
+        - complementary [ref=f190e444]:
+          - generic [ref=f190e445]:
+            - generic [ref=f190e447]:
+              - heading "自动推送资格" [level=2] [ref=f190e448]
+              - paragraph [ref=f190e449]: 资格通过之前，开关不可绕过。
+            - generic [ref=f190e452]:
+              - generic [ref=f190e453]: 完成一次预览后显示资格检查。
+              - generic [ref=f190e454]:
+                - link "进入验证" [ref=f190e455] [cursor=pointer]:
+                  - /url: /app/validation
+                - link "配置通知" [ref=f190e456] [cursor=pointer]:
+                  - /url: /app/notifications
+          - generic [ref=f190e457]:
+            - generic [ref=f190e459]:
+              - heading "当前工作区自选" [level=2] [ref=f190e460]
+              - paragraph [ref=f190e461]: 自选写入沿用当前 workspace；移除只影响自选池，不回写历史报告。
+            - generic [ref=f190e466]:
+              - link "002594 比亚迪" [ref=f190e467] [cursor=pointer]:
+                - /url: /app/research/CN/002594
+                - strong [ref=f190e468]: "002594"
+                - generic [ref=f190e469]: 比亚迪
+              - generic [ref=f190e470]:
+                - strong [ref=f190e471]: "89.96"
+                - generic [ref=f190e472]: 1.19%
+              - button "移出自选" [ref=f190e473] [cursor=pointer]
+          - generic [ref=f190e477]:
+            - generic [ref=f190e479]:
+              - heading "预警历史" [level=2] [ref=f190e480]
+              - paragraph [ref=f190e481]: 只展示接口返回的触发记录；没有记录不等于当前没有风险。
+            - generic [ref=f190e488]:
+              - strong [ref=f190e489]: 暂无预警历史
+              - text: 当前接口没有返回触发记录。
+          - generic [ref=f190e490]:
+            - generic [ref=f190e492]:
+              - heading "快速加入组合成员" [level=2] [ref=f190e493]
+              - paragraph [ref=f190e494]: 只修改组合成员，不会改写既有运行。
+            - generic [ref=f190e498]:
+              - generic [ref=f190e499]:
+                - generic [ref=f190e500]: 股票代码
+                - textbox "股票代码" [ref=f190e501]:
+                  - /placeholder: 例如 600519
+              - button "加入当前组合" [disabled] [ref=f190e503]
+              - paragraph [ref=f190e505]: 组合成员变更不会重写既有快照；未接入合格 provider 时不会生成自动信号。
+  - navigation "移动导航" [ref=f190e23]:
+    - link "决策" [ref=f190e24] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f190e31] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f190e36] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f190e40] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f190e45] [cursor=pointer]:
+      - /url: /app/workflows

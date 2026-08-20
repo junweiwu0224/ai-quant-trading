@@ -1,0 +1,118 @@
+- generic [ref=f44e3]:
+  - complementary [ref=f44e4]:
+    - generic [ref=f44e5]:
+      - generic [ref=f44e6]: AQ
+      - generic [ref=f44e7]:
+        - strong [ref=f44e8]: AI Quant
+        - generic [ref=f44e9]: 决策工作台
+      - button "关闭导航" [ref=f44e10] [cursor=pointer]
+    - generic [ref=f44e14]: 中国市场工作区
+    - navigation "主导航" [ref=f44e16]:
+      - link "决策" [ref=f44e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "研究" [ref=f44e24] [cursor=pointer]:
+        - /url: /app/research
+      - link "验证" [ref=f44e29] [cursor=pointer]:
+        - /url: /app/validation
+      - link "报告" [ref=f44e33] [cursor=pointer]:
+        - /url: /app/reports
+      - link "更多" [ref=f44e38] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f44e44]: 等待数据状态
+  - main [ref=f44e48]:
+    - generic [ref=f44e49]:
+      - button "打开导航" [ref=f44e50] [cursor=pointer]
+      - strong [ref=f44e53]: 单股研究
+      - generic [ref=f44e54]:
+        - generic [ref=f44e55]:
+          - generic [ref=f44e56]: 市场
+          - combobox "市场" [ref=f44e57] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f44e58] [cursor=pointer]
+        - link "打开账户设置" [ref=f44e62] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f44e67]:
+      - generic [ref=f44e68]:
+        - link "决策中心" [ref=f44e69] [cursor=pointer]:
+          - /url: /app/decision
+        - generic [ref=f44e70]: /
+        - strong [ref=f44e71]: CN / 600519
+      - generic [ref=f44e72]:
+        - generic [ref=f44e73]:
+          - heading "单股研究" [level=1] [ref=f44e74]
+          - paragraph [ref=f44e75]: 先看事实，再看证据；当前页面不生成未经接口确认的交易结论。
+        - generic [ref=f44e76]:
+          - generic [ref=f44e77]: CN
+          - generic [ref=f44e78]: "600519"
+          - 'generic "数据源: Unknown 最后更新: - 覆盖率: 未知 能力: 无" [ref=f44e80]': 加载中...
+      - generic [ref=f44e83]:
+        - generic [ref=f44e84]:
+          - status [ref=f44e85]:
+            - generic [ref=f44e91]: 正在刷新
+          - generic [ref=f44e92]: 保留上一次数据，正在更新 CN / 600519
+        - link "进入验证并继承当前股票" [ref=f44e93] [cursor=pointer]:
+          - /url: /app/validation?market=CN&symbol=600519
+      - generic [ref=f44e94]:
+        - link "进入验证" [ref=f44e95] [cursor=pointer]:
+          - /url: /app/validation?market=CN&symbol=600519
+        - link "回到决策" [ref=f44e96] [cursor=pointer]:
+          - /url: /app/decision
+      - generic [ref=f44e97]:
+        - generic [ref=f44e98]:
+          - button "K线与技术" [ref=f44e99] [cursor=pointer]
+          - button "证据与决策" [ref=f44e101] [cursor=pointer]
+          - button "回测草案" [ref=f44e103] [cursor=pointer]
+        - generic [ref=f44e107]:
+          - generic [ref=f44e108]:
+            - generic [ref=f44e109]:
+              - heading "K线图 - 600519" [level=3] [ref=f44e110]
+              - generic [ref=f44e111]: "市场: CN"
+            - status [ref=f44e113]:
+              - strong [ref=f44e114]: 加载中...
+          - generic [ref=f44e115]:
+            - generic [ref=f44e116]:
+              - heading "技术指标" [level=3] [ref=f44e117]
+              - paragraph [ref=f44e118]: CN / 600519 的真实接口结果
+            - status [ref=f44e119]:
+              - strong [ref=f44e120]: 加载中...
+            - generic [ref=f44e121]:
+              - generic [ref=f44e122]:
+                - generic [ref=f44e123]: MA5
+                - generic [ref=f44e124]: 暂无数据
+                - generic [ref=f44e125]: 5日均线
+              - generic [ref=f44e126]:
+                - generic [ref=f44e127]: MA10
+                - generic [ref=f44e128]: 暂无数据
+                - generic [ref=f44e129]: 10日均线
+              - generic [ref=f44e130]:
+                - generic [ref=f44e131]: MA20
+                - generic [ref=f44e132]: 暂无数据
+                - generic [ref=f44e133]: 20日均线
+              - generic [ref=f44e134]:
+                - generic [ref=f44e135]: MA60
+                - generic [ref=f44e136]: 暂无数据
+                - generic [ref=f44e137]: 60日均线
+              - generic [ref=f44e138]:
+                - generic [ref=f44e139]: MACD
+                - generic [ref=f44e140]: 暂无数据
+                - generic [ref=f44e141]: 指数平滑异同移动平均线
+              - generic [ref=f44e142]:
+                - generic [ref=f44e143]: RSI
+                - generic [ref=f44e144]: 暂无数据
+                - generic [ref=f44e145]: 相对强弱指标
+  - navigation "移动导航" [ref=f44e146]:
+    - link "决策" [ref=f44e147] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f44e154] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f44e159] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f44e163] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f44e168] [cursor=pointer]:
+      - /url: /app/workflows

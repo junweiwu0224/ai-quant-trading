@@ -1,0 +1,6 @@
+{
+  "packages": [
+    "npm:context-mode",
+    "npm:@dietrichgebert/ponytail"
+  ]
+}

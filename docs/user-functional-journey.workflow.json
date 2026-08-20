@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "A 股量化系统用户功能闭环（目标蓝图）",
+    "output": "docs/user-functional-journey.workflow.html",
+    "animation": "none",
+    "quality_profile": "standard",
+    "viewBox": [1400, 760],
+    "views": [
+      { "id": "happy-path", "label": "从发现到复盘", "focus": ["enter", "market-scan", "data-gate", "research", "strategy-version", "validation", "paper-run", "review"], "note": "沿着可追溯主链完成研究、验证、人工确认、模拟执行和复盘。" },
+      { "id": "research-gates", "label": "研究与资格闸门", "focus": ["market-scan", "data-gate", "research", "ai-assist", "strategy-version", "validation", "fix-data", "revise-strategy"], "note": "先确认数据和证据，再判断策略是否具备进入下一阶段的资格。" },
+      { "id": "execution-loop", "label": "确认到模拟复盘", "focus": ["validation", "paper-run", "risk-halt", "review"], "note": "模拟盘是独立执行阶段，风险暂停和人工复盘必须可见。" },
+      { "id": "recovery", "label": "阻断与恢复", "focus": ["data-gate", "fix-data", "validation", "revise-strategy", "risk-halt"], "note": "阻断节点给出明确修复动作；恢复后重新进入相应闸门。" }
+    ]
+  },
+  "lanes": [
+    { "id": "user", "label": "用户与工作区" },
+    { "id": "market", "label": "市场事实" },
+    { "id": "research", "label": "研究与策略" },
+    { "id": "decision", "label": "决策与风控" },
+    { "id": "execution", "label": "模拟执行与保护" }
+  ],
+  "phases": [
+    { "id": "discover", "label": "进入与发现", "fromCol": 0, "toCol": 0 },
+    { "id": "research", "label": "研究与构建", "fromCol": 1, "toCol": 2, "variant": "emphasis" },
+    { "id": "validate", "label": "验证与人工确认", "fromCol": 3, "toCol": 4, "variant": "security" },
+    { "id": "paper", "label": "模拟与复盘", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "evidence-gate", "label": "证据和可复现性闸门", "lane": "research", "fromCol": 1, "toCol": 4, "variant": "emphasis" },
+    { "id": "paper-boundary", "label": "仅模拟盘执行", "lane": "execution", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["enter", "market-scan", "data-gate", "research", "strategy-version", "validation", "paper-run", "review"],
+  "nodes": [
+    { "id": "enter", "lane": "user", "col": 0, "width": 70, "type": "frontend", "label": "进入工作区", "sublabel": "选环境", "tag": "起点" },
+    { "id": "market-scan", "lane": "market", "col": 1, "width": 62, "type": "frontend", "label": "市场雷达", "sublabel": "机会 / 自选" },
+    { "id": "data-gate", "lane": "market", "col": 3, "width": 66, "type": "security", "label": "数据质量门", "sublabel": "覆盖 / 新鲜度", "tag": "阻断" },
+    { "id": "research", "lane": "research", "col": 3, "width": 62, "type": "frontend", "label": "单股研究", "sublabel": "事实 / 证据" },
+    { "id": "ai-assist", "lane": "decision", "col": 3, "width": 58, "type": "backend", "label": "AI 辅助", "sublabel": "非权威", "tag": "可选" },
+    { "id": "strategy-version", "lane": "research", "col": 5, "width": 62, "type": "backend", "label": "策略版本", "sublabel": "参数 / 回测" },
+    { "id": "validation", "lane": "decision", "col": 5, "width": 72, "type": "security", "label": "资格 + 确认", "sublabel": "OOS / 风控 / 人工", "tag": "闸门" },
+    { "id": "paper-run", "lane": "execution", "col": 5, "width": 72, "type": "backend", "label": "模拟执行", "sublabel": "订单 / 持仓" },
+    { "id": "review", "lane": "user", "col": 5, "width": 70, "type": "frontend", "label": "复盘归档", "sublabel": "报告 / 晋级候选" },
+    { "id": "fix-data", "lane": "decision", "col": 2, "width": 60, "type": "backend", "label": "补齐数据", "sublabel": "同步 / 重试" },
+    { "id": "revise-strategy", "lane": "decision", "col": 4, "width": 60, "type": "backend", "label": "修订策略", "sublabel": "新版本" },
+    { "id": "risk-halt", "lane": "execution", "col": 4, "width": 66, "type": "security", "label": "风险暂停", "sublabel": "停止 / 撤单", "tag": "保护" }
+  ],
+  "edges": [
+    { "id": "enter-to-scan", "from": "enter", "to": "market-scan", "role": "main", "variant": "emphasis" },
+    { "id": "scan-to-data", "from": "market-scan", "to": "data-gate", "role": "main", "variant": "emphasis" },
+    { "id": "data-to-research", "from": "data-gate", "to": "research", "role": "main", "variant": "emphasis" },
+    { "id": "research-to-strategy", "from": "research", "to": "strategy-version", "role": "main" },
+    { "id": "research-to-ai", "from": "research", "to": "ai-assist", "role": "async", "variant": "dashed" },
+    { "id": "strategy-to-validation", "from": "strategy-version", "to": "validation", "role": "main", "variant": "emphasis" },
+    { "id": "validation-to-paper", "from": "validation", "to": "paper-run", "role": "main", "variant": "security" },
+    { "id": "paper-to-review", "from": "paper-run", "to": "review", "role": "main", "variant": "emphasis", "route": "outside-right", "fromSide": "right", "toSide": "right" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "用户始终知道下一步", "items": ["每个动作都有等待、完成、阻断和可重试状态", "页面固定显示 workspace、market、环境和数据新鲜度", "异步 Worker 未完成时不把请求返回当成业务完成"] },
+    { "dot": "emerald", "title": "晋级不是自动跳转", "items": ["AI 只提供解释和研究 artifact，不能直接生成可执行订单", "回测、样本外和资格检查通过后才进入人工确认", "模拟盘结果只形成晋级候选，不绕过实盘安全边界"] },
+    { "dot": "rose", "title": "阻断必须可恢复", "items": ["数据过期回到补数和重新检查", "验证失败回到策略版本", "风险事件进入暂停、撤单和人工复核路径"] }
+  ]
+}

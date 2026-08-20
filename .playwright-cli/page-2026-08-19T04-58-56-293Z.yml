@@ -1,0 +1,29 @@
+- generic [ref=f237e3]:
+  - main [ref=f237e4]:
+    - generic [ref=f237e5]:
+      - button "打开导航" [ref=f237e6] [cursor=pointer]
+      - strong [ref=f237e9]: 决策中心
+      - generic [ref=f237e10]:
+        - generic [ref=f237e11]:
+          - generic [ref=f237e12]: 市场
+          - combobox "市场" [ref=f237e13] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f237e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f237e18] [cursor=pointer]:
+          - /url: /app/settings
+  - navigation "移动导航" [ref=f237e23]:
+    - link "决策" [ref=f237e24] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f237e31] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f237e36] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f237e40] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f237e45] [cursor=pointer]:
+      - /url: /app/workflows

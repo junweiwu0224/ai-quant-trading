@@ -1,0 +1,35 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: AQ
+      - generic [ref=e7]:
+        - strong [ref=e8]: AI Quant
+        - generic [ref=e9]: 决策工作台
+    - generic [ref=e10]:
+      - generic [ref=e11]: 可复现的量化研究闭环
+      - heading "让每个结论都能回到它的证据。" [level=1] [ref=e12]
+      - paragraph [ref=e13]: 从行情、单股研究到验证和结构化报告，在同一个工作区里保留输入、版本、风险状态与 AI 解释。
+      - generic [ref=e14]:
+        - generic [ref=e15]: AI 只做解释
+        - generic [ref=e20]: 凭证只保留引用
+  - region [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e26]: 工作区访问
+      - heading "回到你的研究工作区" [level=2] [ref=e27]
+      - paragraph [ref=e28]: 登录后继续查看自选池、决策和报告。
+    - tablist "认证方式" [ref=e29]:
+      - button "登录" [ref=e30] [cursor=pointer]
+      - button "注册" [ref=e31] [cursor=pointer]
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]: 用户名
+        - textbox "用户名" [ref=e36]:
+          - /placeholder: 例如 quant_user
+      - generic [ref=e37]:
+        - generic [ref=e38]: 密码
+        - generic [ref=e39]:
+          - textbox "密码" [ref=e40]:
+            - /placeholder: 至少 8 位
+          - button "显示密码" [ref=e41] [cursor=pointer]
+      - button "登录工作区" [ref=e45] [cursor=pointer]
+    - paragraph [ref=e49]: 研究状态、报告与操作记录按 workspace 隔离；登录不会授予真实下单权限。

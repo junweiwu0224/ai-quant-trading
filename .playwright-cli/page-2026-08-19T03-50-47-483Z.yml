@@ -1,0 +1,153 @@
+- generic [ref=f8e3]:
+  - complementary [ref=f8e4]:
+    - generic [ref=f8e5]:
+      - generic [ref=f8e6]: AQ
+      - generic [ref=f8e7]:
+        - strong [ref=f8e8]: AI Quant
+        - generic [ref=f8e9]: 决策工作台
+      - button "关闭导航" [ref=f8e10] [cursor=pointer]
+    - generic [ref=f8e14]: 中国市场工作区
+    - navigation "主导航" [ref=f8e16]:
+      - link "决策中心" [ref=f8e17] [cursor=pointer]:
+        - /url: /app/decision
+      - link "市场情报" [ref=f8e24] [cursor=pointer]:
+        - /url: /app/intelligence
+      - link "单股研究" [ref=f8e28] [cursor=pointer]:
+        - /url: /app/research
+      - link "条件筛选" [ref=f8e33] [cursor=pointer]:
+        - /url: /app/research/screener
+      - link "Alpha 与因子" [ref=f8e36] [cursor=pointer]:
+        - /url: /app/research/alpha
+      - link "验证与回测" [ref=f8e40] [cursor=pointer]:
+        - /url: /app/validation
+      - link "策略工作台" [ref=f8e44] [cursor=pointer]:
+        - /url: /app/strategy
+      - link "组合与风控" [ref=f8e50] [cursor=pointer]:
+        - /url: /app/portfolio-risk
+      - link "模拟盘" [ref=f8e54] [cursor=pointer]:
+        - /url: /app/paper
+      - link "AI 工作台" [ref=f8e59] [cursor=pointer]:
+        - /url: /app/ai
+      - link "报告" [ref=f8e64] [cursor=pointer]:
+        - /url: /app/reports
+      - link "通知路由" [ref=f8e69] [cursor=pointer]:
+        - /url: /app/notifications
+    - generic [ref=f8e74]: 工作区
+    - navigation "工作区导航" [ref=f8e75]:
+      - button "Token 用量" [ref=f8e76] [cursor=pointer]
+      - link "设置" [ref=f8e80] [cursor=pointer]:
+        - /url: /app/settings
+      - link "工作流目录" [ref=f8e85] [cursor=pointer]:
+        - /url: /app/workflows
+    - generic [ref=f8e97]:
+      - button "深色模式" [ref=f8e98] [cursor=pointer]
+      - generic [ref=f8e102]: 等待数据状态
+  - main [ref=f8e105]:
+    - generic [ref=f8e106]:
+      - button "打开导航" [ref=f8e107] [cursor=pointer]
+      - strong [ref=f8e110]: 验证
+      - generic [ref=f8e111]:
+        - generic [ref=f8e112]:
+          - generic [ref=f8e113]: 市场
+          - combobox "市场" [ref=f8e114] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f8e115] [cursor=pointer]
+        - link "研究" [ref=f8e119] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f8e121]:
+      - generic [ref=f8e122]:
+        - generic [ref=f8e123]:
+          - generic [ref=f8e124]: VALIDATION / TRACEABLE RESULT
+          - heading "验证与回测" [level=1] [ref=f8e125]
+          - paragraph [ref=f8e126]: 回测结果、样本外、Monte Carlo 和组合资格分开呈现；任何研究结果都不会直接变成订单或自动推送资格。
+        - generic [ref=f8e127]:
+          - status [ref=f8e128]:
+            - generic [ref=f8e134]: 验证工作区
+          - button "刷新" [disabled] [ref=f8e135]
+      - generic [ref=f8e141]:
+        - strong [ref=f8e142]: 当前研究对象：CN / 600519
+        - generic [ref=f8e143]: 未命名标的
+      - generic [ref=f8e144]:
+        - generic [ref=f8e145]:
+          - generic [ref=f8e146]:
+            - heading "回测参数" [level=2] [ref=f8e147]
+            - paragraph [ref=f8e148]: 请求体与旧 /api/backtest/run 兼容，成本和周期显式记录。
+          - generic [ref=f8e149]: 研究操作
+        - generic [ref=f8e150]:
+          - generic [ref=f8e151]:
+            - generic [ref=f8e152]:
+              - generic [ref=f8e153]: 策略
+              - combobox "策略" [ref=f8e154]
+            - generic [ref=f8e155]:
+              - generic [ref=f8e156]: 标的代码
+              - textbox "标的代码" [ref=f8e157]:
+                - /placeholder: 000001,600519
+                - text: "600519"
+            - generic [ref=f8e158]:
+              - generic [ref=f8e159]: 开始日期
+              - textbox "开始日期" [ref=f8e160]: 2023-01-01
+            - generic [ref=f8e161]:
+              - generic [ref=f8e162]: 结束日期
+              - textbox "结束日期" [ref=f8e163]: 2024-12-31
+            - generic [ref=f8e164]:
+              - generic [ref=f8e165]: 初始资金
+              - spinbutton "初始资金" [ref=f8e166]: "1000000"
+            - generic [ref=f8e167]:
+              - generic [ref=f8e168]: 周期
+              - combobox "周期" [ref=f8e169]:
+                - option "日线" [selected]
+                - option "1 分钟"
+                - option "5 分钟"
+                - option "15 分钟"
+                - option "30 分钟"
+                - option "60 分钟"
+            - generic [ref=f8e170]:
+              - generic [ref=f8e171]: 基准
+              - combobox "基准" [ref=f8e172]:
+                - option "不设置基准" [selected]
+            - generic [ref=f8e173]:
+              - generic [ref=f8e174]: 佣金率
+              - spinbutton "佣金率" [ref=f8e175]: "0.0003"
+            - generic [ref=f8e176]:
+              - generic [ref=f8e177]: 印花税率
+              - spinbutton "印花税率" [ref=f8e178]: "0.001"
+            - generic [ref=f8e179]:
+              - generic [ref=f8e180]: 滑点
+              - spinbutton "滑点" [ref=f8e181]: "0.002"
+            - generic [ref=f8e182]:
+              - generic [ref=f8e183]: 样本外训练比例
+              - spinbutton "样本外训练比例" [ref=f8e184]: "0.7"
+            - generic [ref=f8e185]:
+              - generic [ref=f8e186]: Monte Carlo 次数
+              - spinbutton "Monte Carlo 次数" [ref=f8e187]: "1000"
+          - generic [ref=f8e188]:
+            - checkbox "启用回测风控" [ref=f8e189]
+            - text: 启用回测风控
+          - generic [ref=f8e190]:
+            - button "运行回测" [disabled] [ref=f8e191]
+            - button "运行稳健性验证" [disabled] [ref=f8e194]
+            - button "导出 PDF" [disabled] [ref=f8e198]
+      - navigation "验证工作区" [ref=f8e202]:
+        - button "回测工作流" [ref=f8e203] [cursor=pointer]
+        - button "样本外与 Monte Carlo" [ref=f8e204] [cursor=pointer]
+        - button "收益、交易与成本" [ref=f8e205] [cursor=pointer]
+        - button "组合资格" [ref=f8e206] [cursor=pointer]
+      - generic [ref=f8e207]: 先运行一次回测，再查看权益曲线和交易明细。
+  - navigation "移动导航" [ref=f8e208]:
+    - link "决策中心" [ref=f8e209] [cursor=pointer]:
+      - /url: /app/decision
+    - link "市场情报" [ref=f8e216] [cursor=pointer]:
+      - /url: /app/intelligence
+    - link "单股研究" [ref=f8e220] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证与回测" [ref=f8e225] [cursor=pointer]:
+      - /url: /app/validation
+    - link "模拟盘" [ref=f8e229] [cursor=pointer]:
+      - /url: /app/paper
+    - button "切换到深色模式" [ref=f8e234] [cursor=pointer]:
+      - generic [ref=f8e237]: 主题

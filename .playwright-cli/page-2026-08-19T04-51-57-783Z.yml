@@ -1,0 +1,57 @@
+- generic [ref=f236e3]:
+  - main [ref=f236e4]:
+    - generic [ref=f236e5]:
+      - button "打开导航" [ref=f236e6] [cursor=pointer]
+      - strong [ref=f236e9]: 报告
+      - generic [ref=f236e10]:
+        - generic [ref=f236e11]:
+          - generic [ref=f236e12]: 市场
+          - combobox "市场" [ref=f236e13] [cursor=pointer]:
+            - option "A 股" [selected]
+            - option "港股"
+            - option "美股"
+            - option "日股"
+            - option "韩股"
+            - option "台股"
+        - button "打开快捷导航（⌘K / Ctrl+K）" [ref=f236e14] [cursor=pointer]
+        - link "打开账户设置" [ref=f236e18] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=f236e23]:
+      - generic [ref=f236e24]:
+        - generic [ref=f236e25]:
+          - heading "报告与投递审计" [level=1] [ref=f236e26]
+          - paragraph [ref=f236e27]: 报告生成、分享和投递是独立状态。只有投递记录成功，才代表通知已经发出。
+        - generic [ref=f236e28]:
+          - status [ref=f236e29]:
+            - generic [ref=f236e35]: 报告索引
+          - button "刷新" [disabled] [ref=f236e36]
+      - generic "报告审计摘要" [ref=f236e42]:
+        - generic [ref=f236e43]:
+          - generic [ref=f236e44]: 报告
+          - strong [ref=f236e45]: "0"
+        - generic [ref=f236e46]:
+          - generic [ref=f236e47]: 已投递
+          - strong [ref=f236e48]: "0"
+        - generic [ref=f236e49]:
+          - generic [ref=f236e50]: 待处理
+          - strong [ref=f236e51]: "0"
+      - generic [ref=f236e52]:
+        - generic [ref=f236e53]:
+          - generic [ref=f236e54]:
+            - heading "冻结报告" [level=2] [ref=f236e55]
+            - paragraph [ref=f236e56]: 每行可回溯输入 hash、数据状态、验证状态、AI artifact 和投递审计。
+          - generic [ref=f236e57]: 0 份
+        - generic [ref=f236e59]:
+          - strong [ref=f236e60]: 还没有报告
+          - text: 从决策中心完成一次预览或手动分析。
+  - navigation "移动导航" [ref=f236e61]:
+    - link "决策" [ref=f236e62] [cursor=pointer]:
+      - /url: /app/decision
+    - link "研究" [ref=f236e69] [cursor=pointer]:
+      - /url: /app/research
+    - link "验证" [ref=f236e74] [cursor=pointer]:
+      - /url: /app/validation
+    - link "报告" [ref=f236e78] [cursor=pointer]:
+      - /url: /app/reports
+    - link "更多" [ref=f236e83] [cursor=pointer]:
+      - /url: /app/workflows

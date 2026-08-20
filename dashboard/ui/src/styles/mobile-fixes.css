@@ -1,0 +1,314 @@
+/* 移动端响应式修复 - V2实施计划 */
+
+/* ==========================================================================
+   1. AgentOpsView 移动端布局 (BLOCKER)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* 工作台网格改为单列 */
+  .ai-workbench-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 会话面板限高 */
+  .ai-session-panel {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  /* Flow可视化横向滚动 */
+  .ai-flow-board {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ai-flow-lane {
+    min-width: 280px;
+  }
+
+  /* 输入框适配 */
+  .ai-composer textarea {
+    min-height: 80px;
+    font-size: 16px; /* 防止iOS缩放 */
+  }
+
+  /* 主列和侧边栏堆叠 */
+  .ai-main-column,
+  .ai-context-panel {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Flow节点详情全宽 */
+  .ai-flow-node-detail {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* ==========================================================================
+   2. DecisionView 决策链横向滚动陷阱 (BLOCKER)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* 决策链改为垂直堆叠 */
+  .decision-trace-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    overflow-x: visible !important;
+  }
+
+  .decision-trace-node {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  /* 隐藏箭头 */
+  .decision-trace-arrow {
+    display: none;
+  }
+
+  /* 机会表格也改为垂直 */
+  .decision-table.opportunity-table {
+    display: none;
+  }
+
+  .opportunity-mobile-list {
+    display: grid;
+    gap: 8px;
+  }
+}
+
+/* ==========================================================================
+   3. ReportsView 表格响应式 (BLOCKER)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .report-table-desktop,
+  .report-table-wrap {
+    display: none;
+  }
+
+  .report-mobile-list {
+    display: grid !important;
+    gap: 8px;
+  }
+}
+
+/* 平板尺寸仍显示表格，但允许横向滚动 */
+@media (min-width: 768px) and (max-width: 1079px) {
+  .report-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ==========================================================================
+   4. 触摸目标尺寸修复 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* 小尺寸tabs最小44px */
+  .base-tabs--sm .base-tabs__tab {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  /* 紧凑图标按钮最小44px */
+  .icon-button.compact-icon {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+
+  /* 所有按钮最小触摸目标 */
+  button,
+  .button,
+  [role="button"] {
+    min-height: 44px;
+  }
+}
+
+/* ==========================================================================
+   5. 表单输入防止iOS缩放 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* 研究视图padding适配 */
+  .research-view {
+    padding: 14px;
+  }
+}
+
+/* ==========================================================================
+   6. 安全区域适配 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* 侧边栏抽屉安全区域 */
+  .sidebar {
+    width: min(290px, calc(100vw - 34px - env(safe-area-inset-left)));
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  /* 遮罩层覆盖安全区域 */
+  .scrim {
+    inset: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
+/* ==========================================================================
+   7. 移动端导航优化 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .mobile-nav-item {
+    font-size: 11px; /* 从10px增加到11px */
+    gap: 4px; /* 从3px增加到4px */
+  }
+}
+
+/* ==========================================================================
+   8. KLineChart SVG响应式 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .kline-chart {
+    height: 260px;
+  }
+
+  .kline-chart svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* ==========================================================================
+   9. 网格布局平板适配 (MEDIUM)
+   ========================================================================== */
+
+/* 平板尺寸使用2列 */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .section-grid.three {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .summary-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ==========================================================================
+   10. 决策结果面板优化 (MEDIUM)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .outcome-facts {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ==========================================================================
+   11. 横向滚动视觉提示 (MEDIUM)
+   ========================================================================== */
+
+.table-scroll,
+.overflow-container {
+  position: relative;
+}
+
+.table-scroll::after,
+.overflow-container::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  background: linear-gradient(to left, var(--color-surface), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+/* 当容器可滚动时显示渐变 */
+.table-scroll:has(::-webkit-scrollbar-thumb)::after,
+.overflow-container:has(::-webkit-scrollbar-thumb)::after {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   12. 性能优化 (MEDIUM)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* 移除昂贵的模糊效果 */
+  .topbar {
+    backdrop-filter: none;
+    background: var(--color-surface);
+  }
+
+  /* 减少阴影复杂度 */
+  .modal,
+  .drawer {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* ==========================================================================
+   13. 焦点指示器适配 (MEDIUM)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  *:focus-visible {
+    outline-offset: 1px; /* 从2px减少到1px */
+  }
+}
+
+/* ==========================================================================
+   14. 工作区上下文栏适配 (HIGH)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .workspace-bar-item > strong {
+    max-width: 160px; /* 从130px增加到160px */
+  }
+
+  /* 优先显示前2个重要项 */
+  .workspace-bar-item:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   15. 长文本多行省略 (MEDIUM)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .report-mobile-heading strong,
+  .truncate-mobile {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ==========================================================================
+   16. 调色板项触摸目标 (MEDIUM)
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .palette-item {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+}

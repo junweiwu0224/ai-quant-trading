@@ -2,6 +2,7 @@
 import json
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,8 @@ from engine.models import EquityCurvePoint, PaperConfig as NewPaperConfig
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
+from engine.execution_protocol import OrderIntent, OrderIntentBatch, RiskDecision, ExecutionPermit, Environment, Side
+from engine.adapters.paper_adapter import PaperAdapter, QuoteSnapshot
 from risk.position import PositionManager
 from risk.stoploss import StopLossManager
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
@@ -128,10 +131,12 @@ class PaperEngine:
         strategy: BaseStrategy,
         codes: list[str],
         config: Optional[PaperConfig] = None,
+        account_id: str = "default",
     ):
         self._strategy = strategy
         self._codes = codes
         self._config = config or PaperConfig()
+        self._account_id = account_id
         self._quote_service = get_quote_service()
         self._quote_service.subscribe(codes)
         self._trade_log = PaperTradeLog(self._config.state_dir)
@@ -258,8 +263,8 @@ class PaperEngine:
         # 5. 加载 DB 中的手动订单到引擎队列
         self._load_db_orders()
 
-        # 6. 撮合挂单
-        new_trades = self._match_orders(quotes)
+        # 6. 批量执行挂单（策略信号 + 止损 -> 统一协议）
+        new_trades = self._execute_pending_orders_v2(quotes)
 
         # 7. 记录交易
         for trade in new_trades:
@@ -427,6 +432,124 @@ class PaperEngine:
     def _submit_sell(self, code: str, price: float, volume: int):
         """直接提交卖出（止损用）"""
         self._strategy.sell(code, price, volume)
+
+    def _execute_pending_orders_v2(self, quotes: dict[str, QuoteData]) -> list[Trade]:
+        """V2 统一执行协议：策略信号 + 止损 -> OrderIntentBatch -> RiskGate -> PaperAdapter"""
+        pending = self._strategy.get_pending_orders()
+        if not pending:
+            return []
+
+        # 1. 转换为 OrderIntent
+        intents = []
+        for order in pending:
+            side = Side.BUY if order.direction == Direction.LONG else Side.SELL
+            intent = OrderIntent(
+                execution_run_id=f"paper-engine-{self._account_id}",
+                account_id=self._account_id,
+                environment=Environment.PAPER,
+                instrument=order.code,
+                side=side,
+                quantity=order.volume,
+                idempotency_key=f"strategy-{order.order_id}-{now_beijing_iso()}",
+            )
+            intents.append(intent)
+
+        if not intents:
+            return []
+
+        # 2. 创建 batch
+        batch = OrderIntentBatch(
+            batch_id=f"paper-batch-{now_beijing_iso()}",
+            intents=tuple(intents),
+        )
+
+        # 3. RiskGate 评估（内联，emergency=True 对止损放宽检查）
+        # TODO: 实现完整 RiskGate，当前简化为全批准
+        decision = RiskDecision.from_batch(
+            batch=batch,
+            decision_id=f"decision-{batch.batch_id}",
+            policy_version="v1",
+            evaluated_at=now_beijing(),
+            status="approved",
+            approved_intent_keys=tuple(i.idempotency_key for i in intents),
+            rejected_intent_keys=(),
+            reasons={},
+        )
+
+        # 4. 创建 ExecutionPermit
+        permit = ExecutionPermit.from_decision(
+            decision=decision,
+            permit_id=f"permit-{batch.batch_id}",
+            expires_at=now_beijing() + timedelta(minutes=5),
+            fence_token="1",
+        )
+
+        # 5. PaperAdapter 执行
+        adapter = PaperAdapter(db_path=self._order_manager.db_path)
+        quote_snapshots = {
+            code: QuoteSnapshot(
+                instrument=code,
+                price=q.price,
+                timestamp=now_beijing_iso(),
+            )
+            for code, q in quotes.items()
+        }
+
+        try:
+            fills = adapter.execute_batch(batch, permit, quote_snapshots)
+        except Exception as e:
+            logger.error(f"PaperAdapter 执行失败: {e}")
+            # 标记所有订单为失败
+            for order in pending:
+                order.status = "cancelled"
+            return []
+
+        # 6. 更新内存状态（保持向后兼容）
+        trades = []
+        for order, fill in zip(pending, fills):
+            if fill is None:
+                order.status = "cancelled"
+                continue
+
+            order.status = "filled"
+            
+            # 更新 portfolio（从 Ledger 同步）
+            if order.direction == Direction.LONG:
+                old_vol = self._portfolio.positions.get(order.code, 0)
+                old_avg = self._portfolio.avg_prices.get(order.code, 0.0)
+                new_vol = old_vol + order.volume
+                new_avg = (old_avg * old_vol + fill.filled_price * order.volume) / new_vol
+                self._portfolio.positions[order.code] = new_vol
+                self._portfolio.avg_prices[order.code] = new_avg
+                self._portfolio.cash -= fill.filled_price * order.volume
+
+                if old_vol == 0:
+                    self._portfolio.entry_dates[order.code] = now_beijing().strftime("%Y-%m-%d")
+                self._portfolio.strategies[order.code] = self.strategy_name or self._strategy.__class__.__name__
+            else:  # SELL
+                old_vol = self._portfolio.positions.get(order.code, 0)
+                new_vol = max(0, old_vol - order.volume)
+                self._portfolio.positions[order.code] = new_vol
+                self._portfolio.cash += fill.filled_price * order.volume
+
+                if new_vol == 0:
+                    self._portfolio.avg_prices.pop(order.code, None)
+                    self._portfolio.entry_dates.pop(order.code, None)
+                    self._portfolio.strategies.pop(order.code, None)
+
+            # 创建 Trade 记录
+            trade = Trade(
+                code=order.code,
+                direction=order.direction,
+                price=fill.filled_price,
+                volume=order.volume,
+                order_id=order.order_id,
+                datetime=now_beijing().date(),
+            )
+            self._strategy.record_trade(trade)
+            trades.append(trade)
+
+        return trades
 
     def _match_orders(self, quotes: dict[str, QuoteData]) -> list[Trade]:
         """撮合挂单"""

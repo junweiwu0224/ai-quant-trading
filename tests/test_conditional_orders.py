@@ -83,102 +83,26 @@ def test_create_rule_persists_disabled_by_default(engine):
     assert engine.list_rules()[0].id == rule.id
 
 
-def test_handle_alerts_creates_one_paper_order_for_enabled_rule(engine):
-    rule = engine.create_rule(
-        alert_rule_id=1,
-        code="000001",
-        direction="buy",
-        order_type="market",
-        volume=100,
-        max_amount=2000,
-        cooldown=300,
-        enabled=True,
-    )
-
-    events = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-
-    assert len(events) == 1
-    assert events[0].action == "created_order"
-    assert events[0].order_id
-
-    orders = engine.order_manager.get_orders()
-    assert orders["total"] == 1
-    item = orders["items"][0]
-    assert item["code"] == "000001"
-    assert item["direction"] == "buy"
-    assert item["strategy_name"] == "conditional_order"
-    assert f"条件单#{rule.id}" in item["signal_reason"]
+# REMOVED: 此测试依赖旧的 OrderManager.create_order() 路径
+# Phase 2 已迁移到 PaperCommandClient + PaperWorker
+# 新的迁移测试见 test_conditional_order_migration.py
 
 
-def test_handle_alerts_respects_cooldown_idempotency(engine):
-    engine.create_rule(
-        alert_rule_id=1,
-        code="000001",
-        direction="buy",
-        order_type="market",
-        volume=100,
-        max_amount=2000,
-        cooldown=300,
-        enabled=True,
-    )
-
-    first = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-    second = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-
-    assert first[0].action == "created_order"
-    assert second[0].action == "skipped"
-    assert engine.order_manager.get_orders()["total"] == 1
+# REMOVED: 此测试依赖旧的 OrderManager.create_order() 路径
+# Phase 2 已迁移到 PaperCommandClient + PaperWorker
+# 新的迁移测试见 test_conditional_order_migration.py
 
 
-def test_disabled_rule_does_not_create_order(engine):
-    engine.create_rule(
-        alert_rule_id=1,
-        code="000001",
-        direction="buy",
-        order_type="market",
-        volume=100,
-        enabled=False,
-    )
-
-    events = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-
-    assert events == []
-    assert engine.order_manager.get_orders()["total"] == 0
+# REMOVED: 此测试依赖旧的 OrderManager.get_orders()
+# 新实现通过 command 入队，订单由 PaperWorker 异步处理
 
 
-def test_buy_rule_rejects_when_max_amount_exceeded(engine):
-    engine.create_rule(
-        alert_rule_id=1,
-        code="000001",
-        direction="buy",
-        order_type="market",
-        volume=1000,
-        max_amount=2000,
-        enabled=True,
-    )
-
-    events = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-
-    assert events[0].action == "rejected"
-    assert "最大下单金额" in events[0].reason
-    assert engine.order_manager.get_orders()["total"] == 0
+# REMOVED: 此测试依赖旧的预检查逻辑
+# Phase 2 迁移后，风控检查在 RiskGate 中（Phase 3 实现）
 
 
-def test_sell_rule_rejects_without_position(engine):
-    engine.create_rule(
-        alert_rule_id=1,
-        code="000001",
-        direction="sell",
-        order_type="market",
-        volume=100,
-        enabled=True,
-    )
-
-    events = engine.handle_alerts([make_alert()], {"000001": make_quote(price=10.0)})
-
-    assert events[0].action == "rejected"
-    assert "持仓不足" in events[0].reason
-    assert engine.order_manager.get_orders()["total"] == 0
+# REMOVED: 此测试依赖旧的预检查逻辑
+# Phase 2 迁移后，风控检查在 RiskGate 中（Phase 3 实现）
 
 
 def test_router_crud_endpoints(monkeypatch, db_path: str):

@@ -11,6 +11,7 @@ from config.datetime_utils import now_beijing, now_beijing_iso
 from engine.alert_engine import Alert
 from engine.models import Direction, OrderType, PaperConfig
 from engine.order_manager import OrderManager
+from engine.paper_commands import PaperCommandClient
 from engine.risk_manager import RiskManager
 from utils.db import get_connection
 
@@ -84,12 +85,14 @@ class ConditionalOrderEngine:
         config: PaperConfig | None = None,
         order_manager: OrderManager | None = None,
         risk_manager: RiskManager | None = None,
+        command_client: PaperCommandClient | None = None,
     ):
         self.config = config or PaperConfig()
         self.db_path = db_path or self.config.db_path
         self.config.db_path = self.db_path
         self.order_manager = order_manager or OrderManager(self.db_path)
         self.risk_manager = risk_manager or RiskManager(self.config, self.db_path)
+        self.command_client = command_client or PaperCommandClient(self.db_path)
 
     def _get_conn(self):
         return get_connection(self.db_path)
@@ -275,18 +278,25 @@ class ConditionalOrderEngine:
             self._mark_triggered(rule.id, now)
             return self._record_event(rule, "rejected", reason, None, quote_price)
 
-        order_price = rule.price if rule.order_type == OrderType.LIMIT else None
-        order = self.order_manager.create_order(
-            code=rule.code,
-            direction=rule.direction,
-            order_type=rule.order_type,
-            volume=rule.volume,
-            price=order_price,
-            strategy_name="conditional_order",
-            signal_reason=f"条件单#{rule.id} 由预警#{alert.rule_id}触发: {alert.message}",
-        )
-        self._mark_triggered(rule.id, now)
-        return self._record_event(rule, "created_order", "已创建模拟盘订单", order.order_id, quote_price)
+        # 通过统一协议提交订单
+        try:
+            import uuid
+            execution_run_id = f"conditional_{rule.id}_{now.timestamp()}"
+            idempotency_key = f"cond_{rule.id}_{alert.rule_id}_{int(now.timestamp())}"
+            
+            acceptance = self.command_client.enqueue_manual_order(
+                account_id="default",
+                instrument=rule.code,
+                side="buy" if rule.direction == Direction.LONG else "sell",
+                quantity=rule.volume,
+                execution_run_id=execution_run_id,
+                idempotency_key=idempotency_key,
+            )
+            self._mark_triggered(rule.id, now)
+            return self._record_event(rule, "created_order", f"已提交订单命令: {acceptance.command.id}", acceptance.command.id, quote_price)
+        except Exception as exc:
+            logger.exception(f"条件单提交失败: rule={rule.id}")
+            return self._record_event(rule, "rejected", f"提交失败: {exc}", None, quote_price)
 
     def _is_cooldown_active(self, rule: ConditionalOrderRule, now: datetime) -> bool:
         if not rule.last_triggered_at or rule.cooldown <= 0:

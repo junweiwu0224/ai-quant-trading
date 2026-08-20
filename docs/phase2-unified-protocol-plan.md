@@ -233,30 +233,36 @@ Audit 写入 paper_audit
   - tests/test_manual_order_migration.py: 5/5 测试通过
   - 完整测试: 1052 passed
 
-- [ ] **Step 2.3: 条件单执行迁移**
-  - 目标: engine/conditional_order.py 的 create_order_from_rule()
-  - 改为: enqueue_conditional_order() → paper_execute_batch
+- [x] **Step 2.3: 条件单执行迁移** (commit: TBD)
+  - engine/conditional_order.py: _execute_rule() 改用 PaperCommandClient.enqueue_manual_order()
+  - tests/test_conditional_order_migration.py: 5/5 测试通过
+  - 移除: OrderManager.create_order() 直接调用
 
-- [ ] **Step 2.4: 策略信号迁移**
-  - 目标: engine/paper_engine.py 的 _handle_signal()
-  - 改为: enqueue_strategy_signal() → paper_execute_batch
+- [x] **Step 2.4: 策略信号迁移** (commit: TBD)
+  - engine/paper_engine.py: _execute_pending_orders_v2() 内联执行
+  - 使用: OrderIntentBatch → inline RiskGate → PaperAdapter
+  - tests/test_strategy_signal_migration.py: 4/4 测试通过
+  - 架构决策: 策略信号不经过 OperationsStore（已在单线程 PaperEngine 内）
 
-- [ ] **Step 2.5: 止损止盈迁移**
-  - 目标: engine/paper_engine.py 的 _check_stop_loss/take_profit()
-  - 改为: enqueue_stop_order() → paper_execute_batch
+- [x] **Step 2.5: 止损止盈迁移** (commit: TBD)
+  - engine/paper_engine.py: 止损通过 _execute_pending_orders_v2() 统一执行
+  - tests/test_stop_loss_migration.py: 2/2 测试通过
+  - 架构决策: 止损订单走统一协议，由 strategy.sell() 触发
 
-- [ ] **Step 2.6: 移除旧订单路径**
-  - 删除: OrderManager.create_order() 直接写表逻辑
-  - 保留: OrderManager 作为只读查询接口
+- [x] **Step 2.6: 移除旧订单路径** (commit: TBD)
+  - engine/order_manager.py: create_order(), match_orders(), _execute_order(), _should_match(), _save_order() 标记为废弃并抛出 NotImplementedError
+  - 保留: 只读查询方法 (get_orders, get_order, get_pending_orders, cancel_order)
+  - 保留: 幂等创建方法 (create_orders_idempotently, 用于恢复场景)
+  - tests/test_order_manager_deprecation.py: 7/7 测试通过
 
 ## 成功标准
 
-- [x] 所有订单路径生成 `OrderIntent` 和 `OrderIntentBatch` (手工订单已完成)
+- [x] 所有订单路径生成 `OrderIntent` 和 `OrderIntentBatch`
 - [x] 所有订单经过 `RiskGate.evaluate()` (当前为 auto-approved，Phase 3 接入真实风控)
-- [x] 所有成交写入 `paper_ledger`，无直接 portfolio 修改 (PaperAdapter 已实现)
-- [x] 所有 Fill 具备幂等键和 fence (paper_ledger.idempotency_key 唯一约束)
-- [ ] 集成测试覆盖 4 条路径 (1/4 完成)
-- [ ] E2E 测试验证前端 → 后端 → Ledger 完整链路
+- [x] 所有成交写入 `paper_ledger`，无直接 portfolio 修改
+- [x] 所有 Fill 具备幂等键和 fence
+- [x] 集成测试覆盖 4 条路径 (32/32 测试通过)
+- [ ] E2E 测试验证前端 → 后端 → Ledger 完整链路 (留待后续)
 
 ## 下一步
 

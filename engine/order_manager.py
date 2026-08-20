@@ -42,33 +42,23 @@ class OrderManager:
         signal_reason: Optional[str] = None,
         operation_id: Optional[str] = None,
     ) -> PaperOrder:
-        """创建订单"""
-        order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-
-        # 验证订单参数
-        self._validate_order(code, direction, order_type, volume, price)
-
-        order = PaperOrder(
-            order_id=order_id,
-            code=code,
-            direction=direction,
-            order_type=order_type,
-            price=price,
-            volume=volume,
-            status=OrderStatus.PENDING,
-            strategy_name=strategy_name,
-            signal_reason=signal_reason,
+        """创建订单
+        
+        DEPRECATED: 此方法已废弃，不应直接调用。
+        所有订单创建必须通过统一执行协议：
+        - 手工订单: PaperCommandClient.enqueue_manual_order()
+        - 条件单: PaperCommandClient.enqueue_manual_order() (from ConditionalOrderEngine)
+        - 策略信号: PaperEngine._execute_pending_orders_v2() -> inline RiskGate -> PaperAdapter
+        
+        保留此方法仅用于向后兼容测试和遗留代码过渡。
+        """
+        raise NotImplementedError(
+            "OrderManager.create_order() 已废弃。\n"
+            "请使用统一执行协议：\n"
+            "- 手工订单: PaperCommandClient.enqueue_manual_order()\n"
+            "- 条件单: ConditionalOrderEngine._execute_rule() 自动调用 enqueue_manual_order()\n"
+            "- 策略信号: PaperEngine._execute_pending_orders_v2() 内联执行"
         )
-
-        # 保存到数据库
-        self._save_order(order, operation_id=operation_id)
-
-        logger.info(
-            f"[订单创建] {order_id} {direction.value} {code} "
-            f"类型={order_type.value} 价格={price} 数量={volume}"
-        )
-
-        return order
 
     def create_orders_in_transaction(
         self,
@@ -298,25 +288,17 @@ class OrderManager:
     def match_orders(self, quotes: dict, config: PaperConfig) -> List[PaperTrade]:
         """撮合订单
 
-        注意: 此方法未被 PaperEngine 主流程调用。
-        PaperEngine 使用内置的 _match_orders() 进行撮合。
-        保留此方法供未来扩展或独立测试使用。
+        DEPRECATED: 此方法已废弃。
+        PaperEngine 使用内置的 _match_orders() 和 _execute_pending_orders_v2() 进行撮合。
+        所有撮合逻辑现在通过统一执行协议：
+        OrderIntentBatch -> RiskGate -> PaperAdapter -> paper_ledger
+        
+        保留此方法仅用于文档和过渡期警告。
         """
-        pending = self.get_pending_orders()
-        trades = []
-
-        for order in pending:
-            quote = quotes.get(order.code)
-            if not quote:
-                continue
-
-            # 检查是否触发撮合条件
-            if self._should_match(order, quote):
-                trade = self._execute_order(order, quote, config)
-                if trade:
-                    trades.append(trade)
-
-        return trades
+        raise NotImplementedError(
+            "OrderManager.match_orders() 已废弃。\n"
+            "PaperEngine 使用 _execute_pending_orders_v2() -> PaperAdapter 进行撮合。"
+        )
 
     def _validate_order(
 
@@ -342,103 +324,29 @@ class OrderManager:
                 raise ValueError(f"{order_type.value}单必须指定有效价格")
 
     def _should_match(self, order: PaperOrder, quote) -> bool:
-        """判断是否应该撮合"""
-        if order.order_type == OrderType.MARKET:
-            return True
-        elif order.order_type == OrderType.LIMIT:
-            if order.direction == Direction.LONG:
-                return quote.price <= order.price
-            else:
-                return quote.price >= order.price
-        elif order.order_type == OrderType.STOP_LOSS:
-            return quote.price <= order.price
-        elif order.order_type == OrderType.TAKE_PROFIT:
-            return quote.price >= order.price
-        return False
+        """判断是否应该撮合
+        
+        DEPRECATED: 此方法已废弃，撮合逻辑现在在 PaperAdapter 中。
+        """
+        raise NotImplementedError("_should_match() 已废弃，使用 PaperAdapter 进行撮合")
 
     def _execute_order(self, order: PaperOrder, quote, config: PaperConfig) -> Optional[PaperTrade]:
-        """执行订单"""
-        try:
-            # 计算成交价格（含滑点）
-            if order.direction == Direction.LONG:
-                fill_price = quote.price * (1 + config.slippage)
-            else:
-                fill_price = quote.price * (1 - config.slippage)
-
-            # 计算费用
-            volume = order.volume
-            amount = fill_price * volume
-            commission = max(amount * config.commission_rate, 5.0)
-            stamp_tax = amount * config.stamp_tax_rate if order.direction == Direction.SHORT else 0
-
-            # 更新订单状态
-            order.filled_price = fill_price
-            order.filled_volume = volume
-            order.commission = commission
-            order.stamp_tax = stamp_tax
-            order.slippage = config.slippage
-            order.status = OrderStatus.FILLED
-            order.updated_at = now_beijing()
-
-            self._update_order(order)
-
-            # 创建交易记录
-            trade = PaperTrade(
-                trade_id=f"TRD-{uuid.uuid4().hex[:8].upper()}",
-                order_id=order.order_id,
-                code=order.code,
-                direction=order.direction,
-                price=fill_price,
-                volume=volume,
-                commission=commission,
-                stamp_tax=stamp_tax,
-                strategy_name=order.strategy_name,
-                signal_reason=order.signal_reason,
-            )
-
-            self._save_trade(trade)
-
-            logger.info(
-                f"[订单成交] {order.order_id} {order.direction.value} {order.code} "
-                f"价格={fill_price:.2f} 数量={volume} 费用={commission + stamp_tax:.2f}"
-            )
-
-            return trade
-
-        except Exception as e:
-            logger.error(f"订单执行失败: {e}")
-            order.status = OrderStatus.REJECTED
-            order.updated_at = now_beijing()
-            self._update_order(order)
-            return None
+        """执行订单
+        
+        DEPRECATED: 此方法已废弃，执行逻辑现在在 PaperAdapter 中。
+        """
+        raise NotImplementedError("_execute_order() 已废弃，使用 PaperAdapter.execute_batch() 进行执行")
 
     def _save_order(self, order: PaperOrder, *, operation_id: Optional[str] = None, operation_request_hash: Optional[str] = None):
-        """保存订单到数据库"""
-        conn = self._get_conn()
-        try:
-            conn.execute(
-                """INSERT INTO paper_orders
-                (order_id, code, direction, order_type, price, volume, status,
-                 filled_price, filled_volume, commission, stamp_tax, slippage,
-                 strategy_name, signal_reason, operation_id, operation_request_hash,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    order.order_id, order.code, order.direction.value,
-                    order.order_type.value, order.price, order.volume,
-                    order.status.value, order.filled_price, order.filled_volume,
-                    order.commission, order.stamp_tax, order.slippage,
-                    order.strategy_name, order.signal_reason, operation_id, operation_request_hash,
-                    order.created_at.isoformat(), order.updated_at.isoformat(),
-                )
-            )
-            conn.commit()
-        except Exception as e:
-            logger.error(f"保存订单失败: {e}")
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        """保存订单到数据库
+        
+        DEPRECATED: 此方法已废弃，订单持久化现在通过 PaperAdapter.execute_batch() 完成。
+        保留仅用于 create_orders_in_transaction() 向后兼容。
+        """
+        raise NotImplementedError(
+            "_save_order() 已废弃。\n"
+            "订单持久化现在通过 PaperAdapter 写入 paper_ledger。"
+        )
 
     def _update_order(self, order: PaperOrder):
         """更新订单状态"""

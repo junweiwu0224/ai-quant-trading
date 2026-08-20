@@ -233,27 +233,28 @@ Audit 写入 paper_audit
   - tests/test_manual_order_migration.py: 5/5 测试通过
   - 完整测试: 1052 passed
 
-- [x] **Step 2.3: 条件单执行迁移** (commit: TBD)
+- [x] **Step 2.3: 条件单执行迁移** (commit: e87cfc3)
   - engine/conditional_order.py: _execute_rule() 改用 PaperCommandClient.enqueue_manual_order()
   - tests/test_conditional_order_migration.py: 5/5 测试通过
   - 移除: OrderManager.create_order() 直接调用
 
-- [x] **Step 2.4: 策略信号迁移** (commit: TBD)
+- [x] **Step 2.4: 策略信号迁移** (commit: e87cfc3)
   - engine/paper_engine.py: _execute_pending_orders_v2() 内联执行
   - 使用: OrderIntentBatch → inline RiskGate → PaperAdapter
   - tests/test_strategy_signal_migration.py: 4/4 测试通过
   - 架构决策: 策略信号不经过 OperationsStore（已在单线程 PaperEngine 内）
 
-- [x] **Step 2.5: 止损止盈迁移** (commit: TBD)
+- [x] **Step 2.5: 止损止盈迁移** (commit: e87cfc3)
   - engine/paper_engine.py: 止损通过 _execute_pending_orders_v2() 统一执行
-  - tests/test_stop_loss_migration.py: 2/2 测试通过
-  - 架构决策: 止损订单走统一协议，由 strategy.sell() 触发
+  - tests/test_stop_loss_migration.py: 5/5 测试通过
+  - 架构决策: 止损订单走统一协议，emergency=True 标记
 
-- [x] **Step 2.6: 移除旧订单路径** (commit: TBD)
-  - engine/order_manager.py: create_order(), match_orders(), _execute_order(), _should_match(), _save_order() 标记为废弃并抛出 NotImplementedError
+- [x] **Step 2.6: 移除旧订单路径** (commit: e87cfc3)
+  - engine/order_manager.py: create_order() 标记为废弃并抛出 NotImplementedError
+  - 移除: match_orders(), _should_match(), _execute_order() 未使用的撮合方法
   - 保留: 只读查询方法 (get_orders, get_order, get_pending_orders, cancel_order)
-  - 保留: 幂等创建方法 (create_orders_idempotently, 用于恢复场景)
-  - tests/test_order_manager_deprecation.py: 7/7 测试通过
+  - tests/test_order_manager_deprecation.py: 3/3 测试通过
+  - 测试清理: 移除依赖 V1 执行路径的过时测试
 
 ## 成功标准
 
@@ -261,8 +262,40 @@ Audit 写入 paper_audit
 - [x] 所有订单经过 `RiskGate.evaluate()` (当前为 auto-approved，Phase 3 接入真实风控)
 - [x] 所有成交写入 `paper_ledger`，无直接 portfolio 修改
 - [x] 所有 Fill 具备幂等键和 fence
-- [x] 集成测试覆盖 4 条路径 (32/32 测试通过)
+- [x] 集成测试覆盖 4 条路径 (32/32 Phase 2 测试通过)
+- [x] 完整回归测试通过 (1063 passed, 2 skipped, 1 warning)
 - [ ] E2E 测试验证前端 → 后端 → Ledger 完整链路 (留待后续)
+
+## Phase 2 完成总结
+
+**状态**: ✅ 全部完成 (2026-08-20)
+
+**最终测试结果**: 1063 passed, 2 skipped, 1 warning
+
+**提交记录**:
+- `b495bbb`: feat(phase2): migrate manual orders to unified execution protocol
+- `c7982be`: docs: update Phase 2 progress after manual order migration
+- `e87cfc3`: feat(phase2): complete Phase 2.3-2.6 - full protocol unification
+
+**关键成果**:
+1. **PaperAdapter** (230 行): 原子执行、幂等性、permit 校验、行情匹配、账本持久化
+2. **统一协议**: OrderIntent → Batch → RiskDecision → ExecutionPermit → Adapter → Ledger
+3. **三条执行路径全部迁移**:
+   - 手工订单: API → enqueue_manual_order() → PaperWorker → PaperAdapter
+   - 条件单: ConditionalOrderEngine → enqueue_manual_order() → PaperWorker → PaperAdapter
+   - 策略信号/止损: PaperEngine 内联 → PaperAdapter (bypass queue)
+4. **OrderManager 降级**: 移除写入逻辑，保留只读查询接口
+5. **完整测试覆盖**: 32 个 Phase 2 测试，覆盖所有执行路径
+
+**架构改进**:
+- 消除了 4 条独立订单创建路径，统一到 OrderIntent 协议
+- 建立了 paper_ledger 作为唯一成交事实源（虽然 portfolio_state.json 仍需 Phase 4 清理）
+- 为 Phase 3 的真实 RiskGate 实现打下基础
+
+**遗留问题** (Phase 3-5 解决):
+- 当前 RiskGate 是 auto-approved，无真实风控检查
+- portfolio_state.json 与 paper_ledger 仍是双事实源
+- 缺少 ExecutionRun、Qualification、Approval、Reconciliation
 
 ## 下一步
 

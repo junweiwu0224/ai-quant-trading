@@ -42,4 +42,4 @@ full pytest before concurrent Phase 5 edits: 1098 passed, 1 warning
 
 ## 后续门禁
 
-Phase 5 需要完成 V2 Context + Task/Run 前端迁移、兼容路由和 blocked/retry/paused/halted/reconciling 展示，并在不污染当前 Phase 4 文件的前提下运行 Vue build、契约测试、Dashboard API 回归和浏览器验证。
+Phase 5 已另行记录于 [`docs/phase5-completion-report.md`](phase5-completion-report.md)。独立 Paper account 绑定、workspace-aware Paper command 写路径和真实登录浏览器 smoke 仍是后续交付边界。

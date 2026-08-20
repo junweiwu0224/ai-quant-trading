@@ -4,6 +4,7 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import { Boxes, ChevronRight, LockKeyhole, Menu, Moon, MoreHorizontal, Search, Settings, Sparkles, Sun, UserRound, X } from 'lucide-vue-next'
 import { useAppStore } from '../stores/app'
 import { useResearchContextStore } from '../stores/researchContext'
+import { useV2ContextStore } from '../stores/v2Context'
 import type { MarketCode } from '../api/types'
 import { COMMAND_WORKFLOWS } from '../navigation/workflows'
 import WorkspaceNav from './WorkspaceNav.vue'
@@ -18,6 +19,7 @@ const props = defineProps<{
 
 const store = useAppStore()
 const researchContext = useResearchContextStore()
+const v2Context = useV2ContextStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -39,6 +41,22 @@ const freshnessLabel = computed(() => ({
 const freshnessClass = computed(() => ({ live: 'good', delayed: 'warn', stale: 'bad', unavailable: 'muted' } as Record<string, string>)[String(researchContext.context.freshness || '')] || 'muted')
 const qualificationLabel = computed(() => researchContext.context.eligibility?.eligible === true ? '资格通过' : researchContext.context.eligibility ? '资格阻断' : '资格未检查')
 const qualificationClass = computed(() => researchContext.context.eligibility?.eligible === true ? 'good' : researchContext.context.eligibility ? 'bad' : 'muted')
+const workspaceId = computed(() => String(store.account?.workspace?.id || 'default'))
+const accountId = computed(() => String(store.account?.workspace?.settings?.paper_account_id || 'paper-default'))
+const latestTask = computed(() => v2Context.context?.tasks?.[0])
+const v2StateLabel = computed(() => {
+  const labels: Record<string, string> = { ready: '可执行上下文', running: 'Paper 运行中', paused: '已暂停', blocked: '已阻断', halted: '已停止', reconciling: '对账中', reconciliation_required: '需对账', reconciliation_blocked: '对账阻断', unbound: '未绑定运行', unknown: '状态未知' }
+  return labels[v2Context.readiness] || labels[v2Context.status] || v2Context.readiness
+})
+const v2StateClass = computed(() => {
+  if (v2Context.controlsBlocked) return 'bad'
+  return ['ready', 'running'].includes(v2Context.readiness) ? 'good' : 'warn'
+})
+const taskStateLabel = computed(() => {
+  const state = String(latestTask.value?.status || '')
+  if (!state) return '暂无任务'
+  return ({ queued: '任务排队', running: '任务执行中', succeeded: '任务已完成', failed: '任务失败' } as Record<string, string>)[state] || `任务：${state}`
+})
 
 const paletteItems = COMMAND_WORKFLOWS.map(({ label, description, to }) => ({ label, hint: description, to }))
 
@@ -136,7 +154,10 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', handleGlobalKeydown)
+  void v2Context.load(accountId.value, workspaceId.value)
+})
 onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
 </script>
 
@@ -223,6 +244,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
       <span class="workspace-bar-item"><span>标的</span><strong>{{ contextInstrument }}</strong></span>
       <span class="workspace-bar-item workspace-bar-secondary"><span>数据</span><strong class="workspace-status" :class="freshnessClass">{{ freshnessLabel }}</strong></span>
       <span class="workspace-bar-item"><span>资格</span><strong class="workspace-status" :class="qualificationClass">{{ qualificationLabel }}</strong></span>
+      <span class="workspace-bar-item v2-context-state"><span>V2 执行</span><strong class="workspace-status" :class="v2StateClass">{{ v2StateLabel }}</strong><small class="v2-task-state">{{ taskStateLabel }}</small><small v-if="v2Context.error" class="v2-context-error">读取失败</small></span>
     </div>
 
     <WorkspaceNav />
@@ -324,6 +346,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
 .workspace-status.warn { color:var(--color-warn); }
 .workspace-status.bad { color:var(--color-danger); }
 .workspace-status.muted { color:var(--color-text-tertiary); }
+.v2-context-state { position:relative; }
+.v2-context-error { color:var(--color-danger); font-size:10px; }
+.v2-task-state { color:var(--color-text-tertiary); font-size:10px; }
 
 @media (max-width: 767px) {
   .mobile-only { display: grid; }

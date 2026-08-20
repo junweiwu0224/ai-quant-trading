@@ -20,7 +20,10 @@ def test_paper_workspace_keeps_legacy_api_and_explicit_v2_fallbacks() -> None:
     assert "statusError" in view
     assert "statusDisplay" in view
     assert "canOperate" in view
-    assert "状态不可确认" in view
+    assert "reconciliationRequired" in view
+    assert "v2Context.controlsBlocked" in view
+    assert "v2Context.load" in view
+    assert "所有执行操作已禁用" in view
     assert "已保留最后一次有效状态" in view
     assert "!canOperate" in view
     assert "execution_run_id" in view

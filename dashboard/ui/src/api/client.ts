@@ -1217,6 +1217,9 @@ export const api = {
   paperStatus() {
     return request<Record<string, unknown>>('/api/paper/status')
   },
+  paperContext(accountId = 'paper-default', workspaceId = 'default') {
+    return request<Record<string, unknown>>(withQuery('/api/v2/context', { account_id: accountId, workspace_id: workspaceId }))
+  },
   startPaper(body: unknown) {
     return request<Record<string, unknown>>('/api/paper/start', { method: 'POST', body: JSON.stringify(body) })
   },

@@ -63,6 +63,20 @@ describe('API client hardening', () => {
     })
   })
 
+  it('reads scoped V2 context with explicit account and workspace', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"environment":"paper","live_enabled":false}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.paperContext('acct-a', 'workspace-a')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/context?account_id=acct-a&workspace_id=workspace-a',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
   it('uses the unified AI Runtime status endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{"runtime":"ready"}', {
       status: 200,

@@ -4,6 +4,7 @@ import { ArrowLeft, Ban, BarChart3, Check, CircleAlert, Download, Pause, Play, R
 import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
 import BrokerDisableGuard from '../components/guards/BrokerDisableGuard.vue'
+import { useV2ContextStore } from '../stores/v2Context'
 
 type Row = Record<string, any>
 type PaperTab = 'orders' | 'positions' | 'performance' | 'risk'
@@ -36,11 +37,14 @@ const orderReview = ref<Row | null>(null)
 const stopDrafts = ref<Record<string, { stop_loss_price: number | null; take_profit_price: number | null }>>({})
 const startForm = ref({ strategy: 'dual_ma', codes: '000001', interval: 30, cash: 50000, enable_risk: true })
 const orderForm = ref({ code: '', direction: 'buy', order_type: 'market', price: null as number | null, volume: 100, strategy_name: 'manual', signal_reason: '人工确认的模拟盘订单' })
+const v2Context = useV2ContextStore()
 const riskForm = ref({ max_position_pct: 0.2, max_positions: 10, max_drawdown: 0.1, max_daily_loss: 0.03 })
 
 const running = computed(() => Boolean(status.value?.running))
 const runningStateKnown = computed(() => statusAvailable.value && typeof status.value?.running === 'boolean')
-const canOperate = computed(() => statusAvailable.value && runningStateKnown.value)
+const reconciliationRequired = computed(() => Boolean(status.value?.reconciliation_required || status.value?.reconciliationRequired || status.value?.reconciliations?.length || ['reconciling', 'reconciliation_blocked', 'halted', 'halt_requested', 'blocked', 'failed'].includes(String(status.value?.status || '').toLowerCase())))
+const canOperate = computed(() => statusAvailable.value && runningStateKnown.value && !reconciliationRequired.value && !v2Context.controlsBlocked)
+
 const initialLoading = computed(() => loading.value && !hasLoaded.value)
 const statusDisplay = computed(() => {
   if (!statusAvailable.value) return '状态不可确认'
@@ -126,6 +130,10 @@ async function load() {
     statusAvailable.value = false
     statusError.value = 'paper 运行状态暂不可确认；已保留最后一次有效状态，依赖状态的操作已禁用。'
   }
+  const currentContext = v2Context.context
+  void v2Context.load(currentContext ? currentContext.account_id : String(statusPayload?.account_id || 'paper-default'), currentContext ? currentContext.workspace_id : String(statusPayload?.workspace_id || 'default'))
+
+
   const value = <T>(index: number): T | null => results[index].status === 'fulfilled' ? results[index].value as T : null
   const positionPayload = payloadData(value<Row>(1))
   const orderPayload = payloadData(value<Row>(2))
@@ -310,6 +318,7 @@ onMounted(load)
     <div class="page-head"><div><RouterLink to="/app/portfolio-risk" class="muted small"><ArrowLeft :size="14" />组合工作区</RouterLink><h1>模拟盘与风控执行</h1><p>这里是 paper 环境的状态与操作工作区。旧模拟盘 API 保留兼容；页面不会把 legacy 返回值解释为 V2 ExecutionRun，也不会调用 Broker。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" :class="{ spin: loading }" />刷新</button></div>
     <div v-if="initialLoading" class="info-box" role="status" aria-live="polite">正在加载 paper 状态与数据…</div>
     <div v-if="statusError" class="error-box" role="alert"><CircleAlert :size="16" />{{ statusError }}</div>
+    <div v-if="reconciliationRequired" class="error-box" role="alert"><CircleAlert :size="16" />当前 Paper 运行需要先完成对账或恢复确认；所有执行操作已禁用。</div>
     <div v-if="loadError" class="error-box" role="alert"><CircleAlert :size="16" />{{ loadError }}</div>
     <div v-if="actionError" class="error-box" role="alert"><CircleAlert :size="16" />{{ actionError }}</div>
     <div v-if="saving" class="info-box" role="status" aria-live="polite">正在提交 paper 操作，请等待 worker/模拟引擎确认；不代表已成交。</div>

@@ -4,6 +4,7 @@ import type { AccountState, DataHealth, WatchlistItem } from '../types'
 import { api } from '../api/client'
 import type { MarketCode } from '../api/types'
 import { useResearchContextStore } from './researchContext'
+import { useV2ContextStore } from './v2Context'
 
 export const useAppStore = defineStore('app', () => {
   const theme = ref<'light' | 'dark' | 'system'>((localStorage.getItem('quant-theme') as 'light' | 'dark' | 'system') || 'dark')
@@ -66,6 +67,7 @@ export const useAppStore = defineStore('app', () => {
     watchlist.value = []
     health.value = null
     useResearchContextStore().clear()
+    useV2ContextStore().clear()
   }
   applyTheme()
   return { theme, market, setMarket, selectedPortfolio, watchlist, health, loading, error, authLoading, account, authenticated, isDark, setTheme, bootstrapAuth, setAccount, clearAccount, loadWorkspace, applyTheme }

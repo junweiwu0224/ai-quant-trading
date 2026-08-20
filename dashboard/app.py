@@ -424,7 +424,7 @@ async def favicon():
 from dashboard.routers import (  # noqa: E402
     agentic, account, ai, alerts, alpha, audit, backtest, broker_config, conditional_orders, datahub, factor, llm, market, market_rules, optimization, paper_control,
     paper_trading, portfolio, portfolio_opt, qlib, realtime_quotes, screener, signals, stock_detail, strategy,
-    strategy_version, system, valuation, watchlist,
+    strategy_version, system, valuation, watchlist, v2_context,
 )
 
 from dashboard.routers import decisions
@@ -439,6 +439,7 @@ app.include_router(alpha.router, prefix="/api/alpha", tags=["AI Alpha"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["自选股"])
 app.include_router(paper_control.router, prefix="/api/paper", tags=["模拟盘"])
 app.include_router(paper_trading.router, prefix="/api/paper", tags=["模拟盘完整功能"])
+app.include_router(v2_context.router, prefix="/api/v2", tags=["V2 持久化上下文"])
 app.include_router(strategy.router, prefix="/api/strategy", tags=["策略管理"])
 app.include_router(broker_config.router, prefix="/api/broker", tags=["券商配置"])
 app.include_router(realtime_quotes.router, tags=["实时行情"])

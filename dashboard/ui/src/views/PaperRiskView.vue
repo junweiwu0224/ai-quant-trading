@@ -307,7 +307,7 @@ onMounted(load)
 <template>
   <BrokerDisableGuard />
   <section>
-    <div class="page-head"><div><RouterLink to="/app/portfolio-risk" class="muted small"><ArrowLeft :size="14" />组合工作区</RouterLink><h1>Paper 执行工作区</h1><p>这里是 paper 环境的状态与操作工作区。旧模拟盘 API 保留兼容；页面不会把 legacy 返回值解释为 V2 ExecutionRun，也不会调用 Broker。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" :class="{ spin: loading }" />刷新</button></div>
+    <div class="page-head"><div><RouterLink to="/app/portfolio-risk" class="muted small"><ArrowLeft :size="14" />组合工作区</RouterLink><h1>模拟盘与风控执行</h1><p>这里是 paper 环境的状态与操作工作区。旧模拟盘 API 保留兼容；页面不会把 legacy 返回值解释为 V2 ExecutionRun，也不会调用 Broker。</p></div><button class="button" type="button" :disabled="loading" @click="load"><RefreshCw :size="16" :class="{ spin: loading }" />刷新</button></div>
     <div v-if="initialLoading" class="info-box" role="status" aria-live="polite">正在加载 paper 状态与数据…</div>
     <div v-if="statusError" class="error-box" role="alert"><CircleAlert :size="16" />{{ statusError }}</div>
     <div v-if="loadError" class="error-box" role="alert"><CircleAlert :size="16" />{{ loadError }}</div>

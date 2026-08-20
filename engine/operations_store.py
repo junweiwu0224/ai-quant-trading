@@ -10,7 +10,7 @@ import json
 import sqlite3
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -221,6 +221,7 @@ class OperationsStore:
         *,
         task_id: str | None = None,
         lease_seconds: float | None = None,
+        allowed_kinds: Iterable[str] | None = None,
     ) -> Attempt:
         """Claim a queued task or reclaim one whose current lease expired."""
         owner = owner_id.strip()
@@ -229,6 +230,7 @@ class OperationsStore:
         duration = self.lease_seconds if lease_seconds is None else float(lease_seconds)
         if duration <= 0:
             raise ValueError("lease_seconds must be positive")
+        normalized_kinds = self._normalize_allowed_kinds(allowed_kinds)
         now = self._timestamp()
 
         with self._write_transaction() as connection:
@@ -236,17 +238,57 @@ class OperationsStore:
             # make a lease decision with a stale clock value.
             now = self._timestamp()
             if task_id is None:
-                task_row = connection.execute(
-                    "SELECT * FROM tasks WHERE status = 'queued' OR "
-                    "(status = 'running' AND EXISTS ("
-                    "SELECT 1 FROM task_attempts a WHERE a.task_id = tasks.id "
-                    "AND a.fence = (SELECT MAX(fence) FROM task_attempts WHERE task_id = tasks.id) "
-                    "AND a.status = 'running' AND a.leased_until <= ?)) "
-                    "ORDER BY created_at, id LIMIT 1",
-                    (now,),
-                ).fetchone()
+                if normalized_kinds is None:
+                    task_row = connection.execute(
+                        "SELECT * FROM tasks WHERE status = 'queued' OR "
+                        "(status = 'running' AND EXISTS ("
+                        "SELECT 1 FROM task_attempts a WHERE a.task_id = tasks.id "
+                        "AND a.fence = (SELECT MAX(fence) FROM task_attempts WHERE task_id = tasks.id) "
+                        "AND a.status = 'running' AND a.leased_until <= ?)) "
+                        "ORDER BY created_at, id LIMIT 1",
+                        (now,),
+                    ).fetchone()
+                else:
+                    if not normalized_kinds:
+                        task_row = connection.execute(
+                            "SELECT tasks.* FROM tasks "
+                            "JOIN commands ON commands.id = tasks.command_id "
+                            "WHERE 0"
+                        ).fetchone()
+                    else:
+                        placeholders = ", ".join("?" for _ in normalized_kinds)
+                        task_row = connection.execute(
+                            "SELECT tasks.* FROM tasks "
+                            "JOIN commands ON commands.id = tasks.command_id "
+                            "WHERE (tasks.status = 'queued' OR "
+                            "(tasks.status = 'running' AND EXISTS ("
+                            "SELECT 1 FROM task_attempts a WHERE a.task_id = tasks.id "
+                            "AND a.fence = (SELECT MAX(fence) FROM task_attempts WHERE task_id = tasks.id) "
+                            "AND a.status = 'running' AND a.leased_until <= ?))) "
+                            f"AND commands.kind IN ({placeholders}) "
+                            "ORDER BY tasks.created_at, tasks.id LIMIT 1",
+                            (now, *normalized_kinds),
+                        ).fetchone()
             else:
-                task_row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                if normalized_kinds is None:
+                    task_row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                else:
+                    if not normalized_kinds:
+                        task_row = connection.execute(
+                            "SELECT tasks.* FROM tasks "
+                            "JOIN commands ON commands.id = tasks.command_id "
+                            "WHERE 0 AND tasks.id = ?",
+                            (task_id,),
+                        ).fetchone()
+                    else:
+                        placeholders = ", ".join("?" for _ in normalized_kinds)
+                        task_row = connection.execute(
+                            "SELECT tasks.* FROM tasks "
+                            "JOIN commands ON commands.id = tasks.command_id "
+                            "WHERE tasks.id = ? "
+                            f"AND commands.kind IN ({placeholders})",
+                            (task_id, *normalized_kinds),
+                        ).fetchone()
             if task_row is None:
                 raise TaskNotClaimableError("no claimable task")
             if task_row["status"] in ("succeeded", "failed"):
@@ -291,9 +333,34 @@ class OperationsStore:
         *,
         task_id: str | None = None,
         lease_seconds: float | None = None,
+        allowed_kinds: Iterable[str] | None = None,
     ) -> Attempt:
         """Alias with terminology matching the task-ledger architecture."""
-        return self.claim_task(owner_id, task_id=task_id, lease_seconds=lease_seconds)
+        return self.claim_task(
+            owner_id,
+            task_id=task_id,
+            lease_seconds=lease_seconds,
+            allowed_kinds=allowed_kinds,
+        )
+
+    @staticmethod
+    def _normalize_allowed_kinds(allowed_kinds: Iterable[str] | None) -> tuple[str, ...] | None:
+        if allowed_kinds is None:
+            return None
+        if isinstance(allowed_kinds, str):
+            raise ValueError("allowed_kinds must be an iterable of strings, not a single string")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for kind in allowed_kinds:
+            if not isinstance(kind, str):
+                raise ValueError("allowed_kinds values must be strings")
+            normalized_kind = kind.strip()
+            if not normalized_kind:
+                raise ValueError("allowed_kinds values must not be blank")
+            if normalized_kind not in seen:
+                seen.add(normalized_kind)
+                normalized.append(normalized_kind)
+        return tuple(normalized)
 
     def renew_attempt(
         self,

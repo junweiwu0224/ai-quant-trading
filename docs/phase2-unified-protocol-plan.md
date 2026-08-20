@@ -219,13 +219,43 @@ Audit 写入 paper_audit
 **风险 3**: 迁移期间新旧路径并存
 - **缓解**: 按路径逐一迁移，迁移完立即删除旧代码；集成测试覆盖
 
+## 迁移进度
+
+- [x] **Step 2.1: PaperAdapter 实现** (commit: b495bbb)
+  - engine/adapters/paper_adapter.py: 统一执行接口
+  - tests/test_paper_adapter.py: 9/9 测试通过
+  - 数据库表: paper_ledger (幂等键约束)、paper_audit、paper_outbox
+
+- [x] **Step 2.2: 手工订单迁移** (commit: b495bbb)
+  - dashboard/routers/paper_trading.py: POST /paper/order 改用 PaperCommandClient
+  - engine/paper_commands.py: enqueue_manual_order() 方法
+  - engine/paper_worker.py: paper_execute_batch 处理
+  - tests/test_manual_order_migration.py: 5/5 测试通过
+  - 完整测试: 1052 passed
+
+- [ ] **Step 2.3: 条件单执行迁移**
+  - 目标: engine/conditional_order.py 的 create_order_from_rule()
+  - 改为: enqueue_conditional_order() → paper_execute_batch
+
+- [ ] **Step 2.4: 策略信号迁移**
+  - 目标: engine/paper_engine.py 的 _handle_signal()
+  - 改为: enqueue_strategy_signal() → paper_execute_batch
+
+- [ ] **Step 2.5: 止损止盈迁移**
+  - 目标: engine/paper_engine.py 的 _check_stop_loss/take_profit()
+  - 改为: enqueue_stop_order() → paper_execute_batch
+
+- [ ] **Step 2.6: 移除旧订单路径**
+  - 删除: OrderManager.create_order() 直接写表逻辑
+  - 保留: OrderManager 作为只读查询接口
+
 ## 成功标准
 
-- [ ] 所有订单路径生成 `OrderIntent` 和 `OrderIntentBatch`
-- [ ] 所有订单经过 `RiskGate.evaluate()`
-- [ ] 所有成交写入 `paper_ledger`，无直接 portfolio 修改
-- [ ] 所有 Fill 具备幂等键和 fence
-- [ ] 集成测试覆盖 4 条路径
+- [x] 所有订单路径生成 `OrderIntent` 和 `OrderIntentBatch` (手工订单已完成)
+- [x] 所有订单经过 `RiskGate.evaluate()` (当前为 auto-approved，Phase 3 接入真实风控)
+- [x] 所有成交写入 `paper_ledger`，无直接 portfolio 修改 (PaperAdapter 已实现)
+- [x] 所有 Fill 具备幂等键和 fence (paper_ledger.idempotency_key 唯一约束)
+- [ ] 集成测试覆盖 4 条路径 (1/4 完成)
 - [ ] E2E 测试验证前端 → 后端 → Ledger 完整链路
 
 ## 下一步

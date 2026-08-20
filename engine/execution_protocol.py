@@ -8,7 +8,7 @@ API pre-check is never an authoritative risk decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
@@ -103,6 +103,22 @@ def _utc_now() -> datetime:
 _RISK_DECISION_TOKEN = object()
 
 
+def _protocol_json(value):
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, tuple):
+        return [_protocol_json(item) for item in value]
+    if isinstance(value, list):
+        return [_protocol_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _protocol_json(item) for key, item in value.items()}
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class OrderIntent(_NonEmptyTextMixin):
     """An immutable request for a quantity of one instrument to be executed.
@@ -121,6 +137,7 @@ class OrderIntent(_NonEmptyTextMixin):
     quantity: Decimal | int | float | str
     idempotency_key: str
     allow_live: bool = False
+    emergency: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "execution_run_id", self._text(self.execution_run_id, "execution_run_id"))
@@ -133,8 +150,17 @@ class OrderIntent(_NonEmptyTextMixin):
         object.__setattr__(self, "quantity", _as_decimal(self.quantity, "quantity"))
         if not isinstance(self.allow_live, bool):
             raise ValueError("allow_live must be a boolean")
+        if not isinstance(self.emergency, bool):
+            raise ValueError("emergency must be a boolean")
         if environment is Environment.LIVE:
             raise ValueError("live execution is disabled in V2 (fail closed)")
+
+    def to_dict(self) -> dict:
+        return _protocol_json(asdict(self))
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "OrderIntent":
+        return cls(**dict(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +207,13 @@ class OrderIntentBatch(_NonEmptyTextMixin):
     @property
     def environment(self) -> Environment:
         return self.intents[0].environment
+
+    def to_dict(self) -> dict:
+        return {"batch_id": self.batch_id, "intents": [intent.to_dict() for intent in self.intents]}
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "OrderIntentBatch":
+        return cls(batch_id=value["batch_id"], intents=tuple(OrderIntent.from_dict(item) for item in value["intents"]))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -285,6 +318,36 @@ class RiskDecision(_NonEmptyTextMixin):
         object.__setattr__(self, "evaluated_intent_keys", evaluated)
         object.__setattr__(self, "approved_intent_keys", approved)
         object.__setattr__(self, "rejected_intent_keys", rejected)
+
+    def to_dict(self) -> dict:
+        return _protocol_json({
+            "decision_id": self.decision_id,
+            "batch_id": self.batch_id,
+            "execution_run_id": self.execution_run_id,
+            "account_id": self.account_id,
+            "environment": self.environment,
+            "policy_version": self.policy_version,
+            "evaluated_at": self.evaluated_at,
+            "status": self.status,
+            "evaluated_intent_keys": self.evaluated_intent_keys,
+            "reasons": self.reasons,
+            "approved_intent_keys": self.approved_intent_keys,
+            "rejected_intent_keys": self.rejected_intent_keys,
+        })
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "RiskDecision":
+        return cls(
+            decision_id=value["decision_id"], batch_id=value["batch_id"],
+            execution_run_id=value["execution_run_id"], account_id=value["account_id"],
+            environment=value["environment"], policy_version=value.get("policy_version", "serialized"),
+            evaluated_at=datetime.fromisoformat(value["evaluated_at"]), status=value["status"],
+            evaluated_intent_keys=tuple(value["evaluated_intent_keys"]),
+            reasons=tuple(value.get("reasons", ())),
+            approved_intent_keys=tuple(value.get("approved_intent_keys", ())),
+            rejected_intent_keys=tuple(value.get("rejected_intent_keys", ())),
+            _construction_token=_RISK_DECISION_TOKEN,
+        )
 
     @classmethod
     def from_batch(
@@ -425,6 +488,38 @@ class ExecutionPermit(_NonEmptyTextMixin):
         if not set(keys) <= set(evaluated):
             raise ValueError("idempotency_keys must belong to evaluated_intent_keys")
         object.__setattr__(self, "idempotency_keys", keys)
+
+    def to_dict(self) -> dict:
+        return _protocol_json({
+            "permit_id": self.permit_id,
+            "decision_id": self.decision_id,
+            "batch_id": self.batch_id,
+            "execution_run_id": self.execution_run_id,
+            "account_id": self.account_id,
+            "environment": self.environment,
+            "expires_at": self.expires_at,
+            "fence_token": self.fence_token,
+            "evaluated_intent_keys": self.evaluated_intent_keys,
+            "idempotency_keys": self.idempotency_keys,
+        })
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "ExecutionPermit":
+        decision = RiskDecision(
+            decision_id=value["decision_id"], batch_id=value["batch_id"],
+            execution_run_id=value["execution_run_id"], account_id=value["account_id"],
+            environment=value["environment"], policy_version=value.get("policy_version", "serialized"),
+            evaluated_at=datetime.fromisoformat(value.get("evaluated_at", value["expires_at"])),
+            status=value.get("status", RiskDecisionStatus.APPROVED),
+            evaluated_intent_keys=tuple(value["evaluated_intent_keys"]),
+            approved_intent_keys=tuple(value["idempotency_keys"]),
+            rejected_intent_keys=tuple(key for key in value["evaluated_intent_keys"] if key not in value["idempotency_keys"]),
+            _construction_token=_RISK_DECISION_TOKEN,
+        )
+        return cls.from_decision(
+            decision, permit_id=value["permit_id"], expires_at=datetime.fromisoformat(value["expires_at"]),
+            fence_token=value["fence_token"], now=datetime.now(timezone.utc) - __import__("datetime").timedelta(seconds=1),
+        )
 
     def is_valid(self, *, now: datetime | None = None) -> bool:
         """Return whether this permit is still usable at the supplied UTC time."""

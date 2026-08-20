@@ -4,6 +4,7 @@ from loguru import logger
 
 from config.settings import PROJECT_ROOT
 from utils.db import get_connection as _get_conn
+from engine.research_facts import _schema as _ensure_phase3_schema
 
 
 # 数据库路径
@@ -181,6 +182,9 @@ def init_database(db_path: str = None):
                 created_at TEXT
             )
         """)
+
+        # Phase 3 immutable research, qualification, and execution-run facts.
+        _ensure_phase3_schema(conn)
 
         # 创建索引
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_code ON paper_orders(code)")

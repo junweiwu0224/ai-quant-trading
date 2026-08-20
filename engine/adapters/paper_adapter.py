@@ -1,22 +1,20 @@
-"""Paper 执行适配器 - 接收 ExecutionPermit，执行撮合，原子写入账本"""
+"""Paper execution adapter: the only component allowed to commit fills."""
 from __future__ import annotations
 
 import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from decimal import Decimal
+from typing import Mapping
 
-from loguru import logger
-
-from config.datetime_utils import now_beijing, now_beijing_iso
-from engine.execution_protocol import ExecutionPermit, OrderIntent, OrderIntentBatch
+from config.datetime_utils import now_beijing_iso
+from engine.execution_protocol import Environment, ExecutionPermit, OrderIntentBatch, Side
 from utils.db import get_connection
 
 
 @dataclass(frozen=True)
 class Fill:
-    """成交记录"""
     order_intent_key: str
     instrument: str
     side: str
@@ -26,47 +24,97 @@ class Fill:
     filled_at: str
     execution_run_id: str
     account_id: str
+    commission: float = 0.0
+    stamp_tax: float = 0.0
+    slippage: float = 0.0
+    workspace_id: str = "default"
+    environment: str = "paper"
+    permit_id: str = ""
+    decision_id: str = ""
+    fence_token: str = ""
 
 
 @dataclass(frozen=True)
 class QuoteSnapshot:
-    """行情快照（撮合用）"""
     instrument: str
     price: float
     timestamp: str
+    industry: str = ""
+    limit_up: float | None = None
+    limit_down: float | None = None
+    is_suspended: bool = False
 
 
 class PaperAdapter:
-    """Paper 撮合适配器 - 唯一有权执行成交和写账本的组件"""
+    """Paper matcher with atomic ledger/audit/outbox writes and idempotency."""
 
-    def __init__(self, db_path: str):
-        self._db_path = db_path
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        workspace_id: str = "default",
+        commission_rate: float = 0.0,
+        stamp_tax_rate: float = 0.0,
+        min_commission: float = 5.0,
+        slippage: float = 0.0,
+    ) -> None:
+        self._db_path = str(db_path)
+        self.workspace_id = workspace_id
+        self._commission_rate = Decimal(str(commission_rate))
+        self._stamp_tax_rate = Decimal(str(stamp_tax_rate))
+        self._min_commission = Decimal(str(min_commission))
+        self._slippage = Decimal(str(slippage))
         self._ensure_tables()
 
-    def _ensure_tables(self):
-        """确保 ledger、audit、outbox 表存在"""
-        with get_connection(self._db_path) as conn:
-            # 账本表（唯一权威成交记录）
-            conn.execute("""
+    def _ensure_tables(self) -> None:
+        with get_connection(self._db_path) as connection:
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS paper_ledger (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     trade_id TEXT NOT NULL UNIQUE,
                     execution_run_id TEXT NOT NULL,
                     account_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
+                    environment TEXT NOT NULL DEFAULT 'paper' CHECK(environment = 'paper'),
                     order_intent_key TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL DEFAULT '',
                     instrument TEXT NOT NULL,
                     side TEXT NOT NULL,
                     filled_price REAL NOT NULL,
                     filled_volume INTEGER NOT NULL,
                     filled_at TEXT NOT NULL,
+                    commission REAL NOT NULL DEFAULT 0,
+                    stamp_tax REAL NOT NULL DEFAULT 0,
+                    slippage REAL NOT NULL DEFAULT 0,
+                    permit_id TEXT NOT NULL DEFAULT '',
+                    decision_id TEXT NOT NULL DEFAULT '',
+                    fence_token TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_run ON paper_ledger(execution_run_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_account ON paper_ledger(account_id)")
-
-            # 审计表（每次 permit 验证和执行的完整记录）
-            conn.execute("""
+                """
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(paper_ledger)").fetchall()}
+            additions = {
+                "workspace_id": "TEXT NOT NULL DEFAULT 'default'",
+                "environment": "TEXT NOT NULL DEFAULT 'paper'",
+                "idempotency_key": "TEXT NOT NULL DEFAULT ''",
+                "commission": "REAL NOT NULL DEFAULT 0",
+                "stamp_tax": "REAL NOT NULL DEFAULT 0",
+                "slippage": "REAL NOT NULL DEFAULT 0",
+                "permit_id": "TEXT NOT NULL DEFAULT ''",
+                "decision_id": "TEXT NOT NULL DEFAULT ''",
+                "fence_token": "TEXT NOT NULL DEFAULT ''",
+            }
+            for name, definition in additions.items():
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE paper_ledger ADD COLUMN {name} {definition}")
+            connection.execute("UPDATE paper_ledger SET idempotency_key = order_intent_key WHERE idempotency_key = '' OR idempotency_key IS NULL")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_ledger_run ON paper_ledger(execution_run_id, account_id, workspace_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_ledger_account ON paper_ledger(account_id, workspace_id, environment)")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_idempotency ON paper_ledger(account_id, workspace_id, environment, idempotency_key)")
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS paper_audit (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     execution_run_id TEXT NOT NULL,
@@ -79,10 +127,10 @@ class PaperAdapter:
                     result TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
-            """)
-
-            # Outbox（事件发布表，用于解耦通知）
-            conn.execute("""
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS paper_outbox (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event_type TEXT NOT NULL,
@@ -91,196 +139,124 @@ class PaperAdapter:
                     published INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_published ON paper_outbox(published)")
-            conn.commit()
+                """
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_outbox_published ON paper_outbox(published)")
+            connection.commit()
 
     def execute_batch(
         self,
         batch: OrderIntentBatch,
         permit: ExecutionPermit,
-        quotes: dict[str, QuoteSnapshot],
+        quotes: Mapping[str, QuoteSnapshot],
+        *,
+        require_authoritative: bool = False,
     ) -> list[Fill]:
-        """
-        执行批次 - fail-closed：permit 无效则拒绝整个批次
-        
-        Returns:
-            成交列表（可能是部分批准的子集）
-        """
-        # 最终验证：permit 必须仍然有效
-        now_utc = datetime.now(timezone.utc)
-        if not permit.is_valid(now=now_utc):
-            logger.error(f"Permit 已失效: run={permit.execution_run_id} fence={permit.fence_token}")
+        now = datetime.now(timezone.utc)
+        if not permit.is_valid(now=now):
             self._audit_reject(permit, "permit_invalid")
             return []
-
-        # permit 必须绑定到这个 batch
-        if permit.batch_id != batch.batch_id:
-            logger.error(f"Permit batch 不匹配: permit={permit.batch_id} batch={batch.batch_id}")
-            self._audit_reject(permit, "batch_mismatch")
+        if permit.batch_id != batch.batch_id or permit.account_id != batch.account_id or permit.execution_run_id != batch.execution_run_id or permit.environment is not Environment.PAPER:
+            self._audit_reject(permit, "permit_context_mismatch")
+            return []
+        if set(permit.evaluated_intent_keys) != set(batch.idempotency_keys):
+            self._audit_reject(permit, "permit_coverage_mismatch")
+            return []
+        if require_authoritative and not self._permit_is_authoritative(permit, batch):
+            self._audit_reject(permit, "permit_not_authoritative")
             return []
 
-        fills = []
-        # 只执行 permit 批准的 intent
-        approved_keys = set(permit.idempotency_keys)
-        approved_intents = {intent.idempotency_key: intent for intent in batch.intents if intent.idempotency_key in approved_keys}
-
-        for key, intent in approved_intents.items():
-            quote = quotes.get(intent.instrument)
-            if not quote:
-                logger.warning(f"无行情: {intent.instrument}")
+        approved = set(permit.idempotency_keys)
+        existing = self._existing_keys(batch.account_id, batch.idempotency_keys)
+        fills: list[Fill] = []
+        for intent in batch.intents:
+            if intent.idempotency_key not in approved or intent.idempotency_key in existing:
                 continue
-
-            # 简单撮合逻辑（ponytail: 先用最简单的市价成交）
-            filled_price = quote.price
-            filled_volume = int(intent.quantity)
-
-            trade_id = f"{permit.execution_run_id}:{key}:{now_beijing_iso()}"
-            fill = Fill(
-                order_intent_key=key,
+            quote = quotes.get(intent.instrument)
+            if quote is None or quote.price <= 0:
+                continue
+            side = intent.side if isinstance(intent.side, Side) else Side(str(intent.side).lower().split(".")[-1])
+            raw_price = Decimal(str(quote.price))
+            fill_price = raw_price * (Decimal("1") + self._slippage if side is Side.BUY else Decimal("1") - self._slippage)
+            volume = int(intent.quantity)
+            amount = fill_price * volume
+            commission = max(amount * self._commission_rate, self._min_commission) if self._commission_rate or self._min_commission else Decimal("0")
+            stamp_tax = amount * self._stamp_tax_rate if side is Side.SELL else Decimal("0")
+            fills.append(Fill(
+                order_intent_key=intent.idempotency_key,
                 instrument=intent.instrument,
-                side=str(intent.side),
-                filled_price=filled_price,
-                filled_volume=filled_volume,
-                trade_id=trade_id,
+                side=side.value,
+                filled_price=float(fill_price),
+                filled_volume=volume,
+                trade_id=f"{permit.execution_run_id}:{intent.idempotency_key}",
                 filled_at=now_beijing_iso(),
                 execution_run_id=permit.execution_run_id,
                 account_id=permit.account_id,
-            )
-            fills.append(fill)
+                commission=float(commission),
+                stamp_tax=float(stamp_tax),
+                slippage=float(abs(fill_price - raw_price)),
+                workspace_id=self.workspace_id,
+                environment="paper",
+                permit_id=permit.permit_id,
+                decision_id=permit.decision_id,
+                fence_token=permit.fence_token,
+            ))
+        return self._commit_atomic(permit, fills) if fills else []
 
-        # 原子提交：ledger + audit + outbox
-        if fills:
-            self._commit_atomic(permit, fills)
+    def _existing_keys(self, account_id: str, keys: tuple[str, ...]) -> set[str]:
+        if not keys:
+            return set()
+        placeholders = ",".join("?" for _ in keys)
+        with get_connection(self._db_path) as connection:
+            rows = connection.execute(f"SELECT idempotency_key FROM paper_ledger WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' AND idempotency_key IN ({placeholders})", (account_id, self.workspace_id, *keys)).fetchall()
+        return {row[0] for row in rows}
 
-        return fills
+    def _permit_is_authoritative(self, permit: ExecutionPermit, batch: OrderIntentBatch) -> bool:
+        try:
+            with get_connection(self._db_path) as connection:
+                row = connection.execute("SELECT execution_run_id, account_id, workspace_id, batch_id, fence_token, idempotency_keys_json, expires_at FROM paper_execution_permits WHERE permit_id = ?", (permit.permit_id,)).fetchone()
+        except sqlite3.OperationalError:
+            return False
+        if row is None:
+            return False
+        try:
+            keys = set(json.loads(row["idempotency_keys_json"]))
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return row["execution_run_id"] == batch.execution_run_id and row["account_id"] == batch.account_id and row["workspace_id"] == self.workspace_id and row["batch_id"] == batch.batch_id and row["fence_token"] == permit.fence_token and keys == set(permit.idempotency_keys) and row["expires_at"] == permit.expires_at.isoformat()
 
-    def _commit_atomic(self, permit: ExecutionPermit, fills: list[Fill]):
-        """原子提交账本 + 审计 + outbox"""
-        with get_connection(self._db_path) as conn:
-            conn.execute("BEGIN IMMEDIATE")
+    def _commit_atomic(self, permit: ExecutionPermit, fills: list[Fill]) -> list[Fill]:
+        with get_connection(self._db_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             try:
-                # 1. 写入账本
+                persisted: list[Fill] = []
                 for fill in fills:
-                    conn.execute(
-                        """
-                        INSERT INTO paper_ledger 
-                        (trade_id, execution_run_id, account_id, order_intent_key, 
-                         instrument, side, filled_price, filled_volume, filled_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            fill.trade_id,
-                            fill.execution_run_id,
-                            fill.account_id,
-                            fill.order_intent_key,
-                            fill.instrument,
-                            fill.side,
-                            fill.filled_price,
-                            fill.filled_volume,
-                            fill.filled_at,
-                        ),
-                    )
-
-                # 2. 写入审计
-                approved_count = len(permit.idempotency_keys)
-                rejected_count = len(permit.evaluated_intent_keys) - approved_count
-                conn.execute(
-                    """
-                    INSERT INTO paper_audit 
-                    (execution_run_id, account_id, permit_fence, action, 
-                     approved_count, rejected_count, filled_count, result)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        permit.execution_run_id,
-                        permit.account_id,
-                        permit.fence_token,
-                        "execute_batch",
-                        approved_count,
-                        rejected_count,
-                        len(fills),
-                        "success",
-                    ),
-                )
-
-                # 3. 写入 outbox（异步通知用）
-                for fill in fills:
-                    conn.execute(
-                        """
-                        INSERT INTO paper_outbox (event_type, aggregate_id, payload)
-                        VALUES (?, ?, ?)
-                        """,
-                        (
-                            "trade_filled",
-                            fill.execution_run_id,
-                            json.dumps({
-                                "trade_id": fill.trade_id,
-                                "instrument": fill.instrument,
-                                "side": fill.side,
-                                "price": fill.filled_price,
-                                "volume": fill.filled_volume,
-                            }),
-                        ),
-                    )
-
-                conn.commit()
-                logger.info(
-                    f"账本提交成功: run={permit.execution_run_id} "
-                    f"fills={len(fills)} fence={permit.fence_token}"
-                )
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"账本提交失败: {e}")
+                    existing = connection.execute("SELECT order_intent_key, instrument, side, filled_price, filled_volume, trade_id, filled_at, execution_run_id, account_id, commission, stamp_tax, slippage, workspace_id, environment, permit_id, decision_id, fence_token FROM paper_ledger WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' AND idempotency_key = ?", (fill.account_id, fill.workspace_id, fill.order_intent_key)).fetchone()
+                    if existing is not None:
+                        persisted.append(Fill(*existing))
+                        continue
+                    connection.execute("INSERT INTO paper_ledger(trade_id, execution_run_id, account_id, workspace_id, environment, order_intent_key, idempotency_key, instrument, side, filled_price, filled_volume, filled_at, commission, stamp_tax, slippage, permit_id, decision_id, fence_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (fill.trade_id, fill.execution_run_id, fill.account_id, fill.workspace_id, fill.environment, fill.order_intent_key, fill.order_intent_key, fill.instrument, fill.side, fill.filled_price, fill.filled_volume, fill.filled_at, fill.commission, fill.stamp_tax, fill.slippage, fill.permit_id, fill.decision_id, fill.fence_token))
+                    persisted.append(fill)
+                    connection.execute("INSERT INTO paper_outbox(event_type, aggregate_id, payload) VALUES (?, ?, ?)", ("trade_filled", fill.execution_run_id, json.dumps({"trade_id": fill.trade_id, "instrument": fill.instrument, "side": fill.side, "price": fill.filled_price, "volume": fill.filled_volume}, sort_keys=True)))
+                connection.execute("INSERT INTO paper_audit(execution_run_id, account_id, permit_fence, action, approved_count, rejected_count, filled_count, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (permit.execution_run_id, permit.account_id, permit.fence_token, "execute_batch", len(permit.idempotency_keys), len(permit.evaluated_intent_keys) - len(permit.idempotency_keys), len(persisted), "success"))
+                connection.commit()
+                return persisted
+            except Exception:
+                connection.rollback()
                 raise
 
-    def _audit_reject(self, permit: ExecutionPermit, reason: str):
-        """记录拒绝审计"""
-        with get_connection(self._db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO paper_audit 
-                (execution_run_id, account_id, permit_fence, action, 
-                 approved_count, rejected_count, filled_count, result)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    permit.execution_run_id,
-                    permit.account_id,
-                    permit.fence_token,
-                    "execute_batch",
-                    0,
-                    len(permit.evaluated_intent_keys),
-                    0,
-                    reason,
-                ),
-            )
-            conn.commit()
+    def _audit_reject(self, permit: ExecutionPermit, reason: str) -> None:
+        with get_connection(self._db_path) as connection:
+            connection.execute("INSERT INTO paper_audit(execution_run_id, account_id, permit_fence, action, approved_count, rejected_count, filled_count, result) VALUES (?, ?, ?, ?, 0, ?, 0, ?)", (permit.execution_run_id, permit.account_id, permit.fence_token, "execute_batch", len(permit.evaluated_intent_keys), reason))
+            connection.commit()
 
     def get_ledger(self, execution_run_id: str) -> list[Fill]:
-        """查询执行运行的账本"""
-        with get_connection(self._db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT order_intent_key, instrument, side, filled_price, 
-                       filled_volume, trade_id, filled_at, execution_run_id, account_id
-                FROM paper_ledger
-                WHERE execution_run_id = ?
-                ORDER BY created_at
-                """,
-                (execution_run_id,),
-            ).fetchall()
-            return [
-                Fill(
-                    order_intent_key=r[0],
-                    instrument=r[1],
-                    side=r[2],
-                    filled_price=r[3],
-                    filled_volume=r[4],
-                    trade_id=r[5],
-                    filled_at=r[6],
-                    execution_run_id=r[7],
-                    account_id=r[8],
-                )
-                for r in rows
-            ]
+        with get_connection(self._db_path) as connection:
+            rows = connection.execute("SELECT order_intent_key, instrument, side, filled_price, filled_volume, trade_id, filled_at, execution_run_id, account_id, commission, stamp_tax, slippage, workspace_id, environment, permit_id, decision_id, fence_token FROM paper_ledger WHERE execution_run_id = ? ORDER BY id", (execution_run_id,)).fetchall()
+        return [Fill(*row) for row in rows]
+
+    def close(self) -> None:
+        return None
+
+
+__all__ = ["Fill", "PaperAdapter", "QuoteSnapshot"]

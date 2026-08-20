@@ -376,26 +376,39 @@ ScopeSnapshot · StrategyVersion · Qualification · ExecutionRun
 
 **关键成果**:
 - manual/strategy/conditional/stop-loss 全部生成 `OrderIntentBatch`
-- Worker 在 Adapter 前重新检查（当前为 auto-approved，Phase 3 接入真实风控）
+- Worker 在 Adapter 前重新检查并使用 Phase 3 权威 RiskGate
 - Order、Fill、Ledger、Audit、Outbox 原子提交
 - 消除了 4 条独立订单创建路径，统一到 OrderIntent 协议
-- 建立了 paper_ledger 作为唯一成交事实源
+- 建立了 paper_ledger 作为成交事实源；Position/Performance 的完整 projection authority 留待 Phase 4
 
-**最终测试**: 1063 passed, 2 skipped, 1 warning
+**最终测试**: Phase 2 baseline 1063 passed, 2 skipped；Phase 3 后全量 1089 passed, 1 warning
 
-**遗留问题** (Phase 3 解决):
-- 当前 RiskGate 是 auto-approved，无真实风控检查
-- portfolio_state.json 与 paper_ledger 仍是双事实源
+**Phase 3 已解决**:
+- RiskGate 不再是 auto-approved；Worker/PaperEngine 在 Adapter 前执行最新账本风控
 
-硬门禁：现金、单票、行业、总仓位、T+1、限价、暂停和批量部分批准测试全部通过。（注：当前为 auto-approved，Phase 3 实现真实检查）
+**遗留问题** (Phase 4-5 解决):
+- portfolio_state.json 仍由旧 PaperEngine 写出
+- Dashboard portfolio/runtime 仍有旧兼容读取路径
 
 ### Phase 3：冻结研究和资格链
 
-- 引入 ScopeSnapshot、DataSnapshot、StrategyVersion、ValidationRun、Qualification、Approval。
-- ExecutionRun 创建时强制引用完整 hash 集。
-- 任一引用变化自动使资格失效。
+**状态**: ✅ Phase 3 核心完成
 
-硬门禁：缺少引用、过期数据、AI-only artifact 或未批准状态都无法生成 ExecutionPermit。
+- `engine/research_facts.py` 提供不可变 `ScopeSnapshot`、`DataSnapshot`、`StrategyVersion`、`ValidationRun`、`Qualification`、`Approval` 和 `ExecutionRun` 事实。
+- 所有事实使用规范化内容计算 SHA-256，SQLite 以唯一 hash、外键和追加审计事件约束不可变性。
+- `ExecutionRun` 创建前强制检查 paper 环境、workspace/account 边界、冻结 hash、数据新鲜度、可执行验证、Qualification、人工 Approval 和 AI-only 禁止条件。
+- `engine/risk_gate.py` 在 PaperWorker/PaperEngine 的 Adapter 调用前从最新账本重建账户，检查现金、A 股手数、单票、行业、总仓位、T+1、涨跌停、停牌和批量部分批准。
+- `engine/adapters/paper_adapter.py` 只接受 SQLite 中由 RiskGate 持久化的权威 permit；API 携带的 advisory permit 无法直接成交。
+- `paper_ledger` 增加 workspace/account/environment、费用、permit、decision、fence 和幂等键事实字段；重复 intent 不产生重复成交。
+- PaperWorker 关闭 `paper_adjust_position` 直接改持仓旁路，手工订单统一在 Worker 内重评估。
+
+**验证**: Phase 3 聚焦测试 24 passed；相关回归 75 passed；完整 pytest 1089 passed, 1 warning。
+
+**仍待后续 Phase 4-5**:
+- `portfolio_state.json` 仍由旧 PaperEngine 写出，尚未完成 SQLite 投影重建和恢复/对账迁移。
+- Dashboard 仍有旧的 portfolio/runtime 兼容读取路径，尚未全部迁移到 V2 Task/Run 状态。
+
+硬门禁：缺少冻结引用、过期数据、hash 不匹配、AI-only artifact、未批准状态、非 Paper 环境均不能生成执行 permit。
 
 ### Phase 4：恢复、对账和备份
 

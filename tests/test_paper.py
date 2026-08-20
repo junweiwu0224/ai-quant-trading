@@ -10,6 +10,7 @@ import pytest
 from data.collector.quote_service import QuoteData
 from engine.paper_engine import PaperConfig, PaperEngine, PaperStateManager, PaperTradeLog
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
+from utils.db import get_connection
 
 def make_quote(code: str, price: float, **kwargs) -> QuoteData:
     """创建测试用行情"""
@@ -188,6 +189,11 @@ class TestPaperEngine:
         engine._today_bought.clear()
         engine._today_date = ""
 
+        # Ledger is authoritative for T+1; move the fill to the prior session.
+        with get_connection(engine._order_manager.db_path) as conn:
+            conn.execute("UPDATE paper_ledger SET filled_at = ? WHERE account_id = ?", ("2000-01-01T00:00:00+00:00", "default"))
+            conn.commit()
+
         # 第二轮：卖出
         result2 = engine.run_once()
         assert result2["new_trades"] == 1
@@ -210,7 +216,6 @@ class TestPaperEngine:
             assert engine2.portfolio.positions.get("000001", 0) == 1000
             assert engine2.portfolio.cash < 1_000_000
 
-    @pytest.mark.skip(reason="Phase 2: 风控检查已迁移到 RiskGate（Phase 3 实现），当前 auto-approved")
     @patch("engine.paper_engine.get_quote_service")
     def test_insufficient_funds(self, MockService):
         mock_service = MockService.return_value
@@ -227,7 +232,6 @@ class TestPaperEngine:
         assert result["new_trades"] == 0
         assert engine.portfolio.positions.get("600519", 0) == 0
 
-    @pytest.mark.skip(reason="Phase 2: 佣金/滑点计算已迁移到 PaperAdapter，旧测试需重写")
     @patch("engine.paper_engine.get_quote_service")
     def test_commission_and_slippage(self, MockService):
         mock_service = MockService.return_value

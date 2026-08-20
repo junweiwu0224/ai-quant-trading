@@ -1,8 +1,9 @@
 """模拟盘引擎"""
 import json
 import time
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -26,8 +27,10 @@ from engine.models import EquityCurvePoint, PaperConfig as NewPaperConfig
 from engine.order_manager import OrderManager
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
-from engine.execution_protocol import OrderIntent, OrderIntentBatch, RiskDecision, ExecutionPermit, Environment, Side
+from engine.execution_protocol import OrderIntent, OrderIntentBatch, Environment, Side
 from engine.adapters.paper_adapter import PaperAdapter, QuoteSnapshot
+from engine.risk_gate import RiskGate, RiskPolicy, QuoteSnapshot as RiskQuoteSnapshot, rebuild_account_snapshot, ensure_paper_account
+from engine.research_facts import ResearchFactsStore
 from risk.position import PositionManager
 from risk.stoploss import StopLossManager
 from strategy.base import Bar, BaseStrategy, Direction, Portfolio, Trade
@@ -44,6 +47,9 @@ class PaperConfig:
     state_dir: str = str(LOG_DIR / "paper")  # 状态持久化目录
     enable_risk: bool = True          # 启用风控
     db_path: Optional[str] = None      # 模拟盘数据库路径
+    max_position_pct: float = 0.30
+    max_industry_pct: float = 0.40
+    max_total_position_pct: float = 0.95
 
 
 class PaperTradeLog:
@@ -132,11 +138,16 @@ class PaperEngine:
         codes: list[str],
         config: Optional[PaperConfig] = None,
         account_id: str = "default",
+        workspace_id: str = "default",
+        execution_run_id: str | None = None,
     ):
         self._strategy = strategy
         self._codes = codes
         self._config = config or PaperConfig()
         self._account_id = account_id
+        self._workspace_id = workspace_id
+        if self._config.db_path is None:
+            self._config.db_path = str(Path(self._config.state_dir) / "paper_trading.db")
         self._quote_service = get_quote_service()
         self._quote_service.subscribe(codes)
         self._trade_log = PaperTradeLog(self._config.state_dir)
@@ -162,6 +173,34 @@ class PaperEngine:
         self._order_manager = OrderManager(new_config.db_path)
         self._performance_analyzer = PerformanceAnalyzer(new_config.db_path)
         self._risk_manager = RiskManager(new_config, new_config.db_path)
+        ensure_paper_account(new_config.db_path, account_id, workspace_id, self._config.initial_cash)
+        PaperAdapter(
+            new_config.db_path,
+            workspace_id=workspace_id,
+            commission_rate=self._config.commission_rate,
+            stamp_tax_rate=self._config.stamp_tax_rate,
+            slippage=self._config.slippage,
+        )
+        self._facts_store = ResearchFactsStore(new_config.db_path)
+        self._execution_run = self._facts_store.ensure_paper_run(
+            account_id=account_id,
+            workspace_id=workspace_id,
+            strategy_id=type(strategy).__name__,
+            codes=codes,
+            initial_cash=self._config.initial_cash,
+            execution_run_id=execution_run_id,
+        )
+        self._risk_gate = RiskGate(
+            RiskPolicy(
+                max_single_position_pct=Decimal(str(self._config.max_position_pct)),
+                max_industry_pct=Decimal(str(self._config.max_industry_pct)),
+                max_total_position_pct=Decimal(str(self._config.max_total_position_pct)),
+                commission_rate=Decimal(str(self._config.commission_rate)),
+                stamp_tax_rate=Decimal(str(self._config.stamp_tax_rate)),
+                slippage=Decimal(str(self._config.slippage)),
+            ),
+            db_path=new_config.db_path,
+        )
 
         # 初始化投资组合
         self._portfolio = self._init_portfolio()
@@ -434,121 +473,140 @@ class PaperEngine:
         self._strategy.sell(code, price, volume)
 
     def _execute_pending_orders_v2(self, quotes: dict[str, QuoteData]) -> list[Trade]:
-        """V2 统一执行协议：策略信号 + 止损 -> OrderIntentBatch -> RiskGate -> PaperAdapter"""
-        pending = self._strategy.get_pending_orders()
+        """Run the latest account through the authoritative batch RiskGate."""
+        pending = list(self._strategy.get_pending_orders())
         if not pending:
             return []
 
-        # 1. 转换为 OrderIntent
         intents = []
         for order in pending:
             side = Side.BUY if order.direction == Direction.LONG else Side.SELL
-            intent = OrderIntent(
-                execution_run_id=f"paper-engine-{self._account_id}",
+            intents.append(OrderIntent(
+                execution_run_id=self._execution_run.execution_run_id,
                 account_id=self._account_id,
                 environment=Environment.PAPER,
                 instrument=order.code,
                 side=side,
                 quantity=order.volume,
-                idempotency_key=f"strategy-{order.order_id}-{now_beijing_iso()}",
-            )
-            intents.append(intent)
-
-        if not intents:
-            return []
-
-        # 2. 创建 batch
+                idempotency_key=f"strategy-{order.order_id}-{self._execution_run.execution_run_id}",
+                emergency=bool(getattr(order, "emergency", False)),
+            ))
         batch = OrderIntentBatch(
-            batch_id=f"paper-batch-{now_beijing_iso()}",
+            batch_id=f"paper-batch-{self._execution_run.execution_run_id}-{pending[0].order_id}",
             intents=tuple(intents),
         )
 
-        # 3. RiskGate 评估（内联，emergency=True 对止损放宽检查）
-        # TODO: 实现完整 RiskGate，当前简化为全批准
-        decision = RiskDecision.from_batch(
-            batch=batch,
-            decision_id=f"decision-{batch.batch_id}",
-            policy_version="v1",
-            evaluated_at=now_beijing(),
-            status="approved",
-            approved_intent_keys=tuple(i.idempotency_key for i in intents),
-            rejected_intent_keys=(),
-            reasons={},
-        )
-
-        # 4. 创建 ExecutionPermit
-        permit = ExecutionPermit.from_decision(
-            decision=decision,
-            permit_id=f"permit-{batch.batch_id}",
-            expires_at=now_beijing() + timedelta(minutes=5),
-            fence_token="1",
-        )
-
-        # 5. PaperAdapter 执行
-        adapter = PaperAdapter(db_path=self._order_manager.db_path)
-        quote_snapshots = {
-            code: QuoteSnapshot(
+        risk_quotes: dict[str, RiskQuoteSnapshot] = {}
+        adapter_quotes: dict[str, QuoteSnapshot] = {}
+        now = datetime.now(timezone.utc)
+        for code, quote in quotes.items():
+            timestamp = quote.timestamp
+            if isinstance(timestamp, (int, float)):
+                timestamp = datetime.fromtimestamp(timestamp, timezone.utc)
+            elif not isinstance(timestamp, datetime):
+                timestamp = now
+            risk_quotes[code] = RiskQuoteSnapshot(
                 instrument=code,
-                price=q.price,
-                timestamp=now_beijing_iso(),
+                price=Decimal(str(quote.price)),
+                timestamp=timestamp,
+                industry=getattr(quote, "industry", "") or "",
+                limit_up=(Decimal(str(quote.limit_up)) if getattr(quote, "limit_up", 0) else None),
+                limit_down=(Decimal(str(quote.limit_down)) if getattr(quote, "limit_down", 0) else None),
+                is_suspended=bool(getattr(quote, "is_suspended", False)),
             )
-            for code, q in quotes.items()
-        }
+            adapter_quotes[code] = QuoteSnapshot(
+                instrument=code,
+                price=float(quote.price),
+                timestamp=now.isoformat(),
+                industry=getattr(quote, "industry", "") or "",
+                limit_up=float(quote.limit_up) if getattr(quote, "limit_up", 0) else None,
+                limit_down=float(quote.limit_down) if getattr(quote, "limit_down", 0) else None,
+                is_suspended=bool(getattr(quote, "is_suspended", False)),
+            )
 
+        account = rebuild_account_snapshot(
+            self._order_manager.db_path,
+            self._account_id,
+            self._workspace_id,
+            initial_cash=self._config.initial_cash,
+        )
+        current_values = {
+            code: quantity * risk_quotes[code].price
+            for code, quantity in account.positions.items()
+            if code in risk_quotes
+        }
+        total_equity = account.cash + sum(current_values.values(), Decimal("0"))
+        industry_values: dict[str, Decimal] = {}
+        for code, value in current_values.items():
+            industry = risk_quotes[code].industry or "__unknown__"
+            industry_values[industry] = industry_values.get(industry, Decimal("0")) + value
+        account = replace(account, position_values=current_values, total_equity=total_equity, industry_values=industry_values)
+
+        decision, permit = self._risk_gate.authorize(
+            batch,
+            account,
+            risk_quotes,
+            fence_token=account.fence_token,
+            execution_run_id=self._execution_run.execution_run_id,
+            now=now,
+        )
+        if permit is None:
+            for order in pending:
+                order.status = "cancelled"
+            return []
+        approved = set(decision.approved_intent_keys)
+        for order, intent in zip(pending, intents):
+            if intent.idempotency_key not in approved:
+                order.status = "cancelled"
+
+        adapter = PaperAdapter(
+            db_path=self._order_manager.db_path,
+            workspace_id=self._workspace_id,
+            commission_rate=self._config.commission_rate,
+            stamp_tax_rate=self._config.stamp_tax_rate,
+            slippage=self._config.slippage,
+        )
         try:
-            fills = adapter.execute_batch(batch, permit, quote_snapshots)
-        except Exception as e:
-            logger.error(f"PaperAdapter 执行失败: {e}")
-            # 标记所有订单为失败
+            fills = adapter.execute_batch(batch, permit, adapter_quotes, require_authoritative=True)
+        except Exception as exc:
+            logger.error(f"PaperAdapter 执行失败: {exc}")
             for order in pending:
                 order.status = "cancelled"
             return []
 
-        # 6. 更新内存状态（保持向后兼容）
-        trades = []
-        for order, fill in zip(pending, fills):
+        fills_by_key = {fill.order_intent_key: fill for fill in fills}
+        trades: list[Trade] = []
+        for order, intent in zip(pending, intents):
+            fill = fills_by_key.get(intent.idempotency_key)
             if fill is None:
-                order.status = "cancelled"
+                if intent.idempotency_key in approved:
+                    order.status = "cancelled"
                 continue
-
             order.status = "filled"
-            
-            # 更新 portfolio（从 Ledger 同步）
+            volume = fill.filled_volume
             if order.direction == Direction.LONG:
                 old_vol = self._portfolio.positions.get(order.code, 0)
                 old_avg = self._portfolio.avg_prices.get(order.code, 0.0)
-                new_vol = old_vol + order.volume
-                new_avg = (old_avg * old_vol + fill.filled_price * order.volume) / new_vol
+                new_vol = old_vol + volume
                 self._portfolio.positions[order.code] = new_vol
-                self._portfolio.avg_prices[order.code] = new_avg
-                self._portfolio.cash -= fill.filled_price * order.volume
-
+                self._portfolio.avg_prices[order.code] = (old_avg * old_vol + fill.filled_price * volume) / new_vol
+                self._portfolio.cash -= fill.filled_price * volume + fill.commission
+                self._today_bought[order.code] = self._today_bought.get(order.code, 0) + volume
                 if old_vol == 0:
                     self._portfolio.entry_dates[order.code] = now_beijing().strftime("%Y-%m-%d")
                 self._portfolio.strategies[order.code] = self.strategy_name or self._strategy.__class__.__name__
-            else:  # SELL
+            else:
                 old_vol = self._portfolio.positions.get(order.code, 0)
-                new_vol = max(0, old_vol - order.volume)
+                new_vol = max(0, old_vol - volume)
                 self._portfolio.positions[order.code] = new_vol
-                self._portfolio.cash += fill.filled_price * order.volume
-
+                self._portfolio.cash += fill.filled_price * volume - fill.commission - fill.stamp_tax
                 if new_vol == 0:
+                    self._portfolio.positions.pop(order.code, None)
                     self._portfolio.avg_prices.pop(order.code, None)
                     self._portfolio.entry_dates.pop(order.code, None)
                     self._portfolio.strategies.pop(order.code, None)
-
-            # 创建 Trade 记录
-            trade = Trade(
-                code=order.code,
-                direction=order.direction,
-                price=fill.filled_price,
-                volume=order.volume,
-                order_id=order.order_id,
-                datetime=now_beijing().date(),
-            )
-            self._strategy.record_trade(trade)
-            trades.append(trade)
-
+            trades.append(Trade(code=order.code, direction=order.direction, price=fill.filled_price, volume=volume, order_id=order.order_id, datetime=now_beijing().date(), entry_price=self._portfolio.avg_prices.get(order.code, 0.0)))
+            self._strategy.record_trade(trades[-1])
         return trades
 
     def _match_orders(self, quotes: dict[str, QuoteData]) -> list[Trade]:

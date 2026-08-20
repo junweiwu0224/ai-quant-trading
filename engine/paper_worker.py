@@ -10,14 +10,19 @@ from __future__ import annotations
 import signal
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from engine.adapters.paper_adapter import PaperAdapter
-from engine.execution_protocol import OrderIntentBatch, ExecutionPermit
+from data.collector.quote_service import get_quote_service
+from engine.adapters.paper_adapter import PaperAdapter, QuoteSnapshot as AdapterQuoteSnapshot
+from engine.execution_protocol import OrderIntentBatch, OrderIntent
+from engine.risk_gate import RiskGate, RiskPolicy, QuoteSnapshot as RiskQuoteSnapshot, rebuild_account_snapshot
+from engine.research_facts import ResearchFactsStore
 from engine.operations_store import (
     Attempt,
     LeaseLostError,
@@ -40,6 +45,8 @@ class PaperWorkerConfig:
     lease_ttl_seconds: float = 30.0
     task_lease_seconds: float = 300.0
     worker_id: str | None = None
+    paper_db: str | Path | None = None
+    workspace_id: str = "default"
 
 
 class PaperWorker:
@@ -49,6 +56,8 @@ class PaperWorker:
         self.config = config
         self.worker_id = config.worker_id or f"paper-worker-{time.time_ns()}"
         self.operations = OperationsStore(config.operations_db)
+        self.paper_db = str(config.paper_db or config.operations_db)
+        self.facts = ResearchFactsStore(self.paper_db)
         self.running = False
         self._engines: dict[str, PaperEngine] = {}
         self._ownerships: dict[str, PaperOwnership] = {}
@@ -96,6 +105,7 @@ class PaperWorker:
                     "paper_stop",
                     "paper_adjust_position",
                     "execute_manual_order",
+                    "paper_execute_batch",
                 ],
             )
         except TaskNotClaimableError:
@@ -131,7 +141,7 @@ class PaperWorker:
             self._handle_stop(attempt, payload)
         elif kind == "paper_adjust_position":
             self._handle_adjust_position(attempt, payload)
-        elif kind == "execute_manual_order":
+        elif kind in {"execute_manual_order", "paper_execute_batch"}:
             self._handle_execute_manual_order(attempt, payload)
         else:
             raise ValueError(f"Unknown command kind: {kind}")
@@ -139,7 +149,7 @@ class PaperWorker:
     def _handle_start(self, attempt: Attempt, payload: dict[str, Any]) -> None:
         """Handle paper_start command: acquire lease and start PaperEngine."""
         account_id = payload.get("account_id", "paper-default")
-        strategy_name = payload.get("strategy", "dual_ma")
+        strategy_name = payload.get("strategy_name", payload.get("strategy", "dual_ma"))
         codes = payload.get("codes", [])
         initial_cash = payload.get("initial_cash", 1_000_000)
         interval_seconds = payload.get("interval_seconds", 30)
@@ -182,8 +192,23 @@ class PaperWorker:
             initial_cash=initial_cash,
             interval_seconds=interval_seconds,
             enable_risk=True,
+            db_path=self.paper_db,
         )
-        engine = PaperEngine(strategy=strategy, codes=codes, config=config)
+        execution_run = self.facts.ensure_paper_run(
+            account_id=account_id,
+            workspace_id=self.config.workspace_id,
+            strategy_id=strategy_name,
+            codes=codes,
+            initial_cash=initial_cash,
+        )
+        engine = PaperEngine(
+            strategy=strategy,
+            codes=codes,
+            config=config,
+            account_id=account_id,
+            workspace_id=self.config.workspace_id,
+            execution_run_id=execution_run.execution_run_id,
+        )
         engine.strategy_name = strategy_name
 
         # Start heartbeat renewal
@@ -227,90 +252,159 @@ class PaperWorker:
         )
 
     def _handle_adjust_position(self, attempt: Attempt, payload: dict[str, Any]) -> None:
-        """Handle paper_adjust_position command: delegate to PaperEngine."""
-        account_id = payload.get("account_id", "paper-default")
-        code = payload.get("code")
-        direction = payload.get("direction")
-        volume = payload.get("volume")
-
-        engine = self._engines.get(account_id)
-        if engine is None:
-            error = f"Account {account_id} is not running"
-            self.operations.fail_attempt(
-                attempt.id,
-                owner_id=self.worker_id,
-                fence=attempt.fence,
-                lease_token=attempt.lease_token,
-                error=error,
-            )
-            raise RuntimeError(error)
-
-        # Delegate to PaperEngine's portfolio/strategy
-        # (In full V2, this would construct OrderIntentBatch and go through RiskGate)
-        try:
-            engine.portfolio.place_order(code, direction, volume)
-            self.operations.succeed_attempt(
-                attempt.id,
-                owner_id=self.worker_id,
-                fence=attempt.fence,
-                lease_token=attempt.lease_token,
-            )
-            logger.info(f"Adjusted position for {account_id}: {code} {direction} {volume}")
-        except Exception as e:
-            self.operations.fail_attempt(
-                attempt.id,
-                owner_id=self.worker_id,
-                fence=attempt.fence,
-                lease_token=attempt.lease_token,
-                error=str(e),
-            )
-            raise
+        """Block the legacy direct portfolio mutation path."""
+        error = "paper_adjust_position is disabled; submit a paper_execute_batch command"
+        self.operations.fail_attempt(
+            attempt.id,
+            owner_id=self.worker_id,
+            fence=attempt.fence,
+            lease_token=attempt.lease_token,
+            error=error,
+        )
+        raise RuntimeError(error)
 
     def _handle_execute_manual_order(self, attempt: Attempt, payload: dict[str, Any]) -> None:
-        """Handle execute_manual_order command: V2 unified protocol execution."""
+        """Re-evaluate an advisory batch immediately before execution."""
         batch_dict = payload.get("batch_dict")
-        permit_dict = payload.get("permit_dict")
-
-        if not batch_dict or not permit_dict:
-            error = "Missing batch_dict or permit_dict in payload"
-            self.operations.fail_attempt(
-                attempt.id,
-                owner_id=self.worker_id,
-                fence=attempt.fence,
-                lease_token=attempt.lease_token,
-                error=error,
+        if not batch_dict:
+            raise ValueError("Missing batch_dict in payload")
+        proposed_batch = OrderIntentBatch.from_dict(batch_dict)
+        run = self.facts.get_execution_run(proposed_batch.execution_run_id)
+        if run is None:
+            run = self.facts.ensure_paper_run(
+                account_id=proposed_batch.account_id,
+                workspace_id=self.config.workspace_id,
+                codes=[intent.instrument for intent in proposed_batch.intents],
+                execution_run_id=proposed_batch.execution_run_id,
             )
-            raise ValueError(error)
-
-        # Reconstruct batch and permit from dicts
-        batch = OrderIntentBatch.from_dict(batch_dict)
-        permit = ExecutionPermit.from_dict(permit_dict)
-
-        # Create PaperAdapter and execute
-        adapter = PaperAdapter(db_path=self.config.operations_db)
-        try:
-            fills = adapter.execute_batch(batch=batch, permit=permit)
+        intents = tuple(
+            OrderIntent(
+                execution_run_id=run.execution_run_id,
+                account_id=proposed_batch.account_id,
+                environment="paper",
+                instrument=intent.instrument,
+                side=intent.side,
+                quantity=intent.quantity,
+                idempotency_key=intent.idempotency_key,
+                emergency=intent.emergency,
+            )
+            for intent in proposed_batch.intents
+        )
+        batch = OrderIntentBatch(batch_id=proposed_batch.batch_id, intents=intents)
+        raw_quotes = payload.get("quotes")
+        if raw_quotes is None:
+            raw_quotes = get_quote_service().get_all_quotes()
+        latest = {
+            code: self._quote_from_value(code, value)
+            for code, value in raw_quotes.items()
+        }
+        risk_quotes = {
+            code: RiskQuoteSnapshot(
+                instrument=quote.instrument,
+                price=Decimal(str(quote.price)),
+                timestamp=quote.timestamp,
+                industry=quote.industry,
+                limit_up=quote.limit_up,
+                limit_down=quote.limit_down,
+                is_suspended=quote.is_suspended,
+            )
+            for code, quote in latest.items()
+        }
+        account = rebuild_account_snapshot(
+            self.paper_db,
+            proposed_batch.account_id,
+            self.config.workspace_id,
+        )
+        current_values = {
+            code: quantity * risk_quotes[code].price
+            for code, quantity in account.positions.items()
+            if code in risk_quotes
+        }
+        account = replace(
+            account,
+            position_values=current_values,
+            total_equity=account.cash + sum(current_values.values(), Decimal("0")),
+        )
+        gate = RiskGate(db_path=self.paper_db)
+        _, permit = gate.authorize(
+            batch,
+            account,
+            risk_quotes,
+            fence_token=account.fence_token,
+            execution_run_id=run.execution_run_id,
+        )
+        if permit is None:
             self.operations.succeed_attempt(
                 attempt.id,
                 owner_id=self.worker_id,
                 fence=attempt.fence,
                 lease_token=attempt.lease_token,
             )
-            logger.info(
-                f"Executed manual order batch {batch.batch_id}: "
-                f"{len(fills)} fills, {sum(f.quantity for f in fills)} total qty"
+            return
+        adapter = PaperAdapter(db_path=self.paper_db, workspace_id=self.config.workspace_id)
+        try:
+            adapter_quotes = {
+                code: AdapterQuoteSnapshot(
+                    instrument=quote.instrument,
+                    price=quote.price,
+                    timestamp=quote.timestamp.isoformat(),
+                    industry=quote.industry,
+                    limit_up=float(quote.limit_up) if quote.limit_up is not None else None,
+                    limit_down=float(quote.limit_down) if quote.limit_down is not None else None,
+                    is_suspended=quote.is_suspended,
+                )
+                for code, quote in latest.items()
+            }
+            adapter.execute_batch(batch, permit, adapter_quotes, require_authoritative=True)
+            self.operations.succeed_attempt(
+                attempt.id,
+                owner_id=self.worker_id,
+                fence=attempt.fence,
+                lease_token=attempt.lease_token,
             )
-        except Exception as e:
+        except Exception as exc:
             self.operations.fail_attempt(
                 attempt.id,
                 owner_id=self.worker_id,
                 fence=attempt.fence,
                 lease_token=attempt.lease_token,
-                error=str(e),
+                error=str(exc),
             )
             raise
         finally:
             adapter.close()
+
+    @staticmethod
+    def _quote_from_value(code: str, value: Any) -> AdapterQuoteSnapshot:
+        from datetime import datetime, timezone
+        if isinstance(value, AdapterQuoteSnapshot):
+            return value
+        if isinstance(value, dict):
+            price = value.get("price", 0)
+            timestamp = value.get("timestamp")
+            industry = value.get("industry", "")
+            limit_up = value.get("limit_up")
+            limit_down = value.get("limit_down")
+            suspended = value.get("is_suspended", False)
+        else:
+            price = value.price
+            timestamp = value.timestamp
+            industry = getattr(value, "industry", "") or ""
+            limit_up = getattr(value, "limit_up", None)
+            limit_down = getattr(value, "limit_down", None)
+            suspended = bool(getattr(value, "is_suspended", False))
+        if isinstance(timestamp, (int, float)):
+            timestamp = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+        timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+        return AdapterQuoteSnapshot(
+            instrument=code,
+            price=float(price),
+            timestamp=str(timestamp),
+            industry=str(industry),
+            limit_up=float(limit_up) if limit_up is not None else None,
+            limit_down=float(limit_down) if limit_down is not None else None,
+            is_suspended=bool(suspended),
+        )
 
     def _handle_lease_lost(self, account_id: str) -> None:
         """Handle lease loss: stop the engine and clean up."""

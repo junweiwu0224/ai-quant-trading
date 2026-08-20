@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import sqlite3
+
 from engine.paper_projection import ensure_projection_schema, list_reconciliations
 from engine.paper_runtime import PaperRuntimeStore
 from utils.db import get_connection
@@ -12,7 +14,10 @@ from utils.db import get_connection
 
 def _latest_run(db_path: str | Path, account_id: str, workspace_id: str = "default") -> dict[str, Any] | None:
     with get_connection(db_path) as connection:
-        row = connection.execute("SELECT * FROM execution_runs WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' ORDER BY created_at DESC LIMIT 1", (account_id, workspace_id)).fetchone()
+        try:
+            row = connection.execute("SELECT * FROM execution_runs WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' ORDER BY created_at DESC LIMIT 1", (account_id, workspace_id)).fetchone()
+        except sqlite3.OperationalError:
+            row = None
     return dict(row) if row else None
 
 

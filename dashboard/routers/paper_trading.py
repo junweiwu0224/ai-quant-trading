@@ -16,7 +16,7 @@ from engine.models import (
 )
 from engine.order_manager import OrderManager
 from engine.paper_commands import PaperCommandClient
-from engine.paper_read_model import positions as paper_read_positions, trades as paper_read_trades, status as paper_read_status
+from engine.paper_read_model import equity as paper_read_equity, positions as paper_read_positions, status as paper_read_status, trades as paper_read_trades
 from engine.paper_projection import ensure_projection_schema
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
@@ -277,33 +277,24 @@ async def get_daily_performance(
 ):
     """获取每日绩效历史"""
     try:
-        with _get_db() as conn:
-            start_date = (date.today() - timedelta(days=days)).isoformat()
-            cursor = conn.execute(
-                "SELECT * FROM paper_performance WHERE date >= ? ORDER BY date ASC",
-                (start_date,)
-            )
-            rows = cursor.fetchall()
-
-            performance = []
-            for row in rows:
-                performance.append({
-                    "date": row["date"],
-                    "total_equity": row["total_equity"],
-                    "daily_return": row["daily_return"],
-                    "cumulative_return": row["cumulative_return"],
-                    "max_drawdown": row["max_drawdown"],
-                    "sharpe_ratio": row["sharpe_ratio"],
-                    "win_rate": row["win_rate"],
-                })
-
-        return {
-            "success": True,
-            "data": performance,
-        }
+        rows = paper_read_equity(_config.db_path, "paper-default")
+        if days > 0:
+            cutoff = (now_beijing() - timedelta(days=days)).date().isoformat()
+            rows = [row for row in rows if str(row.get("timestamp", ""))[:10] >= cutoff]
+        performance = [{
+            "date": str(row.get("timestamp", ""))[:10],
+            "total_equity": row.get("equity", 0),
+            "daily_return": 0,
+            "cumulative_return": 0,
+            "max_drawdown": row.get("drawdown", 0),
+            "sharpe_ratio": 0,
+            "win_rate": 0,
+        } for row in rows]
+        return {"success": True, "data": performance, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"获取每日绩效历史失败: {e}")
         raise HTTPException(500, "获取每日绩效历史失败，请稍后重试")
+
 
 
 # ────────────── 资金曲线 API ──────────────
@@ -316,16 +307,12 @@ async def get_equity_curve_v2(
 ):
     """获取资金曲线（完整版）"""
     try:
-        curve = _performance_analyzer.get_equity_curve(
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-        )
-
-        return {
-            "success": True,
-            "data": curve,
-        }
+        curve = paper_read_equity(_config.db_path, "paper-default")
+        if start_date:
+            curve = [row for row in curve if str(row.get("timestamp", ""))[:10] >= start_date.isoformat()]
+        if end_date:
+            curve = [row for row in curve if str(row.get("timestamp", ""))[:10] <= end_date.isoformat()]
+        return {"success": True, "data": curve, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"获取资金曲线失败: {e}")
         raise HTTPException(500, "获取资金曲线失败，请稍后重试")
@@ -337,12 +324,14 @@ async def get_drawdown_curve(
 ):
     """获取回撤曲线"""
     try:
-        curve = _performance_analyzer.get_drawdown_curve(days=days)
-
-        return {
-            "success": True,
-            "data": curve,
-        }
+        curve = paper_read_equity(_config.db_path, "paper-default")[-days:]
+        peak = 0.0
+        result = []
+        for row in curve:
+            equity = float(row.get("equity", 0))
+            peak = max(peak, equity)
+            result.append({"timestamp": row.get("timestamp"), "drawdown": round((peak - equity) / peak, 4) if peak else 0})
+        return {"success": True, "data": result, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"获取回撤曲线失败: {e}")
         raise HTTPException(500, "获取回撤曲线失败，请稍后重试")
@@ -361,77 +350,42 @@ async def get_trades_v2(
 ):
     """获取交易历史"""
     try:
-        with _get_db() as conn:
-            conditions = []
-            params = []
-
-            if code:
-                conditions.append("code = ?")
-                params.append(code)
-
-            if direction:
-                conditions.append("direction = ?")
-                params.append(direction)
-
-            if start_date:
-                conditions.append("created_at >= ?")
-                params.append(start_date.isoformat())
-
-            if end_date:
-                conditions.append("created_at <= ?")
-                params.append(end_date.isoformat())
-
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-
-            # 获取总数
-            cursor = conn.execute(
-                f"SELECT COUNT(*) FROM paper_trades WHERE {where_clause}",
-                params
-            )
-            total = cursor.fetchone()[0]
-
-            # 获取分页数据
-            offset = (page - 1) * page_size
-            cursor = conn.execute(
-                f"SELECT * FROM paper_trades WHERE {where_clause} "
-                f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                params + [page_size, offset]
-            )
-            rows = cursor.fetchall()
-
-            trades = []
-            for row in rows:
-                trades.append({
-                    "trade_id": row["trade_id"],
-                    "order_id": row["order_id"],
-                    "code": row["code"],
-                    "direction": row["direction"],
-                    "price": row["price"],
-                    "volume": row["volume"],
-                    "entry_price": row["entry_price"],
-                    "profit": row["profit"],
-                    "profit_pct": row["profit_pct"],
-                    "commission": row["commission"],
-                    "stamp_tax": row["stamp_tax"],
-                    "equity_after": row["equity_after"],
-                    "strategy_name": row["strategy_name"],
-                    "signal_reason": row["signal_reason"],
-                    "created_at": row["created_at"],
-                })
-
-        return {
-            "success": True,
-            "data": {
-                "items": trades,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": (total + page_size - 1) // page_size,
-            },
-        }
+        rows = paper_read_trades(_config.db_path, "paper-default", limit=1000)
+        filtered = []
+        for row in rows:
+            created_at = str(row.get("created_at", ""))
+            if code and row.get("code") != code:
+                continue
+            if direction and row.get("direction") != direction:
+                continue
+            if start_date and created_at[:10] < start_date.isoformat():
+                continue
+            if end_date and created_at[:10] > end_date.isoformat():
+                continue
+            filtered.append({
+                "trade_id": row.get("trade_id"),
+                "order_id": row.get("trade_id"),
+                "code": row.get("code"),
+                "direction": row.get("direction"),
+                "price": row.get("price", 0),
+                "volume": row.get("volume", 0),
+                "entry_price": 0,
+                "profit": 0,
+                "profit_pct": 0,
+                "commission": row.get("commission", 0),
+                "stamp_tax": row.get("stamp_tax", 0),
+                "equity_after": 0,
+                "strategy_name": "",
+                "signal_reason": "",
+                "created_at": created_at,
+            })
+        total = len(filtered)
+        offset = (page - 1) * page_size
+        return {"success": True, "data": {"items": filtered[offset:offset + page_size], "total": total, "page": page, "page_size": page_size, "total_pages": (total + page_size - 1) // page_size}}
     except Exception as e:
         logger.error(f"获取交易历史失败: {e}")
         raise HTTPException(500, "获取交易历史失败，请稍后重试")
+
 
 
 @router.get("/trades-v2/stats")
@@ -440,73 +394,17 @@ async def get_trade_stats_v2(
 ):
     """获取交易统计"""
     try:
-        with _get_db() as conn:
-            start_date = (now_beijing() - timedelta(days=days)).isoformat()
-
-            # 总交易次数
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM paper_trades WHERE created_at >= ?",
-                (start_date,)
-            )
-            total_trades = cursor.fetchone()[0]
-
-            # 盈利交易次数
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM paper_trades WHERE created_at >= ? AND profit > 0",
-                (start_date,)
-            )
-            winning_trades = cursor.fetchone()[0]
-
-            # 亏损交易次数
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM paper_trades WHERE created_at >= ? AND profit < 0",
-                (start_date,)
-            )
-            losing_trades = cursor.fetchone()[0]
-
-            # 总盈亏
-            cursor = conn.execute(
-                "SELECT SUM(profit) FROM paper_trades WHERE created_at >= ?",
-                (start_date,)
-            )
-            total_profit = cursor.fetchone()[0] or 0
-
-            # 平均盈利
-            cursor = conn.execute(
-                "SELECT AVG(profit) FROM paper_trades WHERE created_at >= ? AND profit > 0",
-                (start_date,)
-            )
-            avg_win = cursor.fetchone()[0] or 0
-
-            # 平均亏损
-            cursor = conn.execute(
-                "SELECT AVG(ABS(profit)) FROM paper_trades WHERE created_at >= ? AND profit < 0",
-                (start_date,)
-            )
-            avg_loss = cursor.fetchone()[0] or 0
-
-            # 胜率
-            win_rate = winning_trades / total_trades if total_trades > 0 else 0
-
-            # 盈亏比
-            profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
-
-        return {
-            "success": True,
-            "data": {
-                "total_trades": total_trades,
-                "winning_trades": winning_trades,
-                "losing_trades": losing_trades,
-                "total_profit": round(total_profit, 2),
-                "avg_win": round(avg_win, 2),
-                "avg_loss": round(avg_loss, 2),
-                "win_rate": round(win_rate, 4),
-                "profit_loss_ratio": round(profit_loss_ratio, 4),
-            },
-        }
+        rows = paper_read_trades(_config.db_path, "paper-default", limit=1000)
+        cutoff = (now_beijing() - timedelta(days=days)).date().isoformat()
+        rows = [row for row in rows if str(row.get("created_at", ""))[:10] >= cutoff]
+        total_trades = len(rows)
+        # Ledger facts do not fabricate realized P&L; that remains zero until a
+        # dedicated realized-P&L projection is introduced.
+        return {"success": True, "data": {"total_trades": total_trades, "winning_trades": 0, "losing_trades": 0, "total_profit": 0, "avg_win": 0, "avg_loss": 0, "win_rate": 0, "profit_loss_ratio": 0}, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"获取交易统计失败: {e}")
         raise HTTPException(500, "获取交易统计失败，请稍后重试")
+
 
 
 @router.get("/trades-v2/export")
@@ -515,80 +413,47 @@ async def export_trades_v2(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
-    """导出交易记录"""
+    """导出 scoped ledger 成交记录，不读取 legacy paper_trades。"""
     try:
-        with _get_db() as conn:
-            conditions = []
-            params = []
-
-            if start_date:
-                conditions.append("created_at >= ?")
-                params.append(start_date.isoformat())
-
-            if end_date:
-                conditions.append("created_at <= ?")
-                params.append(end_date.isoformat())
-
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-
-            cursor = conn.execute(
-                f"SELECT * FROM paper_trades WHERE {where_clause} ORDER BY created_at DESC",
-                params
-            )
-            rows = cursor.fetchall()
-
-            trades = []
-            for row in rows:
-                trades.append({
-                    "交易ID": row["trade_id"],
-                    "订单ID": row["order_id"],
-                    "股票代码": row["code"],
-                    "方向": "买入" if row["direction"] == "buy" else "卖出",
-                    "价格": row["price"],
-                    "数量": row["volume"],
-                    "入场价": row["entry_price"],
-                    "盈亏": row["profit"],
-                    "盈亏比例": f"{row['profit_pct']:.2f}%",
-                    "佣金": row["commission"],
-                    "印花税": row["stamp_tax"],
-                    "交易后权益": row["equity_after"],
-                    "策略名称": row["strategy_name"],
-                    "信号原因": row["signal_reason"],
-                    "交易时间": row["created_at"],
-                })
-
+        rows = paper_read_trades(_config.db_path, "paper-default", limit=1000)
+        records = []
+        for row in rows:
+            created_at = str(row.get("created_at", ""))
+            if start_date and created_at[:10] < start_date.isoformat():
+                continue
+            if end_date and created_at[:10] > end_date.isoformat():
+                continue
+            records.append({
+                "交易ID": row.get("trade_id"),
+                "订单ID": row.get("trade_id"),
+                "股票代码": row.get("code"),
+                "方向": "买入" if row.get("direction") == "buy" else "卖出",
+                "价格": row.get("price", 0),
+                "数量": row.get("volume", 0),
+                "入场价": 0,
+                "盈亏": 0,
+                "盈亏比例": "0.00%",
+                "佣金": row.get("commission", 0),
+                "印花税": row.get("stamp_tax", 0),
+                "交易后权益": 0,
+                "策略名称": "",
+                "信号原因": "",
+                "交易时间": created_at,
+            })
         if format == "csv":
-            # 返回CSV格式
             import csv
             import io
-
             output = io.StringIO()
-            if trades:
-                writer = csv.DictWriter(output, fieldnames=trades[0].keys())
+            if records:
+                writer = csv.DictWriter(output, fieldnames=records[0].keys())
                 writer.writeheader()
-                writer.writerows(trades)
-
-            return {
-                "success": True,
-                "data": {
-                    "format": "csv",
-                    "content": output.getvalue(),
-                    "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.csv",
-                },
-            }
-        else:
-            # 返回JSON格式
-            return {
-                "success": True,
-                "data": {
-                    "format": "json",
-                    "content": trades,
-                    "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.json",
-                },
-            }
+                writer.writerows(records)
+            return {"success": True, "data": {"format": "csv", "content": output.getvalue(), "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.csv"}, "source": "paper_ledger"}
+        return {"success": True, "data": {"format": "json", "content": records, "filename": f"trades_{now_beijing():%Y%m%d_%H%M%S}.json"}, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"导出交易记录失败: {e}")
         raise HTTPException(500, "导出交易记录失败，请稍后重试")
+
 
 
 # ────────────── 风控 API ──────────────

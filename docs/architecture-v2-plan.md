@@ -412,11 +412,22 @@ ScopeSnapshot · StrategyVersion · Qualification · ExecutionRun
 
 ### Phase 4：恢复、对账和备份
 
-- 账本重建 Position/Performance 投影。
-- claim、risk、adapter、commit 各关键点故障注入。
-- 完成 backup manifest、verify-only、隔离 restore、replay 和 reconciliation。
+**状态**: ✅ 核心恢复链完成，已通过隔离 targeted tests
 
-硬门禁：任何中断点都不能产生重复成交；不一致必须进入 halt/reconciliation，不能自动放行。
+- `engine/paper_projection.py` 从 scoped `paper_ledger` 重建 Position/Trade/Equity/Performance projection；投影损坏不会修改 ledger。
+- `paper_reconciliations` 与 `paper_reconciliation_events` 以 append-only 事件记录 lease 丢失、恢复、投影分歧和引擎失败；未知或分歧状态进入 `reconciling`/`reconciliation_blocked`。
+- `PaperWorker` 真正启动受账户 lease/fence 保护的 PaperEngine loop；`paper_reset` 创建新 ExecutionRun，不删除历史 ledger，并为旧 run 创建 reconciliation case。
+- PaperAdapter 强制 SQLite authority、ExecutionRun scope、permit/decision/batch coverage、当前 fence 和原子 ledger/outbox 写入；并进行提交前现金/持仓重算。
+- Backup verify-only 检查 Paper ledger scope、幂等性和 projection 表；隔离 restore 后 Paper runs 不自动恢复，统一标记为 `reconciling`。
+- Dashboard portfolio/status/trades/equity/positions/close/stoploss 读取或提交 V2 scoped projection/command；JSON 状态文件不再是权威事实源。
+
+**验证**: Phase 4 targeted 9 passed；Phase 3/Adapter/Worker/Runtime 59 passed；Dashboard/API 154 passed；完整 pytest 1098 passed, 1 warning。
+
+**残余限制**:
+- 旧 `paper_positions`/`paper_trades` 查询仍被部分 legacy 风控/绩效辅助模块引用，但不再参与 PaperEngine 启动恢复或 V2 Dashboard 权威读模型；后续可在独立清理任务中完全删除。
+- 当前 `PaperWorker` 仍在单进程内用 daemon thread 运行 PaperEngine；跨进程 ownership 由 SQLite lease/fence 保证，长期进程/断电演练仍需独立运行验证。
+
+硬门禁：任何中断点不能重复成交；投影或恢复不一致必须进入 halt/reconciliation，不能自动放行。
 
 ### Phase 5：前端状态迁移
 

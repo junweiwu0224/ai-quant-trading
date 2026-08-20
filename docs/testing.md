@@ -49,8 +49,10 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest --noconftest -q \
 存在；restore 必须恢复附件内容和 SQLite 文件。测试不启动 Dashboard、Docker、provider、通知、LLM
 或交易接口。
 
-- Pytest：`.venv/bin/python -m pytest -q`。
-- 针对性 pytest：`.venv/bin/python -m pytest tests/test_<area>.py -q`。
+- PaperWorker、projection、backup/restore 和 reconciliation 测试必须使用 `tmp_path` 下隔离 SQLite；不能读取或写入默认 `data/db`、`logs/paper` 作为测试事实。
+- `portfolio_state.json`、交易 JSONL 和快照文件只可作为导出/诊断兼容格式；启动恢复、RiskGate、Adapter 和 Dashboard 权威读取必须来自 scoped `paper_ledger` + 可重建 projection。
+- 恢复流程必须先执行 `verify-only`，真实 restore 只能写隔离目录；恢复后的 Paper run 进入 `reconciling`，存在 open/acknowledged/blocked reconciliation 时所有执行操作 fail closed。
+
 - Context pack 验证：`.venv/bin/python scripts/verify_context_pack.py`。
 - Python 语法检查：`.venv/bin/python -m compileall -q .`。
 - E2E：启动 Dashboard 后运行 `scripts/e2e-local.sh smoke|data-health|all`，或 `npm run e2e:docker`。

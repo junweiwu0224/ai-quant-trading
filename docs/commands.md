@@ -37,7 +37,8 @@ PI_AGENT_WORKER_ENABLED=true \
 docker compose --profile ai --profile trading up -d --build
 ```
 
-`paper` 使用现有 legacy `scripts/run_paper.py` 命令；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 Pi Agent Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
+`paper-worker` service consumes `paper_start`/`paper_stop`/`paper_reset` and owns the account-scoped Paper lease. `paper` is enqueue-only (`scripts/run_paper.py`); it does not start a PaperEngine directly. `backtest` is a one-shot task and exit code `0` is normal. `DECISION_EXTERNAL_DELIVERY_ENABLED=false` and Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 Pi Agent Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
+
 
 `cloudflared` 不属于默认本地全量栈，因为它会改变网络暴露边界。只有在 `.env` 配置 `CLOUDFLARED_TUNNEL_TOKEN` 并明确确认外部暴露范围后，才单独执行：
 
@@ -131,7 +132,15 @@ npm run e2e:docker
 
 `package.json` 中 `npm run e2e` 和 `npm run e2e:data-health` 依赖 Playwright 配置；根目录不提供 `npm test`，前端测试使用 `npm run ui:test`。
 
-## Pi Agent Worker
+## PaperWorker / 投影 / 恢复验证
+
+```bash
+.venv/bin/python -m pytest -q tests/test_paper_phase4_projection.py tests/test_paper_phase4_lifecycle.py tests/test_paper_phase4_backup_restore.py tests/test_paper_phase4_failure_injection.py
+.venv/bin/python -m pytest -q tests/test_phase3_execution.py tests/test_paper_adapter.py tests/test_paper_worker.py tests/test_paper_runtime.py
+```
+
+恢复必须先 `verify-only`，再写入隔离目录；恢复的 Paper ExecutionRun 会进入 `reconciling` 并创建 open `paper_reconciliations`，禁止自动恢复撮合。`portfolio_state.json`、JSONL 交易日志和快照只允许导出/诊断，不参与启动恢复或 Dashboard 权威读取。
+
 
 ```bash
 PI_AGENT_WORKER_ENABLED=true .venv/bin/python scripts/run_pi_agent_worker.py --once

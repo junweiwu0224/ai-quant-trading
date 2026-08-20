@@ -97,6 +97,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  paper-worker:
+    build: .
+    command: ["python", "scripts/run_paper_worker.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+      - TZ=Asia/Shanghai
+    profiles:
+      - trading
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
   paper:
     build: .
     command: ["python", "scripts/run_paper.py", "-s", "dual_ma", "-c", "000001", "-c", "600519"]

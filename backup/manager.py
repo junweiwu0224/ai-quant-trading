@@ -249,6 +249,47 @@ def _decision_payload_from_row(row: sqlite3.Row, label: str) -> dict[str, Any]:
         "confirmed": bool(row["confirmed"]),
     }
 
+def _verify_paper_database(path: Path) -> dict[str, Any]:
+    """Verify paper ledger integrity without treating projections as facts."""
+    try:
+        with sqlite3.connect(_read_only_uri(path), uri=True, timeout=10.0) as connection:
+            connection.row_factory = sqlite3.Row
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            if "paper_ledger" not in tables:
+                return {"paper_database": False}
+            duplicate = connection.execute("SELECT account_id, workspace_id, environment, idempotency_key, COUNT(*) AS count FROM paper_ledger GROUP BY account_id, workspace_id, environment, idempotency_key HAVING count > 1 LIMIT 1").fetchone()
+            if duplicate:
+                raise BackupVerificationError(f"paper ledger idempotency collision: {path}")
+            malformed = connection.execute("SELECT id FROM paper_ledger WHERE environment != 'paper' OR account_id = '' OR workspace_id = '' OR idempotency_key = '' LIMIT 1").fetchone()
+            if malformed:
+                raise BackupVerificationError(f"paper ledger contains malformed scope: {path}")
+            ledger_count = int(connection.execute("SELECT COUNT(*) FROM paper_ledger").fetchone()[0])
+            reconciliation_count = int(connection.execute("SELECT COUNT(*) FROM paper_reconciliations WHERE status IN ('open', 'blocked')").fetchone()[0]) if "paper_reconciliations" in tables else 0
+            return {"paper_database": True, "paper_ledger_count": ledger_count, "open_reconciliation_count": reconciliation_count, "projection_tables_present": "paper_positions_v2" in tables}
+    except sqlite3.Error as exc:
+        raise BackupVerificationError(f"paper database verification failed: {path}: {exc}") from exc
+
+
+def _mark_restored_paper_database(path: Path) -> dict[str, Any]:
+    """Put restored paper runs behind reconciliation before promotion."""
+    from engine.paper_projection import ensure_projection_schema
+    ensure_projection_schema(path)
+    marked = 0
+    with sqlite3.connect(str(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "execution_runs" in tables:
+            runs = connection.execute("SELECT execution_run_id, workspace_id, account_id, status FROM execution_runs WHERE environment = 'paper'").fetchall()
+            for run in runs:
+                if run["status"] not in {"reconciling", "reconciliation_blocked", "completed"}:
+                    connection.execute("UPDATE execution_runs SET status = 'reconciling' WHERE execution_run_id = ?", (run["execution_run_id"],))
+                recon_id = f"restore-{run['execution_run_id']}"
+                connection.execute("INSERT OR IGNORE INTO paper_reconciliations(reconciliation_id, workspace_id, account_id, environment, execution_run_id, category, source_reference, reason, status, created_at) VALUES (?, ?, ?, 'paper', ?, 'restore_requires_reconciliation', 'backup_restore', 'restored database cannot auto-resume', 'open', ?)", (recon_id, run["workspace_id"], run["account_id"], run["execution_run_id"], _utc_now()))
+                marked += 1
+        connection.commit()
+    return {"restored_paper_runs_requiring_reconciliation": marked}
+
+
 def _assert_sqlite_readable(path: Path) -> None:
     _ensure_regular_file(path, "SQLite payload")
     connection: sqlite3.Connection | None = None
@@ -1279,7 +1320,10 @@ class BackupManager:
             actual_path = backup_dir / Path(*database_path.parts)
             _assert_sqlite_readable(actual_path)
             referenced_paths.add(database_path.as_posix())
-            references = _verify_decision_references(actual_path)
+            with sqlite3.connect(_read_only_uri(actual_path), uri=True) as probe:
+                tables = {row[0] for row in probe.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            references = _verify_decision_references(actual_path) if {"decision_runs", "decisions", "decision_reports", "decision_snapshots", "decision_versions"}.issubset(tables) else {}
+            paper_references = _verify_paper_database(actual_path)
             database_results.append(
                 {
                     "path": database_path.as_posix(),
@@ -1287,6 +1331,7 @@ class BackupManager:
                     "size": database_record["size"],
                     "sqlite_readable": True,
                     **references,
+                    **paper_references,
                 }
             )
 
@@ -1453,6 +1498,9 @@ class BackupManager:
                 if digest != database["sha256"] or size != database["size"]:
                     raise BackupVerificationError(f"restored database hash or size mismatch: {destination}")
                 _assert_sqlite_readable(destination)
+                with sqlite3.connect(str(destination)) as probe:
+                    restored_tables = {row[0] for row in probe.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                restored_paper = _mark_restored_paper_database(destination) if "paper_ledger" in restored_tables else {}
                 restored_databases.append(
                     {
                         "path": str(target / Path(*restore_relative.parts)),
@@ -1460,6 +1508,7 @@ class BackupManager:
                         "sha256": digest,
                         "size": size,
                         "sqlite_readable": True,
+                        **restored_paper,
                     }
                 )
 

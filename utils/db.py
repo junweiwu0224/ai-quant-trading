@@ -42,6 +42,7 @@ def get_connection(db_path: str | Path, readonly: bool = False) -> sqlite3.Conne
     if not readonly:
         _enable_wal_or_fallback(conn)
     conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 

@@ -339,9 +339,15 @@ class RiskGate:
         current = _utc(now)
         permit = ExecutionPermit.from_decision(decision, permit_id=f"permit-{decision.decision_id}", expires_at=current.replace(microsecond=0) + __import__("datetime").timedelta(seconds=ttl_seconds), fence_token=fence_token, now=current)
         if self.db_path:
-            self._persist_decision(decision, account.workspace_id)
-            self._persist_permit(permit, account.workspace_id, current)
+            self._persist_authorization(decision, permit, account.workspace_id, current)
         return decision, permit
+
+    def _persist_authorization(self, decision: RiskDecision, permit: ExecutionPermit, workspace_id: str, created_at: datetime) -> None:
+        with get_connection(self.db_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("INSERT OR IGNORE INTO paper_risk_decisions(decision_id, execution_run_id, account_id, workspace_id, batch_id, policy_version, status, evaluated_intent_keys_json, approved_intent_keys_json, rejected_intent_keys_json, reasons_json, evaluated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (decision.decision_id, decision.execution_run_id, decision.account_id, workspace_id, decision.batch_id, decision.policy_version, decision.status.value, __import__("json").dumps(decision.evaluated_intent_keys), __import__("json").dumps(decision.approved_intent_keys), __import__("json").dumps(decision.rejected_intent_keys), __import__("json").dumps(decision.reasons), decision.evaluated_at.isoformat(), created_at.isoformat()))
+            connection.execute("INSERT OR REPLACE INTO paper_execution_permits(permit_id, decision_id, execution_run_id, account_id, workspace_id, batch_id, fence_token, idempotency_keys_json, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (permit.permit_id, permit.decision_id, permit.execution_run_id, permit.account_id, workspace_id, permit.batch_id, permit.fence_token, __import__("json").dumps(permit.idempotency_keys), permit.expires_at.isoformat(), created_at.isoformat()))
+            connection.commit()
 
     def _persist_decision(self, decision: RiskDecision, workspace_id: str) -> None:
         if not self.db_path:
@@ -365,42 +371,30 @@ def ensure_paper_account(db_path: str | Path, account_id: str, workspace_id: str
         connection.commit()
 
 
-def rebuild_account_snapshot(db_path: str | Path, account_id: str, workspace_id: str = "default", *, now: datetime | None = None, initial_cash: Decimal | float = Decimal("50000")) -> AccountSnapshot:
+def rebuild_account_snapshot(db_path: str | Path, account_id: str, workspace_id: str = "default", *, now: datetime | None = None, initial_cash: Decimal | float = Decimal("50000"), execution_run_id: str | None = None) -> AccountSnapshot:
+    """Rebuild RiskGate account facts with the same pure fold as projections."""
     ensure_paper_account(db_path, account_id, workspace_id, initial_cash)
+    from engine.paper_projection import fold_ledger
     current = _utc(now)
     with get_connection(db_path) as connection:
         account = connection.execute("SELECT initial_cash, fence_token FROM paper_accounts WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'", (account_id, workspace_id)).fetchone()
         if account is None:
             raise RiskGateError("paper account is not configured")
-        rows = connection.execute("SELECT instrument, side, filled_price, filled_volume, commission, stamp_tax, filled_at FROM paper_ledger WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' ORDER BY id", (account_id, workspace_id)).fetchall()
-    initial = _decimal(account["initial_cash"], "initial_cash")
-    cash = initial
-    positions: dict[str, Decimal] = {}
-    avg_prices: dict[str, Decimal] = {}
-    today_buys: set[str] = set()
-    for row in rows:
-        instrument = row["instrument"]
-        side = _side(row["side"])
-        price = _decimal(row["filled_price"], "filled_price")
-        volume = _decimal(row["filled_volume"], "filled_volume")
-        commission = _decimal(row["commission"] or 0, "commission")
-        stamp_tax = _decimal(row["stamp_tax"] or 0, "stamp_tax")
-        if side is Side.BUY:
-            cash -= price * volume + commission
-            old = positions.get(instrument, Decimal("0"))
-            avg_prices[instrument] = ((avg_prices.get(instrument, price) * old) + price * volume) / (old + volume)
-            positions[instrument] = old + volume
-            if _utc(row["filled_at"]).date() == current.date():
-                today_buys.add(instrument)
-        else:
-            cash += price * volume - commission - stamp_tax
-            positions[instrument] = positions.get(instrument, Decimal("0")) - volume
-            if positions[instrument] <= 0:
-                positions.pop(instrument, None)
-                avg_prices.pop(instrument, None)
-    position_values = {instrument: avg_prices[instrument] * quantity for instrument, quantity in positions.items()}
-    total_equity = cash + sum(position_values.values(), Decimal("0"))
-    return AccountSnapshot(account_id, workspace_id, Environment.PAPER, initial, cash, total_equity, positions, position_values, avg_prices, frozenset(today_buys), {}, str(account["fence_token"]))
+        query = "SELECT id, execution_run_id, account_id, workspace_id, environment, instrument, side, filled_price, filled_volume, commission, stamp_tax, filled_at FROM paper_ledger WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'"
+        params: tuple[Any, ...] = (account_id, workspace_id)
+        if execution_run_id is not None:
+            query += " AND execution_run_id = ?"
+            params = (account_id, workspace_id, execution_run_id)
+        rows = connection.execute(query + " ORDER BY id", params).fetchall()
+    folded = fold_ledger(rows, account_id=account_id, workspace_id=workspace_id, execution_run_id=execution_run_id, initial_cash=account["initial_cash"], now=current)
+    position_values = {instrument: folded.avg_prices[instrument] * quantity for instrument, quantity in folded.positions.items()}
+    return AccountSnapshot(account_id, workspace_id, Environment.PAPER, folded.initial_cash, folded.cash, folded.cash + sum(position_values.values(), Decimal("0")), folded.positions, position_values, folded.avg_prices, folded.today_buys, {}, str(account["fence_token"]))
+
+def set_paper_account_fence(db_path: str | Path, account_id: str, workspace_id: str, fence_token: str, *, initial_cash: Decimal | float = Decimal("50000")) -> None:
+    ensure_paper_account(db_path, account_id, workspace_id, initial_cash)
+    with get_connection(db_path) as connection:
+        connection.execute("UPDATE paper_accounts SET fence_token = ? WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'", (str(fence_token), account_id, workspace_id))
+        connection.commit()
 
 
-__all__ = ["AccountSnapshot", "QuoteSnapshot", "RiskGate", "RiskGateError", "RiskPolicy", "RiskContextMismatch", "ensure_paper_account", "rebuild_account_snapshot"]
+__all__ = ["AccountSnapshot", "QuoteSnapshot", "RiskGate", "RiskGateError", "RiskPolicy", "RiskContextMismatch", "ensure_paper_account", "set_paper_account_fence", "rebuild_account_snapshot"]

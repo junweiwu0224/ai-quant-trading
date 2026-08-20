@@ -23,8 +23,38 @@ from typing import Any, Iterator
 
 
 PAPER_RUNTIME_STATUSES = frozenset(
-    {"starting", "running", "stopping", "stopped", "failed", "reconciliation_required"}
+    {
+        "starting",
+        "running",
+        "paused",
+        "halt_requested",
+        "halted",
+        "stopping",
+        "stopped",
+        "failed",
+        "blocked",
+        "reconciling",
+        "completed",
+        "reconciliation_blocked",
+        "cancel_pending",
+        "reconciliation_required",
+    }
 )
+_RUNTIME_TRANSITIONS = {
+    "starting": {"running", "blocked", "failed", "reconciliation_required", "stopping", "stopped"},
+    "running": {"paused", "halt_requested", "halted", "stopping", "stopped", "failed", "reconciling", "blocked", "reconciliation_required"},
+    "paused": {"running", "halt_requested", "halted", "stopping", "stopped", "reconciling", "blocked"},
+    "halt_requested": {"halted", "stopping", "stopped", "reconciling", "blocked"},
+    "halted": {"stopping", "stopped", "reconciling", "blocked"},
+    "stopping": {"stopped", "reconciling", "blocked"},
+    "stopped": {"starting", "reconciling"},
+    "failed": {"reconciling", "blocked", "stopped"},
+    "blocked": {"starting", "reconciling", "stopped"},
+    "reconciling": {"completed", "reconciliation_blocked", "starting", "blocked", "stopped"},
+    "cancel_pending": {"reconciling", "blocked", "stopped"},
+    "reconciliation_required": {"reconciling", "blocked", "stopped"},
+    "completed": {"stopped"},
+}
 _RUNTIME_TABLE = "paper_runtime"
 
 
@@ -56,7 +86,7 @@ _SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {_RUNTIME_TABLE} (
     account_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'stopping', 'stopped', 'failed', 'reconciliation_required')),
+    status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'paused', 'halt_requested', 'halted', 'stopping', 'stopped', 'failed', 'blocked', 'reconciling', 'completed', 'reconciliation_blocked', 'cancel_pending', 'reconciliation_required')),
     config_json TEXT NOT NULL,
     owner_id TEXT NOT NULL,
     ownership_fence TEXT NOT NULL,
@@ -121,6 +151,14 @@ class PaperRuntimeStore:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(_SCHEMA)
+                check = connection.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_runtime'").fetchone()
+                if check and "reconciliation_blocked" not in str(check[0]):
+                    connection.execute("PRAGMA foreign_keys=OFF")
+                    connection.execute("ALTER TABLE paper_runtime RENAME TO paper_runtime_legacy")
+                    connection.execute(_SCHEMA)
+                    connection.execute("INSERT INTO paper_runtime SELECT * FROM paper_runtime_legacy")
+                    connection.execute("DROP TABLE paper_runtime_legacy")
+                    connection.execute("PRAGMA foreign_keys=ON")
             except BaseException:
                 connection.rollback()
                 raise
@@ -239,6 +277,10 @@ class PaperRuntimeStore:
                 if current is None or current["version"] != expected_version:
                     raise PaperRuntimeConflictError(
                         f"Paper runtime version conflict: {account} expected {expected_version}"
+                    )
+                if "status" in normalized and normalized["status"] != current["status"] and normalized["status"] not in _RUNTIME_TRANSITIONS.get(current["status"], set()):
+                    raise PaperRuntimeConflictError(
+                        f"illegal Paper runtime transition {current['status']} -> {normalized['status']}"
                     )
                 assignments = [f"{field} = ?" for field in normalized]
                 values = list(normalized.values())

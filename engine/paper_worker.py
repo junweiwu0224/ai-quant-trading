@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
+import uuid
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -21,7 +23,7 @@ from loguru import logger
 from data.collector.quote_service import get_quote_service
 from engine.adapters.paper_adapter import PaperAdapter, QuoteSnapshot as AdapterQuoteSnapshot
 from engine.execution_protocol import OrderIntentBatch, OrderIntent
-from engine.risk_gate import RiskGate, RiskPolicy, QuoteSnapshot as RiskQuoteSnapshot, rebuild_account_snapshot
+from engine.risk_gate import RiskGate, RiskPolicy, QuoteSnapshot as RiskQuoteSnapshot, rebuild_account_snapshot, set_paper_account_fence
 from engine.research_facts import ResearchFactsStore
 from engine.operations_store import (
     Attempt,
@@ -31,6 +33,8 @@ from engine.operations_store import (
 )
 from engine.paper_engine import PaperConfig, PaperEngine
 from engine.paper_ownership import PaperOwnership
+from engine.paper_projection import rebuild_account_projections, open_reconciliation
+from engine.paper_runtime import PaperRuntimeStore, PaperRuntimeConflictError
 from strategy.base import BaseStrategy
 from strategy.dual_ma import DualMAStrategy
 
@@ -47,6 +51,7 @@ class PaperWorkerConfig:
     worker_id: str | None = None
     paper_db: str | Path | None = None
     workspace_id: str = "default"
+    runtime_db: str | Path | None = None
 
 
 class PaperWorker:
@@ -56,10 +61,12 @@ class PaperWorker:
         self.config = config
         self.worker_id = config.worker_id or f"paper-worker-{time.time_ns()}"
         self.operations = OperationsStore(config.operations_db)
-        self.paper_db = str(config.paper_db or config.operations_db)
+        self.paper_db = str(config.paper_db or (Path(config.operations_db).with_name("paper_trading.db")))
+        self.runtime = PaperRuntimeStore(config.runtime_db or self.paper_db)
         self.facts = ResearchFactsStore(self.paper_db)
         self.running = False
         self._engines: dict[str, PaperEngine] = {}
+        self._engine_threads: dict[str, threading.Thread] = {}
         self._ownerships: dict[str, PaperOwnership] = {}
         self._stop_requested = False
 
@@ -106,6 +113,7 @@ class PaperWorker:
                     "paper_adjust_position",
                     "execute_manual_order",
                     "paper_execute_batch",
+                    "paper_reset",
                 ],
             )
         except TaskNotClaimableError:
@@ -141,6 +149,8 @@ class PaperWorker:
             self._handle_stop(attempt, payload)
         elif kind == "paper_adjust_position":
             self._handle_adjust_position(attempt, payload)
+        elif kind == "paper_reset":
+            self._handle_reset(attempt, payload)
         elif kind in {"execute_manual_order", "paper_execute_batch"}:
             self._handle_execute_manual_order(attempt, payload)
         else:
@@ -210,13 +220,31 @@ class PaperWorker:
             execution_run_id=execution_run.execution_run_id,
         )
         engine.strategy_name = strategy_name
+        engine._ownership_fence = lease.fence_token
+        set_paper_account_fence(self.paper_db, account_id, self.config.workspace_id, lease.fence_token, initial_cash=initial_cash)
+        runtime = self.runtime.get(account_id)
+        if runtime is None:
+            self.runtime.create(account_id=account_id, run_id=execution_run.execution_run_id, status="starting", config={"strategy": strategy_name, "codes": list(codes), "initial_cash": initial_cash}, owner_id=self.worker_id, ownership_fence=lease.fence_token, last_task_id=attempt.task_id)
+        elif runtime.status in {"running", "starting", "paused"}:
+            ownership.release()
+            ownership.close()
+            raise RuntimeError(f"account {account_id} already has active Paper runtime")
+        else:
+            self.runtime.update(account_id, runtime.version, status="starting", run_id=execution_run.execution_run_id, owner_id=self.worker_id, ownership_fence=lease.fence_token, last_task_id=attempt.task_id, error=None)
+        self.facts.transition_execution_run(execution_run.execution_run_id, "running", reason="paper worker activated", owner_id=self.worker_id, fence_token=lease.fence_token)
+        record = self.runtime.get(account_id)
+        assert record is not None
+        self.runtime.update(account_id, record.version, expected_ownership_fence=lease.fence_token, status="running")
 
         # Start heartbeat renewal
         ownership.start_renewal(on_lost=lambda: self._handle_lease_lost(account_id))
 
-        # Store engine and ownership
+        # Store engine and start the owned loop.
         self._engines[account_id] = engine
         self._ownerships[account_id] = ownership
+        thread = threading.Thread(target=self._run_engine, args=(account_id, engine, execution_run.execution_run_id), daemon=True, name=f"paper-engine-{account_id}")
+        self._engine_threads[account_id] = thread
+        thread.start()
 
         # Mark task as succeeded
         self.operations.succeed_attempt(
@@ -228,6 +256,22 @@ class PaperWorker:
 
         logger.info(f"Started Paper engine for account {account_id}")
 
+    def _run_engine(self, account_id: str, engine: PaperEngine, execution_run_id: str) -> None:
+        try:
+            engine.run_loop()
+        except Exception as exc:
+            logger.error(f"Paper engine failed for {account_id}: {exc}")
+            try:
+                self.facts.transition_execution_run(execution_run_id, "reconciling", reason=str(exc), owner_id=self.worker_id)
+                open_reconciliation(self.paper_db, account_id=account_id, workspace_id=self.config.workspace_id, execution_run_id=execution_run_id, category="engine_failed", reason=str(exc), owner_id=self.worker_id)
+                record = self.runtime.get(account_id)
+                if record:
+                    self.runtime.update(account_id, record.version, expected_ownership_fence=record.ownership_fence, status="reconciliation_required", error=str(exc))
+            except Exception:
+                logger.exception("failed to persist Paper engine failure state")
+        finally:
+            self._engine_threads.pop(account_id, None)
+
     def _handle_stop(self, attempt: Attempt, payload: dict[str, Any]) -> None:
         """Handle paper_stop command: stop PaperEngine and release lease."""
         account_id = payload.get("account_id", "paper-default")
@@ -237,13 +281,98 @@ class PaperWorker:
 
         if engine:
             engine.stop()
+            run_id = getattr(getattr(engine, "_execution_run", None), "execution_run_id", None)
+            if run_id:
+                for target in ("halt_requested", "halted", "reconciling"):
+                    try:
+                        self.facts.transition_execution_run(run_id, target, reason="user stop", owner_id=self.worker_id)
+                    except Exception:
+                        break
+            record = self.runtime.get(account_id)
+            if record:
+                try:
+                    self.runtime.update(account_id, record.version, expected_ownership_fence=record.ownership_fence, status="reconciling", error=None)
+                except PaperRuntimeConflictError:
+                    pass
             logger.info(f"Stopped Paper engine for account {account_id}")
 
+        self._engine_threads.pop(account_id, None)
         if ownership:
             ownership.release()
             ownership.close()
             logger.info(f"Released lease for account {account_id}")
 
+        self.operations.succeed_attempt(
+            attempt.id,
+            owner_id=self.worker_id,
+            fence=attempt.fence,
+            lease_token=attempt.lease_token,
+        )
+
+    def _handle_reset(self, attempt: Attempt, payload: dict[str, Any]) -> None:
+        """Create a new immutable run; historical ledger facts are retained."""
+        account_id = payload.get("account_id", "paper-default")
+        initial_cash = float(payload.get("initial_cash", 50_000.0))
+        engine = self._engines.pop(account_id, None)
+        ownership = self._ownerships.pop(account_id, None)
+        if engine:
+            engine.stop()
+            thread = self._engine_threads.pop(account_id, None)
+            if thread and thread is not threading.current_thread():
+                thread.join(timeout=max(1.0, self.config.poll_interval_seconds * 2))
+            run_id = getattr(getattr(engine, "_execution_run", None), "execution_run_id", None)
+            if run_id:
+                try:
+                    for target in ("halt_requested", "halted", "reconciling"):
+                        self.facts.transition_execution_run(run_id, target, reason="paper reset", owner_id=self.worker_id)
+                except Exception:
+                    logger.exception("failed to persist reset lifecycle")
+                open_reconciliation(
+                    self.paper_db,
+                    account_id=account_id,
+                    workspace_id=self.config.workspace_id,
+                    execution_run_id=run_id,
+                    category="paper_reset",
+                    reason="historical run was closed by reset; review before archival",
+                    owner_id=self.worker_id,
+                    fence_token=ownership.fence_token if ownership else None,
+                )
+        if ownership:
+            ownership.release()
+            ownership.close()
+        run_id = f"paper-reset-{account_id}-{uuid.uuid4().hex[:12]}"
+        run = self.facts.ensure_paper_run(
+            account_id=account_id,
+            workspace_id=self.config.workspace_id,
+            strategy_id="reset",
+            codes=(),
+            initial_cash=initial_cash,
+            execution_run_id=run_id,
+        )
+        existing_runtime = self.runtime.get(account_id)
+        runtime_config = {"initial_cash": initial_cash, "reset": True}
+        if existing_runtime is None:
+            self.runtime.create(
+                account_id=account_id,
+                run_id=run.execution_run_id,
+                status="stopped",
+                config=runtime_config,
+                owner_id=self.worker_id,
+                ownership_fence="reset",
+                last_task_id=attempt.task_id,
+            )
+        else:
+            self.runtime.update(
+                account_id,
+                existing_runtime.version,
+                run_id=run.execution_run_id,
+                status="stopped",
+                config=runtime_config,
+                owner_id=self.worker_id,
+                ownership_fence="reset",
+                last_task_id=attempt.task_id,
+                error=None,
+            )
         self.operations.succeed_attempt(
             attempt.id,
             owner_id=self.worker_id,
@@ -271,12 +400,19 @@ class PaperWorker:
         proposed_batch = OrderIntentBatch.from_dict(batch_dict)
         run = self.facts.get_execution_run(proposed_batch.execution_run_id)
         if run is None:
-            run = self.facts.ensure_paper_run(
-                account_id=proposed_batch.account_id,
-                workspace_id=self.config.workspace_id,
-                codes=[intent.instrument for intent in proposed_batch.intents],
-                execution_run_id=proposed_batch.execution_run_id,
-            )
+            run_id = f"paper-manual-{proposed_batch.account_id}-{proposed_batch.idempotency_keys[0][:16]}"
+            run = self.facts.ensure_paper_run(account_id=proposed_batch.account_id, workspace_id=self.config.workspace_id, codes=[intent.instrument for intent in proposed_batch.intents], execution_run_id=run_id)
+        if run.account_id != proposed_batch.account_id or run.workspace_id != self.config.workspace_id:
+            raise ValueError("execution run and batch account/workspace mismatch")
+        self.facts.validate_execution_run(run.execution_run_id)
+        ownership = self._ownerships.get(proposed_batch.account_id)
+        temporary_ownership = False
+        if ownership is None:
+            ownership = PaperOwnership(self.config.lease_db, account_id=proposed_batch.account_id, owner_id=self.worker_id, ttl_seconds=self.config.lease_ttl_seconds)
+            if ownership.acquire() is None:
+                raise RuntimeError("paper account is owned by another worker")
+            temporary_ownership = True
+        set_paper_account_fence(self.paper_db, proposed_batch.account_id, self.config.workspace_id, ownership.fence_token)
         intents = tuple(
             OrderIntent(
                 execution_run_id=run.execution_run_id,
@@ -314,6 +450,7 @@ class PaperWorker:
             self.paper_db,
             proposed_batch.account_id,
             self.config.workspace_id,
+            execution_run_id=run.execution_run_id,
         )
         current_values = {
             code: quantity * risk_quotes[code].price
@@ -330,7 +467,7 @@ class PaperWorker:
             batch,
             account,
             risk_quotes,
-            fence_token=account.fence_token,
+            fence_token=ownership.fence_token,
             execution_run_id=run.execution_run_id,
         )
         if permit is None:
@@ -340,6 +477,9 @@ class PaperWorker:
                 fence=attempt.fence,
                 lease_token=attempt.lease_token,
             )
+            if temporary_ownership:
+                ownership.release()
+                ownership.close()
             return
         adapter = PaperAdapter(db_path=self.paper_db, workspace_id=self.config.workspace_id)
         try:
@@ -355,7 +495,8 @@ class PaperWorker:
                 )
                 for code, quote in latest.items()
             }
-            adapter.execute_batch(batch, permit, adapter_quotes, require_authoritative=True)
+            fills = adapter.execute_batch(batch, permit, adapter_quotes, require_authoritative=True)
+            rebuild_account_projections(self.paper_db, account_id=proposed_batch.account_id, workspace_id=self.config.workspace_id, execution_run_id=run.execution_run_id, quotes=latest)
             self.operations.succeed_attempt(
                 attempt.id,
                 owner_id=self.worker_id,
@@ -373,6 +514,9 @@ class PaperWorker:
             raise
         finally:
             adapter.close()
+            if temporary_ownership:
+                ownership.release()
+                ownership.close()
 
     @staticmethod
     def _quote_from_value(code: str, value: Any) -> AdapterQuoteSnapshot:
@@ -407,11 +551,25 @@ class PaperWorker:
         )
 
     def _handle_lease_lost(self, account_id: str) -> None:
-        """Handle lease loss: stop the engine and clean up."""
+        """Stop stale execution and persist reconciliation-required state."""
         logger.warning(f"Lease lost for account {account_id}, stopping engine")
         engine = self._engines.pop(account_id, None)
+        run_id = getattr(getattr(engine, "_execution_run", None), "execution_run_id", None) if engine else None
         if engine:
             engine.stop()
+        self._engine_threads.pop(account_id, None)
+        record = self.runtime.get(account_id)
+        if record:
+            try:
+                self.runtime.update(account_id, record.version, expected_ownership_fence=record.ownership_fence, status="reconciliation_required", error="paper ownership lease lost")
+            except PaperRuntimeConflictError:
+                pass
+        if run_id:
+            try:
+                self.facts.transition_execution_run(run_id, "reconciling", reason="paper ownership lease lost", owner_id=self.worker_id)
+                open_reconciliation(self.paper_db, account_id=account_id, workspace_id=self.config.workspace_id, execution_run_id=run_id, category="lease_lost", reason="paper ownership lease lost", owner_id=self.worker_id)
+            except Exception:
+                logger.exception("failed to persist lease-loss reconciliation")
         ownership = self._ownerships.pop(account_id, None)
         if ownership:
             ownership.close()

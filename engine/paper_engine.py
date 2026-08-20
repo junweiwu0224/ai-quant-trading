@@ -30,6 +30,7 @@ from engine.risk_manager import RiskManager
 from engine.execution_protocol import OrderIntent, OrderIntentBatch, Environment, Side
 from engine.adapters.paper_adapter import PaperAdapter, QuoteSnapshot
 from engine.risk_gate import RiskGate, RiskPolicy, QuoteSnapshot as RiskQuoteSnapshot, rebuild_account_snapshot, ensure_paper_account
+from engine.paper_projection import load_ledger_fold, rebuild_account_projections, open_reconciliation
 from engine.research_facts import ResearchFactsStore
 from risk.position import PositionManager
 from risk.stoploss import StopLossManager
@@ -81,10 +82,10 @@ class PaperTradeLog:
         except OSError as e:
             logger.error(f"交易日志写入失败: {e}")
 
-        logger.info(
-            f"[交易] {trade.direction.value} {trade.code} "
-            f"价格={trade.price:.2f} 数量={trade.volume} 收益={equity:,.0f}"
-        )
+        # JSONL is an explicit diagnostic/export compatibility format.  It is
+        # never read back into execution state; the ledger remains authoritative.
+        logger.debug(f"交易导出记录: {self._log_file}")
+
 
     @property
     def today_trades(self) -> list[dict]:
@@ -140,12 +141,14 @@ class PaperEngine:
         account_id: str = "default",
         workspace_id: str = "default",
         execution_run_id: str | None = None,
+        ownership_fence: str = "1",
     ):
         self._strategy = strategy
         self._codes = codes
         self._config = config or PaperConfig()
         self._account_id = account_id
         self._workspace_id = workspace_id
+        self._ownership_fence = str(ownership_fence)
         if self._config.db_path is None:
             self._config.db_path = str(Path(self._config.state_dir) / "paper_trading.db")
         self._quote_service = get_quote_service()
@@ -206,36 +209,45 @@ class PaperEngine:
         self._portfolio = self._init_portfolio()
         self._strategy.init(self._portfolio)
 
-        # T+1 限制：记录当日买入的股票数量
-        self._today_bought: dict[str, int] = {}
-        self._today_date: str = ""
+        # T+1 state is rebuilt by _init_portfolio from the ledger.
+        if not hasattr(self, "_today_bought"):
+            self._today_bought: dict[str, int] = {}
+        if not hasattr(self, "_today_date"):
+            self._today_date: str = ""
         self.strategy_name: str = ""  # 由外部设置，用于 portfolio.strategies 记录
         self._peak_equity: float = 0.0  # 历史最高权益，用于计算回撤
 
     def _init_portfolio(self) -> Portfolio:
-        """初始化或恢复投资组合"""
-        state = self._state_mgr.load()
-        if state:
-            portfolio = Portfolio(
-                cash=state["cash"],
-                positions=state["positions"],
-                avg_prices=state.get("avg_prices", {}),
-                entry_dates=state.get("entry_dates", {}),
-                strategies=state.get("strategies", {}),
+        """Rebuild the in-memory strategy view from the scoped ledger only."""
+        try:
+            folded = load_ledger_fold(
+                self._order_manager.db_path,
+                account_id=self._account_id,
+                workspace_id=self._workspace_id,
+                execution_run_id=self._execution_run.execution_run_id,
+                initial_cash=self._config.initial_cash,
+                now=now_beijing(),
             )
-            # 恢复 T+1 状态
-            saved_date = state.get("today_date", "")
             today_str = now_beijing().strftime("%Y-%m-%d")
-            if saved_date == today_str:
-                self._today_bought = dict(state.get("today_bought", {}))
-                self._today_date = saved_date
-                logger.info(f"恢复 T+1 状态: {self._today_bought}")
-            else:
-                self._today_bought = {}
-                self._today_date = ""
-            logger.info(f"恢复投资组合: 现金={portfolio.cash:,.0f}, 持仓={portfolio.positions}")
-            return portfolio
-        return Portfolio(cash=self._config.initial_cash)
+            self._today_bought = {code: 0 for code in folded.today_buys}
+            self._today_date = today_str if folded.today_buys else ""
+            return Portfolio(
+                cash=float(folded.cash),
+                positions={code: int(quantity) for code, quantity in folded.positions.items()},
+                avg_prices={code: float(value) for code, value in folded.avg_prices.items()},
+            )
+        except Exception as exc:
+            # A malformed ledger is a recovery condition, never a reason to
+            # trust a mutable JSON snapshot.
+            open_reconciliation(
+                self._order_manager.db_path,
+                account_id=self._account_id,
+                workspace_id=self._workspace_id,
+                execution_run_id=self._execution_run.execution_run_id,
+                category="ledger_fold_failed",
+                reason=str(exc),
+            )
+            raise
 
     @property
     def portfolio(self) -> Portfolio:
@@ -299,8 +311,8 @@ class PaperEngine:
         if self._position_mgr:
             self._filter_orders(prices)
 
-        # 5. 加载 DB 中的手动订单到引擎队列
-        self._load_db_orders()
+        # 5. Manual commands are consumed by PaperWorker; PaperEngine never
+        # reads the legacy paper_orders table as an execution input.
 
         # 6. 批量执行挂单（策略信号 + 止损 -> 统一协议）
         new_trades = self._execute_pending_orders_v2(quotes)
@@ -310,32 +322,32 @@ class PaperEngine:
             equity = self._portfolio.get_total_equity(prices)
             self._trade_log.record(trade, equity)
 
-        # 8. 同步状态到 DB（持仓 + 交易 + 订单）
-        self._sync_to_db(new_trades, quotes)
-
-        # 9. 保存状态文件（含 T+1 数据）
-        self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
+        # 8. Rebuild read models from committed ledger facts.  Any failure is
+        # durable reconciliation state, never a swallowed projection error.
+        try:
+            rebuild_account_projections(
+                self._order_manager.db_path,
+                account_id=self._account_id,
+                workspace_id=self._workspace_id,
+                execution_run_id=self._execution_run.execution_run_id,
+                initial_cash=self._config.initial_cash,
+                quotes=quotes,
+                now=now_beijing(),
+            )
+        except Exception as exc:
+            open_reconciliation(
+                self._order_manager.db_path,
+                account_id=self._account_id,
+                workspace_id=self._workspace_id,
+                execution_run_id=self._execution_run.execution_run_id,
+                category="projection_rebuild_failed",
+                reason=str(exc),
+            )
+            raise
 
         equity = self._portfolio.get_total_equity(prices)
 
-        # 10. 记录资金曲线
-        try:
-            market_value = sum(
-                vol * prices.get(code, 0)
-                for code, vol in self._portfolio.positions.items()
-            )
-            self._peak_equity = max(self._peak_equity, equity)
-            drawdown = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else 0
-            self._performance_analyzer.save_equity_point(EquityCurvePoint(
-                timestamp=now_beijing(),
-                equity=equity,
-                cash=self._portfolio.cash,
-                market_value=market_value,
-                drawdown=drawdown,
-            ))
-        except Exception as e:
-            logger.debug(f"保存资金曲线点失败: {e}")
-
+        # 9. 资金曲线和绩效由可重建 SQLite projection 提供。
         return {
             "time": now_beijing_iso(),
             "equity": round(equity, 2),
@@ -387,8 +399,6 @@ class PaperEngine:
 
             time.sleep(self._config.interval_seconds)
 
-        # 退出前保存状态（含 T+1 数据）
-        self._state_mgr.save(self._portfolio, self._today_bought, self._today_date)
         logger.info("模拟盘已停止")
 
     def stop(self):
@@ -396,23 +406,15 @@ class PaperEngine:
         self._running = False
 
     def _load_position_stop_prices(self) -> dict[str, dict]:
-        """从 DB 加载每个持仓的止损止盈价"""
-        result = {}
-        conn = get_connection(self._order_manager.db_path)
-        try:
-            cursor = conn.execute(
-                "SELECT code, stop_loss_price, take_profit_price FROM paper_positions "
-                "WHERE stop_loss_price IS NOT NULL OR take_profit_price IS NOT NULL"
-            )
-            for row in cursor.fetchall():
-                result[row["code"]] = {
-                    "stop_loss": row["stop_loss_price"],
-                    "take_profit": row["take_profit_price"],
-                }
-        except Exception as e:
-            logger.debug(f"加载止损止盈价失败: {e}")
-        finally:
-            conn.close()
+        """Load user controls from the scoped durable controls projection."""
+        result: dict[str, dict] = {}
+        with get_connection(self._order_manager.db_path) as conn:
+            try:
+                rows = conn.execute("SELECT code, stop_loss_price, take_profit_price FROM paper_position_controls WHERE workspace_id = ? AND account_id = ? AND environment = 'paper' AND execution_run_id = ?", (self._workspace_id, self._account_id, self._execution_run.execution_run_id)).fetchall()
+            except Exception:
+                return result
+        for row in rows:
+            result[row["code"]] = {"stop_loss": row["stop_loss_price"], "take_profit": row["take_profit_price"]}
         return result
 
     def _check_stoploss(self, quotes: dict[str, QuoteData], equity: float):
@@ -528,7 +530,7 @@ class PaperEngine:
             self._order_manager.db_path,
             self._account_id,
             self._workspace_id,
-            initial_cash=self._config.initial_cash,
+            execution_run_id=self._execution_run.execution_run_id,
         )
         current_values = {
             code: quantity * risk_quotes[code].price
@@ -546,7 +548,7 @@ class PaperEngine:
             batch,
             account,
             risk_quotes,
-            fence_token=account.fence_token,
+            fence_token=self._ownership_fence,
             execution_run_id=self._execution_run.execution_run_id,
             now=now,
         )
@@ -749,39 +751,13 @@ class PaperEngine:
             conn.close()
 
     def _load_db_orders(self):
-        """从 DB 加载手动提交的待处理订单到引擎队列"""
-        conn = get_connection(self._order_manager.db_path)
-        try:
-            cursor = conn.execute(
-                "SELECT * FROM paper_orders WHERE status = 'pending' ORDER BY created_at ASC"
-            )
-            rows = cursor.fetchall()
-
-            for row in rows:
-                # 转换为引擎内部 Order
-                direction = Direction.LONG if row["direction"] == "long" else Direction.SHORT
-                order = Order(
-                    code=row["code"],
-                    direction=direction,
-                    price=row["price"] or 0.0,
-                    volume=row["volume"],
-                    order_id=0,  # 引擎内部 ID
-                )
-                # 附带 DB order_id 用于后续状态更新
-                order._db_order_id = row["order_id"]
-                with self._order_lock:
-                    self._strategy._pending_orders.append(order)
-
-            if rows:
-                logger.debug(f"从 DB 加载 {len(rows)} 笔手动订单")
-        except Exception as e:
-            logger.debug(f"加载 DB 订单失败: {e}")
-        finally:
-            conn.close()
+        """Legacy compatibility hook; manual orders belong to PaperWorker."""
+        return None
 
     def _sync_to_db(self, new_trades: list[Trade], quotes: dict[str, QuoteData]):
-        """同步引擎状态到 DB（持仓 + 交易 + 订单状态）"""
-        conn = get_connection(self._order_manager.db_path)
+        """Legacy projection hook disabled; use rebuild_account_projections."""
+        raise RuntimeError("legacy PaperEngine projection disabled; rebuild from paper_ledger")
+        # Legacy implementation retained below only as unreachable compatibility text.
         try:
             now_str = now_beijing_iso()
 

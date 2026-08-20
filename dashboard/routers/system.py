@@ -29,12 +29,15 @@ async def get_system_status():
         logger.warning(f"获取系统状态失败: {e}")
         stock_daily = {}
 
-    paper_running = False
+    paper_status = {"running": False, "status": "stopped", "reconciliation_required": False}
     try:
-        from dashboard.routers.paper_control import _manager
-        paper_running = _manager.is_running
+        from config.settings import DB_DIR
+        from engine.models import PaperConfig
+        from engine.paper_read_model import status as read_paper_status
+        paper_status = read_paper_status(PaperConfig().db_path)
     except Exception as e:
         logger.warning(f"获取模拟盘状态失败: {e}")
+
 
     return {
         "db_stats": {
@@ -43,7 +46,9 @@ async def get_system_status():
             "latest_date": data_range,
             "stock_daily": stock_daily,
         },
-        "paper_running": paper_running,
+        "paper_running": paper_status["running"],
+        "paper_status": paper_status["status"],
+        "paper_reconciliation_required": paper_status["reconciliation_required"],
         "ai_model": "LightGBM + XGBoost",
     }
 
@@ -97,28 +102,18 @@ async def compare_strategy(data: dict):
 @router.get("/risk/rules")
 async def get_risk_rules():
     """返回风控规则及当前状态"""
-    state = None
     try:
-
-        from config.settings import LOG_DIR
-        state_file = LOG_DIR / "paper" / "portfolio_state.json"
-        if state_file.exists():
-            content = await asyncio.to_thread(state_file.read_text)
-            state = json.loads(content)
+        from engine.models import PaperConfig
+        from engine.paper_read_model import snapshot as read_paper_snapshot
+        state = read_paper_snapshot(PaperConfig().db_path)
     except Exception as e:
         logger.warning(f"读取风控状态失败: {e}")
+        state = {"cash": 0.0, "positions": [], "equity": 0.0, "reconciliation_required": True}
 
-    cash = state.get("cash", 0) if state else 0
-    positions = state.get("positions", {}) if state else {}
-    avg_prices = state.get("avg_prices", {}) if state else {}
-    total_mv = sum(avg_prices.get(c, 0) * v for c, v in positions.items())
-    total_equity = cash + total_mv
-
-    max_single_pct = 0
-    for code, vol in positions.items():
-        mv = avg_prices.get(code, 0) * vol
-        pct = mv / total_equity if total_equity > 0 else 0
-        max_single_pct = max(max_single_pct, pct)
+    cash = float(state.get("cash", 0))
+    position_rows = state.get("positions", [])
+    total_equity = float(state.get("equity", 0))
+    max_single_pct = max((float(row.get("market_value", 0)) / total_equity for row in position_rows), default=0.0) if total_equity > 0 else 0.0
 
     cash_pct = cash / total_equity if total_equity > 0 else 1.0
 

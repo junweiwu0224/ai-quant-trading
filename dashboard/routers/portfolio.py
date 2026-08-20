@@ -16,10 +16,14 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from config.settings import LOG_DIR
+from config.settings import DB_DIR, LOG_DIR
 from config.datetime_utils import now_beijing, now_beijing_iso
 from data.storage.storage import DataStorage
 from data.collector.cache import TTLCache
+from engine.execution_protocol import Side
+from engine.models import PaperConfig
+from engine.paper_read_model import equity as paper_read_equity, positions as paper_read_positions, snapshot as paper_read_snapshot, status as paper_read_status, trades as paper_read_trades
+from engine.paper_projection import ensure_projection_schema
 
 router = APIRouter()
 
@@ -48,6 +52,14 @@ def _get_storage() -> DataStorage:
     return _storage
 
 INITIAL_EQUITY = 50000
+
+
+def _paper_db_path() -> str:
+    return str(PaperConfig().db_path)
+
+
+def _paper_snapshot(account_id: str = "paper-default") -> dict:
+    return paper_read_snapshot(_paper_db_path(), account_id)
 
 
 # ══════════════════════════════════════════
@@ -142,6 +154,9 @@ class PortfolioSnapshot(BaseModel):
     cash: float = 0
     market_value: float = 0
     total_equity: float = 0
+    execution_run_id: str | None = None
+    source: str = "paper_ledger"
+    reconciliation_required: bool = False
     positions: list[PositionInfo] = []
     total_pnl: float = 0
     total_pnl_pct: float = 0
@@ -204,25 +219,9 @@ class BulkCloseRequest(BaseModel):
 # ══════════════════════════════════════════
 
 async def _load_equity_history() -> list[dict]:
-    hit, cached = _portfolio_cache.get("equity_history")
-    if hit:
-        return cached
-    history_file = LOG_DIR / "paper" / "equity_history.jsonl"
-    if not history_file.exists():
-        return []
-    try:
-        content = await asyncio.to_thread(history_file.read_text)
-    except OSError:
-        return []
-    records = []
-    for line in content.strip().split("\n"):
-        if line:
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    _portfolio_cache.set("equity_history", records, 300)  # 5 分钟
-    return records
+    from engine.models import PaperConfig
+    from engine.paper_read_model import equity as read_equity
+    return read_equity(PaperConfig().db_path, "paper-default")
 
 
 def _calc_metrics(history: list[dict]) -> tuple[float, float, float, float]:
@@ -406,34 +405,26 @@ def _calc_benchmark_comparison_from_closes_sync(history: list[dict], bm_closes: 
 
 
 async def _load_paper_state(state_dir: str = str(LOG_DIR / "paper")) -> Optional[dict]:
-    """加载模拟盘状态，文件不存在时返回默认初始状态"""
-    state_file = Path(state_dir) / "portfolio_state.json"
-    if not state_file.exists():
-        return {"cash": 50000.0, "positions": {}, "avg_prices": {}, "trade_count": 0, "entry_dates": {}}
-    try:
-        content = await asyncio.to_thread(state_file.read_text)
-        return json.loads(content)
-    except (json.JSONDecodeError, OSError):
-        return {"cash": 50000.0, "positions": {}, "avg_prices": {}, "trade_count": 0, "entry_dates": {}}
+    from engine.models import PaperConfig
+    from engine.paper_read_model import snapshot as read_snapshot
+    snapshot = read_snapshot(PaperConfig().db_path, "paper-default")
+    rows = snapshot.get("positions", [])
+    return {
+        **snapshot,
+        "positions": {row["code"]: row["volume"] for row in rows},
+        "avg_prices": {row["code"]: row["avg_price"] for row in rows},
+        "entry_dates": {},
+        "strategies": {},
+        "stop_losses": {},
+        "position_actions": {},
+        "trade_count": len(rows),
+    }
 
 
 async def _load_trades_today(state_dir: str = str(LOG_DIR / "paper")) -> list[dict]:
-    """加载今日交易记录"""
-    log_file = Path(state_dir) / f"trades_{now_beijing():%Y%m%d}.jsonl"
-    if not log_file.exists():
-        return []
-    try:
-        content = await asyncio.to_thread(log_file.read_text)
-    except OSError:
-        return []
-    trades = []
-    for line in content.strip().split("\n"):
-        if line:
-            try:
-                trades.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return trades
+    from engine.models import PaperConfig
+    from engine.paper_read_model import trades as read_trades
+    return read_trades(PaperConfig().db_path, "paper-default")
 
 
 def _get_current_price(code: str) -> float:
@@ -486,9 +477,21 @@ def _get_industry_map() -> dict[str, str]:
 @router.get("/snapshot", response_model=PortfolioSnapshot)
 async def get_portfolio():
     """获取当前持仓快照（增强版）"""
-    state = await _load_paper_state()
-    if not state:
-        return PortfolioSnapshot()
+    from engine.paper_read_model import snapshot as read_paper_snapshot
+    from engine.models import PaperConfig
+    snapshot = read_paper_snapshot(PaperConfig().db_path)
+    if snapshot.get("execution_run_id"):
+        return PortfolioSnapshot(
+            cash=float(snapshot.get("cash", 0)),
+            market_value=float(snapshot.get("market_value", 0)),
+            total_equity=float(snapshot.get("equity", 0)),
+            positions=[PositionInfo(**{key: value for key, value in item.items() if key in PositionInfo.model_fields}) for item in snapshot.get("positions", [])],
+            execution_run_id=snapshot.get("execution_run_id"),
+            source="paper_ledger",
+            reconciliation_required=bool(snapshot.get("reconciliation_required")),
+            update_time=str(snapshot.get("updated_at") or ""),
+        )
+    return PortfolioSnapshot()
 
     positions = []
     total_mv = 0
@@ -663,32 +666,9 @@ async def get_trades():
 
 @router.get("/trades/recent")
 async def get_recent_trades(limit: int = 20):
-    """获取最近N笔交易（跨日期）"""
-    state_dir = Path(str(LOG_DIR / "paper"))
-    all_trades = []
-    for f in sorted(state_dir.glob("trades_*.jsonl"), reverse=True):
-        try:
-            content = await asyncio.to_thread(f.read_text)
-        except OSError:
-            continue
-        for line in content.strip().split("\n"):
-            if line:
-                try:
-                    all_trades.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-        if len(all_trades) >= limit:
-            break
-    trades = sorted(all_trades, key=lambda t: t.get("time", ""), reverse=True)[:limit]
-    # 补充股票名称
-    try:
-        df = _get_storage().get_stock_list()
-        name_map = dict(zip(df["code"], df["name"])) if not df.empty else {}
-        for t in trades:
-            t["name"] = name_map.get(t.get("code", ""), "")
-    except Exception:
-        pass
-    return trades
+    """获取最近成交，来源只能是 scoped paper_ledger projection。"""
+    rows = paper_read_trades(_paper_db_path(), "paper-default", limit=max(1, min(limit, 500)))
+    return rows
 
 
 @router.get("/trades/history", response_model=TradeListResponse)
@@ -700,41 +680,32 @@ async def get_trade_history(
     page: int = 1,
     page_size: int = 20,
 ):
-    """跨日期分页交易记录"""
-    state_dir = Path(str(LOG_DIR / "paper"))
-    all_trades = []
-
-    for f in sorted(state_dir.glob("trades_*.jsonl")):
-        file_date_str = f.stem.replace("trades_", "")
-        if start_date and file_date_str < start_date.replace("-", ""):
+    """跨日期分页交易记录，来源只能是 scoped paper_ledger projection。"""
+    rows = paper_read_trades(_paper_db_path(), "paper-default", limit=1000)
+    filtered = []
+    for row in rows:
+        created = str(row.get("created_at", ""))
+        if start_date and created[:10] < start_date:
             continue
-        if end_date and file_date_str > end_date.replace("-", ""):
+        if end_date and created[:10] > end_date:
             continue
-
-        try:
-            content = await asyncio.to_thread(f.read_text)
-        except OSError:
+        if code and row.get("code") != code:
             continue
-        for line in content.strip().split("\n"):
-            if not line:
-                continue
-            try:
-                trade = json.loads(line)
-                if code and trade.get("code") != code:
-                    continue
-                if direction and trade.get("direction") != direction:
-                    continue
-                if trade.get("direction") == "short" and trade.get("entry_price", 0) > 0:
-                    trade["pnl"] = round((trade["price"] - trade["entry_price"]) * trade["volume"], 2)
-                    trade["pnl_pct"] = round((trade["price"] - trade["entry_price"]) / trade["entry_price"], 4) if trade["entry_price"] > 0 else 0
-                all_trades.append(trade)
-            except json.JSONDecodeError:
-                continue
-
-    all_trades.sort(key=lambda t: t.get("time", ""), reverse=True)
-    total = len(all_trades)
-    start_idx = (page - 1) * page_size
-    page_trades = all_trades[start_idx:start_idx + page_size]
+        if direction and row.get("direction") != direction:
+            continue
+        filtered.append({
+            "time": created,
+            "code": row.get("code", ""),
+            "direction": row.get("direction", ""),
+            "price": row.get("price", 0),
+            "volume": row.get("volume", 0),
+            "trade_id": row.get("trade_id", 0),
+            "commission": row.get("commission", 0),
+            "tax": row.get("stamp_tax", 0),
+        })
+    total = len(filtered)
+    start_idx = max(0, (page - 1) * page_size)
+    page_trades = filtered[start_idx:start_idx + page_size]
 
     return TradeListResponse(
         trades=[TradeRecord(**{k: t.get(k, v) for k, v in TradeRecord().model_dump().items()}) for t in page_trades],
@@ -742,6 +713,7 @@ async def get_trade_history(
         page=page,
         page_size=page_size,
     )
+
 
 
 # ══════════════════════════════════════════
@@ -819,19 +791,9 @@ async def get_drawdown_curve():
 
 @router.get("/equity-history")
 async def get_equity_history(days: int = 0):
-    """获取权益历史数据（days>0 时只返回最近 N 天）"""
-    history_file = LOG_DIR / "paper" / "equity_history.jsonl"
-    if not history_file.exists():
-        return []
-    content = await asyncio.to_thread(history_file.read_text)
-    records = []
-    for line in content.strip().split("\n"):
-        if line:
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    if days > 0 and len(records) > days:
+    """获取权益历史数据，来源只能是 scoped SQLite projection。"""
+    records = paper_read_equity(_paper_db_path(), "paper-default")
+    if days > 0:
         records = records[-days:]
     return records
 
@@ -1006,70 +968,60 @@ async def search_positions(
     return positions
 
 
-# ══════════════════════════════════════════
-# 平仓操作
-# ══════════════════════════════════════════
+async def _enqueue_sell_order(code: str, volume: int) -> dict:
+    status = paper_read_status(_paper_db_path(), "paper-default")
+    run_id = status.get("execution_run_id")
+    if not run_id or status.get("reconciliation_required") or not status.get("ready"):
+        raise HTTPException(409, "模拟盘状态不可执行，请先完成对账")
+    client = PaperCommandClient(DB_DIR / "operations.db")
+    try:
+        acceptance = client.enqueue_manual_order(
+            instrument=code,
+            side=Side.SELL,
+            quantity=volume,
+            execution_run_id=run_id,
+            account_id="paper-default",
+            idempotency_key=f"portfolio-close-{run_id}-{code}-{uuid.uuid4().hex[:16]}",
+        )
+    finally:
+        client.close()
+    return {
+        "command_id": acceptance.command.id,
+        "task_id": acceptance.task.id,
+        "status": acceptance.task.status,
+        "code": code,
+        "volume": volume,
+    }
+
+
 
 @router.post("/close")
 async def close_position(req: ClosePositionRequest):
-    """单只/部分平仓"""
-    from dashboard.routers.paper_control import _manager
-    if not _manager.is_running or not _manager._engine:
-        raise HTTPException(409, "模拟盘未运行")
-
-    engine = _manager._engine
-    portfolio = engine.portfolio
-    code = req.code
-    vol = portfolio.positions.get(code, 0)
-
-    if vol <= 0:
-        raise HTTPException(400, f"未持有 {code}")
-
-    sell_vol = min(req.volume or vol, vol)
-
-    try:
-        from data.collector.quote_service import get_quote_service
-        quote = get_quote_service().get_quote(code)
-        price = quote.price if quote and quote.price > 0 else _get_current_price(code)
-    except Exception:
-        price = _get_current_price(code)
-
-    if price <= 0:
-        raise HTTPException(400, f"无法获取 {code} 当前价格")
-
-    engine._strategy.sell(code, price, sell_vol)
-    return {"message": f"已提交卖出 {code} {sell_vol}股 @ {price:.2f}"}
+    """单只/部分平仓：只提交 durable command，不直接触碰 PaperEngine。"""
+    rows = paper_read_positions(_paper_db_path(), "paper-default")
+    position = next((row for row in rows if row.get("code") == req.code), None)
+    if not position:
+        raise HTTPException(400, f"未持有 {req.code}")
+    held = int(position["volume"])
+    volume = int(req.volume or held)
+    if volume <= 0 or volume > held:
+        raise HTTPException(400, f"平仓数量({volume})超过持仓数量({held})")
+    result = await _enqueue_sell_order(req.code, volume)
+    return {"message": f"已接受卖出 {req.code} {volume}股，等待 PaperWorker", **result}
 
 
 @router.post("/close-all")
 async def close_all_positions(req: BulkCloseRequest):
-    """批量/全部平仓"""
-    from dashboard.routers.paper_control import _manager
-    if not _manager.is_running or not _manager._engine:
-        raise HTTPException(409, "模拟盘未运行")
-
-    engine = _manager._engine
-    portfolio = engine.portfolio
-    codes = req.codes if req.codes else [c for c, v in portfolio.positions.items() if v > 0]
-
-    try:
-        from data.collector.quote_service import get_quote_service
-        qs = get_quote_service()
-    except Exception:
-        qs = None
-
+    """批量/全部平仓：每笔订单通过统一 command client 提交。"""
+    rows = paper_read_positions(_paper_db_path(), "paper-default")
+    wanted = set(req.codes) if req.codes else {str(row["code"]) for row in rows}
     results = []
-    for code in codes:
-        vol = portfolio.positions.get(code, 0)
-        if vol <= 0:
-            continue
-        quote = qs.get_quote(code) if qs else None
-        price = quote.price if quote and quote.price > 0 else _get_current_price(code)
-        if price > 0:
-            engine._strategy.sell(code, price, vol)
-            results.append({"code": code, "volume": vol, "price": round(price, 2)})
-
-    return {"message": f"已提交 {len(results)} 笔卖出委托", "orders": results}
+    for row in rows:
+        code = str(row["code"])
+        volume = int(row["volume"])
+        if code in wanted and volume > 0:
+            results.append(await _enqueue_sell_order(code, volume))
+    return {"message": f"已接受 {len(results)} 笔卖出委托，等待 PaperWorker", "orders": results}
 
 
 # ══════════════════════════════════════════
@@ -1084,27 +1036,20 @@ class StopLossUpdateRequest(BaseModel):
 
 @router.post("/stoploss")
 async def update_stoploss(req: StopLossUpdateRequest):
-    """更新止损止盈价格"""
-    state = await _load_paper_state()
-    if not state:
-        raise HTTPException(404, "无持仓状态")
+    """更新止损止盈控制值；控制值写入 scoped SQLite projection。"""
+    db_path = _paper_db_path()
+    status = paper_read_status(db_path, "paper-default")
+    run_id = status.get("execution_run_id")
+    if not run_id:
+        raise HTTPException(409, "模拟盘尚未绑定 ExecutionRun")
+    if not any(row.get("code") == req.code for row in paper_read_positions(db_path, "paper-default")):
+        raise HTTPException(404, f"无持仓状态: {req.code}")
+    ensure_projection_schema(db_path)
+    with get_connection(db_path) as conn:
+        conn.execute("INSERT INTO paper_position_controls(workspace_id, account_id, environment, execution_run_id, code, stop_loss_price, take_profit_price, updated_at) VALUES ('default', 'paper-default', 'paper', ?, ?, ?, ?, ?) ON CONFLICT(workspace_id, account_id, environment, execution_run_id, code) DO UPDATE SET stop_loss_price=excluded.stop_loss_price, take_profit_price=excluded.take_profit_price, updated_at=excluded.updated_at", (run_id, req.code, req.stop_loss, req.take_profit, now_beijing_iso()))
+        conn.commit()
+    return {"message": f"已更新 {req.code} 止损止盈", "stop_losses": {"stop_loss": req.stop_loss, "take_profit": req.take_profit}, "source": "paper_position_controls"}
 
-    state_dir = Path(str(LOG_DIR / "paper"))
-    state_file = state_dir / "portfolio_state.json"
-
-    stop_losses = state.get("stop_losses", {})
-    if req.code not in stop_losses:
-        stop_losses[req.code] = {}
-
-    if req.stop_loss is not None:
-        stop_losses[req.code]["stop_loss"] = req.stop_loss
-    if req.take_profit is not None:
-        stop_losses[req.code]["take_profit"] = req.take_profit
-
-    state["stop_losses"] = stop_losses
-    _atomic_write(state_file, json.dumps(state, ensure_ascii=False, indent=2))
-
-    return {"message": f"已更新 {req.code} 止损止盈", "stop_losses": stop_losses[req.code]}
 
 
 # ══════════════════════════════════════════

@@ -13,10 +13,42 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from engine.execution_protocol import Environment
 from utils.db import get_connection
+
+
+EXECUTION_RUN_STATUSES = frozenset({
+    "created",
+    "ready",
+    "running",
+    "paused",
+    "halt_requested",
+    "halted",
+    "cancel_pending",
+    "reconciling",
+    "completed",
+    "reconciliation_blocked",
+    "blocked",
+    "failed",
+})
+
+_EXECUTION_RUN_TRANSITIONS = {
+    "created": {"ready", "blocked", "failed"},
+    "ready": {"running", "blocked", "failed"},
+    "running": {"paused", "halt_requested", "halted", "reconciling", "blocked", "failed"},
+    "paused": {"running", "halt_requested", "halted", "reconciling", "blocked"},
+    "halt_requested": {"halted", "reconciling", "blocked"},
+    "halted": {"cancel_pending", "reconciling", "blocked"},
+    "cancel_pending": {"reconciling", "blocked"},
+    "reconciling": {"completed", "reconciliation_blocked", "blocked"},
+    "blocked": {"ready", "reconciling", "failed"},
+    "failed": {"reconciling", "blocked"},
+    "reconciliation_blocked": {"reconciling", "blocked"},
+    "completed": set(),
+}
 
 
 class ResearchFactError(ValueError):
@@ -69,7 +101,41 @@ def content_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _freeze(value: Any) -> Any:
+    """Deep-freeze fact payloads so frozen dataclasses cannot be mutated through mappings."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+def _data_snapshot_hash(row: Mapping[str, Any]) -> str:
+    return content_hash({
+        "data_id": row["data_id"],
+        "workspace_id": row["workspace_id"],
+        "account_id": row["account_id"],
+        "environment": row["environment"],
+        "data_version": row["data_version"],
+        "time_range_start": row["time_range_start"],
+        "time_range_end": row["time_range_end"],
+        "instruments": json.loads(row["instruments_json"]),
+        "row_count": row["row_count"],
+        "checksum": row["checksum"],
+        "captured_at": row["captured_at"],
+        "freshness_seconds": row["freshness_seconds"],
+    })
+
+
 def _schema(connection: sqlite3.Connection) -> None:
+    # Recover an interrupted status-table migration before running CREATE IF
+    # NOT EXISTS.  The legacy copy is data, not disposable temp state.
+    legacy = connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='execution_runs_legacy'").fetchone()
+    current = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='execution_runs'").fetchone()
+    if legacy and current:
+        connection.execute("INSERT OR IGNORE INTO execution_runs SELECT * FROM execution_runs_legacy")
+        connection.execute("DROP TABLE execution_runs_legacy")
+    elif legacy and not current:
+        connection.execute("ALTER TABLE execution_runs_legacy RENAME TO execution_runs")
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS research_scope_snapshots (
@@ -173,7 +239,7 @@ def _schema(connection: sqlite3.Connection) -> None:
             qualification_id TEXT NOT NULL,
             approval_id TEXT,
             risk_policy_version TEXT NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('created', 'ready', 'running', 'blocked', 'halted', 'completed')),
+            status TEXT NOT NULL CHECK (status IN ('created', 'ready', 'running', 'paused', 'halt_requested', 'halted', 'cancel_pending', 'reconciling', 'completed', 'reconciliation_blocked', 'blocked', 'failed')),
             created_at TEXT NOT NULL,
             content_hash TEXT NOT NULL UNIQUE,
             FOREIGN KEY (scope_snapshot_id) REFERENCES research_scope_snapshots(scope_id),
@@ -195,6 +261,50 @@ def _schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_research_audit_aggregate ON research_audit_events(aggregate_type, aggregate_id);
         """
     )
+    _migrate_execution_run_status_schema(connection)
+
+
+def _migrate_execution_run_status_schema(connection: sqlite3.Connection) -> None:
+    """Rebuild the old CHECK-constrained table without dropping run facts."""
+    row = connection.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'execution_runs'").fetchone()
+    sql = str(row[0]) if row and row[0] else ""
+    if "reconciliation_blocked" in sql and "halt_requested" in sql:
+        return
+    connection.execute("PRAGMA foreign_keys=OFF")
+    connection.execute("ALTER TABLE execution_runs RENAME TO execution_runs_legacy")
+    connection.executescript(
+        """
+        CREATE TABLE execution_runs (
+            execution_run_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            environment TEXT NOT NULL CHECK (environment = 'paper'),
+            scope_snapshot_id TEXT NOT NULL,
+            scope_hash TEXT NOT NULL,
+            data_snapshot_id TEXT NOT NULL,
+            data_hash TEXT NOT NULL,
+            strategy_version_id TEXT NOT NULL,
+            strategy_hash TEXT NOT NULL,
+            validation_run_id TEXT NOT NULL,
+            qualification_id TEXT NOT NULL,
+            approval_id TEXT,
+            risk_policy_version TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('created', 'ready', 'running', 'paused', 'halt_requested', 'halted', 'cancel_pending', 'reconciling', 'completed', 'reconciliation_blocked', 'blocked', 'failed')),
+            created_at TEXT NOT NULL,
+            content_hash TEXT NOT NULL UNIQUE,
+            FOREIGN KEY (scope_snapshot_id) REFERENCES research_scope_snapshots(scope_id),
+            FOREIGN KEY (data_snapshot_id) REFERENCES research_data_snapshots(data_id),
+            FOREIGN KEY (strategy_version_id) REFERENCES research_strategy_versions(strategy_version_id),
+            FOREIGN KEY (validation_run_id) REFERENCES research_validation_runs(validation_run_id),
+            FOREIGN KEY (qualification_id) REFERENCES research_qualifications(qualification_id),
+            FOREIGN KEY (approval_id) REFERENCES research_approvals(approval_id)
+        );
+        """
+    )
+    connection.execute("INSERT INTO execution_runs SELECT * FROM execution_runs_legacy")
+    connection.execute("DROP TABLE execution_runs_legacy")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_execution_runs_account ON execution_runs(workspace_id, account_id, environment)")
+    connection.execute("PRAGMA foreign_keys=ON")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +346,11 @@ class ScopeSnapshot:
             raise ResearchFactError("weights must match members and be non-negative")
         captured = _dt(captured_at or _utc_now(), "captured_at")
         context = {"value": market_context} if isinstance(market_context, str) else dict(market_context or {})
-        hashed = content_hash({"scope_id": scope_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "kind": kind, "members": members_tuple, "weights": weights_tuple, "market_context": context})
-        return cls(scope_id, workspace_id, account_id, env, kind, members_tuple, weights_tuple, context, captured, hashed)
+        hashed = content_hash({"scope_id": scope_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "kind": kind, "members": members_tuple, "weights": weights_tuple, "market_context": context, "captured_at": captured})
+        return cls(scope_id, workspace_id, account_id, env, kind, members_tuple, weights_tuple, _freeze(context), captured, hashed)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "market_context", _freeze(self.market_context))
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,7 +395,7 @@ class DataSnapshot:
             raise ResearchFactError("invalid data snapshot coverage or freshness")
         start, end, captured = _dt(time_range_start, "time_range_start"), _dt(time_range_end, "time_range_end"), _dt(captured_at or _utc_now(), "captured_at")
         data_version, checksum = _text(data_version, "data_version"), _text(checksum, "checksum")
-        hashed = content_hash({"data_id": data_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "data_version": data_version, "time_range_start": start, "time_range_end": end, "instruments": instruments_tuple, "row_count": row_count, "checksum": checksum})
+        hashed = content_hash({"data_id": data_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "data_version": data_version, "time_range_start": start, "time_range_end": end, "instruments": instruments_tuple, "row_count": row_count, "checksum": checksum, "captured_at": captured, "freshness_seconds": freshness_seconds})
         return cls(data_id, workspace_id, account_id, env, data_version, start, end, instruments_tuple, int(row_count), checksum, captured, int(freshness_seconds), hashed)
 
     def is_fresh(self, now: datetime | None = None) -> bool:
@@ -333,10 +446,13 @@ class StrategyVersion:
         params = dict(parameters or {})
         deps = tuple(_text(item, "dependency") for item in dependencies)
         captured = _dt(captured_at or _utc_now(), "captured_at")
-        hashed = content_hash({"strategy_id": strategy_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "code_snapshot": code_snapshot, "parameters": params, "dependencies": deps, "authority": authority, "ai_only": bool(ai_only)})
+        hashed = content_hash({"strategy_id": strategy_id, "workspace_id": workspace_id, "account_id": account_id, "environment": env.value, "code_snapshot": code_snapshot, "parameters": params, "dependencies": deps, "authority": authority, "ai_only": bool(ai_only), "captured_at": captured})
         version_hash = hashed[:16]
         version_id = strategy_version_id or f"{strategy_id}:{version_hash}"
-        return cls(version_id, workspace_id, account_id, env, strategy_id, version_hash, code_snapshot, params, deps, authority, bool(ai_only), captured, hashed)
+        return cls(version_id, workspace_id, account_id, env, strategy_id, version_hash, code_snapshot, _freeze(params), deps, authority, bool(ai_only), captured, hashed)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "parameters", _freeze(self.parameters))
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,7 +494,10 @@ class ValidationRun:
             raise ExecutionRunBlockedError("frozen references cross account boundary")
         completed = _dt(completed_at or _utc_now(), "completed_at")
         hashed = content_hash({"validation_run_id": validation_run_id, "workspace_id": scope.workspace_id, "account_id": strategy.account_id, "environment": "paper", "scope_id": scope.scope_id, "scope_hash": scope.content_hash, "data_id": data.data_id, "data_hash": data.content_hash, "strategy_id": strategy.strategy_version_id, "strategy_hash": strategy.content_hash, "metrics": dict(metrics or {}), "mode": mode, "completed_at": completed})
-        return cls(_text(validation_run_id, "validation_run_id"), scope.workspace_id, strategy.account_id, Environment.PAPER, scope.scope_id, scope.content_hash, data.data_id, data.content_hash, strategy.strategy_version_id, strategy.content_hash, dict(metrics or {}), mode, completed, hashed)
+        return cls(_text(validation_run_id, "validation_run_id"), scope.workspace_id, strategy.account_id, Environment.PAPER, scope.scope_id, scope.content_hash, data.data_id, data.content_hash, strategy.strategy_version_id, strategy.content_hash, _freeze(metrics or {}), mode, completed, hashed)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metrics", _freeze(self.metrics))
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,10 +640,14 @@ class ResearchFactsStore:
             if any(row["environment"] != "paper" for row in (scope, data, strategy, validation)) or scope["workspace_id"] != workspace_id or data["workspace_id"] != workspace_id or strategy["workspace_id"] != workspace_id or validation["workspace_id"] != workspace_id:
                 connection.rollback()
                 raise ExecutionRunBlockedError("frozen references cross workspace or environment boundary")
+            for name, row in (("scope", scope), ("data", data), ("strategy", strategy), ("validation", validation)):
+                if row["account_id"] not in {account_id, "*"}:
+                    connection.rollback()
+                    raise ExecutionRunBlockedError(f"frozen {name} crosses account boundary")
             if strategy["ai_only"] or strategy["authority"] not in {"human", "deterministic"}:
                 connection.rollback()
                 raise ExecutionRunBlockedError("AI-only strategy artifacts cannot authorize execution")
-            actual_data_hash = content_hash({"data_id": data["data_id"], "workspace_id": data["workspace_id"], "account_id": data["account_id"], "environment": data["environment"], "data_version": data["data_version"], "time_range_start": data["time_range_start"], "time_range_end": data["time_range_end"], "instruments": json.loads(data["instruments_json"]), "row_count": data["row_count"], "checksum": data["checksum"]})
+            actual_data_hash = _data_snapshot_hash(data)
             if actual_data_hash != data["content_hash"]:
                 connection.rollback()
                 raise ExecutionRunBlockedError("data snapshot hash mismatch")
@@ -544,10 +667,12 @@ class ResearchFactsStore:
             if validation["mode"] != "executable":
                 connection.rollback()
                 raise ExecutionRunBlockedError("exploratory validation cannot authorize execution")
-            if require_approval:
-                if approval is None or approval["qualification_id"] != qualification_id or _dt(approval["approved_at"], "approved_at") > current or (approval["expires_at"] and _dt(approval["expires_at"], "approval.expires_at") <= current) or approval["authority"] != "human":
-                    connection.rollback()
-                    raise ExecutionRunBlockedError("valid human approval is required")
+            # Approval is a mandatory execution fact.  The historical
+            # require_approval argument remains source-compatible but cannot
+            # weaken this boundary.
+            if approval is None or approval["qualification_id"] != qualification_id or _dt(approval["approved_at"], "approval.approved_at") > current or (approval["expires_at"] and _dt(approval["expires_at"], "approval.expires_at") <= current) or approval["authority"] != "human":
+                connection.rollback()
+                raise ExecutionRunBlockedError("valid human approval is required")
             run_hash = content_hash({"execution_run_id": execution_run_id, "workspace_id": workspace_id, "account_id": account_id, "environment": "paper", "scope_snapshot_id": scope_snapshot_id, "scope_hash": scope["content_hash"], "data_snapshot_id": data_snapshot_id, "data_hash": data["content_hash"], "strategy_version_id": strategy_version_id, "strategy_hash": strategy["content_hash"], "validation_run_id": validation_run_id, "qualification_id": qualification_id, "approval_id": approval_id, "risk_policy_version": risk_policy_version})
             existing = connection.execute("SELECT content_hash FROM execution_runs WHERE execution_run_id = ?", (execution_run_id,)).fetchone()
             if existing:
@@ -572,43 +697,89 @@ class ResearchFactsStore:
         run = self.get_execution_run(execution_run_id)
         if run is None:
             raise ExecutionRunBlockedError(f"execution run not found: {execution_run_id}")
+        if run.status not in {"ready", "running"}:
+            raise ExecutionRunBlockedError(f"execution run is not executable in status {run.status}")
         with get_connection(self.db_path) as connection:
-            scope = connection.execute("SELECT content_hash FROM research_scope_snapshots WHERE scope_id = ?", (run.scope_snapshot_id,)).fetchone()
-            data = connection.execute("SELECT data_id, workspace_id, account_id, environment, data_version, time_range_start, time_range_end, instruments_json, row_count, checksum, content_hash, captured_at, freshness_seconds FROM research_data_snapshots WHERE data_id = ?", (run.data_snapshot_id,)).fetchone()
-            strategy = connection.execute("SELECT content_hash, ai_only FROM research_strategy_versions WHERE strategy_version_id = ?", (run.strategy_version_id,)).fetchone()
-            validation = connection.execute("SELECT content_hash, scope_hash, data_hash, strategy_hash, mode FROM research_validation_runs WHERE validation_run_id = ?", (run.validation_run_id,)).fetchone()
+            scope = connection.execute("SELECT * FROM research_scope_snapshots WHERE scope_id = ?", (run.scope_snapshot_id,)).fetchone()
+            data = connection.execute("SELECT * FROM research_data_snapshots WHERE data_id = ?", (run.data_snapshot_id,)).fetchone()
+            strategy = connection.execute("SELECT * FROM research_strategy_versions WHERE strategy_version_id = ?", (run.strategy_version_id,)).fetchone()
+            validation = connection.execute("SELECT * FROM research_validation_runs WHERE validation_run_id = ?", (run.validation_run_id,)).fetchone()
             qualification = connection.execute("SELECT * FROM research_qualifications WHERE qualification_id = ?", (run.qualification_id,)).fetchone()
-            if not all((scope, data, strategy, validation, qualification)):
+            approval = connection.execute("SELECT * FROM research_approvals WHERE approval_id = ?", (run.approval_id,)).fetchone() if run.approval_id else None
+            if not all((scope, data, strategy, validation, qualification, approval)):
                 raise ExecutionRunBlockedError("execution run frozen references are invalidated")
-            actual_data_hash = content_hash({"data_id": data["data_id"], "workspace_id": data["workspace_id"], "account_id": data["account_id"], "environment": data["environment"], "data_version": data["data_version"], "time_range_start": data["time_range_start"], "time_range_end": data["time_range_end"], "instruments": json.loads(data["instruments_json"]), "row_count": data["row_count"], "checksum": data["checksum"]})
+            actual_data_hash = _data_snapshot_hash(data)
             if actual_data_hash != data["content_hash"]:
                 raise ExecutionRunBlockedError("execution run data snapshot hash mismatch")
             if scope["content_hash"] != run.scope_hash or data["content_hash"] != run.data_hash or strategy["content_hash"] != run.strategy_hash or strategy["ai_only"] or validation["scope_hash"] != run.scope_hash or validation["data_hash"] != run.data_hash or validation["strategy_hash"] != run.strategy_hash or validation["mode"] != "executable" or qualification["validation_hash"] != validation["content_hash"] or not bool(qualification["passed"]):
                 raise ExecutionRunBlockedError("execution run frozen references are invalidated")
+            if approval["qualification_id"] != run.qualification_id or approval["authority"] != "human" or (approval["expires_at"] and _dt(approval["expires_at"], "approval.expires_at") <= _utc_now()):
+                raise ExecutionRunBlockedError("execution run approval is invalid or expired")
+            for row_name, row in (("scope", scope), ("data", data), ("strategy", strategy), ("validation", validation)):
+                if row["workspace_id"] != run.workspace_id or row["account_id"] not in {run.account_id, "*"} or row["environment"] != "paper":
+                    raise ExecutionRunBlockedError(f"execution run {row_name} identity is invalidated")
             current = _dt(now or _utc_now(), "now")
             age = (current - _dt(data["captured_at"], "data.captured_at")).total_seconds()
             if age < 0 or age > data["freshness_seconds"] or _dt(qualification["qualified_until"], "qualified_until") <= current:
                 raise ExecutionRunBlockedError("execution run data or qualification is stale")
         return run
 
+
+    def transition_execution_run(self, execution_run_id: str, target_status: str, *, reason: str = "", owner_id: str | None = None, fence_token: str | None = None, now: datetime | None = None) -> ExecutionRun:
+        """Apply one guarded append-audited ExecutionRun lifecycle transition."""
+        if target_status not in EXECUTION_RUN_STATUSES:
+            raise ExecutionRunBlockedError(f"unsupported execution run status: {target_status}")
+        current = _dt(now or _utc_now(), "now")
+        with get_connection(self.db_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT status, workspace_id, account_id FROM execution_runs WHERE execution_run_id = ?", (execution_run_id,)).fetchone()
+            if row is None:
+                connection.rollback()
+                raise ExecutionRunBlockedError(f"execution run not found: {execution_run_id}")
+            source = row["status"]
+            if target_status != source and target_status not in _EXECUTION_RUN_TRANSITIONS.get(source, set()):
+                _audit(connection, "ExecutionRun", execution_run_id, "illegal_transition", {"from": source, "to": target_status, "reason": reason, "owner_id": owner_id, "fence_token": fence_token})
+                connection.commit()
+                raise ExecutionRunBlockedError(f"illegal execution run transition {source} -> {target_status}")
+            connection.execute("UPDATE execution_runs SET status = ? WHERE execution_run_id = ?", (target_status, execution_run_id))
+            _audit(connection, "ExecutionRun", execution_run_id, "transition", {"from": source, "to": target_status, "reason": reason, "owner_id": owner_id, "fence_token": fence_token, "at": current.isoformat()})
+            connection.commit()
+        result = self.get_execution_run(execution_run_id)
+        assert result is not None
+        return result
+
+    def execution_run_events(self, execution_run_id: str) -> list[dict[str, Any]]:
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute("SELECT * FROM research_audit_events WHERE aggregate_type = 'ExecutionRun' AND aggregate_id = ? ORDER BY id", (execution_run_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     def ensure_paper_run(self, *, account_id: str, workspace_id: str = "default", strategy_id: str = "paper", codes: list[str] | tuple[str, ...] = (), initial_cash: float = 50000.0, execution_run_id: str | None = None) -> ExecutionRun:
         """Create or return a deterministic, auditable local paper run."""
         if execution_run_id:
             existing = self.get_execution_run(execution_run_id)
             if existing is not None:
+                if existing.account_id != account_id or existing.workspace_id != workspace_id or existing.environment is not Environment.PAPER:
+                    raise ExecutionRunBlockedError("execution run does not match requested account/workspace")
                 self.validate_execution_run(execution_run_id)
                 return existing
         run_id = execution_run_id or f"paper-{account_id}-{uuid.uuid4().hex[:12]}"
         if execution_run_id is None:
             with get_connection(self.db_path) as connection:
                 existing_row = connection.execute(
-                    "SELECT execution_run_id FROM execution_runs WHERE workspace_id = ? AND account_id = ? AND environment = 'paper' ORDER BY created_at DESC LIMIT 1",
+                    "SELECT execution_run_id, status FROM execution_runs WHERE workspace_id = ? AND account_id = ? AND environment = 'paper' ORDER BY created_at DESC LIMIT 1",
                     (workspace_id, account_id),
                 ).fetchone()
             if existing_row is not None:
                 existing_run = self.get_execution_run(existing_row["execution_run_id"])
                 if existing_run is not None:
-                    return self.validate_execution_run(existing_run.execution_run_id)
+                    if existing_run.account_id != account_id or existing_run.workspace_id != workspace_id:
+                        raise ExecutionRunBlockedError("existing paper run does not match requested account/workspace")
+                    if existing_run.status in {"ready", "running"}:
+                        return self.validate_execution_run(existing_run.execution_run_id)
+                    if existing_run.status != "completed":
+                        raise ExecutionRunBlockedError(
+                            f"existing paper run requires reconciliation before restart: {existing_run.status}"
+                        )
         now = _utc_now()
         scope = ScopeSnapshot.create(f"scope-{run_id}", "universe", tuple(codes) or ("*",), workspace_id=workspace_id, account_id=account_id, captured_at=now)
         data = DataSnapshot.create(f"data-{run_id}", "paper-runtime-v3", now - timedelta(days=1), now, tuple(codes) or ("*",), 0, f"runtime:{run_id}", workspace_id=workspace_id, account_id=account_id, captured_at=now)

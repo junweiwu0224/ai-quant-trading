@@ -5,6 +5,7 @@ from loguru import logger
 from config.settings import PROJECT_ROOT
 from utils.db import get_connection as _get_conn
 from engine.research_facts import _schema as _ensure_phase3_schema
+from engine.paper_projection import ensure_projection_schema, _ensure_projection_schema_connection
 
 
 # 数据库路径
@@ -186,7 +187,9 @@ def init_database(db_path: str = None):
         # Phase 3 immutable research, qualification, and execution-run facts.
         _ensure_phase3_schema(conn)
 
-        # 创建索引
+        _ensure_projection_schema_connection(conn)
+        conn.commit()
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_code ON paper_orders(code)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON paper_orders(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_created ON paper_orders(created_at)")

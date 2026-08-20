@@ -17,7 +17,6 @@ from engine.execution_protocol import (
     Side,
 )
 from engine.operations_store import CommandAcceptance, OperationsStore
-from engine.research_facts import ResearchFactsStore
 
 
 def _serialize_for_json(obj: Any) -> Any:
@@ -205,12 +204,6 @@ class PaperCommandClient:
         """Enqueue a manual order. The permit in the payload is advisory only;
         PaperWorker re-evaluates the batch from the latest account state.
         """
-        ResearchFactsStore(self.operations_db).ensure_paper_run(
-            account_id=account_id,
-            strategy_id="manual",
-            codes=[instrument],
-            execution_run_id=execution_run_id,
-        )
         intent = OrderIntent(
             instrument=instrument,
             side=side,

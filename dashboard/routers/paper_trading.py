@@ -16,6 +16,8 @@ from engine.models import (
 )
 from engine.order_manager import OrderManager
 from engine.paper_commands import PaperCommandClient
+from engine.paper_read_model import positions as paper_read_positions, trades as paper_read_trades, status as paper_read_status
+from engine.paper_projection import ensure_projection_schema
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
 from utils.db import get_connection
@@ -74,32 +76,15 @@ class UpdateRiskRulesRequest(BaseModel):
 async def create_order(req: CreateOrderRequest):
     """创建订单（V2 统一协议）"""
     try:
-        # 转换为 V2 协议类型
-        side = Side.BUY if req.direction.lower() == "buy" else Side.SELL
-        
-        # 转换订单类型
-        if req.order_type == "market":
-            protocol_order_type = ProtocolOrderType.MARKET
-            limit_price = None
-        elif req.order_type == "limit":
-            protocol_order_type = ProtocolOrderType.LIMIT
-            limit_price = req.price
-            if limit_price is None:
-                raise ValueError("限价单必须指定价格")
-        else:
-            raise ValueError(f"暂不支持的订单类型: {req.order_type}")
-
-        # 生成幂等键
+        if req.order_type != "market":
+            raise ValueError("Phase 4 仅支持市价订单；限价协议尚未接入")
+        side = Side.BUY if req.direction.lower() in {"buy", "long"} else Side.SELL
         idempotency_key = f"manual_order_{uuid.uuid4().hex[:16]}"
-        
-        # 通过命令客户端提交订单
         acceptance = _command_client.enqueue_manual_order(
             instrument=req.code,
             side=side,
-            order_type=protocol_order_type,
             quantity=req.volume,
-            limit_price=limit_price,
-            execution_run_id="manual",  # 手动订单统一使用 "manual" 作为 run_id
+            execution_run_id="manual",
             account_id="paper-default",
             idempotency_key=idempotency_key,
         )
@@ -107,15 +92,16 @@ async def create_order(req: CreateOrderRequest):
         return {
             "success": True,
             "data": {
-                "command_id": acceptance.command_id,
+                "command_id": acceptance.command.id,
+                "task_id": acceptance.task.id,
                 "idempotency_key": idempotency_key,
-                "status": "accepted" if acceptance.accepted else "duplicate",
+                "status": acceptance.task.status,
                 "code": req.code,
                 "direction": req.direction,
                 "volume": req.volume,
                 "price": req.price,
             },
-            "message": "订单已提交" if acceptance.accepted else "订单已存在（重复提交）",
+            "message": "订单已接受，等待 PaperWorker 执行",
         }
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -193,28 +179,10 @@ async def cancel_order(order_id: str):
 
 @router.get("/positions")
 async def get_positions():
-    """获取当前持仓列表"""
+    """Read scoped positions projection; never mutate it from the API."""
     try:
-        with _get_db() as conn:
-            cursor = conn.execute("SELECT * FROM paper_positions ORDER BY updated_at DESC")
-            rows = cursor.fetchall()
-
-            positions = [{
-                "code": row["code"],
-                "volume": row["volume"],
-                "avg_price": row["avg_price"],
-                "current_price": row["current_price"],
-                "market_value": row["market_value"],
-                "unrealized_pnl": row["unrealized_pnl"],
-                "unrealized_pnl_pct": row["unrealized_pnl_pct"],
-                "stop_loss_price": row["stop_loss_price"],
-                "take_profit_price": row["take_profit_price"],
-            } for row in rows]
-
-        return {
-            "success": True,
-            "data": positions,
-        }
+        rows = paper_read_positions(_config.db_path, "paper-default")
+        return {"success": True, "data": rows, "source": "paper_ledger"}
     except Exception as e:
         logger.error(f"获取持仓列表失败: {e}")
         raise HTTPException(500, "获取持仓列表失败，请稍后重试")
@@ -224,32 +192,11 @@ async def get_positions():
 async def get_position(code: str):
     """获取单只股票持仓详情"""
     try:
-        with _get_db() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM paper_positions WHERE code = ?",
-                (code,)
-            )
-            row = cursor.fetchone()
-
+            rows = paper_read_positions(_config.db_path, "paper-default")
+            row = next((item for item in rows if item["code"] == code), None)
             if not row:
                 raise HTTPException(404, f"持仓不存在: {code}")
-
-            position = {
-                "code": row["code"],
-                "volume": row["volume"],
-                "avg_price": row["avg_price"],
-                "current_price": row["current_price"],
-                "market_value": row["market_value"],
-                "unrealized_pnl": row["unrealized_pnl"],
-                "unrealized_pnl_pct": row["unrealized_pnl_pct"],
-                "stop_loss_price": row["stop_loss_price"],
-                "take_profit_price": row["take_profit_price"],
-            }
-
-        return {
-            "success": True,
-            "data": position,
-        }
+            return {"success": True, "data": row}
     except HTTPException:
         raise
     except Exception as e:
@@ -261,29 +208,12 @@ async def get_position(code: str):
 async def update_stop_loss(code: str, req: UpdateStopLossRequest):
     """更新止损止盈价格"""
     try:
+        from engine.paper_read_model import status as paper_read_status
+        run = paper_read_status(_config.db_path, "paper-default").get("execution_run_id")
+        if not run:
+            raise HTTPException(409, "模拟盘尚未绑定 ExecutionRun")
         with _get_db() as conn:
-            # 检查持仓是否存在
-            cursor = conn.execute(
-                "SELECT * FROM paper_positions WHERE code = ?",
-                (code,)
-            )
-            row = cursor.fetchone()
-
-            if not row:
-                raise HTTPException(404, f"持仓不存在: {code}")
-
-            # 更新止损止盈价格
-            conn.execute(
-                """UPDATE paper_positions SET
-                stop_loss_price = ?, take_profit_price = ?, updated_at = ?
-                WHERE code = ?""",
-                (
-                    req.stop_loss_price,
-                    req.take_profit_price,
-                    now_beijing_iso(),
-                    code,
-                )
-            )
+            conn.execute("INSERT INTO paper_position_controls(workspace_id, account_id, environment, execution_run_id, code, stop_loss_price, take_profit_price, updated_at) VALUES ('default', 'paper-default', 'paper', ?, ?, ?, ?, ?) ON CONFLICT(workspace_id, account_id, environment, execution_run_id, code) DO UPDATE SET stop_loss_price=excluded.stop_loss_price, take_profit_price=excluded.take_profit_price, updated_at=excluded.updated_at", (run, code, req.stop_loss_price, req.take_profit_price, now_beijing_iso()))
             conn.commit()
 
         return {
@@ -301,38 +231,17 @@ async def update_stop_loss(code: str, req: UpdateStopLossRequest):
 async def close_position(code: str, volume: Optional[int] = None):
     """平仓（全部或部分）"""
     try:
-        with _get_db() as conn:
-            # 检查持仓是否存在
-            cursor = conn.execute(
-                "SELECT * FROM paper_positions WHERE code = ?",
-                (code,)
-            )
-            row = cursor.fetchone()
-
-            if not row:
-                raise HTTPException(404, f"持仓不存在: {code}")
-
-            position_volume = row["volume"]
-            close_volume = volume if volume else position_volume
-
-            if close_volume > position_volume:
-                raise HTTPException(400, f"平仓数量({close_volume})超过持仓数量({position_volume})")
-
-            # 创建卖出订单
-            order = _order_manager.create_order(
-                code=code,
-                direction=Direction.SHORT,
-                order_type=OrderType.MARKET,
-                volume=close_volume,
-                strategy_name="manual",
-                signal_reason="手动平仓",
-            )
-
-        return {
-            "success": True,
-            "data": order.to_dict(),
-            "message": "平仓订单已创建",
-        }
+        rows = paper_read_positions(_config.db_path, "paper-default")
+        row = next((item for item in rows if item["code"] == code), None)
+        if not row:
+            raise HTTPException(404, f"持仓不存在: {code}")
+        position_volume = int(row["volume"])
+        close_volume = int(volume or position_volume)
+        if close_volume <= 0 or close_volume > position_volume:
+            raise HTTPException(400, f"平仓数量({close_volume})超过持仓数量({position_volume})")
+        idempotency_key = f"close_{code}_{uuid.uuid4().hex[:16]}"
+        acceptance = _command_client.enqueue_manual_order(instrument=code, side=Side.SELL, quantity=close_volume, execution_run_id=paper_read_status(_config.db_path, "paper-default")["execution_run_id"], account_id="paper-default", idempotency_key=idempotency_key)
+        return {"success": True, "command_id": acceptance.command.id, "task_id": acceptance.task.id, "status": acceptance.task.status, "message": "平仓订单已接受，等待 PaperWorker 执行"}
     except HTTPException:
         raise
     except Exception as e:

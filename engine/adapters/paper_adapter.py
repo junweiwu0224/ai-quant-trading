@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Mapping
+from typing import Callable, Mapping
 
 from config.datetime_utils import now_beijing_iso
 from engine.execution_protocol import Environment, ExecutionPermit, OrderIntentBatch, Side
@@ -57,6 +57,7 @@ class PaperAdapter:
         stamp_tax_rate: float = 0.0,
         min_commission: float = 5.0,
         slippage: float = 0.0,
+        failure_hook: Callable[[str], None] | None = None,
     ) -> None:
         self._db_path = str(db_path)
         self.workspace_id = workspace_id
@@ -64,6 +65,7 @@ class PaperAdapter:
         self._stamp_tax_rate = Decimal(str(stamp_tax_rate))
         self._min_commission = Decimal(str(min_commission))
         self._slippage = Decimal(str(slippage))
+        self._failure_hook = failure_hook
         self._ensure_tables()
 
     def _ensure_tables(self) -> None:
@@ -150,7 +152,7 @@ class PaperAdapter:
         permit: ExecutionPermit,
         quotes: Mapping[str, QuoteSnapshot],
         *,
-        require_authoritative: bool = False,
+        require_authoritative: bool = True,
     ) -> list[Fill]:
         now = datetime.now(timezone.utc)
         if not permit.is_valid(now=now):
@@ -162,7 +164,9 @@ class PaperAdapter:
         if set(permit.evaluated_intent_keys) != set(batch.idempotency_keys):
             self._audit_reject(permit, "permit_coverage_mismatch")
             return []
-        if require_authoritative and not self._permit_is_authoritative(permit, batch):
+        # The adapter is an authority boundary.  Keep the keyword for source
+        # compatibility, but never allow a caller to disable the SQLite check.
+        if not self._permit_is_authoritative(permit, batch):
             self._audit_reject(permit, "permit_not_authoritative")
             return []
 
@@ -214,21 +218,93 @@ class PaperAdapter:
     def _permit_is_authoritative(self, permit: ExecutionPermit, batch: OrderIntentBatch) -> bool:
         try:
             with get_connection(self._db_path) as connection:
-                row = connection.execute("SELECT execution_run_id, account_id, workspace_id, batch_id, fence_token, idempotency_keys_json, expires_at FROM paper_execution_permits WHERE permit_id = ?", (permit.permit_id,)).fetchone()
+                row = connection.execute("SELECT execution_run_id, account_id, workspace_id, batch_id, decision_id, fence_token, idempotency_keys_json, expires_at FROM paper_execution_permits WHERE permit_id = ?", (permit.permit_id,)).fetchone()
+                decision = connection.execute("SELECT decision_id, execution_run_id, account_id, workspace_id, batch_id, approved_intent_keys_json FROM paper_risk_decisions WHERE decision_id = ?", (permit.decision_id,)).fetchone()
+                run_table = connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'execution_runs'").fetchone()
+                run = None
+                if run_table:
+                    run = connection.execute(
+                        "SELECT execution_run_id, account_id, workspace_id, environment, status "
+                        "FROM execution_runs WHERE execution_run_id = ?",
+                        (batch.execution_run_id,),
+                    ).fetchone()
+                account = connection.execute("SELECT fence_token FROM paper_accounts WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'", (batch.account_id, self.workspace_id)).fetchone()
         except sqlite3.OperationalError:
             return False
-        if row is None:
+        if row is None or decision is None or account is None:
+            return False
+        if run_table and run is None:
             return False
         try:
             keys = set(json.loads(row["idempotency_keys_json"]))
-        except (TypeError, json.JSONDecodeError):
+            approved = set(json.loads(decision["approved_intent_keys_json"]))
+            expires_at = datetime.fromisoformat(str(row["expires_at"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
             return False
-        return row["execution_run_id"] == batch.execution_run_id and row["account_id"] == batch.account_id and row["workspace_id"] == self.workspace_id and row["batch_id"] == batch.batch_id and row["fence_token"] == permit.fence_token and keys == set(permit.idempotency_keys) and row["expires_at"] == permit.expires_at.isoformat()
+        return (
+            row["execution_run_id"] == batch.execution_run_id
+            and row["account_id"] == batch.account_id
+            and row["workspace_id"] == self.workspace_id
+            and (
+                not run_table
+                or (
+                    run["account_id"] == batch.account_id
+                    and run["workspace_id"] == self.workspace_id
+                    and run["environment"] == "paper"
+                    and run["status"] in {"ready", "running"}
+                )
+            )
+            and row["batch_id"] == batch.batch_id
+            and row["decision_id"] == permit.decision_id
+            and row["fence_token"] == permit.fence_token == str(account["fence_token"])
+            and keys == set(permit.idempotency_keys) == set(batch.idempotency_keys)
+            and approved.issuperset(set(permit.idempotency_keys))
+            and row["expires_at"] == permit.expires_at.isoformat()
+            and expires_at > datetime.now(timezone.utc)
+        )
 
     def _commit_atomic(self, permit: ExecutionPermit, fills: list[Fill]) -> list[Fill]:
         with get_connection(self._db_path) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                if self._failure_hook:
+                    self._failure_hook("commit_begin")
+                try:
+                    current_account = connection.execute("SELECT fence_token FROM paper_accounts WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'", (permit.account_id, self.workspace_id)).fetchone()
+                except sqlite3.OperationalError:
+                    current_account = None
+                if current_account is not None and str(current_account["fence_token"]) != str(permit.fence_token):
+                    raise RuntimeError("paper ownership fence is no longer current")
+                account_row = connection.execute("SELECT initial_cash FROM paper_accounts WHERE account_id = ? AND workspace_id = ? AND environment = 'paper'", (permit.account_id, self.workspace_id)).fetchone()
+                has_run_facts = connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'execution_runs'").fetchone() is not None
+                if account_row is not None and has_run_facts:
+                    from engine.paper_projection import fold_ledger
+                    ledger_rows = connection.execute(
+                        "SELECT * FROM paper_ledger WHERE account_id = ? AND workspace_id = ? "
+                        "AND environment = 'paper' AND execution_run_id = ? ORDER BY id",
+                        (permit.account_id, self.workspace_id, permit.execution_run_id),
+                    ).fetchall()
+                    folded = fold_ledger(
+                        ledger_rows,
+                        account_id=permit.account_id,
+                        workspace_id=self.workspace_id,
+                        execution_run_id=permit.execution_run_id,
+                        initial_cash=account_row["initial_cash"],
+                    )
+                    available_cash = folded.cash
+                    available_positions = dict(folded.positions)
+                    for fill in fills:
+                        if str(fill.side).lower().split(".")[-1] == "buy":
+                            cost = Decimal(str(fill.filled_price)) * fill.filled_volume + Decimal(str(fill.commission))
+                            if available_cash < cost:
+                                raise RuntimeError("paper account cash changed after risk authorization")
+                            available_cash -= cost
+                            available_positions[fill.instrument] = available_positions.get(fill.instrument, Decimal("0")) + fill.filled_volume
+                        else:
+                            quantity = available_positions.get(fill.instrument, Decimal("0"))
+                            if quantity < fill.filled_volume:
+                                raise RuntimeError("paper account position changed after risk authorization")
+                            available_positions[fill.instrument] = quantity - fill.filled_volume
                 persisted: list[Fill] = []
                 for fill in fills:
                     existing = connection.execute("SELECT order_intent_key, instrument, side, filled_price, filled_volume, trade_id, filled_at, execution_run_id, account_id, commission, stamp_tax, slippage, workspace_id, environment, permit_id, decision_id, fence_token FROM paper_ledger WHERE account_id = ? AND workspace_id = ? AND environment = 'paper' AND idempotency_key = ?", (fill.account_id, fill.workspace_id, fill.order_intent_key)).fetchone()
@@ -239,6 +315,8 @@ class PaperAdapter:
                     persisted.append(fill)
                     connection.execute("INSERT INTO paper_outbox(event_type, aggregate_id, payload) VALUES (?, ?, ?)", ("trade_filled", fill.execution_run_id, json.dumps({"trade_id": fill.trade_id, "instrument": fill.instrument, "side": fill.side, "price": fill.filled_price, "volume": fill.filled_volume}, sort_keys=True)))
                 connection.execute("INSERT INTO paper_audit(execution_run_id, account_id, permit_fence, action, approved_count, rejected_count, filled_count, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (permit.execution_run_id, permit.account_id, permit.fence_token, "execute_batch", len(permit.idempotency_keys), len(permit.evaluated_intent_keys) - len(permit.idempotency_keys), len(persisted), "success"))
+                if self._failure_hook:
+                    self._failure_hook("commit_before_commit")
                 connection.commit()
                 return persisted
             except Exception:

@@ -7,6 +7,8 @@ import pytest
 
 from engine.adapters.paper_adapter import Fill, PaperAdapter, QuoteSnapshot
 from engine.execution_protocol import ExecutionPermit, OrderIntent, OrderIntentBatch, RiskDecision
+from engine.research_facts import ResearchFactsStore
+from engine.risk_gate import RiskGate, ensure_paper_account
 
 
 @pytest.fixture
@@ -16,8 +18,8 @@ def adapter(tmp_path):
 
 
 @pytest.fixture
-def valid_batch_and_permit():
-    """有效的 batch 和 permit"""
+def valid_batch_and_permit(adapter):
+    """有效的 batch 和 permit，且已写入权威 RiskGate 事实。"""
     i1 = OrderIntent(
         execution_run_id="run-001",
         account_id="paper-test",
@@ -33,7 +35,7 @@ def valid_batch_and_permit():
         environment="paper",
         idempotency_key="i2",
         instrument="600000.SH",
-        side="sell",
+        side="buy",
         quantity=200,
     )
     batch = OrderIntentBatch(
@@ -57,9 +59,18 @@ def valid_batch_and_permit():
         decision=decision,
         permit_id="permit-001",
         expires_at=expiry,
-        fence_token="fence-1",
+        fence_token="1",
     )
-    
+    ensure_paper_account(adapter._db_path, "paper-test", "default", 100_000)
+    ResearchFactsStore(adapter._db_path).ensure_paper_run(
+        account_id="paper-test",
+        workspace_id="default",
+        codes=["000001.SZ", "600000.SH"],
+        initial_cash=100_000,
+        execution_run_id="run-001",
+    )
+    gate = RiskGate(db_path=adapter._db_path)
+    gate._persist_authorization(decision, permit, "default", datetime.now(timezone.utc))
     return batch, permit
 
 

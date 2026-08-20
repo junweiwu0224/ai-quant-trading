@@ -28,7 +28,7 @@ http://127.0.0.1:8001
 
 ### 全量本地部署（默认）
 
-本项目中“部署”默认指全量本地 Docker 栈，不是只启动 Dashboard。该命令会构建并启动 Dashboard、独立决策 Worker、Pi Agent Worker、paper 模拟盘、live 模拟模式和 backtest 任务：
+本项目中“部署”默认指全量本地 Docker 栈，不是只启动 Dashboard。该命令会构建并启动 Dashboard、独立决策 Worker、Pi Agent Worker、paper 模拟盘和 backtest 任务；V2 Live 当前禁用。`scripts/run_live.py` 仅用于拒绝 Live 请求，不作为 Compose 服务启动：
 
 ```bash
 DECISION_WORKER_ENABLED=true \
@@ -37,7 +37,7 @@ PI_AGENT_WORKER_ENABLED=true \
 docker compose --profile ai --profile trading up -d --build
 ```
 
-`live` 服务使用 Compose 中未传 `--live` 的模拟券商模式；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 Pi Agent Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
+`paper` 使用现有 legacy `scripts/run_paper.py` 命令；`backtest` 是一次性任务，完成后以 `0` 退出属于正常状态。`DECISION_EXTERNAL_DELIVERY_ENABLED=false` 和 Docker 栈的 `AI_INLINE_EXECUTION=false` 必须保持关闭，确保本地部署不会自动向外部渠道投递，也不会绕过独立 Pi Agent Worker。以后凡是任务要求“部署”，默认执行上述全量命令，不得退回只启动默认服务的快捷命令。
 
 `cloudflared` 不属于默认本地全量栈，因为它会改变网络暴露边界。只有在 `.env` 配置 `CLOUDFLARED_TUNNEL_TOKEN` 并明确确认外部暴露范围后，才单独执行：
 
@@ -62,7 +62,7 @@ docker compose --profile ai build pi-agent
 
 跨平台构建时显式设置 Docker 平台，例如 `DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose build dashboard`；不要把 amd64 模拟运行作为 Apple Silicon 的默认部署平台。
 
-Pi Agent Worker 是 AI 任务队列的唯一生产消费者。它通过 `data/db/ai_runtime.db` 复用冻结上下文、任务、报告、脱敏 provider readiness 和有限尝试记录，但 Pi 子进程在空目录、无工具、无 session、无项目扩展的模式下运行。Pi 的模型凭据仍来自它支持的环境变量或运行时配置，不写入项目数据库；AI 输出不会写入确定性动作或自动推送资格。`paper`、`live`、`backtest` 需要显式启用 `trading` profile。
+Pi Agent Worker 是 AI 任务队列的唯一生产消费者。它通过 `data/db/ai_runtime.db` 复用冻结上下文、任务、报告、脱敏 provider readiness 和有限尝试记录，但 Pi 子进程在空目录、无工具、无 session、无项目扩展的模式下运行。Pi 的模型凭据仍来自它支持的环境变量或运行时配置，不写入项目数据库；AI 输出不会写入确定性动作或自动推送资格。`paper`、`backtest` 需要显式启用 `trading` profile；V2 Live 当前禁用，`scripts/run_live.py` 是 rejection-only 入口，不是部署服务。
 
 ## 测试
 

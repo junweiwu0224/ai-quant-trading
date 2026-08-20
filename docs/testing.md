@@ -82,7 +82,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest --noconftest -q \
 | 多市场 | 市场 adapter capability 和独立时区测试 | 港美/日韩台 provider 接入 |
 | Vue 迁移 | Vue build、路由/静态迁移契约、桌面 `1440x900` 与移动 `390x844` 浏览器验收 | 真实用户长期使用和外部 provider 数据覆盖 |
 | 备份恢复 | SQLite online backup、manifest/hash、Worker artifact 配置读取、隔离 verify-only/restore 和 replay 测试 | 月度自动恢复演练 |
-| Docker 全量部署 | 按 `docs/commands.md` 的 `ai` + `trading` profile 启动并检查容器状态、Dashboard、Worker、Pi Agent Worker、paper、live、backtest | tunnel、真实 provider、真实渠道和实盘接口 |
+| Docker 全量部署 | 按 `docs/commands.md` 的 `ai` + `trading` profile 启动并检查容器状态、Dashboard、Worker、Pi Agent Worker、paper、backtest | tunnel、真实 provider、真实渠道和实盘接口（Live 在 V2 已禁用）|
 
 Dashboard 兼容调度的 ownership 条件由 `tests/test_session_gate.py`、`tests/test_scheduler.py` 和
 `dashboard/app.py` 共同约束：默认控制面不启动后台调度；只有显式

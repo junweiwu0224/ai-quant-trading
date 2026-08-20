@@ -1,65 +1,148 @@
+"""Tests for Paper command client."""
+
+from pathlib import Path
+
 import pytest
 
 from engine.operations_store import IdempotencyConflictError, OperationsStore
-from engine.paper_commands import PaperCommandService, PaperCommandValidationError
+from engine.paper_commands import PaperCommandClient
 
 
-def service(tmp_path):
-    store = OperationsStore(tmp_path / "nested" / "operations.db")
-    return store, PaperCommandService(store)
+@pytest.fixture
+def operations_db(tmp_path: Path) -> Path:
+    """Create a temporary operations database."""
+    db_path = tmp_path / "operations.db"
+    store = OperationsStore(str(db_path))
+    store.close()
+    return db_path
 
 
-def test_start_command_is_idempotent_and_risk_is_always_enabled(tmp_path):
-    store, commands = service(tmp_path)
-    try:
-        first = commands.enqueue_start(
-            idempotency_key="start-1",
-            account_id="paper-a",
-            strategy="dual_ma",
-            codes=["000001", "600519"],
-            initial_cash=100_000,
+@pytest.fixture
+def client(operations_db: Path) -> PaperCommandClient:
+    """Create a Paper command client."""
+    client = PaperCommandClient(str(operations_db))
+    yield client
+    client.close()
+
+
+def test_enqueue_start_success(client: PaperCommandClient) -> None:
+    """Test enqueueing a paper_start command."""
+    acceptance = client.enqueue_start(
+        account_id="test-account",
+        strategy_name="dual_ma",
+        codes=["000001.SZ"],
+        interval_seconds=60,
+        initial_cash=100_000.0,
+    )
+    assert acceptance.command.kind == "paper_start"
+    assert acceptance.command.payload["account_id"] == "test-account"
+    assert acceptance.command.payload["strategy_name"] == "dual_ma"
+    assert acceptance.command.payload["codes"] == ["000001.SZ"]
+    assert acceptance.task.status == "queued"
+
+
+def test_enqueue_start_empty_codes(client: PaperCommandClient) -> None:
+    """Test that empty codes are rejected."""
+    with pytest.raises(ValueError, match="codes cannot be empty"):
+        client.enqueue_start(
+            account_id="test-account",
+            strategy_name="dual_ma",
+            codes=[],
         )
-        replay = commands.enqueue_start(
-            idempotency_key="start-1",
-            account_id="paper-a",
-            strategy="dual_ma",
-            codes=["600519", "000001"],
-            initial_cash=100_000,
+
+
+def test_enqueue_start_invalid_account_id(client: PaperCommandClient) -> None:
+    """Test that invalid account_id is rejected."""
+    with pytest.raises(ValueError, match="invalid account_id"):
+        client.enqueue_start(
+            account_id="test/account",
+            strategy_name="dual_ma",
+            codes=["000001.SZ"],
         )
-        assert replay == first
-        assert first.command.kind == "paper.start"
-        assert first.command.payload["enable_risk"] is True
-        assert first.command.payload["account_id"] == "paper-a"
-    finally:
-        store.close()
 
 
-def test_commands_reject_conflicts_and_invalid_inputs(tmp_path):
-    store, commands = service(tmp_path)
-    try:
-        commands.enqueue_stop(idempotency_key="stop-1", account_id="paper-a")
-        with pytest.raises(IdempotencyConflictError):
-            commands.enqueue_reset(idempotency_key="stop-1", account_id="paper-a")
-        with pytest.raises(PaperCommandValidationError):
-            commands.enqueue_start(idempotency_key="bad-codes", codes=[])
-        with pytest.raises(PaperCommandValidationError):
-            commands.enqueue_start(idempotency_key="bad-account", account_id="../escape", codes=["000001"])
-        with pytest.raises(PaperCommandValidationError):
-            commands.enqueue_start(idempotency_key="bad-risk", codes=["000001"], params={"enable_risk": False})
-        with pytest.raises(PaperCommandValidationError):
-            commands.enqueue_start(idempotency_key="bad-cash", codes=["000001"], initial_cash=0)
-    finally:
-        store.close()
+def test_enqueue_start_idempotent(client: PaperCommandClient) -> None:
+    """Test that same idempotency key returns same command."""
+    acceptance1 = client.enqueue_start(
+        account_id="test-account",
+        strategy_name="dual_ma",
+        codes=["000001.SZ"],
+        idempotency_key="start-1",
+    )
+    acceptance2 = client.enqueue_start(
+        account_id="test-account",
+        strategy_name="dual_ma",
+        codes=["000001.SZ"],
+        idempotency_key="start-1",
+    )
+    assert acceptance1.command.id == acceptance2.command.id
+    assert acceptance1.task.id == acceptance2.task.id
 
 
-def test_stop_and_reset_have_distinct_typed_kinds_and_metadata(tmp_path):
-    store, commands = service(tmp_path)
-    try:
-        stop = commands.enqueue_stop(idempotency_key="stop-1", account_id="paper-a", reason="operator stop")
-        reset = commands.enqueue_reset(idempotency_key="reset-1", account_id="paper-a", reason="new run")
-        assert stop.command.kind == "paper.stop"
-        assert reset.command.kind == "paper.reset"
-        assert stop.command.payload["reason"] == "operator stop"
-        assert reset.command.payload["reason"] == "new run"
-    finally:
-        store.close()
+def test_enqueue_start_idempotency_conflict(client: PaperCommandClient) -> None:
+    """Test that same key with different payload raises conflict."""
+    client.enqueue_start(
+        account_id="test-account",
+        strategy_name="dual_ma",
+        codes=["000001.SZ"],
+        idempotency_key="start-conflict",
+    )
+    with pytest.raises(IdempotencyConflictError):
+        client.enqueue_start(
+            account_id="test-account",
+            strategy_name="different_strategy",
+            codes=["000002.SZ"],
+            idempotency_key="start-conflict",
+        )
+
+
+def test_enqueue_stop_success(client: PaperCommandClient) -> None:
+    """Test enqueueing a paper_stop command."""
+    acceptance = client.enqueue_stop(
+        account_id="test-account",
+        reason="maintenance",
+    )
+    assert acceptance.command.kind == "paper_stop"
+    assert acceptance.command.payload["account_id"] == "test-account"
+    assert acceptance.command.payload["reason"] == "maintenance"
+    assert acceptance.task.status == "queued"
+
+
+def test_enqueue_reset_success(client: PaperCommandClient) -> None:
+    """Test enqueueing a paper_reset command."""
+    acceptance = client.enqueue_reset(
+        account_id="test-account",
+        initial_cash=200_000.0,
+        reason="reset_test",
+    )
+    assert acceptance.command.kind == "paper_reset"
+    assert acceptance.command.payload["account_id"] == "test-account"
+    assert acceptance.command.payload["initial_cash"] == 200_000.0
+    assert acceptance.task.status == "queued"
+
+
+def test_enqueue_adjust_position_success(client: PaperCommandClient) -> None:
+    """Test enqueueing a paper_adjust_position command."""
+    acceptance = client.enqueue_adjust_position(
+        account_id="test-account",
+        code="000001.SZ",
+        direction="buy",
+        volume=100,
+    )
+    assert acceptance.command.kind == "paper_adjust_position"
+    assert acceptance.command.payload["code"] == "000001.SZ"
+    assert acceptance.command.payload["direction"] == "buy"
+    assert acceptance.command.payload["volume"] == 100
+
+
+def test_enqueue_adjust_position_invalid_direction(
+    client: PaperCommandClient,
+) -> None:
+    """Test that invalid direction is rejected."""
+    with pytest.raises(ValueError, match="direction must be buy or sell"):
+        client.enqueue_adjust_position(
+            account_id="test-account",
+            code="000001.SZ",
+            direction="invalid",
+            volume=100,
+        )

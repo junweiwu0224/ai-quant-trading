@@ -19,7 +19,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Iterator
 
-from engine.paper_commands import normalize_account_id
+# normalize_account_id removed in V2 commandization
 
 
 PAPER_RUNTIME_STATUSES = frozenset(
@@ -278,10 +278,13 @@ class PaperRuntimeStore:
 
     @staticmethod
     def _account_id(value: str) -> str:
-        try:
-            return normalize_account_id(value)
-        except (TypeError, ValueError) as exc:
-            raise PaperRuntimeValidationError(str(exc)) from exc
+        """Validate and normalize account_id."""
+        if not isinstance(value, str) or not value.strip():
+            raise PaperRuntimeValidationError("account_id must be a non-empty string")
+        normalized = value.strip()
+        if "/" in normalized or "\\" in normalized or normalized.startswith("."):
+            raise PaperRuntimeValidationError("account_id contains invalid path characters")
+        return normalized
 
     @staticmethod
     def _required_text(value: Any, field: str) -> str:

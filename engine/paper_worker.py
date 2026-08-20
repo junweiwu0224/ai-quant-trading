@@ -16,6 +16,8 @@ from typing import Any
 
 from loguru import logger
 
+from engine.adapters.paper_adapter import PaperAdapter
+from engine.execution_protocol import OrderIntentBatch, ExecutionPermit
 from engine.operations_store import (
     Attempt,
     LeaseLostError,
@@ -89,7 +91,12 @@ class PaperWorker:
             attempt = self.operations.claim_task(
                 self.worker_id,
                 lease_seconds=self.config.task_lease_seconds,
-                allowed_kinds=["paper_start", "paper_stop", "paper_adjust_position"],
+                allowed_kinds=[
+                    "paper_start",
+                    "paper_stop",
+                    "paper_adjust_position",
+                    "execute_manual_order",
+                ],
             )
         except TaskNotClaimableError:
             return
@@ -124,6 +131,8 @@ class PaperWorker:
             self._handle_stop(attempt, payload)
         elif kind == "paper_adjust_position":
             self._handle_adjust_position(attempt, payload)
+        elif kind == "execute_manual_order":
+            self._handle_execute_manual_order(attempt, payload)
         else:
             raise ValueError(f"Unknown command kind: {kind}")
 
@@ -256,6 +265,52 @@ class PaperWorker:
                 error=str(e),
             )
             raise
+
+    def _handle_execute_manual_order(self, attempt: Attempt, payload: dict[str, Any]) -> None:
+        """Handle execute_manual_order command: V2 unified protocol execution."""
+        batch_dict = payload.get("batch_dict")
+        permit_dict = payload.get("permit_dict")
+
+        if not batch_dict or not permit_dict:
+            error = "Missing batch_dict or permit_dict in payload"
+            self.operations.fail_attempt(
+                attempt.id,
+                owner_id=self.worker_id,
+                fence=attempt.fence,
+                lease_token=attempt.lease_token,
+                error=error,
+            )
+            raise ValueError(error)
+
+        # Reconstruct batch and permit from dicts
+        batch = OrderIntentBatch.from_dict(batch_dict)
+        permit = ExecutionPermit.from_dict(permit_dict)
+
+        # Create PaperAdapter and execute
+        adapter = PaperAdapter(db_path=self.config.operations_db)
+        try:
+            fills = adapter.execute_batch(batch=batch, permit=permit)
+            self.operations.succeed_attempt(
+                attempt.id,
+                owner_id=self.worker_id,
+                fence=attempt.fence,
+                lease_token=attempt.lease_token,
+            )
+            logger.info(
+                f"Executed manual order batch {batch.batch_id}: "
+                f"{len(fills)} fills, {sum(f.quantity for f in fills)} total qty"
+            )
+        except Exception as e:
+            self.operations.fail_attempt(
+                attempt.id,
+                owner_id=self.worker_id,
+                fence=attempt.fence,
+                lease_token=attempt.lease_token,
+                error=str(e),
+            )
+            raise
+        finally:
+            adapter.close()
 
     def _handle_lease_lost(self, account_id: str) -> None:
         """Handle lease loss: stop the engine and clean up."""

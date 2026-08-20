@@ -2,16 +2,20 @@
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 from config.datetime_utils import now_beijing, now_beijing_iso
+from config.settings import DB_DIR
 from typing import Optional
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from engine.execution_protocol import Side
 from engine.models import (
     Direction, OrderType, PaperConfig
 )
 from engine.order_manager import OrderManager
+from engine.paper_commands import PaperCommandClient
 from engine.performance_analyzer import PerformanceAnalyzer
 from engine.risk_manager import RiskManager
 from utils.db import get_connection
@@ -24,6 +28,7 @@ _config = PaperConfig()
 _order_manager = OrderManager(_config.db_path)
 _performance_analyzer = PerformanceAnalyzer(_config.db_path)
 _risk_manager = RiskManager(_config, _config.db_path)
+_command_client = PaperCommandClient(operations_db=DB_DIR / "operations.db")
 
 
 @contextmanager
@@ -67,25 +72,50 @@ class UpdateRiskRulesRequest(BaseModel):
 
 @router.post("/orders")
 async def create_order(req: CreateOrderRequest):
-    """创建订单（市价/限价/止损/止盈）"""
+    """创建订单（V2 统一协议）"""
     try:
-        direction = Direction.from_value(req.direction)
-        order_type = OrderType(req.order_type)
+        # 转换为 V2 协议类型
+        side = Side.BUY if req.direction.lower() == "buy" else Side.SELL
+        
+        # 转换订单类型
+        if req.order_type == "market":
+            protocol_order_type = ProtocolOrderType.MARKET
+            limit_price = None
+        elif req.order_type == "limit":
+            protocol_order_type = ProtocolOrderType.LIMIT
+            limit_price = req.price
+            if limit_price is None:
+                raise ValueError("限价单必须指定价格")
+        else:
+            raise ValueError(f"暂不支持的订单类型: {req.order_type}")
 
-        order = _order_manager.create_order(
-            code=req.code,
-            direction=direction,
-            order_type=order_type,
-            volume=req.volume,
-            price=req.price,
-            strategy_name=req.strategy_name,
-            signal_reason=req.signal_reason,
+        # 生成幂等键
+        idempotency_key = f"manual_order_{uuid.uuid4().hex[:16]}"
+        
+        # 通过命令客户端提交订单
+        acceptance = _command_client.enqueue_manual_order(
+            instrument=req.code,
+            side=side,
+            order_type=protocol_order_type,
+            quantity=req.volume,
+            limit_price=limit_price,
+            execution_run_id="manual",  # 手动订单统一使用 "manual" 作为 run_id
+            account_id="paper-default",
+            idempotency_key=idempotency_key,
         )
 
         return {
             "success": True,
-            "data": order.to_dict(),
-            "message": "订单创建成功",
+            "data": {
+                "command_id": acceptance.command_id,
+                "idempotency_key": idempotency_key,
+                "status": "accepted" if acceptance.accepted else "duplicate",
+                "code": req.code,
+                "direction": req.direction,
+                "volume": req.volume,
+                "price": req.price,
+            },
+            "message": "订单已提交" if acceptance.accepted else "订单已存在（重复提交）",
         }
     except ValueError as e:
         raise HTTPException(400, str(e))

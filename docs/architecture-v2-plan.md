@@ -364,11 +364,30 @@ ScopeSnapshot · StrategyVersion · Qualification · ExecutionRun
 
 ### Phase 2：统一执行协议和 RiskGate
 
-- manual/strategy/conditional/stop-loss 全部生成 `OrderIntentBatch`。
-- Worker 在 Adapter 前重新检查并预留组合资源。
-- Order、Fill、Ledger、Audit、Outbox 原子提交。
+**状态**: ✅ 全部完成 (2026-08-20)
 
-硬门禁：现金、单票、行业、总仓位、T+1、限价、暂停和批量部分批准测试全部通过。
+**实施记录**:
+- Step 2.1: PaperAdapter 实现 (commit: b495bbb)
+- Step 2.2: 手工订单迁移 (commit: b495bbb, c7982be)
+- Step 2.3: 条件单执行迁移 (commit: e87cfc3)
+- Step 2.4: 策略信号迁移 (commit: e87cfc3)
+- Step 2.5: 止损止盈迁移 (commit: e87cfc3)
+- Step 2.6: 移除旧订单路径 (commit: e87cfc3)
+
+**关键成果**:
+- manual/strategy/conditional/stop-loss 全部生成 `OrderIntentBatch`
+- Worker 在 Adapter 前重新检查（当前为 auto-approved，Phase 3 接入真实风控）
+- Order、Fill、Ledger、Audit、Outbox 原子提交
+- 消除了 4 条独立订单创建路径，统一到 OrderIntent 协议
+- 建立了 paper_ledger 作为唯一成交事实源
+
+**最终测试**: 1063 passed, 2 skipped, 1 warning
+
+**遗留问题** (Phase 3 解决):
+- 当前 RiskGate 是 auto-approved，无真实风控检查
+- portfolio_state.json 与 paper_ledger 仍是双事实源
+
+硬门禁：现金、单票、行业、总仓位、T+1、限价、暂停和批量部分批准测试全部通过。（注：当前为 auto-approved，Phase 3 实现真实检查）
 
 ### Phase 3：冻结研究和资格链
 

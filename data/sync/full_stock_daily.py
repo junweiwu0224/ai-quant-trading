@@ -118,10 +118,10 @@ def fetch_tencent_daily(code: str, count: int = 260) -> pd.DataFrame:
     if not plain:
         return pd.DataFrame()
     symbol = _quote_symbol(plain)
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={symbol},day,,,{int(count)},qfq"
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param={symbol},day,,,{int(count)}"
     payload = fetch_json_tencent(url, timeout=10)
     stock_payload = (payload.get("data") or {}).get(symbol, {}) or {}
-    rows = stock_payload.get("qfqday") or stock_payload.get("day") or []
+    rows = stock_payload.get("day") or stock_payload.get("qfqday") or []
     parsed: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, list) or len(row) < 6:

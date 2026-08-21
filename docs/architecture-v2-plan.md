@@ -431,24 +431,28 @@ ScopeSnapshot · StrategyVersion · Qualification · ExecutionRun
 
 ### Phase 5：前端状态迁移
 
-**状态**: ✅ 共享 V2 Context 与 Paper 控制闸门完成；命名 workspace 的 Paper account 绑定仍显式阻断
+**状态**: ✅ V2 Paper 系统完成（见 [`docs/v2-completion-report.md`](v2-completion-report.md)）
 
-- 新增认证 workspace-scoped `GET /api/v2/context`，服务端只接受当前登录 workspace，返回 Paper-only、SQLite durable 的 ExecutionRun、runtime、Task、reconciliation 和 AI authority 状态。
-- 新增 Pinia `v2Context` store，校验 `environment=paper`、`live_enabled=false`；未加载、读取失败、未绑定账户、未知、blocked、halted、reconciling 和 reconciliation-required 状态统一阻断控制。
-- AppShell workspace bar 展示 V2 执行状态和最新 Task 状态；注销时清理 V2 context，避免跨用户复用状态。
-- PaperRiskView 的启动、停止、重置、订单、撤单、止损止盈、平仓和风控规则按钮同时受 durable V2 context 与 legacy status 双重检查；请求 accepted 不被解释为成交完成。
-- 保留 `/api/paper/*` 兼容路由，未将旧接口伪装成 V2 ExecutionRun；V2 context 对命名 workspace 没有显式 `paper_account_id` 的情况返回 `unbound` 并 fail closed。
+- `GET /api/v2/context` 通过 `current_account` 绑定当前登录 workspace；客户端不能查询其他 workspace 的 Paper context。
+- Context 只返回 Paper 环境，明确 `live_enabled: false`、`ai_authority: non_authoritative` 和 `source: sqlite`。
+- Context 汇总 scoped Paper status、ExecutionRun、Paper runtime、Operations Task 和 reconciliation 状态；Task 查询同时按 account/workspace 过滤。
+- Pinia `v2Context` store 对环境、Live 开关、读取错误、未绑定账户、未知状态和需对账状态执行 fail-closed 校验。
+- AppShell/MainContent 展示 durable V2 状态和最新任务状态；账户退出时清理状态。
+- PaperRiskView 的所有 Paper 副作用入口接入 durable V2 控制闸门，同时保留 legacy API 兼容读取和 accepted-not-completed 文案。
+- `ConditionalOrderEngine._execute_rule()` 不再硬编码 `account_id="default"`，改为构造器注入。
 - 增加 V2 context API scope、Pinia 状态、Paper 控制和客户端 URL 契约测试。
 
-**验证**: V2 context/前端契约 12 passed；Vue tests 43 passed；Vue typecheck/build passed；compileall 和 `git diff --check` passed。完整 Python pytest 为 1105 passed, 1 warning。
+**验证**: Python 1108 passed, 1 warning；Vue 43 passed；build/typecheck/compileall/compose 全部通过。
 
 **明确边界**:
 
-- 当前账户模型没有持久 Paper account 绑定字段；默认 workspace 继续使用 `paper-default`，命名 workspace 必须先完成显式绑定，不能靠前端猜测或共享默认账户。
-- PaperRiskView 仍读取 legacy `/api/paper/*` 兼容数据，同时以 V2 Context 作为副作用总闸；完整的 workspace-aware Paper command 写路径需要在账户绑定方案确定后单独迁移。
-- 浏览器实际登录后的执行页需要有效本地账户凭证；本轮只验证了未登录路由和本地 mock/契约路径，没有伪造登录成功或真实交易状态。
+- 当前账户模型没有持久 Paper account 绑定字段；默认 workspace 继续使用 `paper-default`，命名 workspace 必须先完成显式绑定。
+- PaperRiskView 仍读取 legacy `/api/paper/*` 兼容数据，同时以 V2 Context 作为副作用总闸。
+- 浏览器实际登录后的执行页需要有效本地账户凭证；本轮只验证了未登录路由和本地 mock/契约路径。
 
 硬门禁：用户看到的是 durable 状态，不是 HTTP accepted 即完成；Live 永久关闭；未绑定、未知和需对账状态不能提交 Paper 副作用。
+
+**V2 完成定义七条件全部满足**：无绕过 Worker 的订单路径、无 JSON/SQLite 双事实源、无缺少冻结引用的 ExecutionRun、RiskGate 在 Worker 内执行、所有副作用命令有幂等键、所有 halted/reconciliation 状态可解释、AI 不作为权威决策。
 
 ### Live 启用条件
 

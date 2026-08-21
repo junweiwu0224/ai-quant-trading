@@ -69,3 +69,60 @@ def test_v2_context_without_database_is_unbound(tmp_path: Path, monkeypatch):
     assert payload["execution_run"]["id"] is None
     assert payload["environment"] == "paper"
     assert payload["live_enabled"] is False
+
+
+def test_v2_context_default_workspace_resolves_to_owned_workspace(monkeypatch, tmp_path: Path):
+    """When the client sends workspace_id=default but owns a named workspace without binding, it's unbound."""
+    from dashboard.routers import v2_context
+
+    db = tmp_path / "paper.db"
+    ResearchFactsStore(db).ensure_paper_run(account_id="paper-default", workspace_id="real-ws", codes=["000001"])
+    monkeypatch.setattr(v2_context, "DB_DIR", tmp_path)
+    monkeypatch.setattr(v2_context, "PaperConfig", lambda: type("Config", (), {"db_path": str(db)})())
+
+    # Named workspace without paper_account_id in settings → unbound
+    account = {"workspace": {"id": "real-ws", "settings": {}}}
+    payload = asyncio.run(v2_context.get_v2_context(
+        account_id="paper-default", workspace_id="default", account=account,
+    ))
+    assert payload["workspace_id"] == "real-ws"
+    assert payload["execution_run"]["readiness"] == "unbound"
+
+    # Named workspace WITH paper_account_id → passes through
+    account_bound = {"workspace": {"id": "real-ws", "settings": {"paper_account_id": "paper-default"}}}
+    payload2 = asyncio.run(v2_context.get_v2_context(
+        account_id="paper-default", workspace_id="default", account=account_bound,
+    ))
+    assert payload2["workspace_id"] == "real-ws"
+    assert payload2["account_id"] == "paper-default"
+
+
+def test_v2_context_named_workspace_passes_with_matching_account(monkeypatch, tmp_path: Path):
+    """Named workspace with configured paper_account_id passes through."""
+    from dashboard.routers import v2_context
+
+    db = tmp_path / "paper.db"
+    ResearchFactsStore(db).ensure_paper_run(account_id="my-acct", workspace_id="my-ws", codes=["000001"])
+    monkeypatch.setattr(v2_context, "DB_DIR", tmp_path)
+    monkeypatch.setattr(v2_context, "PaperConfig", lambda: type("Config", (), {"db_path": str(db)})())
+
+    account = {"workspace": {"id": "my-ws", "settings": {"paper_account_id": "my-acct"}}}
+    payload = asyncio.run(v2_context.get_v2_context(
+        account_id="my-acct", workspace_id="my-ws", account=account,
+    ))
+    assert payload["workspace_id"] == "my-ws"
+    assert payload["account_id"] == "my-acct"
+
+
+def test_v2_context_rejects_account_id_mismatch(monkeypatch):
+    """Client sends an account_id that doesn't match the workspace's configured account."""
+    from dashboard.routers import v2_context
+    from fastapi import HTTPException
+
+    account = {"workspace": {"id": "my-ws", "settings": {"paper_account_id": "real-acct"}}}
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(v2_context.get_v2_context(
+            account_id="other-acct", workspace_id="my-ws", account=account,
+        ))
+    assert error.value.status_code == 403
+    assert "paper account context" in error.value.detail

@@ -86,10 +86,14 @@ class ConditionalOrderEngine:
         order_manager: OrderManager | None = None,
         risk_manager: RiskManager | None = None,
         command_client: PaperCommandClient | None = None,
+        account_id: str = "default",
+        workspace_id: str = "default",
     ):
         self.config = config or PaperConfig()
         self.db_path = db_path or self.config.db_path
         self.config.db_path = self.db_path
+        self.account_id = account_id
+        self.workspace_id = workspace_id
         self.order_manager = order_manager or OrderManager(self.db_path)
         self.risk_manager = risk_manager or RiskManager(self.config, self.db_path)
         self.command_client = command_client or PaperCommandClient(self.db_path)
@@ -285,7 +289,7 @@ class ConditionalOrderEngine:
             idempotency_key = f"cond_{rule.id}_{alert.rule_id}_{int(now.timestamp())}"
             
             acceptance = self.command_client.enqueue_manual_order(
-                account_id="default",
+                account_id=self.account_id,
                 instrument=rule.code,
                 side="buy" if rule.direction == Direction.LONG else "sell",
                 quantity=rule.volume,

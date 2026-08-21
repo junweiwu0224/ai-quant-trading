@@ -8,16 +8,29 @@ def read_ui(path: str) -> str:
     return (UI / path).read_text(encoding="utf-8")
 
 
+def _read_paper_all() -> str:
+    parts = [
+        read_ui("views/PaperRiskView.vue"),
+        read_ui("components/paper/PaperContextPanel.vue"),
+        read_ui("components/paper/PaperControlPanel.vue"),
+        read_ui("components/paper/PaperOrderPanel.vue"),
+        read_ui("components/paper/PaperPositionPanel.vue"),
+        read_ui("components/paper/PaperPerformancePanel.vue"),
+        read_ui("components/paper/PaperRiskPanel.vue"),
+    ]
+    return "\n".join(parts)
+
+
 def test_paper_api_uses_real_envelopes_and_no_client_mock() -> None:
     api = read_ui("api/client.ts")
-    view = read_ui("views/PaperRiskView.vue")
+    all_paper = _read_paper_all()
     assert "/api/paper/orders" in api
     assert "/api/paper/positions" in api
     assert "/api/paper/trades-v2" in api
     assert "mockAccount" not in api
-    assert "alert(" not in view
-    assert "api.createPaperOrder" in view
-    assert "模拟盘与风控执行" in view
+    assert "alert(" not in all_paper
+    assert "api.createPaperOrder" in all_paper
+    assert "模拟盘与风控执行" in all_paper
 
 
 def test_portfolio_optimization_uses_real_api_without_demo_holdings() -> None:

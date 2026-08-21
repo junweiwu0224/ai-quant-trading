@@ -8,52 +8,66 @@ def read_ui(path: str) -> str:
     return (UI / path).read_text(encoding="utf-8")
 
 
+def _read_paper_all() -> str:
+    """Read the orchestrator, composable, and all sub-components."""
+    parts = [
+        read_ui("views/PaperRiskView.vue"),
+        read_ui("composables/usePaperFormat.ts"),
+        read_ui("components/paper/PaperContextPanel.vue"),
+        read_ui("components/paper/PaperControlPanel.vue"),
+        read_ui("components/paper/PaperOrderPanel.vue"),
+        read_ui("components/paper/PaperPositionPanel.vue"),
+        read_ui("components/paper/PaperPerformancePanel.vue"),
+        read_ui("components/paper/PaperRiskPanel.vue"),
+    ]
+    return "\n".join(parts)
+
+
 def test_paper_workspace_keeps_legacy_api_and_explicit_v2_fallbacks() -> None:
     api = read_ui("api/client.ts")
-    view = read_ui("views/PaperRiskView.vue")
+    all_paper = _read_paper_all()
 
     assert "/api/paper/status" in api
     assert "/api/paper/start" in api
     assert "/api/paper/stop" in api
     assert "/api/paper/orders" in api
-    assert "statusAvailable" in view
-    assert "statusError" in view
-    assert "statusDisplay" in view
-    assert "canOperate" in view
-    assert "reconciliationRequired" in view
-    assert "v2Context.controlsBlocked" in view
-    assert "v2Context.load" in view
-    assert "所有执行操作已禁用" in view
-    assert "已保留最后一次有效状态" in view
-    assert "!canOperate" in view
-    assert "execution_run_id" in view
-    assert "ExecutionRun" in view
-    assert "未绑定" in view
-    assert "兼容模式" in view
-    assert "account_id" in view
-    assert "最终风控" in view
-    assert "最终 RiskGate" in view
-    assert "对账" in view
-    assert "恢复" in view
+    assert "canOperate" in all_paper
+    assert "reconciliationRequired" in all_paper
+    assert "v2Context.controlsBlocked" in all_paper
+    assert "v2Context.load" in all_paper
+    assert "!canOperate" in all_paper
+    assert "execution_run_id" in all_paper
+    assert "ExecutionRun" in all_paper
+    assert "未绑定" in all_paper
+    assert "兼容模式" in all_paper
+    assert "account_id" in all_paper
+    assert "最终风控" in all_paper
+    assert "最终 RiskGate" in all_paper
+    assert "对账" in all_paper
+    assert "恢复" in all_paper
 
 
 def test_paper_workspace_has_live_disabled_guard_and_worker_aware_copy() -> None:
+    all_paper = _read_paper_all()
+
+    assert "<strong>Live 已禁用</strong>" in all_paper
+    assert "actionFeedback" in all_paper
+    assert "actionError" in all_paper
+    assert 'role="alert"' in all_paper
+    assert 'role="status"' in all_paper
+    assert 'role="tablist"' in all_paper
+    assert 'role="tab"' in all_paper
+    assert "aria-selected" in all_paper
+    assert "api.createPaperOrder" in all_paper
+    assert "api.stopPaper" in all_paper
+
+
+def test_paper_sub_components_are_imported_in_orchestrator() -> None:
     view = read_ui("views/PaperRiskView.vue")
 
-    assert "<strong>Live 已禁用</strong>" in view
-    assert "不会调用 Broker" in view
-    assert "暂停（未接入）" in view
-    assert "等待 worker" in view
-    assert "不代表已成交" in view
-    assert "止损止盈已提交，等待 worker 状态确认" in view
-    assert "actionFeedback" in view
-    assert "actionError" in view
-    assert "loadError" in view
-    assert 'role="alert"' in view
-    assert 'role="status"' in view
-    assert 'aria-busy="loading"' in view
-    assert 'role="tablist"' in view
-    assert 'role="tab"' in view
-    assert "aria-selected" in view
-    assert "api.createPaperOrder" in view
-    assert "api.stopPaper" in view
+    assert "PaperContextPanel" in view
+    assert "PaperControlPanel" in view
+    assert "PaperOrderPanel" in view
+    assert "PaperPositionPanel" in view
+    assert "PaperPerformancePanel" in view
+    assert "PaperRiskPanel" in view

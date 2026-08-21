@@ -1269,6 +1269,12 @@ export const api = {
   paperRiskRules() {
     return request<ApiEnvelope<Record<string, unknown>>>('/api/paper/risk/rules')
   },
+  paperStrategies() {
+    return request<ApiEnvelope<Array<Record<string, unknown>>>>('/api/paper/strategies')
+  },
+  updatePaperRiskRules(body: unknown) {
+    return request<Record<string, unknown>>('/api/paper/risk/rules', { method: 'PUT', body: JSON.stringify(body) })
+  },
   agentHealth() {
     return request<Record<string, unknown>>('/api/agentic/health')
   },
